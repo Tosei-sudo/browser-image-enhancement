@@ -64,6 +64,14 @@ function refPixel(rgb: number[], ops: OpSpec[], gray: boolean): number[] {
           return decE(op.outBlack + x * (op.outWhite - op.outBlack));
         });
         break;
+      case 'stretch': {
+        // Gray mode has one channel and uses the mean of the per-channel points.
+        const mean = (v: number[]) => (v[0] + v[1] + v[2]) / 3;
+        const black = gray ? [0, 1, 2].map(() => mean(op.black)) : op.black;
+        const white = gray ? [0, 1, 2].map(() => mean(op.white)) : op.white;
+        each((v, c) => decE(Math.min(1, Math.max(0, (enc(v) - black[c]) / (white[c] - black[c])))));
+        break;
+      }
     }
   }
   return [toCode(r), toCode(g), toCode(b)];
@@ -237,7 +245,9 @@ describe('monochrome handling', () => {
     const img = grayImage(64, 64, 10);
     const r = rng(1);
     for (let t = 0; t < 20; t++) {
-      const ops = randomOps(r).filter((o) => o.op !== 'saturation' && o.op !== 'temperature');
+      const ops = randomOps(r).filter(
+        (o) => o.op !== 'saturation' && o.op !== 'temperature' && !(o.op === 'stretch' && new Set([...o.black, ...o.white]).size > 2),
+      );
       expect(run(img, ops, 'gray')).toEqual(run(img, ops, 'rgb'));
     }
   });

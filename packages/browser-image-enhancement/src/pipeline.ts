@@ -3,11 +3,12 @@
  * (no 8-bit rounding between steps), in Web Workers by default.
  */
 import { assertImageData, createImageData } from './core/image.js';
+import { needsStats, resolveOps } from './core/histogram.js';
 import { extractGray } from './core/process.js';
 import { applySync, warnColorOnly } from './functional.js';
 import { toBlob, toCanvas, toImageData, type ImageInput } from './io.js';
 import { normalizeOp } from './ops/index.js';
-import type { ColorOptions, ImageDataLike, LevelsOptions, OpSpec } from './types.js';
+import type { AutoStretchOptions, ColorOptions, Histogram, ImageDataLike, LevelsOptions, OpSpec, StretchOptions } from './types.js';
 import { abortError, execute } from './worker/executor.js';
 
 export type OutputKind = 'imageData' | 'canvas' | 'blob' | 'gray';
@@ -102,6 +103,39 @@ export class Pipeline {
   /** Levels (black/white points 0-1, midtone gamma). */
   levels(params: LevelsOptions): Pipeline {
     return this.add({ op: 'levels', ...params } as OpSpec);
+  }
+
+  /**
+   * Stretches the range black..white (sRGB-encoded, one number or [R, G, B])
+   * to full black..white.
+   */
+  stretch(params: StretchOptions): Pipeline {
+    return this.add({ op: 'stretch', ...params } as OpSpec);
+  }
+
+  /**
+   * Automatic stretch (dynamic range adjustment). The range comes from the
+   * pixel distribution of the image as it reaches this step, ignoring
+   * transparent pixels. `run` takes the statistics from the image it is given;
+   * for tiles, collect statistics over the area you show and call `resolve`.
+   */
+  autoStretch(options?: AutoStretchOptions): Pipeline {
+    return this.add({ op: 'autoStretch', ...options } as OpSpec);
+  }
+
+  /** True when the pipeline has `autoStretch` steps that still need statistics. */
+  get needsStats(): boolean {
+    return needsStats(this.ops);
+  }
+
+  /**
+   * Returns a pipeline with every `autoStretch` replaced by a fixed `stretch`
+   * computed from `stats`, the histogram of the image (or of the area of a
+   * tiled image) it will run on. Every image run through the result gets the
+   * same range. With `null`, `autoStretch` steps are removed.
+   */
+  resolve(stats: Histogram | null): Pipeline {
+    return needsStats(this.ops) ? new Pipeline(resolveOps(this.ops, stats)) : this;
   }
 
   toJSON(): PipelineJSON {

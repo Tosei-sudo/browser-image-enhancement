@@ -1,6 +1,6 @@
 # browser-image-enhancement
 
-ブラウザだけで動く画像補正ライブラリです。画像をサーバーに送らず、明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル補正をかけられます。
+ブラウザだけで動く画像補正ライブラリです。画像をサーバーに送らず、明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル補正と、画素の分布からダイナミックレンジを自動で決める DRA（自動ストレッチ）をかけられます。
 
 - 依存ライブラリなし、ESM + TypeScript 型定義付き
 - 重い処理は Web Worker で実行し、メインスレッドを止めない（使えない環境では自動でメインスレッド実行）
@@ -112,7 +112,39 @@ const restored = pipeline.fromJSON(json);
 | `temperature(amount)` | -1〜1 | 正で暖色（黄〜橙）、負で寒色（青） |
 | `levels({ inBlack, inWhite, gamma, outBlack, outWhite })` | 黒点・白点は 0〜1、`gamma` は 0.1〜10 | 0〜255 の目盛りなら値を 255 で割って指定。`gamma` が 1 より大きいと中間調が明るくなる |
 
+| `stretch({ black, white })` | 0〜1（sRGB の符号化値）。1 つの数か `[R, G, B]` | `black`〜`white` を 0〜255 いっぱいに引き伸ばし、外側は切り捨てる |
+| `autoStretch({ method, lowPercent, highPercent, stdDevs, linked })` | 下の「DRA」を参照 | 画素の分布から `stretch` の範囲を自動で決める |
+
 範囲外の値は例外にせず範囲内に丸め、開発ビルドでのみ `console.warn` で警告します（`process.env.NODE_ENV === 'production'` のビルドでは警告を出しません）。
+
+## DRA（ダイナミックレンジの自動調整）
+
+`autoStretch` は画素の分布から黒点・白点を決めて、その範囲を 0〜255 いっぱいに引き伸ばします（ArcGIS の DRA やパーセントクリップと同じ考え方）。透明な画素（α = 0、地図の nodata など）は数えません。
+
+```ts
+import { pipeline, histogram, mergeHistograms } from 'browser-image-enhancement';
+
+// 1 枚の画像: run のときにその画像の統計を取る
+await pipeline().autoStretch().contrast(0.1).run(img);
+
+// タイル・表示範囲: 見えている部分の統計を集めてから範囲を確定し、全タイルに同じ範囲を掛ける
+const stats = mergeHistograms(tiles.map((t) => histogram(t.image, { rect: t.visibleRect })));
+const fixed = pipeline().autoStretch().resolve(stats);
+```
+
+| オプション | 既定 | 意味 |
+| --- | --- | --- |
+| `method` | `'percentClip'` | `'percentClip'`（両端から指定割合を切り捨て）、`'minMax'`（最小〜最大）、`'standardDeviation'`（平均 ± `stdDevs`σ） |
+| `lowPercent` / `highPercent` | `0.5` / `0.5` | `percentClip` で暗い側・明るい側から切り捨てる画素の割合（%） |
+| `stdDevs` | `2` | `standardDeviation` の幅 |
+| `linked` | `false` | `false` は R・G・B を別々に引き伸ばす（色かぶりも取れる）。`true` は 3 チャンネル共通の範囲で色のバランスを保つ |
+
+- 統計は「その位置に届いた画像」のものです。前に露出などがあれば、それを掛けた後の分布で決めます（彩度より後ろに置いた場合だけは彩度を無視した統計になり、警告が出ます）
+- Worker で横帯に分けて処理するときも、全体の統計で 1 つの範囲を決めてから処理します
+- `resolve(stats)` は `autoStretch` を具体的な `stretch` に置き換えたパイプラインを返します。`toJSON()` は `autoStretch` のまま保存します
+- 真っ平らな画像やチャンネル（黒点 ≥ 白点）は変えません
+
+設計は [docs/dra.md](docs/dra.md) にあります。
 
 ## モノクロ画像
 
@@ -152,7 +184,7 @@ terminateWorkers(); // 使い終わったら Worker を止める（次の run �
 
 ## 地図（OpenLayers + COG）での利用
 
-[examples/openlayers-cog](examples/openlayers-cog/) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。
+[examples/openlayers-cog](examples/openlayers-cog/) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。地図の表示範囲の統計で引き伸ばす DRA も入っています。
 
 ## 開発
 

@@ -107,6 +107,35 @@ test('workers produce exactly the main-thread result, split into strips', async 
   expect(r.size).toEqual([1024, 1024]);
 });
 
+test('autoStretch in workers: one range for the whole image, same as the main thread', async ({ page }) => {
+  const r = await page.evaluate(async () => {
+    const { lib, helpers } = window;
+    lib.configureWorkers({ maxWorkers: 4 });
+    // Dark top half, bright bottom half: strips stretching on their own would disagree.
+    const img = helpers.noise(1024, 1024, 7);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const bright = i >= img.data.length / 2;
+      for (let c = 0; c < 3; c++) img.data[i + c] = (bright ? 128 : 0) + (img.data[i + c] >> 2);
+    }
+    const p = lib.pipeline().exposure(0.3).autoStretch({ lowPercent: 1, highPercent: 1 }).saturation(0.2);
+    const viaWorker = await p.run(img);
+    const viaMain = await p.run(img, { worker: false });
+    const resolved = p.resolve(lib.histogram(img)).runSync(img);
+    const gray = helpers.gray(300, 300, 2);
+    const grayWorker = await p.run(gray);
+    return {
+      same: helpers.same(viaWorker.data, viaMain.data),
+      resolved: helpers.same(viaWorker.data, resolved.data),
+      workers: helpers.workersCreated(),
+      graySame: helpers.same(grayWorker.data, p.runSync(gray).data),
+    };
+  });
+  expect(r.workers).toBe(4);
+  expect(r.same).toBe(true);
+  expect(r.resolved).toBe(true);
+  expect(r.graySame).toBe(true);
+});
+
 test('monochrome images are detected across strips and stay gray', async ({ page }) => {
   const r = await page.evaluate(async () => {
     const { lib, helpers } = window;

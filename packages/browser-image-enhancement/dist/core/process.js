@@ -18,13 +18,34 @@ function chain(stages, c) {
 		return v;
 	};
 }
+/** In gray mode there is one channel; a per-channel stretch uses the mean of its points. */
+function forGray(op) {
+	if (op.op !== "stretch") return op;
+	const mean = (v) => (v[0] + v[1] + v[2]) / 3;
+	const b = mean(op.black);
+	const w = mean(op.white);
+	return {
+		op: "stretch",
+		black: [
+			b,
+			b,
+			b
+		],
+		white: [
+			w,
+			w,
+			w
+		]
+	};
+}
 /**
 * Compiles normalized ops for one color mode. In gray mode color-only ops
-* (saturation, temperature) are dropped.
+* (saturation, temperature) are dropped. `autoStretch` steps must already be
+* resolved (see core/histogram.ts).
 */
 function compile(ops, mode, options = {}) {
 	const fuse = options.fuse ?? true;
-	const all = ops.filter((op) => !isIdentity(op) && !(mode === "gray" && COLOR_ONLY_OPS.has(op.op))).map(toStage);
+	const all = ops.filter((op) => !isIdentity(op) && !(mode === "gray" && COLOR_ONLY_OPS.has(op.op))).map((op) => toStage(mode === "gray" ? forGray(op) : op));
 	let lead = 0;
 	let tailStart = all.length;
 	if (fuse) {
@@ -167,6 +188,6 @@ function extractGray(data) {
 	return out;
 }
 //#endregion
-export { compile, extractGray, isMonochrome, processPixels, resolveMode };
+export { compile, extractGray, forGray, isMonochrome, processPixels, resolveMode };
 
 //# sourceMappingURL=process.js.map

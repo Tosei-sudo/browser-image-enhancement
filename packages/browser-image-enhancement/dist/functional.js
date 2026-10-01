@@ -2,6 +2,7 @@ import { assertImageData, createImageData } from "./workers/src/image.js";
 import { warn } from "./warn.js";
 import { normalizeOp } from "./ops/index.js";
 import { compile, processPixels, resolveMode } from "./core/process.js";
+import { resolveForPixels } from "./core/histogram.js";
 //#region src/functional.ts
 /**
 * Functional API: one synchronous correction per call, on the calling thread.
@@ -13,17 +14,24 @@ import { compile, processPixels, resolveMode } from "./core/process.js";
 /** Runs normalized-or-raw ops on an image synchronously. Shared by the pipeline's sync path. */
 function applySync(image, ops, options = {}) {
 	assertImageData(image);
-	const normalized = ops.map(normalizeOp);
 	const mode = resolveMode(image.data, options.colorMode);
-	if (mode === "gray") warnColorOnly(normalized);
+	const resolved = resolveForPixels(ops.map(normalizeOp), image.data, mode);
+	if (mode === "gray") warnColorOnly(resolved);
 	const out = new Uint8ClampedArray(image.data.length);
-	processPixels(image.data, out, compile(normalized, mode));
+	processPixels(image.data, out, compile(resolved, mode));
 	return createImageData(out, image.width, image.height);
 }
-/** Warns when saturation/temperature are requested for an image computed as gray. */
+/**
+* Warns when color-only corrections are requested for an image computed as
+* gray: saturation, temperature, and a stretch with different points per channel.
+*/
 function warnColorOnly(ops) {
 	const ignored = ops.filter((op) => (op.op === "saturation" || op.op === "temperature") && op.amount !== 0).map((op) => op.op);
 	if (ignored.length > 0) warn(`${ignored.join(", ")} has no effect on a monochrome image. Pass colorMode: 'rgb' to tint it.`);
+	if (ops.some((op) => op.op === "stretch" && !(sameChannels(op.black) && sameChannels(op.white)))) warn("A per-channel stretch uses the mean of its R, G, B points on a monochrome image. Pass colorMode: 'rgb' to tint it.");
+}
+function sameChannels(v) {
+	return v[0] === v[1] && v[1] === v[2];
 }
 /** Brightness, -1 to 1. Positive moves toward white, negative toward black. */
 function brightness(image, amount, options) {
@@ -74,7 +82,27 @@ function levels(image, params, options) {
 		...params
 	}], options);
 }
+/**
+* Stretches the range black..white (sRGB-encoded, one number or [R, G, B]) to
+* full black..white, clipping values outside it.
+*/
+function stretch(image, params, options) {
+	return applySync(image, [{
+		op: "stretch",
+		...params
+	}], options);
+}
+/**
+* Automatic stretch (dynamic range adjustment): picks the range from the
+* image's own pixel distribution, ignoring transparent pixels.
+*/
+function autoStretch(image, params, options) {
+	return applySync(image, [{
+		op: "autoStretch",
+		...params
+	}], options);
+}
 //#endregion
-export { applySync, brightness, contrast, exposure, gamma, levels, saturation, temperature, warnColorOnly };
+export { applySync, autoStretch, brightness, contrast, exposure, gamma, levels, saturation, stretch, temperature, warnColorOnly };
 
 //# sourceMappingURL=functional.js.map

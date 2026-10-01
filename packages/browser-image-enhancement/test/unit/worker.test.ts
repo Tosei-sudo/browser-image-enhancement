@@ -123,15 +123,15 @@ describe('worker message handler', () => {
   it('detect then process uses the held strip', () => {
     const { out, handle } = collect();
     const img = grayImage(4, 4);
-    handle({ type: 'detect', id: 3, buffer: img.data.slice().buffer });
-    expect(out[0]).toEqual({ type: 'detected', id: 3, mono: true });
+    handle({ type: 'detect', id: 3, buffer: img.data.slice().buffer, stats: null });
+    expect(out[0]).toEqual({ type: 'detected', id: 3, mono: true, stats: null });
     handle({ type: 'process', id: 3, ops: OPS, mode: 'rgb' });
     expect(out[1]).toMatchObject({ type: 'done', id: 3, mode: 'rgb' });
   });
 
   it('release drops a held strip', () => {
     const { out, handle } = collect();
-    handle({ type: 'detect', id: 4, buffer: new ArrayBuffer(16) });
+    handle({ type: 'detect', id: 4, buffer: new ArrayBuffer(16), stats: null });
     handle({ type: 'release', id: 4 });
     handle({ type: 'process', id: 4, ops: [], mode: 'rgb' });
     expect(out[1]).toMatchObject({ type: 'error', id: 4 });
@@ -219,6 +219,62 @@ describe('execute with workers', () => {
     const res = await execute(noiseImage(20, 20), OPS, { pool: pool(), worker: false });
     expect(res.usedWorker).toBe(false);
     expect(FakeWorker.created).toBe(0);
+  });
+});
+
+describe('autoStretch in workers', () => {
+  const AUTO: OpSpec[] = [
+    { op: 'exposure', ev: 0.4 },
+    { op: 'autoStretch', method: 'percentClip', lowPercent: 1, highPercent: 2, stdDevs: 2, linked: false },
+    { op: 'saturation', amount: 0.3 },
+    { op: 'temperature', amount: 0.2 },
+  ].map(normalizeOp);
+
+  // Bright top, dark bottom: strips resolving on their own would each stretch differently.
+  const split = () => image(31, 40, (x, y) => (y < 20 ? [150 + (x % 40), 160 + (y % 30), 140 + ((x + y) % 50), 255] : [10 + (x % 40), 20 + (y % 30), 5 + ((x + y) % 50), 255]));
+
+  it('one range for the whole image, matching the main thread exactly', async () => {
+    const img = split();
+    const res = await execute(img, AUTO, { pool: pool('ok', 4) });
+    expect(res.usedWorker).toBe(true);
+    expect(FakeWorker.log.filter((t) => t === 'detect')).toHaveLength(4);
+    expect(res.data).toEqual(executeOnMainThread(img, AUTO).data);
+  });
+
+  it('with an explicit color mode still collects statistics first', async () => {
+    const img = split();
+    for (const colorMode of ['rgb', 'gray'] as const) {
+      FakeWorker.log = [];
+      const res = await execute(img, AUTO, { pool: pool('ok', 3), colorMode });
+      expect(FakeWorker.log).toContain('detect');
+      expect(res.mode).toBe(colorMode);
+      expect(res.data).toEqual(executeOnMainThread(img, AUTO, colorMode).data);
+    }
+  });
+
+  it('monochrome images split across workers use the gray statistics', async () => {
+    const img = grayImage(30, 40, 6);
+    const res = await execute(img, AUTO, { pool: pool('ok', 4) });
+    expect(res.mode).toBe('gray');
+    expect(isGrayPixels(res.data)).toBe(true);
+    expect(res.data).toEqual(executeOnMainThread(img, AUTO).data);
+  });
+
+  it('a single strip resolves inside the worker', async () => {
+    const img = split();
+    const res = await execute(img, AUTO, { pool: pool('ok', 1) });
+    expect(FakeWorker.log).toEqual(['run']);
+    expect(res.data).toEqual(executeOnMainThread(img, AUTO).data);
+  });
+
+  it('detect reports the strip histogram when asked', () => {
+    const out: Array<WorkerResponse | ControlResponse> = [];
+    const handle = createWorkerHandler((m) => out.push(m));
+    const img = noiseImage(5, 4, 2);
+    handle({ type: 'detect', id: 9, buffer: img.data.slice().buffer, stats: 'rgb' });
+    const reply = out[0] as Extract<WorkerResponse, { type: 'detected' }>;
+    expect(reply.stats?.mode).toBe('rgb');
+    expect(reply.stats?.count).toBe(Array.from({ length: 20 }, (_, i) => img.data[i * 4 + 3]).filter((a) => a > 0).length);
   });
 });
 

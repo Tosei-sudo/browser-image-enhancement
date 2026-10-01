@@ -4,11 +4,14 @@
  * The image is cut into horizontal strips, one per worker. Each strip's pixels
  * are copied once into their own buffer and transferred to the worker and back.
  * In `auto` color mode with several strips, workers first report whether their
- * strip is monochrome so the whole image is computed in one mode.
+ * strip is monochrome so the whole image is computed in one mode. With
+ * `autoStretch` they also report their strip's histogram, and the main thread
+ * resolves one stretch for the whole image from the sum.
  */
 import { abortError, race, splitRows, stripCount, throwIfAborted, yieldToEventLoop } from '@browser-image/workers';
+import { grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps } from '../core/histogram.js';
 import { compile, processPixels, resolveMode, type ResolvedMode } from '../core/process.js';
-import type { ColorMode, ImageDataLike, OpSpec } from '../types.js';
+import type { ColorMode, Histogram, ImageDataLike, OpSpec } from '../types.js';
 import { getPool, WorkerUnavailableError, type Slot, type WorkerPool } from './pool.js';
 import type { WorkerResponse } from './protocol.js';
 
@@ -39,7 +42,7 @@ let nextId = 1;
 export function executeOnMainThread(image: ImageDataLike, ops: readonly OpSpec[], colorMode: ColorMode = 'auto'): ExecuteResult {
   const mode = resolveMode(image.data, colorMode);
   const data = new Uint8ClampedArray(image.data.length);
-  processPixels(image.data, data, compile(ops, mode));
+  processPixels(image.data, data, compile(resolveForPixels(ops, image.data, mode), mode));
   return { data, width: image.width, height: image.height, mode, usedWorker: false };
 }
 
@@ -86,7 +89,10 @@ async function runInWorkers(
   const rowBytes = image.width * 4;
   const ranges = splitRows(image.height, slots.length);
   const ids = ranges.map(() => nextId++);
-  const twoPhase = ranges.length > 1 && colorMode === 'auto';
+  const stats = needsStats(ops);
+  const twoPhase = ranges.length > 1 && (colorMode === 'auto' || stats);
+  // In auto mode a gray result means every pixel is gray, so the R histogram is the gray one.
+  const statsMode: ResolvedMode | null = stats ? (colorMode === 'gray' ? 'gray' : 'rgb') : null;
   const release = () => ids.forEach((id, i) => pool.notify(slots[i], { type: 'release', id }));
 
   // Copy and send one strip at a time so the main thread is never blocked for
@@ -103,7 +109,7 @@ async function runInWorkers(
     const [start, end] = ranges[i];
     const buffer = image.data.slice(start * rowBytes, end * rowBytes).buffer;
     const reply = twoPhase
-      ? pool.request(slots[i], { type: 'detect', id: ids[i], buffer }, [buffer])
+      ? pool.request(slots[i], { type: 'detect', id: ids[i], buffer, stats: statsMode }, [buffer])
       : pool.request(slots[i], { type: 'run', id: ids[i], buffer, ops, colorMode }, [buffer]);
     // A strip may fail while later strips are still being sent; it is handled
     // by the Promise.all below, so don't let it surface as an unhandled rejection.
@@ -124,8 +130,14 @@ async function runInWorkers(
       release();
       throw abortError(signal);
     }
-    const mode: ResolvedMode = detected.every((r) => r.type === 'detected' && r.mono) ? 'gray' : 'rgb';
-    pending = ids.map((id, i) => pool.request(slots[i], { type: 'process', id, ops, mode }));
+    const reports = detected as Array<Extract<WorkerResponse, { type: 'detected' }>>;
+    const mode: ResolvedMode = colorMode === 'auto' ? (reports.every((r) => r.mono) ? 'gray' : 'rgb') : colorMode;
+    let resolved = ops;
+    if (stats) {
+      const merged = mergeHistograms(reports.map((r) => r.stats as Histogram));
+      resolved = resolveOps(ops, mode === 'gray' ? grayFromRgb(merged) : merged);
+    }
+    pending = ids.map((id, i) => pool.request(slots[i], { type: 'process', id, ops: resolved, mode }));
   }
 
   if (pending.length === 1) {

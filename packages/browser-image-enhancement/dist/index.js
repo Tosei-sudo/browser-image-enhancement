@@ -1,5 +1,7 @@
 import { isMonochrome } from "./core/process.js";
-import { brightness, contrast, exposure, gamma, levels, saturation, temperature } from "./functional.js";
+import { mergeHistograms } from "./core/histogram.js";
+import { autoStretch, brightness, contrast, exposure, gamma, levels, saturation, stretch, temperature } from "./functional.js";
+import { computeStretch, histogram } from "./stats.js";
 import { configureWorkers, terminateWorkers } from "./worker/pool.js";
 import { Pipeline, createPreviewRunner, pipeline } from "./pipeline.js";
-export { Pipeline, brightness, configureWorkers, contrast, createPreviewRunner, exposure, gamma, isMonochrome, levels, pipeline, saturation, temperature, terminateWorkers };
+export { Pipeline, autoStretch, brightness, computeStretch, configureWorkers, contrast, createPreviewRunner, exposure, gamma, histogram, isMonochrome, levels, mergeHistograms, pipeline, saturation, stretch, temperature, terminateWorkers };

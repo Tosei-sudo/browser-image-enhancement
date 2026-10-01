@@ -56,9 +56,19 @@ for (const s of sliders) {
 }
 
 const v = (k: Key) => Number(inputs[k].value);
+
+// DRA: stretch to the statistics of the visible area, before the manual corrections.
+const draClip = $<HTMLInputElement>('draClip');
+const draOptions = () => {
+  const method = $<HTMLSelectElement>('draMethod').value as 'percentClip' | 'minMax' | 'standardDeviation';
+  const clip = Number(draClip.value);
+  return { method, lowPercent: clip, highPercent: clip, stdDevs: 2, linked: $<HTMLInputElement>('draLinked').checked };
+};
+const base = () => ($<HTMLInputElement>('dra').checked ? pipeline().autoStretch(draOptions()) : pipeline());
+
 const current = () =>
   $<HTMLInputElement>('enabled').checked
-    ? pipeline()
+    ? base()
         .exposure(v('exposure'))
         .brightness(v('brightness'))
         .contrast(v('contrast'))
@@ -104,18 +114,35 @@ function scheduleUpdate() {
     pending = 0;
     source.resetStats();
     source.setPipeline(current());
+    void source.updateDra(map);
   });
+}
+
+// DRA follows the view: new statistics whenever the map stops moving.
+map.on('moveend', () => void source?.updateDra(map));
+
+const fmt = (v: number) => (v * 255).toFixed(0);
+function draText(): string {
+  const stretch = source.getEffectivePipeline().ops.find((op) => op.op === 'stretch');
+  if (!$<HTMLInputElement>('dra').checked || !stretch || stretch.op !== 'stretch') return '';
+  const [r, g, b] = [0, 1, 2].map((c) => `${fmt(stretch.black[c])}–${fmt(stretch.white[c])}`);
+  return ` · DRA 範囲 R ${r} / G ${g} / B ${b}`;
 }
 
 map.on('rendercomplete', () => {
   const { tiles, ms } = source.stats;
-  if (tiles > 0) status.textContent = `補正したタイル ${tiles} 枚 · 1 枚あたり平均 ${(ms / tiles).toFixed(1)} ms（Worker の順番待ちを含む）`;
+  if (tiles > 0) status.textContent = `補正したタイル ${tiles} 枚 · 1 枚あたり平均 ${(ms / tiles).toFixed(1)} ms（Worker の順番待ちを含む）${draText()}`;
 });
 
 $<HTMLInputElement>('url').value = useFixture ? '' : DEFAULT_URL;
 $('load').addEventListener('click', load);
 $('worker').addEventListener('change', load);
 $('enabled').addEventListener('change', scheduleUpdate);
+for (const id of ['dra', 'draMethod', 'draLinked']) $(id).addEventListener('change', scheduleUpdate);
+draClip.addEventListener('input', () => {
+  $('draClipOut').textContent = draClip.value;
+  scheduleUpdate();
+});
 $('opacity').addEventListener('input', () => {
   const value = $<HTMLInputElement>('opacity').value;
   $('opacityOut').textContent = value;
@@ -132,4 +159,6 @@ $('reset').addEventListener('click', () => {
 load();
 
 // For the browser test.
-Object.assign(window, { example: { map, layer: cogLayer, get source() { return source; }, inputs, pipeline } });
+const fitLonLat = (extent: number[]) =>
+  map.getView().fit(transformExtent(extent, 'EPSG:4326', map.getView().getProjection()), { duration: 0 });
+Object.assign(window, { example: { map, layer: cogLayer, get source() { return source; }, inputs, pipeline, fitLonLat } });

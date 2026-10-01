@@ -1,5 +1,5 @@
 import { ImageDataLike } from "./workers/src/image.js";
-import { ColorOptions, LevelsOptions } from "./types.js";
+import { AutoStretchOptions, ColorOptions, LevelsOptions, StretchOptions } from "./types.js";
 //#region src/functional.d.ts
 /** Brightness, -1 to 1. Positive moves toward white, negative toward black. */
 export declare function brightness(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData;
@@ -15,5 +15,15 @@ export declare function saturation(image: ImageDataLike, amount: number, options
 export declare function temperature(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData;
 /** Levels: input/output black and white points (0-1, sRGB-encoded) and midtone gamma. */
 export declare function levels(image: ImageDataLike, params: LevelsOptions, options?: ColorOptions): ImageData;
+/**
+ * Stretches the range black..white (sRGB-encoded, one number or [R, G, B]) to
+ * full black..white, clipping values outside it.
+ */
+export declare function stretch(image: ImageDataLike, params: StretchOptions, options?: ColorOptions): ImageData;
+/**
+ * Automatic stretch (dynamic range adjustment): picks the range from the
+ * image's own pixel distribution, ignoring transparent pixels.
+ */
+export declare function autoStretch(image: ImageDataLike, params?: AutoStretchOptions, options?: ColorOptions): ImageData;
 //#endregion
 //# sourceMappingURL=functional.d.ts.map
