@@ -141,9 +141,13 @@ Worker の設定は色補正と同じ `configureWorkers` / `terminateWorkers` �
 5. ルートの `examples/` に、古地図に基準点を打って OpenLayers に重ねる例
 6. CDN 用ビルドと npm 公開
 
-## 未決事項（おすすめ）
+## 決定事項
 
-1. パッケージ名: `browser-image-geometry`（おすすめ、npm で未使用を確認済み、2026-10-01）
-2. 最初のリリースの範囲: 上の表のとおり（おすすめ）。Thin Plate Spline は次以降
-3. 投影法: proj4 は本体に入れず、座標変換の関数を受け取る（おすすめ）
-4. タグの形式: `enhancement-v0.2.0` / `geometry-v0.1.0` のようにパッケージ名を前に付ける（おすすめ）
+2026-10-01 に、以下をすべておすすめのとおり決定した。
+
+| 項目 | 決定 |
+| --- | --- |
+| パッケージ名 | `browser-image-geometry`（npm で未使用を確認済み） |
+| 最初のリリースの範囲 | 上の「最初のリリースの範囲」の表のとおり。Thin Plate Spline は次以降 |
+| 投影法 | proj4 は本体に入れず、座標変換の関数を受け取る（近似格子で Worker に渡す） |
+| タグの形式 | `enhancement-v0.2.0` / `geometry-v0.1.0` のようにパッケージ名を前に付ける |
