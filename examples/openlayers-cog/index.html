@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>COG 補正 + 地図重畳</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      html, body { height: 100%; margin: 0; }
+      body { display: grid; grid-template-columns: minmax(260px, 320px) 1fr; }
+      @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: auto 60vh; } }
+      #controls { box-sizing: border-box; min-width: 0; padding: 12px 16px; overflow-y: auto; display: grid; gap: 12px; align-content: start; }
+      fieldset { border: 1px solid #8884; border-radius: 8px; display: grid; gap: 10px; min-width: 0; }
+      label { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 3em; align-items: center; gap: 8px; font-size: 14px; }
+      label.wide { grid-template-columns: 1fr; }
+      input[type='url'] { width: 100%; box-sizing: border-box; min-width: 0; }
+      output { font-variant-numeric: tabular-nums; text-align: right; }
+      #map { min-height: 300px; }
+      #status { font-size: 13px; opacity: 0.8; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <form id="controls">
+      <fieldset>
+        <legend>COG</legend>
+        <label class="wide"><span>URL（8bit RGB かグレースケールの COG）</span>
+          <input type="url" id="url" />
+        </label>
+        <button type="button" id="load">読み込む</button>
+        <label><span>重ね合わせ</span><input type="range" id="opacity" min="0" max="1" step="0.01" value="1" /><output id="opacityOut">1</output></label>
+        <label><span>補正</span><input type="checkbox" id="enabled" checked /><span></span></label>
+        <label><span>Worker</span><input type="checkbox" id="worker" checked /><span></span></label>
+      </fieldset>
+      <fieldset id="sliders"><legend>補正</legend></fieldset>
+      <button type="button" id="reset">リセット</button>
+      <p id="status"></p>
+    </form>
+    <div id="map"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

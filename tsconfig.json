@@ -23,6 +23,7 @@
     "src",
     "test",
     "demo",
+    "examples",
     "*.ts"
   ],
   "exclude": [
