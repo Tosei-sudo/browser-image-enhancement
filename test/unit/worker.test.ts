@@ -305,6 +305,37 @@ describe('configureWorkers', () => {
     expect(getPool().size).toBe(0);
   });
 
+  it('a strip failing while later strips are still being sent is not an unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    const node = process as unknown as { on(e: string, f: typeof onUnhandled): void; off(e: string, f: typeof onUnhandled): void };
+    node.on('unhandledRejection', onUnhandled);
+    try {
+      let posted = 0;
+      const p: WorkerPool = new WorkerPool({
+        maxWorkers: 3,
+        minStripPixels: 10,
+        createWorker: () => {
+          const w = new FakeWorker();
+          const post = w.postMessage.bind(w);
+          w.postMessage = (m, t) => {
+            post(m, t);
+            // Kill the pool right after the first strip is sent, before the next one goes out.
+            if (++posted === 1) p.terminate();
+          };
+          return w;
+        },
+      });
+      const img = noiseImage(30, 30);
+      const res = await execute(img, OPS, { pool: p });
+      expect(res.data).toEqual(executeOnMainThread(img, OPS).data);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      node.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('terminate rejects pending jobs, which then fall back', async () => {
     const p = pool('ok', 2);
     const img = noiseImage(20, 20);
