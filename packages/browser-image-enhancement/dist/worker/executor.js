@@ -1,7 +1,7 @@
-import { compile, processPixels, resolveMode } from "../core/process.js";
 import { abortError, race, throwIfAborted } from "../workers/src/abort.js";
 import { WorkerUnavailableError } from "../workers/src/pool.js";
 import { splitRows, stripCount, yieldToEventLoop } from "../workers/src/strips.js";
+import { compile, processPixels, resolveMode } from "../core/process.js";
 import { getPool } from "./pool.js";
 //#region src/worker/executor.ts
 /**

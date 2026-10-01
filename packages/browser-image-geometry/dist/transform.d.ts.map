@@ -1,0 +1,1 @@
+{"version":3,"file":"transform.d.ts","names":[],"sources":["../src/transform.ts"],"mappings":";;;;wBAmBgB,OAAO,QAAQ,cAAc;EAAW;IAAuB;;wBAM/D,WAAW,QAAQ,kBAAkB;EAAW;IAAuB;;wBAMvE,YAAY;;wBAKZ,SAAS,iBAAiB,SAAQ,QAAiB;;wBAYnD,QAAQ,YAAY,cAAU;;wBAK9B,YAAY,YAAY,aAAa;;wBAsErC,eAAe,GAAG,WAAW,OAAO;;wBAOpC,gBAAgB,UAAU,WAAW,GAAG,IAAI;;;;;wBA0B5C,kBAAkB,OAAO,WAAW,QAAQ,YAAY,kBAAkB"}

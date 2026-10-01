@@ -1,13 +1,7 @@
+import { ImageDataLike } from "./workers/src/image.js";
 //#region src/types.d.ts
 /** How color is handled. `auto` detects monochrome (R = G = B everywhere) input. */
 export type ColorMode = 'auto' | 'rgb' | 'gray';
-/** Anything shaped like `ImageData`: 8-bit RGBA, row-major, no padding. */
-export interface ImageDataLike {
-  readonly data: Uint8ClampedArray;
-  readonly width: number;
-  readonly height: number;
-  readonly colorSpace?: string;
-}
 /**
  * Levels parameters. Points are sRGB-encoded values in [0, 1] (multiply by 255
  * for the familiar 0-255 scale); `gamma` is the midtone gamma (> 1 brightens).
@@ -53,4 +47,5 @@ export interface ColorOptions {
   colorMode?: ColorMode;
 }
 //#endregion
+export type { ImageDataLike };
 //# sourceMappingURL=types.d.ts.map

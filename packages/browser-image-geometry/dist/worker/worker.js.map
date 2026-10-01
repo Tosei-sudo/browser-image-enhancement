@@ -1,0 +1,1 @@
+{"version":3,"file":"worker.js","names":[],"sources":["../../src/worker/worker.ts"],"sourcesContent":["/** Web Worker entry. Loaded by the pool with `new URL('./worker.js', import.meta.url)`. */\nimport { serveWorker } from '@browser-image/workers';\nimport { createWorkerHandler } from './handler.js';\n\nserveWorker(createWorkerHandler);\n"],"mappings":";;;;AAIA,YAAY,mBAAmB"}

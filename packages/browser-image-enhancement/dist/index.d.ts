@@ -1,6 +1,7 @@
-import { ColorMode, ColorOptions, ImageDataLike, LevelsOptions, OpName, OpSpec } from "./types.js";
+import { ImageDataLike } from "./workers/src/image.js";
+import { ImageInput } from "./workers/src/io.js";
+import { ColorMode, ColorOptions, LevelsOptions, OpName, OpSpec } from "./types.js";
 import { brightness, contrast, exposure, gamma, levels, saturation, temperature } from "./functional.js";
-import { ImageInput } from "./io.js";
 import { GrayImage, OutputKind, Pipeline, PipelineJSON, PreviewRunner, RunOptions, RunResult, createPreviewRunner, pipeline } from "./pipeline.js";
 import { isMonochrome } from "./core/process.js";
 import { WorkerConfig, WorkerLike, configureWorkers, terminateWorkers } from "./worker/pool.js";

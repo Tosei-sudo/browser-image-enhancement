@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/workers",
-    "packages/browser-image-enhancement"
+    "packages/browser-image-enhancement",
+    "packages/browser-image-geometry"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

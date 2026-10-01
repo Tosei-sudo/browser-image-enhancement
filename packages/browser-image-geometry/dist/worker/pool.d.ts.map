@@ -1,0 +1,1 @@
+{"version":3,"file":"pool.d.ts","names":["SharedWorkerConfig"],"sources":["../../src/worker/pool.ts"],"mappings":";;;;iBAiBiB;EACf,YAAY,SAAS,eAAe,UAAU;EAC9C,iBAAiB,iBAAiB,WAAW,OAAO,aAAa,iBAAiB;EAClF,iBAAiB,gCAAgC,WAAW,OAAO;EACnE;;iBAGe,qBAAqBA,eAAmB,eAAe;;EAEtE,qBAAqB;;;;;;wBAoBP,iBAAiB,MAAM;;wBAKvB"}
