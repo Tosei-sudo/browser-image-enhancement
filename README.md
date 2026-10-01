@@ -15,6 +15,34 @@
 npm install browser-image-enhancement
 ```
 
+### CDN から使う
+
+ビルド不要で、jsDelivr や unpkg から直接読み込めます。Web Worker はライブラリのファイル内に同梱しているので、1 ファイルを読み込むだけで Worker 実行まで動きます。
+
+ES モジュール:
+
+```html
+<script type="module">
+  import { pipeline } from 'https://cdn.jsdelivr.net/npm/browser-image-enhancement@0.1.0/dist/cdn/browser-image-enhancement.min.js';
+
+  const out = await pipeline().brightness(0.1).contrast(0.2).run(document.querySelector('img'));
+</script>
+```
+
+`<script>` タグ（グローバル変数 `BrowserImageEnhancement`）:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/browser-image-enhancement@0.1.0/dist/cdn/browser-image-enhancement.iife.min.js"></script>
+<script>
+  const { pipeline } = BrowserImageEnhancement;
+</script>
+```
+
+- unpkg も同じパスで使えます（`https://unpkg.com/browser-image-enhancement@0.1.0/dist/cdn/...`）
+- バージョンは固定して読み込んでください
+- 同梱の Worker は `blob:` URL から起動します。CSP の `worker-src` で `blob:` を許可していない場合はメインスレッドで処理します
+- npm 版の `dist/index.js` を CDN から直接読み込んだ場合も、別オリジンでは Worker を自動で同一オリジンの `blob:` 経由で起動します
+
 ## 使い方
 
 ### パイプライン（複数の補正・プレビュー向け）
@@ -102,7 +130,7 @@ await pipeline().temperature(0.5).run(grayImg, { colorMode: 'rgb' }); // モノ�
 - Worker が作れない環境（CSP の `worker-src` で禁止されている、Worker ファイルが読み込めないなど）では自動でメインスレッドで処理します
 - `run(img, { worker: false })` でメインスレッドに固定できます
 - `run(img, { signal })` に `AbortSignal` を渡すと中断できます（`AbortError` で reject）
-- Worker のファイルは `new URL('./worker.js', import.meta.url)` で参照しているので、Vite や webpack 5 などのバンドラでそのまま動きます。別の場所に置いた Worker を使う場合や並列数を変える場合は `configureWorkers` を使います
+- Worker のファイルは `new URL('./worker.js', import.meta.url)` で参照しているので、Vite や webpack 5 などのバンドラでそのまま動きます（CDN 用ファイルは Worker を同梱しています）。別の場所に置いた Worker を使う場合や並列数を変える場合は `configureWorkers` を使います
 
 ```ts
 import { configureWorkers, terminateWorkers } from 'browser-image-enhancement';

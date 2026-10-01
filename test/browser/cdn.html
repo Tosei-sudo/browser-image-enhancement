@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>CDN tests</title>
+<!--
+  Loads the package from another origin, as a page would from jsDelivr or unpkg.
+  ?kind=iife|esm|dist picks the file, ?base= is the origin serving it.
+-->
+<script type="module">
+  const params = new URLSearchParams(location.search);
+  const base = params.get('base');
+  const kind = params.get('kind');
+
+  let created = 0;
+  let started = 0;
+  const NativeWorker = window.Worker;
+  window.Worker = class extends NativeWorker {
+    constructor(url, options) {
+      super(url, options);
+      created++;
+      this.addEventListener('message', (e) => {
+        if (e.data?.type === 'ready') started++;
+      });
+    }
+  };
+  window.workerStats = () => ({ created, started });
+
+  if (kind === 'iife') {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `${base}/dist/cdn/browser-image-enhancement.iife.min.js`;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.append(script);
+    });
+    window.lib = window.BrowserImageEnhancement;
+  } else if (kind === 'esm') {
+    window.lib = await import(`${base}/dist/cdn/browser-image-enhancement.min.js`);
+  } else {
+    window.lib = await import(`${base}/dist/index.js`);
+  }
+  window.ready = true;
+</script>
