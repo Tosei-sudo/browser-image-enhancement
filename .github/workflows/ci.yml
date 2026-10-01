@@ -18,6 +18,15 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # dist/ is committed so jsDelivr can serve it from GitHub; it must match the sources.
+      - run: npm run build
+      - name: Check dist/ is up to date
+        run: |
+          if [ -n "$(git status --porcelain -- dist)" ]; then
+            git status --porcelain -- dist
+            echo "::error::dist/ does not match the sources. Run npm run build and commit dist/."
+            exit 1
+          fi
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
         env:
