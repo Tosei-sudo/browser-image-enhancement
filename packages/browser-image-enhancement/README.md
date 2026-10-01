@@ -39,7 +39,7 @@ ES モジュール:
 ```
 
 - unpkg も同じパスで使えます（`https://unpkg.com/browser-image-enhancement@0.1.0/dist/cdn/...`）
-- ビルド済みの `dist/` はリポジトリにも入っているので、GitHub のタグからも配信できます（`https://cdn.jsdelivr.net/gh/Tosei-sudo/browser-image-enhancement@v0.1.0/dist/cdn/browser-image-enhancement.min.js`）
+- ビルド済みの `dist/` はリポジトリにも入っているので、GitHub のタグからも配信できます（`https://cdn.jsdelivr.net/gh/Tosei-sudo/browser-image-enhancement@<タグ>/packages/browser-image-enhancement/dist/cdn/browser-image-enhancement.min.js`）。モノレポ化より前のコミットに打ったタグでは、パスは `/dist/cdn/...` です
 - バージョンは固定して読み込んでください
 - 同梱の Worker は `blob:` URL から起動します。CSP の `worker-src` で `blob:` を許可していない場合はメインスレッドで処理します
 - npm 版の `dist/index.js` を CDN から直接読み込んだ場合も、別オリジンでは Worker を自動で同一オリジンの `blob:` 経由で起動します
@@ -157,8 +157,9 @@ terminateWorkers(); // 使い終わったら Worker を止める（次の run �
 ## 開発
 
 ```sh
-npm install
-npm run lint
+npm install            # リポジトリのルートで（npm workspaces）
+npm run lint           # ルートで実行
+cd packages/browser-image-enhancement
 npm run typecheck
 npm test               # Vitest（ユニットテスト）
 npm run test:browser   # Playwright（実ブラウザで Worker・Canvas・Blob を確認）
@@ -166,7 +167,9 @@ npm run demo           # スライダーで補正を試せるデモ
 npm run example:ol     # OpenLayers + COG（GeoTIFF）に補正をかけて地図に重ねる例
 ```
 
-`dist/` はコミットしています（GitHub から CDN 配信するため）。`src/` を変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
+このパッケージはモノレポの一部です。Worker プールなどの共通部分は [packages/workers](../workers/)（非公開）にあり、ビルド時に `dist/` に取り込まれます。
+
+`dist/` はコミットしています（GitHub から CDN 配信するため）。`src/` や `packages/workers/src/` を変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
 
 Playwright のブラウザを別の場所に入れている場合は `CHROMIUM_PATH` に実行ファイルのパスを指定してください。
 
