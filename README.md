@@ -11,7 +11,7 @@
 - 依存ライブラリなしで、モダンブラウザ（Chrome / Edge / Firefox / Safari の最新2バージョン）で動く
 - `HTMLImageElement` / `HTMLCanvasElement` / `ImageBitmap` / `ImageData` / `Blob` を入力として受け付ける
 - 補正を複数つなげても、画質劣化（中間での 8bit 丸め）と処理時間を抑える
-- Web Worker 上でも動く（メインスレッドを止めない）
+- 重い処理は Web Worker で実行し、メインスレッドを止めない
 - TypeScript の型定義付き、ESM で配布、tree-shaking 可能
 
 **非目標（当面やらない）**
@@ -64,19 +64,31 @@ const blob = await p.run(img, { output: 'blob', type: 'image/webp', quality: 0.9
 
 ## 処理方式
 
+**方針**: 補正処理は Web Worker 上の JS 実装で行うことを基本にする。メインスレッドは入出力の受け渡しだけを担当し、UI を止めない。
+
 | 方式 | 長所 | 短所 | 用途 |
 | --- | --- | --- | --- |
-| Canvas 2D + JS ループ | どこでも動く、実装が簡単、結果が決定的 | 大きな画像で遅い | 基準実装・フォールバック・テストの正解値 |
-| WebGL2 | 速い、点処理もフィルタも得意 | コンテキスト数の制限、精度差、Worker では OffscreenCanvas 必須 | 既定の高速バックエンド |
-| WASM (SIMD) | CPU で速い、結果が決定的 | ビルドが複雑、配布サイズ増 | 将来の候補 |
+| Web Worker + JS | UI を止めない、どこでも動く、結果が決定的、複数 Worker で並列化できる | GPU より遅い | **既定のバックエンド** |
+| メインスレッド + JS | 構成が最も単純 | 大きな画像で UI が固まる | Worker が使えない環境のフォールバック、テストの正解値 |
+| WebGL2（Worker 内で OffscreenCanvas） | 速い | 精度差、OffscreenCanvas の WebGL 対応差 | 将来の高速化オプション |
+| WASM (SIMD)（Worker 内） | CPU で速い、結果が決定的 | ビルドが複雑、配布サイズ増 | 将来の高速化オプション |
 | WebGPU | 最も柔軟で速い | 対応ブラウザがまだ限定的 | 将来の候補 |
 
-**方針**: まず JS 実装を「正解」として作り、その上で WebGL2 バックエンドを追加する。バックエンドは `run(img, { backend: 'auto' | 'js' | 'webgl' })` で選べ、`auto` は WebGL2 が使えれば WebGL2、使えなければ JS。両バックエンドの出力差はテストで許容誤差（各チャンネル ±1 程度）内に収める。
+### Worker まわりの設計
+
+- 補正の実装は DOM に依存しない純粋関数として書き、メインスレッドでも Worker でも同じコードが動くようにする
+- メインスレッドでは入力を `ImageBitmap` か `ImageData` に正規化し、ピクセルの `ArrayBuffer` を **transferable** として Worker に渡す（コピーしない）
+- Worker 側でパイプラインを実行し、結果の `ArrayBuffer` を transfer で返す。Blob 出力は Worker 内の `OffscreenCanvas.convertToBlob` で作る
+- Worker はライブラリ内部で `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })` として生成し、利用者が Worker のファイルを自分で配置しなくて済むようにする
+- 大きな画像は横帯（タイル）に分割して複数 Worker（既定は `navigator.hardwareConcurrency` を上限）で並列処理する。畳み込み系は半径分の重なりを付けて分割する
+- スライダー操作中のプレビューでは、新しい要求が来たら古い要求の結果を捨てる（最新の要求だけ反映する）
+- `run(img, { worker: true | false })` で切り替え可能、既定は `true`。Worker が作れない環境（CSP で禁止など）では自動でメインスレッドにフォールバックする
+- 関数型 API（`brightness(imageData, 0.1)`）は同期でメインスレッド実行のまま残し、Worker を使うのは非同期のパイプライン API とする
 
 ### 色空間
 
 - 色補正はリニア RGB で計算する（sRGB のまま計算すると明るさやぼかしで色が濁るため）。sRGB ↔ リニア変換は 256 要素の LUT で行う
-- 内部表現は `Float32Array`（JS）／浮動小数テクスチャ（WebGL2）とし、最後に一度だけ 8bit に戻す
+- 内部表現は `Float32Array` とし、最後に一度だけ 8bit に戻す
 - 入出力は sRGB 前提。Display P3 などの広色域対応は未決事項
 
 ## 補正の一覧と優先度
@@ -113,14 +125,15 @@ const blob = await p.run(img, { output: 'blob', type: 'image/webp', quality: 0.9
 
 ## 性能の目安
 
-- 12MP（4000×3000）画像に第1段階の補正を 5 個かけて、WebGL2 で 50ms 以内、JS で 1 秒以内
+- 12MP（4000×3000）画像に第1段階の補正を 5 個かけて、Worker 4 並列で 300ms 以内、単一 Worker で 1 秒以内
+- 処理中もメインスレッドのフレーム落ちが起きないこと
 - プレビュー用途では縮小画像で処理し、確定時のみ原寸で処理する運用をドキュメントで推奨する
 
 ## 開発環境（予定）
 
 - TypeScript、Vite（ライブラリモード）でビルド、ESM + 型定義を出力
 - Vitest でユニットテスト（JS バックエンドは jsdom 不要の純粋関数としてテスト）
-- WebGL2 バックエンドは Playwright でブラウザ上の結果を JS 実装と比較
+- Worker 経由の実行は Playwright で実ブラウザ上の結果をメインスレッド実行と比較
 - `demo/` にスライダーで補正を試せるデモページ
 - GitHub Actions で lint・型チェック・テストを実行
 
@@ -133,8 +146,7 @@ src/
   io.ts               入力の正規化（Image/Canvas/Blob → ImageData）と出力
   color/              sRGB↔リニア変換、LUT
   ops/                補正ごとの定義（パラメータ型、JS 実装、GLSL 断片）
-  backends/js/
-  backends/webgl/
+  worker/             Worker のエントリ、メッセージ定義、タイル分割と並列実行
 demo/
 test/
 ```
@@ -144,7 +156,7 @@ test/
 1. 雛形（ビルド・テスト・CI）
 2. 関数型 API と第1段階の点処理（JS 実装）＋デモ
 3. パイプライン API と点処理の融合
-4. WebGL2 バックエンド
+4. Web Worker 実行（transfer、タイル分割、並列化、フォールバック）
 5. 第2段階（ぼかし・シャープ）
 6. 第3段階（ヒストグラム・自動補正）
 7. npm 公開
@@ -154,6 +166,6 @@ test/
 - パッケージ名（npm 上で空いているか確認が必要）
 - 第1段階の補正のうち、最初のリリースに含める範囲
 - 広色域（Display P3）への対応
-- WASM / WebGPU バックエンドに進むかどうか
+- Worker 内の高速化として WebGL2 / WASM / WebGPU に進むかどうか
 - 機械学習ベースの補正（ONNX Runtime Web など）を別パッケージで扱うかどうか
 - ライセンス（MIT を想定）
