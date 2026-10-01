@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src", "test", "demo", "*.ts"]
+  "include": ["src", "test", "demo", "examples", "*.ts"]
 }
