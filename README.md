@@ -1,186 +1,139 @@
 # browser-image-enhancement
 
-ブラウザ上で動く画像補正ライブラリ。サーバーに画像を送らず、クライアント側だけで明るさ・色・シャープネスなどの補正を行うことを目指す。
+ブラウザだけで動く画像補正ライブラリです。画像をサーバーに送らず、明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル補正をかけられます。
 
-> このドキュメントは実装前の設計メモです。決まっていない点は「未決事項」に残しています。
+- 依存ライブラリなし、ESM + TypeScript 型定義付き
+- 重い処理は Web Worker で実行し、メインスレッドを止めない（使えない環境では自動でメインスレッド実行）
+- 計算はリニア RGB で行い、8bit への丸めは最後の 1 回だけ
+- モノクロ画像を自動判定し、輝度 1 チャンネルで処理（結果も R=G=B のまま）
 
-## 目標と非目標
+設計の背景は [docs/design.md](docs/design.md) にあります。
 
-**目標**
+## インストール
 
-- 依存ライブラリなしで、モダンブラウザ（Chrome / Edge / Firefox / Safari の最新2バージョン）で動く
-- `HTMLImageElement` / `HTMLCanvasElement` / `ImageBitmap` / `ImageData` / `Blob` を入力として受け付ける
-- 補正を複数つなげても、画質劣化（中間での 8bit 丸め）と処理時間を抑える
-- 重い処理は Web Worker で実行し、メインスレッドを止めない
-- TypeScript の型定義付き、ESM で配布、tree-shaking 可能
-
-**非目標（当面やらない）**
-
-- レイヤーやマスクを持つ画像編集ソフト的な機能
-- RAW 現像、HDR、16bit 以上の出力
-- 機械学習ベースの超解像やノイズ除去（将来の拡張候補として未決事項に記載）
-- Node.js 単体での実行
-
-## API の形
-
-関数型とパイプライン型の両方を提供し、内部は同じ実装を共有する。
-
-### 1. 関数型（単発の補正向け）
-
-```ts
-import { brightness, contrast } from 'browser-image-enhancement';
-
-const out: ImageData = contrast(brightness(imageData, 0.1), 0.2);
+```sh
+npm install browser-image-enhancement
 ```
 
-- 各関数は `ImageData` を受け取り、新しい `ImageData` を返す（入力は変更しない）
-- 一番小さな単位で、テストしやすく tree-shaking も効く
-- 連続して呼ぶと補正ごとに 8bit へ丸められる点はドキュメントで明示する
+## 使い方
 
-### 2. パイプライン型（複数補正・プレビュー向け）
+### パイプライン（複数の補正・プレビュー向け）
 
 ```ts
 import { pipeline } from 'browser-image-enhancement';
 
 const p = pipeline()
-  .brightness(0.1)
+  .exposure(0.3)
   .contrast(0.2)
   .saturation(-0.1)
-  .sharpen({ amount: 0.5, radius: 1 });
+  .levels({ inBlack: 0.02, inWhite: 0.98 });
 
+const imageData = await p.run(img);                       // ImageData（既定）
 const canvas = await p.run(img, { output: 'canvas' });
 const blob = await p.run(img, { output: 'blob', type: 'image/webp', quality: 0.9 });
+const gray = await p.run(img, { output: 'gray' });        // { data: 輝度のみの Uint8ClampedArray, width, height }
 ```
 
-- 補正の列を宣言的に保持し、`run` のときにまとめて実行する
-- 色補正（点処理）は連続していれば 1 パスに融合し、中間で丸めない
-- パラメータだけ変えて再実行できるので、スライダーでのプレビューに向く
-- `p.toJSON()` / `pipeline.fromJSON()` で設定を保存・復元できる
+- `run` の入力には `ImageData`、`HTMLImageElement`、`HTMLCanvasElement`、`OffscreenCanvas`、`ImageBitmap`、`HTMLVideoElement`、`Blob`（`File`）を渡せます。Blob は EXIF の回転情報を反映して読み込みます
+- 補正はまとめて 1 パスで計算し、途中で 8bit に丸めません
+- パイプラインは不変です。`.brightness()` などは新しいパイプラインを返します
+- `p.runSync(imageData)` でメインスレッド上の同期実行もできます
 
-### パラメータの規約
+### 関数（単発の補正）
 
-- 量を表す値は原則 `-1〜1`（0 で無変化）に正規化する。例外（ガンマ、半径など）は単位を型と JSDoc に書く
-- 不正値は例外ではなく範囲内に丸め、開発ビルドでのみ警告する
+```ts
+import { brightness, contrast } from 'browser-image-enhancement';
 
-## 処理方式
-
-**方針**: 補正処理は Web Worker 上の JS 実装で行うことを基本にする。メインスレッドは入出力の受け渡しだけを担当し、UI を止めない。
-
-| 方式 | 長所 | 短所 | 用途 |
-| --- | --- | --- | --- |
-| Web Worker + JS | UI を止めない、どこでも動く、結果が決定的、複数 Worker で並列化できる | GPU より遅い | **既定のバックエンド** |
-| メインスレッド + JS | 構成が最も単純 | 大きな画像で UI が固まる | Worker が使えない環境のフォールバック、テストの正解値 |
-| WebGL2（Worker 内で OffscreenCanvas） | 速い | 精度差、OffscreenCanvas の WebGL 対応差 | 将来の高速化オプション |
-| WASM (SIMD)（Worker 内） | CPU で速い、結果が決定的 | ビルドが複雑、配布サイズ増 | 将来の高速化オプション |
-| WebGPU | 最も柔軟で速い | 対応ブラウザがまだ限定的 | 将来の候補 |
-
-### Worker まわりの設計
-
-- 補正の実装は DOM に依存しない純粋関数として書き、メインスレッドでも Worker でも同じコードが動くようにする
-- メインスレッドでは入力を `ImageBitmap` か `ImageData` に正規化し、ピクセルの `ArrayBuffer` を **transferable** として Worker に渡す（コピーしない）
-- Worker 側でパイプラインを実行し、結果の `ArrayBuffer` を transfer で返す。Blob 出力は Worker 内の `OffscreenCanvas.convertToBlob` で作る
-- Worker はライブラリ内部で `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })` として生成し、利用者が Worker のファイルを自分で配置しなくて済むようにする
-- 大きな画像は横帯（タイル）に分割して複数 Worker（既定は `navigator.hardwareConcurrency` を上限）で並列処理する。畳み込み系は半径分の重なりを付けて分割する
-- スライダー操作中のプレビューでは、新しい要求が来たら古い要求の結果を捨てる（最新の要求だけ反映する）
-- `run(img, { worker: true | false })` で切り替え可能、既定は `true`。Worker が作れない環境（CSP で禁止など）では自動でメインスレッドにフォールバックする
-- 関数型 API（`brightness(imageData, 0.1)`）は同期でメインスレッド実行のまま残し、Worker を使うのは非同期のパイプライン API とする
-
-### 色空間
-
-- 色補正はリニア RGB で計算する（sRGB のまま計算すると明るさやぼかしで色が濁るため）。sRGB ↔ リニア変換は 256 要素の LUT で行う
-- 内部表現は `Float32Array` とし、最後に一度だけ 8bit に戻す
-- 入出力は sRGB 前提。Display P3 などの広色域対応は未決事項
-
-### モノクロ画像の扱い
-
-ブラウザはグレースケールの JPEG / PNG も RGBA（R=G=B）に展開して渡すため、ライブラリから見るとカラー画像と同じ形で届く。そのうえで次のように扱う。
-
-- **判定**: 入力時に全ピクセルが R=G=B かどうかを調べ（Worker 内で 1 パス、途中で異なる画素が見つかれば打ち切り）、結果を `isMonochrome` としてメタ情報に持つ。`run(img, { colorMode: 'auto' | 'rgb' | 'gray' })` で明示もでき、既定は `auto`
-- **処理**: モノクロと判定した画像は輝度 1 チャンネルだけで計算する。メモリと計算量が約 1/3 になり、丸め誤差で R/G/B がずれて色が付くことも防げる
-- **色に関わる補正**: 彩度と色温度はモノクロ画像に対しては何もしない（無変化）。色を付けたい場合は `colorMode: 'rgb'` を明示する。開発ビルドでは「モノクロ画像に色補正を指定した」旨を警告する
-- **出力**: モノクロ入力の結果は R=G=B のまま返す。輝度だけの `Uint8ClampedArray` を取り出す `output: 'gray'` も用意する
-- **アルファ**: グレースケール + アルファの PNG も同様に扱い、アルファチャンネルは補正しない
-- **16bit グレースケール PNG**: Canvas 経由のデコードでは 8bit に落ちる。当面はこの制約をドキュメントに書くに留める
-- **テスト**: モノクロ入力でどの補正をかけても出力が R=G=B のままであることをテストで保証する
-
-## 補正の一覧と優先度
-
-### 第1段階：点処理（ピクセル単位、1パスに融合可能）
-
-- 明るさ（brightness）
-- コントラスト（contrast）
-- 露出（exposure、EV 単位）
-- ガンマ（gamma）
-- 彩度（saturation）／自然な彩度（vibrance）
-- 色温度・色かぶり（temperature / tint）
-- レベル補正（levels: 黒点・白点・中間）
-- トーンカーブ（curves: 制御点からスプライン補間して LUT 化）
-- グレースケール、セピア、反転
-
-### 第2段階：近傍処理（畳み込み）
-
-- ぼかし（ガウシアン、分離可能フィルタで実装）
-- シャープ（アンシャープマスク）
-- ノイズ除去（メディアン、バイラテラル）
-
-### 第3段階：画像全体を見る処理
-
-- ヒストグラム取得（UI 表示用にも公開）
-- 自動レベル・自動コントラスト（ヒストグラムの両端をクリップ）
-- 自動ホワイトバランス（グレーワールド仮定）
-- ヒストグラム平坦化／CLAHE
-
-### 範囲外だが関連する補助機能
-
-- リサイズ（補正前の縮小プレビュー用）
-- EXIF の回転情報の反映（`createImageBitmap` の `imageOrientation` を使う）
-
-## 性能の目安
-
-- 12MP（4000×3000）画像に第1段階の補正を 5 個かけて、Worker 4 並列で 300ms 以内、単一 Worker で 1 秒以内
-- 処理中もメインスレッドのフレーム落ちが起きないこと
-- プレビュー用途では縮小画像で処理し、確定時のみ原寸で処理する運用をドキュメントで推奨する
-
-## 開発環境（予定）
-
-- TypeScript、Vite（ライブラリモード）でビルド、ESM + 型定義を出力
-- Vitest でユニットテスト（JS バックエンドは jsdom 不要の純粋関数としてテスト）
-- Worker 経由の実行は Playwright で実ブラウザ上の結果をメインスレッド実行と比較
-- `demo/` にスライダーで補正を試せるデモページ
-- GitHub Actions で lint・型チェック・テストを実行
-
-## ディレクトリ構成（予定）
-
-```
-src/
-  index.ts            公開 API
-  pipeline.ts         パイプライン本体と融合処理
-  io.ts               入力の正規化（Image/Canvas/Blob → ImageData）と出力
-  color/              sRGB↔リニア変換、LUT
-  ops/                補正ごとの定義（パラメータ型、JS 実装、GLSL 断片）
-  worker/             Worker のエントリ、メッセージ定義、タイル分割と並列実行
-demo/
-test/
+const out = contrast(brightness(imageData, 0.1), 0.2);
 ```
 
-## 進め方（マイルストーン）
+各関数は新しい `ImageData` を返し、入力は変更しません。メインスレッドで同期的に動きます。続けて呼ぶと補正ごとに 8bit に丸められるので、複数の補正を重ねるときはパイプラインを使ってください。
 
-1. 雛形（ビルド・テスト・CI）
-2. 関数型 API と第1段階の点処理（JS 実装）＋デモ
-3. パイプライン API と点処理の融合
-4. Web Worker 実行（transfer、タイル分割、並列化、フォールバック）
-5. 第2段階（ぼかし・シャープ）
-6. 第3段階（ヒストグラム・自動補正）
-7. npm 公開
+### スライダーでのプレビュー
 
-## 決定事項
+```ts
+import { createPreviewRunner, pipeline } from 'browser-image-enhancement';
 
-| 項目 | 決定 |
-| --- | --- |
-| パッケージ名 | `browser-image-enhancement`（npm で未使用を確認済み、2026-10-01） |
-| 最初のリリースの範囲 | 明るさ、コントラスト、露出、ガンマ、彩度、色温度、レベル補正の7つ。トーンカーブ、vibrance、色かぶり、グレースケール変換、セピア、反転は次のリリース以降 |
-| 色空間 | 当面は sRGB のみ。Display P3 などの入力は sRGB に変換して処理し、その旨をドキュメントに明記する |
-| 高速化 | JS で性能目標に届かない場合のみ、Worker 内で WASM（SIMD）を検討する。WebGL2 と WebGPU は見送り |
-| 機械学習ベースの補正 | 本体には入れない。必要になったら別パッケージにする |
-| ライセンス | MIT |
-| モノクロ画像 | 入力として考慮する（「処理方式」節の「モノクロ画像の扱い」） |
+const preview = createPreviewRunner({ output: 'canvas' });
+
+slider.oninput = async () => {
+  const result = await preview.run(pipeline().brightness(Number(slider.value)), img);
+  if (result) show(result); // 新しい要求に追い越された結果は null
+};
+```
+
+新しい要求が来ると古い要求の結果は捨てられ、最新の結果だけが返ります。同じ入力を続けて渡したときはデコード結果を使い回します。大きな画像は縮小してからプレビューし、確定時だけ原寸で処理するのがおすすめです。
+
+### 設定の保存と復元
+
+```ts
+const json = JSON.stringify(p);            // { "version": 1, "ops": [...] }
+const restored = pipeline.fromJSON(json);
+```
+
+## 補正の一覧
+
+| 補正 | パラメータ | 0（無変化）からの動き |
+| --- | --- | --- |
+| `brightness(amount)` | -1〜1 | 正で白に、負で黒に近づける。1 で真っ白、-1 で真っ黒 |
+| `contrast(amount)` | -1〜1 | sRGB の 50% グレーを支点に強める／弱める。-1 で全面グレー、1 で 2 値化 |
+| `exposure(ev)` | -10〜10（EV） | +1 で光量 2 倍 |
+| `gamma(value)` | 0.1〜10（1 で無変化） | 1 より大きいと中間調が明るくなる |
+| `saturation(amount)` | -1〜1 | -1 でグレースケール、1 で彩度 2 倍 |
+| `temperature(amount)` | -1〜1 | 正で暖色（黄〜橙）、負で寒色（青） |
+| `levels({ inBlack, inWhite, gamma, outBlack, outWhite })` | 黒点・白点は 0〜1、`gamma` は 0.1〜10 | 0〜255 の目盛りなら値を 255 で割って指定。`gamma` が 1 より大きいと中間調が明るくなる |
+
+範囲外の値は例外にせず範囲内に丸め、開発ビルドでのみ `console.warn` で警告します（`process.env.NODE_ENV === 'production'` のビルドでは警告を出しません）。
+
+## モノクロ画像
+
+- 既定（`colorMode: 'auto'`）では、全画素が R=G=B の画像をモノクロと判定し、輝度 1 チャンネルで計算します。結果も R=G=B のままです
+- 彩度と色温度はモノクロ画像には何もしません。色を付けたいときは `colorMode: 'rgb'` を指定してください
+- `colorMode: 'gray'` を指定すると、カラー画像も輝度（Rec. 709）に変換してから補正します
+- アルファチャンネルは補正せずそのまま返します
+
+```ts
+await pipeline().temperature(0.5).run(grayImg, { colorMode: 'rgb' }); // モノクロ画像に色を付ける
+```
+
+## Web Worker
+
+- `run` は既定で Web Worker を使います。大きな画像は横帯に分けて複数の Worker（既定の上限は `navigator.hardwareConcurrency`）で並列処理します
+- Worker が作れない環境（CSP の `worker-src` で禁止されている、Worker ファイルが読み込めないなど）では自動でメインスレッドで処理します
+- `run(img, { worker: false })` でメインスレッドに固定できます
+- `run(img, { signal })` に `AbortSignal` を渡すと中断できます（`AbortError` で reject）
+- Worker のファイルは `new URL('./worker.js', import.meta.url)` で参照しているので、Vite や webpack 5 などのバンドラでそのまま動きます。別の場所に置いた Worker を使う場合や並列数を変える場合は `configureWorkers` を使います
+
+```ts
+import { configureWorkers, terminateWorkers } from 'browser-image-enhancement';
+
+configureWorkers({
+  maxWorkers: 2,
+  createWorker: () => new Worker('/static/bie-worker.js', { type: 'module' }),
+});
+
+terminateWorkers(); // 使い終わったら Worker を止める（次の run で再起動する）
+```
+
+## 色空間と制約
+
+- 入出力は sRGB です。Display P3 などの画像や `ImageData` は、パイプラインがブラウザの機能で sRGB に変換してから処理します（関数 API は sRGB の `ImageData` のみ受け付けます）
+- 16bit PNG も Canvas 経由で読み込むため 8bit になります
+- 対応ブラウザは Chrome / Edge / Firefox / Safari の最新 2 バージョンです
+
+## 開発
+
+```sh
+npm install
+npm run lint
+npm run typecheck
+npm test               # Vitest（ユニットテスト）
+npm run test:browser   # Playwright（実ブラウザで Worker・Canvas・Blob を確認）
+npm run demo           # スライダーで補正を試せるデモ
+```
+
+Playwright のブラウザを別の場所に入れている場合は `CHROMIUM_PATH` に実行ファイルのパスを指定してください。
+
+## ライセンス
+
+MIT

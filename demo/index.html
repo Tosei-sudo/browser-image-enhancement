@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>browser-image-enhancement demo</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; padding: 16px; display: grid; gap: 16px; grid-template-columns: minmax(240px, 320px) 1fr; }
+      @media (max-width: 720px) { body { grid-template-columns: 1fr; } }
+      fieldset { border: 1px solid #8884; border-radius: 8px; display: grid; gap: 10px; }
+      label { display: grid; grid-template-columns: 7em 1fr 3.5em; align-items: center; gap: 8px; font-size: 14px; }
+      output { font-variant-numeric: tabular-nums; text-align: right; }
+      canvas { max-width: 100%; height: auto; background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+      #status { font-size: 13px; opacity: 0.8; }
+    </style>
+  </head>
+  <body>
+    <form id="controls">
+      <fieldset>
+        <legend>画像</legend>
+        <input type="file" id="file" accept="image/*" />
+        <label><span>色モード</span>
+          <select id="colorMode"><option value="auto">auto</option><option value="rgb">rgb</option><option value="gray">gray</option></select>
+          <span></span>
+        </label>
+        <label><span>Worker</span><input type="checkbox" id="worker" checked /><span></span></label>
+      </fieldset>
+      <fieldset id="sliders"><legend>補正</legend></fieldset>
+      <button type="button" id="reset">リセット</button>
+      <button type="button" id="download">PNG で保存</button>
+      <p id="status"></p>
+    </form>
+    <canvas id="view"></canvas>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
