@@ -39,6 +39,7 @@ ES モジュール:
 ```
 
 - unpkg も同じパスで使えます（`https://unpkg.com/browser-image-enhancement@0.1.0/dist/cdn/...`）
+- ビルド済みの `dist/` はリポジトリにも入っているので、GitHub のタグからも配信できます（`https://cdn.jsdelivr.net/gh/Tosei-sudo/browser-image-enhancement@v0.1.0/dist/cdn/browser-image-enhancement.min.js`）
 - バージョンは固定して読み込んでください
 - 同梱の Worker は `blob:` URL から起動します。CSP の `worker-src` で `blob:` を許可していない場合はメインスレッドで処理します
 - npm 版の `dist/index.js` を CDN から直接読み込んだ場合も、別オリジンでは Worker を自動で同一オリジンの `blob:` 経由で起動します
@@ -159,6 +160,8 @@ npm test               # Vitest（ユニットテスト）
 npm run test:browser   # Playwright（実ブラウザで Worker・Canvas・Blob を確認）
 npm run demo           # スライダーで補正を試せるデモ
 ```
+
+`dist/` はコミットしています（GitHub から CDN 配信するため）。`src/` を変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
 
 Playwright のブラウザを別の場所に入れている場合は `CHROMIUM_PATH` に実行ファイルのパスを指定してください。
 
