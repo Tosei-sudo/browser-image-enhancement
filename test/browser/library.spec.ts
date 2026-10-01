@@ -9,6 +9,8 @@ declare global {
   interface Window {
     lib: typeof import('../../src/index.js');
     ready: boolean;
+    /** Set by the bundled consumer fixture (test/browser/bundled). */
+    bundledResult: Promise<{ workers: number; same: boolean }>;
     helpers: {
       noise(w: number, h: number, seed?: number): ImageData;
       gray(w: number, h: number, seed?: number): ImageData;

@@ -3,7 +3,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker.ImportScripts"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": false,
     "noImplicitOverride": true,
@@ -14,5 +19,13 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src", "test", "demo", "*.ts"]
+  "include": [
+    "src",
+    "test",
+    "demo",
+    "*.ts"
+  ],
+  "exclude": [
+    "test/browser/bundled"
+  ]
 }

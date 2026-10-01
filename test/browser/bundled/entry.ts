@@ -2,13 +2,7 @@
 // Checks that the worker file referenced via `new URL(..., import.meta.url)` survives bundling.
 import { configureWorkers, pipeline } from '../../../dist/index.js';
 
-declare global {
-  interface Window {
-    bundledResult: Promise<{ workers: number; same: boolean }>;
-  }
-}
-
-window.bundledResult = (async () => {
+(window as unknown as { bundledResult: unknown }).bundledResult = (async () => {
   let workers = 0;
   const Native = window.Worker;
   window.Worker = class extends Native {
