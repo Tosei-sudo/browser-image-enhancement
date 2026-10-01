@@ -1,4 +1,5 @@
 import { compile, isMonochrome, processPixels, resolveMode } from "../core/process.js";
+import { countPixels, resolveForPixels } from "../core/histogram.js";
 //#region src/worker/handler.ts
 /**
 * Worker-side message handling, kept free of worker globals so it can be tested directly.
@@ -29,17 +30,24 @@ function createWorkerHandler(post) {
 		const id = request.id;
 		try {
 			switch (request.type) {
-				case "run":
-					finish(id, request.buffer, request.ops, resolveMode(new Uint8ClampedArray(request.buffer), request.colorMode));
+				case "run": {
+					const pixels = new Uint8ClampedArray(request.buffer);
+					const mode = resolveMode(pixels, request.colorMode);
+					finish(id, request.buffer, resolveForPixels(request.ops, pixels, mode), mode);
 					break;
-				case "detect":
+				}
+				case "detect": {
 					held.set(id, request.buffer);
+					const pixels = new Uint8ClampedArray(request.buffer);
+					const stats = request.stats ? countPixels(pixels, Math.max(1, pixels.length >> 2), request.stats) : null;
 					post({
 						type: "detected",
 						id,
-						mono: isMonochrome(new Uint8ClampedArray(request.buffer))
+						mono: isMonochrome(pixels),
+						stats
 					});
 					break;
+				}
 				case "process": {
 					const buffer = held.get(id);
 					if (!buffer) throw new Error(`No strip held for job ${id}.`);

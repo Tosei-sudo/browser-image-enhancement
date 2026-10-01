@@ -20,6 +20,42 @@ export interface LevelsOptions {
   outWhite?: number;
 }
 
+/** Three per-channel values: R, G, B. */
+export type RGBValues = [number, number, number];
+
+/**
+ * Stretch parameters: the input range that is stretched to full black..white.
+ * Points are sRGB-encoded values (0-1 for the image as decoded; values above 1
+ * reach highlights pushed past white by earlier steps). Give one number for
+ * all channels or `[R, G, B]`.
+ */
+export interface StretchOptions {
+  /** Input value that becomes black. Default 0. */
+  black?: number | readonly number[];
+  /** Input value that becomes white. Default 1. */
+  white?: number | readonly number[];
+}
+
+/** How `autoStretch` picks the range from the pixel distribution. */
+export type StretchMethod = 'percentClip' | 'minMax' | 'standardDeviation';
+
+/** Automatic stretch (dynamic range adjustment) parameters. */
+export interface AutoStretchOptions {
+  /** Default `percentClip`. */
+  method?: StretchMethod;
+  /** `percentClip`: percent of pixels clipped to black, 0-50. Default 0.5. */
+  lowPercent?: number;
+  /** `percentClip`: percent of pixels clipped to white, 0-50. Default 0.5. */
+  highPercent?: number;
+  /** `standardDeviation`: half-width of the range in standard deviations, 0.1-10. Default 2. */
+  stdDevs?: number;
+  /**
+   * `false` (default) stretches R, G and B independently, which also removes
+   * color casts. `true` uses one range from all three, keeping the color balance.
+   */
+  linked?: boolean;
+}
+
 /** A single correction step in serializable form. */
 export type OpSpec =
   | { op: 'brightness'; amount: number }
@@ -28,7 +64,10 @@ export type OpSpec =
   | { op: 'gamma'; gamma: number }
   | { op: 'saturation'; amount: number }
   | { op: 'temperature'; amount: number }
-  | ({ op: 'levels' } & Required<LevelsOptions>);
+  | ({ op: 'levels' } & Required<LevelsOptions>)
+  | { op: 'stretch'; black: RGBValues; white: RGBValues }
+  /** Replaced by a `stretch` computed from the image's statistics before it runs. */
+  | ({ op: 'autoStretch' } & Required<AutoStretchOptions>);
 
 export type OpName = OpSpec['op'];
 
@@ -36,4 +75,25 @@ export type OpName = OpSpec['op'];
 export interface ColorOptions {
   /** Default `auto`. */
   colorMode?: ColorMode;
+}
+
+/** A rectangle in pixels. */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Pixel value counts. Transparent pixels (alpha 0) are not counted.
+ * Histograms of parts of one picture (tiles, strips) can be added with `mergeHistograms`.
+ */
+export interface Histogram {
+  /** `rgb`: one histogram per R, G, B. `gray`: one histogram of luminance. */
+  mode: 'rgb' | 'gray';
+  /** 256 counts per channel, indexed by 8-bit sRGB code. */
+  bins: Float64Array[];
+  /** Number of pixels counted. */
+  count: number;
 }

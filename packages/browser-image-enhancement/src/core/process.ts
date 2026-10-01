@@ -47,15 +47,25 @@ function chain(stages: readonly ChannelStage[], c: number): (v: number) => numbe
   };
 }
 
+/** In gray mode there is one channel; a per-channel stretch uses the mean of its points. */
+export function forGray(op: OpSpec): OpSpec {
+  if (op.op !== 'stretch') return op;
+  const mean = (v: readonly number[]) => (v[0] + v[1] + v[2]) / 3;
+  const b = mean(op.black);
+  const w = mean(op.white);
+  return { op: 'stretch', black: [b, b, b], white: [w, w, w] };
+}
+
 /**
  * Compiles normalized ops for one color mode. In gray mode color-only ops
- * (saturation, temperature) are dropped.
+ * (saturation, temperature) are dropped. `autoStretch` steps must already be
+ * resolved (see core/histogram.ts).
  */
 export function compile(ops: readonly OpSpec[], mode: ResolvedMode, options: CompileOptions = {}): Program {
   const fuse = options.fuse ?? true;
   const all = ops
     .filter((op) => !isIdentity(op) && !(mode === 'gray' && COLOR_ONLY_OPS.has(op.op)))
-    .map(toStage);
+    .map((op) => toStage(mode === 'gray' ? forGray(op) : op));
 
   let lead = 0;
   let tailStart = all.length;

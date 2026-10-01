@@ -126,8 +126,8 @@ const blob = await p.run(img, { output: 'blob', type: 'image/webp', quality: 0.9
 
 ### 第3段階：画像全体を見る処理
 
-- ヒストグラム取得（UI 表示用にも公開）
-- 自動レベル・自動コントラスト（ヒストグラムの両端をクリップ）
+- ヒストグラム取得（UI 表示用にも公開）… 実装済み（`histogram`、[dra.md](dra.md)）
+- 自動レベル・自動コントラスト（ヒストグラムの両端をクリップ）… 実装済み（`autoStretch`、DRA。[dra.md](dra.md)）
 - 自動ホワイトバランス（グレーワールド仮定）
 - ヒストグラム平坦化／CLAHE
 

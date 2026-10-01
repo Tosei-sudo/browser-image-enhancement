@@ -3,6 +3,7 @@ import { assertImageData, createImageData } from "./workers/src/image.js";
 import { toBlob, toCanvas, toImageData } from "./workers/src/io.js";
 import { normalizeOp } from "./ops/index.js";
 import { extractGray } from "./core/process.js";
+import { needsStats, resolveOps } from "./core/histogram.js";
 import { applySync, warnColorOnly } from "./functional.js";
 import { execute } from "./worker/executor.js";
 //#region src/pipeline.ts
@@ -75,6 +76,41 @@ var Pipeline = class Pipeline {
 			op: "levels",
 			...params
 		});
+	}
+	/**
+	* Stretches the range black..white (sRGB-encoded, one number or [R, G, B])
+	* to full black..white.
+	*/
+	stretch(params) {
+		return this.add({
+			op: "stretch",
+			...params
+		});
+	}
+	/**
+	* Automatic stretch (dynamic range adjustment). The range comes from the
+	* pixel distribution of the image as it reaches this step, ignoring
+	* transparent pixels. `run` takes the statistics from the image it is given;
+	* for tiles, collect statistics over the area you show and call `resolve`.
+	*/
+	autoStretch(options) {
+		return this.add({
+			op: "autoStretch",
+			...options
+		});
+	}
+	/** True when the pipeline has `autoStretch` steps that still need statistics. */
+	get needsStats() {
+		return needsStats(this.ops);
+	}
+	/**
+	* Returns a pipeline with every `autoStretch` replaced by a fixed `stretch`
+	* computed from `stats`, the histogram of the image (or of the area of a
+	* tiled image) it will run on. Every image run through the result gets the
+	* same range. With `null`, `autoStretch` steps are removed.
+	*/
+	resolve(stats) {
+		return needsStats(this.ops) ? new Pipeline(resolveOps(this.ops, stats)) : this;
 	}
 	toJSON() {
 		return {

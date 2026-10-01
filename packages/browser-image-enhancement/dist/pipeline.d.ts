@@ -1,6 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
-import { ColorOptions, LevelsOptions, OpSpec } from "./types.js";
+import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpSpec, StretchOptions } from "./types.js";
 //#region src/pipeline.d.ts
 export type OutputKind = 'imageData' | 'canvas' | 'blob' | 'gray';
 /** One 8-bit luminance value per pixel. */
@@ -56,6 +56,27 @@ export declare class Pipeline {
   temperature(amount: number): Pipeline;
   /** Levels (black/white points 0-1, midtone gamma). */
   levels(params: LevelsOptions): Pipeline;
+  /**
+   * Stretches the range black..white (sRGB-encoded, one number or [R, G, B])
+   * to full black..white.
+   */
+  stretch(params: StretchOptions): Pipeline;
+  /**
+   * Automatic stretch (dynamic range adjustment). The range comes from the
+   * pixel distribution of the image as it reaches this step, ignoring
+   * transparent pixels. `run` takes the statistics from the image it is given;
+   * for tiles, collect statistics over the area you show and call `resolve`.
+   */
+  autoStretch(options?: AutoStretchOptions): Pipeline;
+  /** True when the pipeline has `autoStretch` steps that still need statistics. */
+  get needsStats(): boolean;
+  /**
+   * Returns a pipeline with every `autoStretch` replaced by a fixed `stretch`
+   * computed from `stats`, the histogram of the image (or of the area of a
+   * tiled image) it will run on. Every image run through the result gets the
+   * same range. With `null`, `autoStretch` steps are removed.
+   */
+  resolve(stats: Histogram | null): Pipeline;
   toJSON(): PipelineJSON;
   /** Runs synchronously on the calling thread. */
   runSync(image: ImageDataLike, options?: ColorOptions): ImageData;

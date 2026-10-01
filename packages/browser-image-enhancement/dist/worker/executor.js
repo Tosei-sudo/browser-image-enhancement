@@ -2,6 +2,7 @@ import { abortError, race, throwIfAborted } from "../workers/src/abort.js";
 import { WorkerUnavailableError } from "../workers/src/pool.js";
 import { splitRows, stripCount, yieldToEventLoop } from "../workers/src/strips.js";
 import { compile, processPixels, resolveMode } from "../core/process.js";
+import { grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps } from "../core/histogram.js";
 import { getPool } from "./pool.js";
 //#region src/worker/executor.ts
 /**
@@ -10,14 +11,16 @@ import { getPool } from "./pool.js";
 * The image is cut into horizontal strips, one per worker. Each strip's pixels
 * are copied once into their own buffer and transferred to the worker and back.
 * In `auto` color mode with several strips, workers first report whether their
-* strip is monochrome so the whole image is computed in one mode.
+* strip is monochrome so the whole image is computed in one mode. With
+* `autoStretch` they also report their strip's histogram, and the main thread
+* resolves one stretch for the whole image from the sum.
 */
 let nextId = 1;
 /** Processes on the calling thread. */
 function executeOnMainThread(image, ops, colorMode = "auto") {
 	const mode = resolveMode(image.data, colorMode);
 	const data = new Uint8ClampedArray(image.data.length);
-	processPixels(image.data, data, compile(ops, mode));
+	processPixels(image.data, data, compile(resolveForPixels(ops, image.data, mode), mode));
 	return {
 		data,
 		width: image.width,
@@ -55,7 +58,9 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 	const rowBytes = image.width * 4;
 	const ranges = splitRows(image.height, slots.length);
 	const ids = ranges.map(() => nextId++);
-	const twoPhase = ranges.length > 1 && colorMode === "auto";
+	const stats = needsStats(ops);
+	const twoPhase = ranges.length > 1 && (colorMode === "auto" || stats);
+	const statsMode = stats ? colorMode === "gray" ? "gray" : "rgb" : null;
 	const release = () => ids.forEach((id, i) => pool.notify(slots[i], {
 		type: "release",
 		id
@@ -74,7 +79,8 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 		const reply = twoPhase ? pool.request(slots[i], {
 			type: "detect",
 			id: ids[i],
-			buffer
+			buffer,
+			stats: statsMode
 		}, [buffer]) : pool.request(slots[i], {
 			type: "run",
 			id: ids[i],
@@ -98,11 +104,17 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 			release();
 			throw abortError(signal);
 		}
-		const mode = detected.every((r) => r.type === "detected" && r.mono) ? "gray" : "rgb";
+		const reports = detected;
+		const mode = colorMode === "auto" ? reports.every((r) => r.mono) ? "gray" : "rgb" : colorMode;
+		let resolved = ops;
+		if (stats) {
+			const merged = mergeHistograms(reports.map((r) => r.stats));
+			resolved = resolveOps(ops, mode === "gray" ? grayFromRgb(merged) : merged);
+		}
 		pending = ids.map((id, i) => pool.request(slots[i], {
 			type: "process",
 			id,
-			ops,
+			ops: resolved,
 			mode
 		}));
 	}

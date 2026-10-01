@@ -31,6 +31,19 @@
         <label><span>補正</span><input type="checkbox" id="enabled" checked /><span></span></label>
         <label><span>Worker</span><input type="checkbox" id="worker" checked /><span></span></label>
       </fieldset>
+      <fieldset>
+        <legend>DRA（表示範囲でダイナミックレンジを自動調整）</legend>
+        <label><span>DRA</span><input type="checkbox" id="dra" /><span></span></label>
+        <label><span>方式</span>
+          <select id="draMethod">
+            <option value="percentClip">パーセントクリップ</option>
+            <option value="minMax">最小〜最大</option>
+            <option value="standardDeviation">標準偏差（±2σ）</option>
+          </select><span></span>
+        </label>
+        <label><span>クリップ (%)</span><input type="range" id="draClip" min="0" max="5" step="0.05" value="0.5" /><output id="draClipOut">0.5</output></label>
+        <label><span>RGB 連動</span><input type="checkbox" id="draLinked" /><span></span></label>
+      </fieldset>
       <fieldset id="sliders"><legend>補正</legend></fieldset>
       <button type="button" id="reset">リセット</button>
       <p id="status"></p>

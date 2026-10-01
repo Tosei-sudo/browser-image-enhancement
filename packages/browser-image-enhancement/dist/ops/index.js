@@ -44,6 +44,58 @@ function normalizeLevels(o = {}) {
 		outWhite: num("levels.outWhite", o.outWhite, 0, 1, 1)
 	};
 }
+/** Upper bound for stretch points: far above white, but finite. */
+const STRETCH_MAX = 1e3;
+function rgb(name, value, fallback) {
+	if (Array.isArray(value)) {
+		if (value.length !== 3) warn(`${name} must be one number or [R, G, B], got ${value.length} values.`);
+		return [
+			0,
+			1,
+			2
+		].map((c) => num(`${name}[${c}]`, value[c], 0, STRETCH_MAX, fallback));
+	}
+	const v = num(name, value, 0, STRETCH_MAX, fallback);
+	return [
+		v,
+		v,
+		v
+	];
+}
+/** Validates stretch points. A channel whose white is not above its black is left unchanged. */
+function normalizeStretch(o = {}) {
+	const black = rgb("stretch.black", o.black, 0);
+	const white = rgb("stretch.white", o.white, 1);
+	for (let c = 0; c < 3; c++) if (!(white[c] > black[c])) {
+		warn(`stretch.white must be greater than black (channel ${c}: ${black[c]}, ${white[c]}); leaving the channel unchanged.`);
+		black[c] = 0;
+		white[c] = 1;
+	}
+	return {
+		black,
+		white
+	};
+}
+const STRETCH_METHODS = [
+	"percentClip",
+	"minMax",
+	"standardDeviation"
+];
+/** Validates automatic stretch options, filling defaults. */
+function normalizeAutoStretch(o = {}) {
+	let method = "percentClip";
+	if (o.method !== void 0) {
+		if (STRETCH_METHODS.includes(o.method)) method = o.method;
+		else warn(`autoStretch.method must be one of ${STRETCH_METHODS.join(", ")}, got ${String(o.method)}; using percentClip.`);
+	}
+	return {
+		method,
+		lowPercent: num("autoStretch.lowPercent", o.lowPercent, 0, 50, .5),
+		highPercent: num("autoStretch.highPercent", o.highPercent, 0, 50, .5),
+		stdDevs: num("autoStretch.stdDevs", o.stdDevs, .1, 10, 2),
+		linked: o.linked === void 0 ? false : Boolean(o.linked)
+	};
+}
 /**
 * Validates an op (from code or from JSON) and clamps its parameters.
 * Throws only for an unknown op name, since that cannot be repaired.
@@ -70,6 +122,14 @@ function normalizeOp(raw) {
 			op: "levels",
 			...normalizeLevels(o)
 		};
+		case "stretch": return {
+			op: "stretch",
+			...normalizeStretch(o)
+		};
+		case "autoStretch": return {
+			op: "autoStretch",
+			...normalizeAutoStretch(o)
+		};
 		default: throw new TypeError(`Unknown correction: ${String(o.op)}`);
 	}
 }
@@ -83,6 +143,8 @@ function isIdentity(op) {
 		case "exposure": return op.ev === 0;
 		case "gamma": return op.gamma === 1;
 		case "levels": return op.inBlack === 0 && op.inWhite === 1 && op.gamma === 1 && op.outBlack === 0 && op.outWhite === 1;
+		case "stretch": return op.black.every((b, c) => b === 0 && op.white[c] === 1);
+		case "autoStretch": return false;
 	}
 }
 /** Builds the per-pixel math for a normalized op. */
@@ -160,9 +222,21 @@ function toStage(op) {
 				}
 			};
 		}
+		case "stretch": {
+			const black = op.black;
+			const scale = op.black.map((b, c) => 1 / (op.white[c] - b));
+			return {
+				kind: "channel",
+				fn: (v, c) => {
+					const x = (linearToSrgb(v) - black[c]) * scale[c];
+					return x <= 0 ? 0 : x >= 1 ? 1 : srgbToLinear(x);
+				}
+			};
+		}
+		case "autoStretch": throw new Error("autoStretch has no fixed math; resolve it with image statistics first.");
 	}
 }
 //#endregion
-export { COLOR_ONLY_OPS, isIdentity, normalizeLevels, normalizeOp, toStage };
+export { COLOR_ONLY_OPS, isIdentity, normalizeAutoStretch, normalizeLevels, normalizeOp, normalizeStretch, toStage };
 
 //# sourceMappingURL=index.js.map

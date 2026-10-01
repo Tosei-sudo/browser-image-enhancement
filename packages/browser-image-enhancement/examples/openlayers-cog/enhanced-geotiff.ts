@@ -6,11 +6,19 @@
  * overviews, nodata/mask handling, normalization to 0-255) and then corrects
  * the decoded tile. Raw tiles are kept in a small cache, so changing the
  * pipeline only re-runs the correction instead of fetching the COG again.
+ *
+ * DRA (dynamic range adjustment): when the pipeline has an `autoStretch` step,
+ * `updateDra(map)` collects the statistics of the area the map shows and fixes
+ * the stretch from them. Every tile then gets the same range, so there are no
+ * seams; tiles are never stretched on their own statistics.
  */
 import GeoTIFF, { type Options as GeoTIFFOptions } from 'ol/source/GeoTIFF.js';
 import type { Loader, LoaderOptions } from 'ol/source/DataTile.js';
 import type { Data } from 'ol/DataTile.js';
-import { pipeline, type ColorMode, type Pipeline } from '../../src/index.js';
+import type OlMap from 'ol/Map.js';
+import { getHeight, getIntersection, getWidth, isEmpty, type Extent } from 'ol/extent.js';
+import { transformExtent } from 'ol/proj.js';
+import { histogram, mergeHistograms, pipeline, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../../src/index.js';
 
 export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
   /** Correction to apply. Default: an empty pipeline (no change). */
@@ -19,6 +27,24 @@ export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
   worker?: boolean;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
+  /**
+   * DRA statistics are read from the overview level where the visible area is
+   * about this many pixels on its longer side. Default 1024.
+   */
+  draSampleSize?: number;
+  /** At most this many tiles are read for DRA statistics; a coarser level is used if needed. Default 64. */
+  draMaxTiles?: number;
+}
+
+/** What the last DRA statistics were taken from. */
+export interface DraInfo {
+  /** The area counted, in the source projection (the visible area clipped to the image). */
+  extent: Extent;
+  /** Zoom level of the tile grid the statistics were read from. */
+  z: number;
+  tiles: number;
+  /** Pixels counted (transparent nodata pixels are not). */
+  pixels: number;
 }
 
 export interface TileStats {
@@ -32,10 +58,18 @@ export interface TileStats {
 
 export default class EnhancedGeoTIFF extends GeoTIFF {
   private pipeline_: Pipeline;
+  /** The pipeline tiles are corrected with: `pipeline_` with `autoStretch` fixed from the DRA statistics. */
+  private effective_: Pipeline;
   private readonly worker_: boolean;
   private readonly rawCacheSize_: number;
+  private readonly draSampleSize_: number;
+  private readonly draMaxTiles_: number;
   private readonly raw_ = new Map<string, Promise<Data>>();
-  private generation_ = 0;
+  private rawLoader_: Loader | null = null;
+  private draStats_: Histogram | null = null;
+  private draInfo_: DraInfo | null = null;
+  private draKey_ = '';
+  private draRequest_ = 0;
   readonly stats: TileStats = { tiles: 0, ms: 0, reads: 0 };
 
   constructor(options: EnhancedGeoTIFFOptions) {
@@ -46,7 +80,10 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.pipeline_ = options.pipeline ?? pipeline();
     this.worker_ = options.worker ?? true;
     this.rawCacheSize_ = options.rawCacheSize ?? 256;
-    this.setKey(this.keyFor_());
+    this.draSampleSize_ = options.draSampleSize ?? 1024;
+    this.draMaxTiles_ = options.draMaxTiles ?? 64;
+    this.effective_ = this.pipeline_.resolve(null);
+    this.setKey(keyFor(this.effective_));
   }
 
   getPipeline(): Pipeline {
@@ -59,7 +96,100 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
    */
   setPipeline(p: Pipeline): void {
     this.pipeline_ = p;
-    this.setKey(this.keyFor_());
+    this.refresh_();
+  }
+
+  /** The pipeline tiles are corrected with now, with any `autoStretch` already fixed. */
+  getEffectivePipeline(): Pipeline {
+    return this.effective_;
+  }
+
+  /** What the current DRA statistics were taken from; null before the first `updateDra`. */
+  getDraInfo(): DraInfo | null {
+    return this.draInfo_;
+  }
+
+  /**
+   * Collects the statistics of the area `map` shows and fixes the pipeline's
+   * `autoStretch` steps from them. Call it on the map's `moveend`. Does nothing
+   * when the pipeline has no `autoStretch` or the visible area has not changed.
+   * Tiles are re-corrected only when the resulting range changes.
+   */
+  async updateDra(map: OlMap): Promise<void> {
+    if (!this.pipeline_.needsStats) return;
+    const request = ++this.draRequest_;
+    const loader = this.rawLoader_;
+    const grid = this.getTileGrid();
+    const projection = this.getProjection();
+    const size = map.getSize();
+    if (!loader || !grid || !projection || !size || this.getState() !== 'ready') return;
+
+    const view = map.getView();
+    const visible = transformExtent(view.calculateExtent(size), view.getProjection(), projection);
+    const area = getIntersection(visible, grid.getExtent());
+    if (isEmpty(area)) return; // the image is off screen: keep the last range
+
+    const z = this.draZoom_(area);
+    const key = `${z}:${area.join(',')}`;
+    if (key === this.draKey_ && this.draStats_) return;
+
+    const parts: Array<Promise<Histogram | null>> = [];
+    grid.forEachTileCoord(area, z, ([tz, x, y]) => {
+      const tileExtent = grid.getTileCoordExtent([tz, x, y]);
+      const res = grid.getResolution(tz);
+      const [width, height] = this.getTileSize(tz);
+      // The part of the tile inside the area, in tile pixels.
+      const rect = {
+        x: (area[0] - tileExtent[0]) / res,
+        y: (tileExtent[3] - area[3]) / res,
+        width: (area[2] - area[0]) / res,
+        height: (area[3] - area[1]) / res,
+      };
+      parts.push(
+        this.rawTile_(loader, tz, x, y, { signal: neverAborted, crossOrigin: 'anonymous' }).then((raw) => {
+          if (!(raw instanceof Uint8Array) && !(raw instanceof Uint8ClampedArray)) return null;
+          const bands = raw.length / (width * height);
+          if (!Number.isInteger(bands) || bands < 1 || bands > 4) return null;
+          const rgba = toRGBA(raw, bands, width * height);
+          return histogram({ data: rgba, width, height }, { rect, colorMode: colorModeFor(bands) });
+        }, () => null), // a tile that fails to load is left out of the statistics
+      );
+    });
+    const histograms = (await Promise.all(parts)).filter((h): h is Histogram => h !== null);
+    if (request !== this.draRequest_) return; // a newer view superseded this one
+
+    this.draKey_ = key;
+    this.draStats_ = mergeHistograms(histograms);
+    this.draInfo_ = { extent: area, z, tiles: histograms.length, pixels: this.draStats_.count };
+    this.refresh_();
+  }
+
+  /** The finest level that is no finer than the sample size, coarsened until the tile count fits. */
+  private draZoom_(area: Extent): number {
+    const grid = this.getTileGrid()!;
+    const target = Math.max(getWidth(area), getHeight(area)) / this.draSampleSize_;
+    let z = grid.getMinZoom();
+    for (let k = grid.getMaxZoom(); k >= grid.getMinZoom(); k--) {
+      if (grid.getResolution(k) >= target) {
+        z = k;
+        break;
+      }
+    }
+    const count = (k: number) => {
+      let n = 0;
+      grid.forEachTileCoord(area, k, () => n++);
+      return n;
+    };
+    while (z > grid.getMinZoom() && count(z) > this.draMaxTiles_) z--;
+    return z;
+  }
+
+  /** Re-resolves the pipeline; tiles are re-corrected only if the result changed. */
+  private refresh_(): void {
+    const next = this.pipeline_.resolve(this.draStats_);
+    const changed = keyFor(next) !== keyFor(this.effective_);
+    this.effective_ = next;
+    if (changed) this.setKey(keyFor(next));
   }
 
   resetStats(): void {
@@ -67,19 +197,17 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.stats.ms = 0;
   }
 
-  private keyFor_(): string {
-    return `enhanced:${++this.generation_}:${JSON.stringify(this.pipeline_.ops)}`;
-  }
-
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
   protected override setLoader(loader: Loader): void {
+    this.rawLoader_ = loader;
     super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
   }
 
   private async loadEnhanced_(loader: Loader, z: number, x: number, y: number, options: LoaderOptions): Promise<Data> {
     const raw = await this.rawTile_(loader, z, x, y, options);
     if (!(raw instanceof Uint8Array) && !(raw instanceof Uint8ClampedArray)) return raw;
-    if (this.pipeline_.ops.length === 0) return raw;
+    const p = this.effective_;
+    if (p.ops.length === 0) return raw;
 
     const [width, height] = this.getTileSize(z);
     const bands = raw.length / (width * height);
@@ -87,7 +215,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 
     const t0 = performance.now();
     const rgba = toRGBA(raw, bands, width * height);
-    const result = await this.pipeline_.run(
+    const result = await p.run(
       { data: rgba, width, height },
       {
         // Decide per source, never per tile: `auto` could judge one tile gray
@@ -127,6 +255,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 }
 
 const neverAborted = new AbortController().signal;
+
+const keyFor = (p: Pipeline) => `enhanced:${JSON.stringify(p.ops satisfies readonly OpSpec[])}`;
 
 /** 1 band = gray, 2 = gray + alpha, 3 = RGB, 4 = RGB + alpha (OpenLayers adds alpha for nodata). */
 function colorModeFor(bands: number): ColorMode {

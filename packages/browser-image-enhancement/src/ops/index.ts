@@ -5,7 +5,7 @@
  * [0, 1] between steps; they are clamped only when quantized to 8 bits at the end.
  */
 import { linearToSrgb, srgbToLinear, LUMA_B, LUMA_G, LUMA_R } from '../color/srgb.js';
-import type { LevelsOptions, OpName, OpSpec } from '../types.js';
+import type { AutoStretchOptions, LevelsOptions, OpName, OpSpec, RGBValues, StretchMethod, StretchOptions } from '../types.js';
 import { warn } from '../warn.js';
 
 /** A per-channel transform. `c` is 0, 1, 2 for R, G, B (or 0 for a gray channel). */
@@ -57,6 +57,50 @@ export function normalizeLevels(o: LevelsOptions = {}): Required<LevelsOptions> 
   };
 }
 
+/** Upper bound for stretch points: far above white, but finite. */
+const STRETCH_MAX = 1000;
+
+function rgb(name: string, value: unknown, fallback: number): RGBValues {
+  if (Array.isArray(value)) {
+    if (value.length !== 3) warn(`${name} must be one number or [R, G, B], got ${value.length} values.`);
+    return [0, 1, 2].map((c) => num(`${name}[${c}]`, value[c], 0, STRETCH_MAX, fallback)) as RGBValues;
+  }
+  const v = num(name, value, 0, STRETCH_MAX, fallback);
+  return [v, v, v];
+}
+
+/** Validates stretch points. A channel whose white is not above its black is left unchanged. */
+export function normalizeStretch(o: StretchOptions = {}): { black: RGBValues; white: RGBValues } {
+  const black = rgb('stretch.black', o.black, 0);
+  const white = rgb('stretch.white', o.white, 1);
+  for (let c = 0; c < 3; c++) {
+    if (!(white[c] > black[c])) {
+      warn(`stretch.white must be greater than black (channel ${c}: ${black[c]}, ${white[c]}); leaving the channel unchanged.`);
+      black[c] = 0;
+      white[c] = 1;
+    }
+  }
+  return { black, white };
+}
+
+const STRETCH_METHODS: readonly StretchMethod[] = ['percentClip', 'minMax', 'standardDeviation'];
+
+/** Validates automatic stretch options, filling defaults. */
+export function normalizeAutoStretch(o: AutoStretchOptions = {}): Required<AutoStretchOptions> {
+  let method: StretchMethod = 'percentClip';
+  if (o.method !== undefined) {
+    if (STRETCH_METHODS.includes(o.method)) method = o.method;
+    else warn(`autoStretch.method must be one of ${STRETCH_METHODS.join(', ')}, got ${String(o.method)}; using percentClip.`);
+  }
+  return {
+    method,
+    lowPercent: num('autoStretch.lowPercent', o.lowPercent, 0, 50, 0.5),
+    highPercent: num('autoStretch.highPercent', o.highPercent, 0, 50, 0.5),
+    stdDevs: num('autoStretch.stdDevs', o.stdDevs, 0.1, 10, 2),
+    linked: o.linked === undefined ? false : Boolean(o.linked),
+  };
+}
+
 /**
  * Validates an op (from code or from JSON) and clamps its parameters.
  * Throws only for an unknown op name, since that cannot be repaired.
@@ -75,6 +119,10 @@ export function normalizeOp(raw: unknown): OpSpec {
       return { op: 'gamma', gamma: num('gamma', o.gamma, 0.1, 10, 1) };
     case 'levels':
       return { op: 'levels', ...normalizeLevels(o as LevelsOptions) };
+    case 'stretch':
+      return { op: 'stretch', ...normalizeStretch(o as StretchOptions) };
+    case 'autoStretch':
+      return { op: 'autoStretch', ...normalizeAutoStretch(o as AutoStretchOptions) };
     default:
       throw new TypeError(`Unknown correction: ${String(o.op)}`);
   }
@@ -94,6 +142,10 @@ export function isIdentity(op: OpSpec): boolean {
       return op.gamma === 1;
     case 'levels':
       return op.inBlack === 0 && op.inWhite === 1 && op.gamma === 1 && op.outBlack === 0 && op.outWhite === 1;
+    case 'stretch':
+      return op.black.every((b, c) => b === 0 && op.white[c] === 1);
+    case 'autoStretch':
+      return false;
   }
 }
 
@@ -150,5 +202,19 @@ export function toStage(op: OpSpec): Stage {
         },
       };
     }
+    case 'stretch': {
+      // Like levels, on sRGB-encoded values; values outside the range are clipped.
+      const black = op.black;
+      const scale = op.black.map((b, c) => 1 / (op.white[c] - b));
+      return {
+        kind: 'channel',
+        fn: (v, c) => {
+          const x = (linearToSrgb(v) - black[c]) * scale[c];
+          return x <= 0 ? 0 : x >= 1 ? 1 : srgbToLinear(x);
+        },
+      };
+    }
+    case 'autoStretch':
+      throw new Error('autoStretch has no fixed math; resolve it with image statistics first.');
   }
 }

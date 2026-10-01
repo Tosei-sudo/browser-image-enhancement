@@ -6,7 +6,10 @@ export {
   saturation,
   temperature,
   levels,
+  stretch,
+  autoStretch,
 } from './functional.js';
+export { histogram, mergeHistograms, computeStretch, type HistogramOptions } from './stats.js';
 export {
   pipeline,
   Pipeline,
@@ -21,4 +24,17 @@ export {
 export { isMonochrome } from './core/process.js';
 export { configureWorkers, terminateWorkers, type WorkerConfig, type WorkerLike } from './worker/pool.js';
 export type { ImageInput } from './io.js';
-export type { ColorMode, ColorOptions, ImageDataLike, LevelsOptions, OpName, OpSpec } from './types.js';
+export type {
+  AutoStretchOptions,
+  ColorMode,
+  ColorOptions,
+  Histogram,
+  ImageDataLike,
+  LevelsOptions,
+  OpName,
+  OpSpec,
+  Rect,
+  RGBValues,
+  StretchMethod,
+  StretchOptions,
+} from './types.js';

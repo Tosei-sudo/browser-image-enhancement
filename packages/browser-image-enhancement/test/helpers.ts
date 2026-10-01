@@ -57,7 +57,7 @@ export function randomOps(r: () => number): OpSpec[] {
   const signed = () => r() * 2 - 1;
   const ops: OpSpec[] = [];
   for (let i = 0; i < n; i++) {
-    switch (Math.floor(r() * 7)) {
+    switch (Math.floor(r() * 8)) {
       case 0:
         ops.push({ op: 'brightness', amount: signed() });
         break;
@@ -76,6 +76,18 @@ export function randomOps(r: () => number): OpSpec[] {
       case 5:
         ops.push({ op: 'temperature', amount: signed() });
         break;
+      case 6: {
+        // Per-channel or uniform; white may exceed 1 (reaching values pushed past white).
+        const pick = () => [r() * 0.4, 0.6 + r() * 0.5];
+        if (r() < 0.5) {
+          const [black, white] = pick();
+          ops.push({ op: 'stretch', black: [black, black, black], white: [white, white, white] });
+        } else {
+          const p = [pick(), pick(), pick()];
+          ops.push({ op: 'stretch', black: [p[0][0], p[1][0], p[2][0]], white: [p[0][1], p[1][1], p[2][1]] });
+        }
+        break;
+      }
       default: {
         const inBlack = r() * 0.4;
         const outBlack = r() * 0.3;

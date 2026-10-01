@@ -7,22 +7,26 @@
  */
 import { createImageData, assertImageData } from './core/image.js';
 import { compile, processPixels, resolveMode } from './core/process.js';
+import { resolveForPixels } from './core/histogram.js';
 import { normalizeOp } from './ops/index.js';
-import type { ColorOptions, ImageDataLike, LevelsOptions, OpSpec } from './types.js';
+import type { AutoStretchOptions, ColorOptions, ImageDataLike, LevelsOptions, OpSpec, StretchOptions } from './types.js';
 import { warn } from './warn.js';
 
 /** Runs normalized-or-raw ops on an image synchronously. Shared by the pipeline's sync path. */
 export function applySync(image: ImageDataLike, ops: readonly OpSpec[], options: ColorOptions = {}): ImageData {
   assertImageData(image);
-  const normalized = ops.map(normalizeOp);
   const mode = resolveMode(image.data, options.colorMode);
-  if (mode === 'gray') warnColorOnly(normalized);
+  const resolved = resolveForPixels(ops.map(normalizeOp), image.data, mode);
+  if (mode === 'gray') warnColorOnly(resolved);
   const out = new Uint8ClampedArray(image.data.length);
-  processPixels(image.data, out, compile(normalized, mode));
+  processPixels(image.data, out, compile(resolved, mode));
   return createImageData(out, image.width, image.height);
 }
 
-/** Warns when saturation/temperature are requested for an image computed as gray. */
+/**
+ * Warns when color-only corrections are requested for an image computed as
+ * gray: saturation, temperature, and a stretch with different points per channel.
+ */
 export function warnColorOnly(ops: readonly OpSpec[]): void {
   const ignored = ops
     .filter((op) => (op.op === 'saturation' || op.op === 'temperature') && op.amount !== 0)
@@ -32,6 +36,13 @@ export function warnColorOnly(ops: readonly OpSpec[]): void {
       `${ignored.join(', ')} has no effect on a monochrome image. ` + "Pass colorMode: 'rgb' to tint it.",
     );
   }
+  if (ops.some((op) => op.op === 'stretch' && !(sameChannels(op.black) && sameChannels(op.white)))) {
+    warn("A per-channel stretch uses the mean of its R, G, B points on a monochrome image. Pass colorMode: 'rgb' to tint it.");
+  }
+}
+
+function sameChannels(v: readonly number[]): boolean {
+  return v[0] === v[1] && v[1] === v[2];
 }
 
 /** Brightness, -1 to 1. Positive moves toward white, negative toward black. */
@@ -67,4 +78,20 @@ export function temperature(image: ImageDataLike, amount: number, options?: Colo
 /** Levels: input/output black and white points (0-1, sRGB-encoded) and midtone gamma. */
 export function levels(image: ImageDataLike, params: LevelsOptions, options?: ColorOptions): ImageData {
   return applySync(image, [{ op: 'levels', ...params } as OpSpec], options);
+}
+
+/**
+ * Stretches the range black..white (sRGB-encoded, one number or [R, G, B]) to
+ * full black..white, clipping values outside it.
+ */
+export function stretch(image: ImageDataLike, params: StretchOptions, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'stretch', ...params } as OpSpec], options);
+}
+
+/**
+ * Automatic stretch (dynamic range adjustment): picks the range from the
+ * image's own pixel distribution, ignoring transparent pixels.
+ */
+export function autoStretch(image: ImageDataLike, params?: AutoStretchOptions, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'autoStretch', ...params } as OpSpec], options);
 }

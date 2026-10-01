@@ -2,6 +2,7 @@
  * Worker-side message handling, kept free of worker globals so it can be tested directly.
  */
 import { compile, isMonochrome, processPixels, resolveMode, type Program, type ResolvedMode } from '../core/process.js';
+import { countPixels, resolveForPixels } from '../core/histogram.js';
 import type { OpSpec } from '../types.js';
 import type { Post as SharedPost } from '@browser-image/workers';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
@@ -33,13 +34,19 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
     const id = request.id;
     try {
       switch (request.type) {
-        case 'run':
-          finish(id, request.buffer, request.ops, resolveMode(new Uint8ClampedArray(request.buffer), request.colorMode));
+        case 'run': {
+          const pixels = new Uint8ClampedArray(request.buffer);
+          const mode = resolveMode(pixels, request.colorMode);
+          finish(id, request.buffer, resolveForPixels(request.ops, pixels, mode), mode);
           break;
-        case 'detect':
+        }
+        case 'detect': {
           held.set(id, request.buffer);
-          post({ type: 'detected', id, mono: isMonochrome(new Uint8ClampedArray(request.buffer)) });
+          const pixels = new Uint8ClampedArray(request.buffer);
+          const stats = request.stats ? countPixels(pixels, Math.max(1, pixels.length >> 2), request.stats) : null;
+          post({ type: 'detected', id, mono: isMonochrome(pixels), stats });
           break;
+        }
         case 'process': {
           const buffer = held.get(id);
           if (!buffer) throw new Error(`No strip held for job ${id}.`);
