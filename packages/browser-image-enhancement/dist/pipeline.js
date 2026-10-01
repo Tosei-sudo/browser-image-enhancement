@@ -1,9 +1,9 @@
-import { assertImageData, createImageData } from "./core/image.js";
+import { abortError } from "./workers/src/abort.js";
+import { assertImageData, createImageData } from "./workers/src/image.js";
+import { toBlob, toCanvas, toImageData } from "./workers/src/io.js";
 import { normalizeOp } from "./ops/index.js";
 import { extractGray } from "./core/process.js";
 import { applySync, warnColorOnly } from "./functional.js";
-import { toBlob, toCanvas, toImageData } from "./io.js";
-import { abortError } from "./workers/src/abort.js";
 import { execute } from "./worker/executor.js";
 //#region src/pipeline.ts
 /**

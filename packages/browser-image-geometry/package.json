@@ -1,0 +1,53 @@
+{
+  "name": "browser-image-geometry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Geometric correction in the browser: affine, projective and polynomial transforms fitted from control points, resampled in Web Workers.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/cdn/browser-image-geometry.iife.min.js",
+  "jsdelivr": "./dist/cdn/browser-image-geometry.iife.min.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "image",
+    "geometric-correction",
+    "georeferencing",
+    "gcp",
+    "homography",
+    "warp",
+    "web-worker",
+    "browser"
+  ],
+  "scripts": {
+    "build": "tsdown && vite build -c cdn/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:browser": "npm run build && playwright test",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@browser-image/workers": "0.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tosei-sudo/browser-image-enhancement.git",
+    "directory": "packages/browser-image-geometry"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

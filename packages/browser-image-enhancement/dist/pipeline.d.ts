@@ -1,5 +1,6 @@
-import { ColorOptions, ImageDataLike, LevelsOptions, OpSpec } from "./types.js";
-import { ImageInput } from "./io.js";
+import { ImageDataLike } from "./workers/src/image.js";
+import { ImageInput } from "./workers/src/io.js";
+import { ColorOptions, LevelsOptions, OpSpec } from "./types.js";
 //#region src/pipeline.d.ts
 export type OutputKind = 'imageData' | 'canvas' | 'blob' | 'gray';
 /** One 8-bit luminance value per pixel. */

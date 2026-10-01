@@ -114,13 +114,12 @@ out.image;         // 変形後の画像
 out.geoTransform;  // [左上x, 画素幅, 0, 左上y, 0, -画素高]
 out.extent;        // [minX, minY, maxX, maxY]（OpenLayers の ImageStatic にそのまま渡せる）
 
-// 投影法をまたぐ場合は、変換関数を渡す（proj4 は利用者が用意する）
-const toWebMercator = proj4('EPSG:4326', 'EPSG:3857');
-await warp(img, fit.transform, { coordinateTransform: (x, y) => toWebMercator.forward([x, y]) });
+// 投影法をまたぐ場合は、forward と inverse を持つ変換を渡す（proj4 の変換オブジェクトがそのまま使える）
+await warp(img, fit.transform, { coordinateTransform: proj4('EPSG:4326', 'EPSG:3857') });
 
-// 同期: ImageData を受け取り、新しい ImageData を返す（メインスレッドで動く）
-const rotated = rotate(imageData, 15, { resample: 'bicubic', expand: true });
-const flat = warpImageData(imageData, { type: 'affine', matrix: [1, 0.2, 0, 0, 1, 0] });
+// 同期: メインスレッドで動く
+const rotated = rotate(imageData, 15, { resample: 'bicubic', expand: true }); // ImageData
+const flat = warpImageData(imageData, affine([1, 0.2, 0, 0, 1, 0]));         // { image, geoTransform, extent, ... }
 ```
 
 Worker の設定は色補正と同じ `configureWorkers` / `terminateWorkers` を、このパッケージからも出す。
@@ -140,6 +139,18 @@ Worker の設定は色補正と同じ `configureWorkers` / `terminateWorkers` �
 4. 地理参照の出力と、投影法をまたぐ近似格子
 5. ルートの `examples/` に、古地図に基準点を打って OpenLayers に重ねる例
 6. CDN 用ビルドと npm 公開
+
+## 実装メモ（v0.1.0）
+
+設計から変えた点と、実装して決めた細部。
+
+- **座標変換の受け取り方**: 関数 1 つではなく `{ forward, inverse }` を受け取る。出力範囲を求めるのに順方向、画素ごとの逆写像に逆方向が要るため。proj4 の変換オブジェクトはこの形なので、そのまま渡せる
+- **`warpImageData` の戻り値**: 地図座標の情報も返すため、`ImageData` ではなく `{ image, width, height, geoTransform, extent }` にした。`rotate` / `flip` / `crop` / `resize` は `ImageData` を返す
+- **出力の向き**: `fitTransform` は既定で地図座標（y が上）とみなし、出力画像は北が上になる。画像座標どうしの補正（台形補正など）は `target: 'image'` を指定する
+- **共通パッケージ**: 画像の読み込みと書き出し（`toImageData` / `toCanvas` / `toBlob`）も `@browser-image/workers` に移し、2 つのパッケージで共有した
+- **Worker との一致**: 帯ごとに渡す入力の範囲は、アフィンなら帯の四隅から正確に、射影・多項式なら帯の外周と内部を間引いて写した点に余白を足して求める。どの変換でも、Worker で処理した結果がメインスレッドの結果とビット単位で一致することをテストで確認
+- **性能（参考値）**: 4000×3000 を 17° 回転（出力は約 1550 万画素）するのに、Node の単一スレッドで最近傍 0.5 秒、バイリニア 1.1 秒、バイキュービック 3 秒程度
+- **公開**: `package.json` は `private: true` のまま。npm に公開するときに外す
 
 ## 決定事項
 

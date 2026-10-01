@@ -1,0 +1,1 @@
+{"version":3,"file":"pool.d.ts","names":[],"sources":["../../../../workers/src/pool.ts"],"mappings":";;;;;;;;;;;;;;YAcY;EAAoB;;EAAoB;EAAe;EAAY;;;iBAG9D,WAAW,eAAe;EACzC,YAAY,SAAS,KAAK,UAAU;EACpC,iBAAiB,iBAAiB,WAAW,OAAO,aAAa,MAAM;EACvE,iBAAiB,gCAAgC,WAAW,OAAO;EACnE;;iBAGe,aAAa,eAAe;;EAE3C;;EAEA;;EAEA;;EAEA,qBAAqB,WAAW,KAAK"}

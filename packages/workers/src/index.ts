@@ -12,3 +12,5 @@ export {
 } from './pool.js';
 export { serveWorker, type Post } from './serve.js';
 export { splitRows, stripCount, yieldToEventLoop } from './strips.js';
+export { assertImageData, createImageData, type ImageDataLike } from './image.js';
+export { createCanvas, toBlob, toCanvas, toImageData, type ImageInput } from './io.js';

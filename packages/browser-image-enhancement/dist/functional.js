@@ -1,4 +1,4 @@
-import { assertImageData, createImageData } from "./core/image.js";
+import { assertImageData, createImageData } from "./workers/src/image.js";
 import { warn } from "./warn.js";
 import { normalizeOp } from "./ops/index.js";
 import { compile, processPixels, resolveMode } from "./core/process.js";
