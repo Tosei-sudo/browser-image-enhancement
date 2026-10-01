@@ -149,6 +149,10 @@ terminateWorkers(); // 使い終わったら Worker を止める（次の run �
 - 16bit PNG も Canvas 経由で読み込むため 8bit になります
 - 対応ブラウザは Chrome / Edge / Firefox / Safari の最新 2 バージョンです
 
+## 地図（OpenLayers + COG）での利用
+
+[examples/openlayers-cog](examples/openlayers-cog/) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。
+
 ## 開発
 
 ```sh
@@ -158,6 +162,7 @@ npm run typecheck
 npm test               # Vitest（ユニットテスト）
 npm run test:browser   # Playwright（実ブラウザで Worker・Canvas・Blob を確認）
 npm run demo           # スライダーで補正を試せるデモ
+npm run example:ol     # OpenLayers + COG（GeoTIFF）に補正をかけて地図に重ねる例
 ```
 
 Playwright のブラウザを別の場所に入れている場合は `CHROMIUM_PATH` に実行ファイルのパスを指定してください。
