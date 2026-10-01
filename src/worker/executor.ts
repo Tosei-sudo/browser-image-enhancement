@@ -145,11 +145,13 @@ async function runInWorkers(
     }
     const [start, end] = ranges[i];
     const buffer = image.data.slice(start * rowBytes, end * rowBytes).buffer;
-    sent.push(
-      twoPhase
-        ? pool.request(slots[i], { type: 'detect', id: ids[i], buffer }, [buffer])
-        : pool.request(slots[i], { type: 'run', id: ids[i], buffer, ops, colorMode }, [buffer]),
-    );
+    const reply = twoPhase
+      ? pool.request(slots[i], { type: 'detect', id: ids[i], buffer }, [buffer])
+      : pool.request(slots[i], { type: 'run', id: ids[i], buffer, ops, colorMode }, [buffer]);
+    // A strip may fail while later strips are still being sent; it is handled
+    // by the Promise.all below, so don't let it surface as an unhandled rejection.
+    reply.catch(() => {});
+    sent.push(reply);
   }
 
   let pending = sent;
