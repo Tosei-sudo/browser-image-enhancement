@@ -6,6 +6,7 @@
  * file, no Worker support) makes the pool report itself unavailable so callers
  * fall back to the main thread.
  */
+import { defaultCreateWorker } from './default-worker.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
 /** The part of `Worker` the pool uses. Lets tests and custom setups supply their own. */
@@ -43,10 +44,6 @@ export interface Slot {
   load: number;
   dead: boolean;
   readonly pending: Map<number, Pending>;
-}
-
-export function defaultCreateWorker(): WorkerLike {
-  return new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }) as unknown as WorkerLike;
 }
 
 function defaultMaxWorkers(): number {

@@ -200,4 +200,5 @@ test/
 - **転送**: 入力は変更しない約束なので、帯ごとに 1 回コピーしてから transfer する。コピーは帯ごとにイベントループへ処理を返しながら行い、メインスレッドを長く止めない
 - **Blob 出力**: 帯を結合したあとメインスレッドの `OffscreenCanvas.convertToBlob`（なければ `canvas.toBlob`）で作る。エンコード自体はブラウザが非同期に行う
 - **ビルド**: Vite のライブラリモードではなく `tsc` で ESM と型定義を出す。Worker は `new URL('./worker.js', import.meta.url)` で参照するので、Vite や webpack 5 など利用側のバンドラがそのまま扱える（Vite でバンドルした利用側アプリが Worker で動くことを Playwright で確認）
+- **CDN 配信**: ブラウザは別オリジンの URL から Worker を起動できないため、CDN 用に `dist/cdn/` へ Worker 同梱の ES モジュールと IIFE を Vite のライブラリモードで別途出力する（Worker は `?worker&inline` で文字列として埋め込み、`blob:` URL から起動）。`dist/index.js` を CDN から直接読んだ場合は、`import "<worker.js の URL>"` だけを書いた同一オリジンの Blob を Module Worker として起動する。どちらも別オリジン（`127.0.0.1` のページから `localhost` のファイル）で Worker が起動することを Playwright で確認
 - **性能（参考値）**: 12MP・補正 5 個（彩度・色温度を含む）で、Node の単一スレッド約 0.4 秒、ヘッドレス Chromium（4 コアの共有サンドボックス）でメインスレッド 0.8〜1.0 秒、Worker 4 並列 0.6 秒前後。数値は計測環境の揺れが大きい

@@ -10,10 +10,17 @@ const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/ja
 const port = Number(process.env.PORT ?? 4173);
 
 createServer(async (req, res) => {
-  const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
+  const url = new URL(req.url, 'http://x');
+  const path = normalize(decodeURIComponent(url.pathname));
+  // CORS lets pages on another origin (127.0.0.1 vs localhost) load the package the way they would from a CDN.
+  const headers = {
+    'content-type': types[extname(path)] ?? 'application/octet-stream',
+    'cache-control': 'no-store',
+    'access-control-allow-origin': '*',
+  };
   // Lets a test simulate a Content-Security-Policy that forbids workers.
-  const headers = { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' };
   if (path.endsWith('csp.html')) headers['content-security-policy'] = "worker-src 'none'";
+  if (url.searchParams.has('csp')) headers['content-security-policy'] = url.searchParams.get('csp');
   try {
     const body = await readFile(join(root, path));
     res.writeHead(200, headers).end(body);
