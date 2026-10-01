@@ -1,169 +1,27 @@
 # browser-image-enhancement
 
-ブラウザだけで動く画像補正ライブラリです。画像をサーバーに送らず、明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル補正をかけられます。
+ブラウザだけで動く画像処理ライブラリのモノレポです。
 
-- 依存ライブラリなし、ESM + TypeScript 型定義付き
-- 重い処理は Web Worker で実行し、メインスレッドを止めない（使えない環境では自動でメインスレッド実行）
-- 計算はリニア RGB で行い、8bit への丸めは最後の 1 回だけ
-- モノクロ画像を自動判定し、輝度 1 チャンネルで処理（結果も R=G=B のまま）
-
-設計の背景は [docs/design.md](docs/design.md) にあります。
-
-## インストール
-
-```sh
-npm install browser-image-enhancement
-```
-
-### CDN から使う
-
-ビルド不要で、jsDelivr や unpkg から直接読み込めます。Web Worker はライブラリのファイル内に同梱しているので、1 ファイルを読み込むだけで Worker 実行まで動きます。
-
-ES モジュール:
-
-```html
-<script type="module">
-  import { pipeline } from 'https://cdn.jsdelivr.net/npm/browser-image-enhancement@0.1.0/dist/cdn/browser-image-enhancement.min.js';
-
-  const out = await pipeline().brightness(0.1).contrast(0.2).run(document.querySelector('img'));
-</script>
-```
-
-`<script>` タグ（グローバル変数 `BrowserImageEnhancement`）:
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/browser-image-enhancement@0.1.0/dist/cdn/browser-image-enhancement.iife.min.js"></script>
-<script>
-  const { pipeline } = BrowserImageEnhancement;
-</script>
-```
-
-- unpkg も同じパスで使えます（`https://unpkg.com/browser-image-enhancement@0.1.0/dist/cdn/...`）
-- ビルド済みの `dist/` はリポジトリにも入っているので、GitHub のタグからも配信できます（`https://cdn.jsdelivr.net/gh/Tosei-sudo/browser-image-enhancement@v0.1.0/dist/cdn/browser-image-enhancement.min.js`）
-- バージョンは固定して読み込んでください
-- 同梱の Worker は `blob:` URL から起動します。CSP の `worker-src` で `blob:` を許可していない場合はメインスレッドで処理します
-- npm 版の `dist/index.js` を CDN から直接読み込んだ場合も、別オリジンでは Worker を自動で同一オリジンの `blob:` 経由で起動します
-
-## 使い方
-
-### パイプライン（複数の補正・プレビュー向け）
-
-```ts
-import { pipeline } from 'browser-image-enhancement';
-
-const p = pipeline()
-  .exposure(0.3)
-  .contrast(0.2)
-  .saturation(-0.1)
-  .levels({ inBlack: 0.02, inWhite: 0.98 });
-
-const imageData = await p.run(img);                       // ImageData（既定）
-const canvas = await p.run(img, { output: 'canvas' });
-const blob = await p.run(img, { output: 'blob', type: 'image/webp', quality: 0.9 });
-const gray = await p.run(img, { output: 'gray' });        // { data: 輝度のみの Uint8ClampedArray, width, height }
-```
-
-- `run` の入力には `ImageData`、`HTMLImageElement`、`HTMLCanvasElement`、`OffscreenCanvas`、`ImageBitmap`、`HTMLVideoElement`、`Blob`（`File`）を渡せます。Blob は EXIF の回転情報を反映して読み込みます
-- 補正はまとめて 1 パスで計算し、途中で 8bit に丸めません
-- パイプラインは不変です。`.brightness()` などは新しいパイプラインを返します
-- `p.runSync(imageData)` でメインスレッド上の同期実行もできます
-
-### 関数（単発の補正）
-
-```ts
-import { brightness, contrast } from 'browser-image-enhancement';
-
-const out = contrast(brightness(imageData, 0.1), 0.2);
-```
-
-各関数は新しい `ImageData` を返し、入力は変更しません。メインスレッドで同期的に動きます。続けて呼ぶと補正ごとに 8bit に丸められるので、複数の補正を重ねるときはパイプラインを使ってください。
-
-### スライダーでのプレビュー
-
-```ts
-import { createPreviewRunner, pipeline } from 'browser-image-enhancement';
-
-const preview = createPreviewRunner({ output: 'canvas' });
-
-slider.oninput = async () => {
-  const result = await preview.run(pipeline().brightness(Number(slider.value)), img);
-  if (result) show(result); // 新しい要求に追い越された結果は null
-};
-```
-
-新しい要求が来ると古い要求の結果は捨てられ、最新の結果だけが返ります。同じ入力を続けて渡したときはデコード結果を使い回します。大きな画像は縮小してからプレビューし、確定時だけ原寸で処理するのがおすすめです。
-
-### 設定の保存と復元
-
-```ts
-const json = JSON.stringify(p);            // { "version": 1, "ops": [...] }
-const restored = pipeline.fromJSON(json);
-```
-
-## 補正の一覧
-
-| 補正 | パラメータ | 0（無変化）からの動き |
+| パッケージ | 内容 | 状態 |
 | --- | --- | --- |
-| `brightness(amount)` | -1〜1 | 正で白に、負で黒に近づける。1 で真っ白、-1 で真っ黒 |
-| `contrast(amount)` | -1〜1 | sRGB の 50% グレーを支点に強める／弱める。-1 で全面グレー、1 で 2 値化 |
-| `exposure(ev)` | -10〜10（EV） | +1 で光量 2 倍 |
-| `gamma(value)` | 0.1〜10（1 で無変化） | 1 より大きいと中間調が明るくなる |
-| `saturation(amount)` | -1〜1 | -1 でグレースケール、1 で彩度 2 倍 |
-| `temperature(amount)` | -1〜1 | 正で暖色（黄〜橙）、負で寒色（青） |
-| `levels({ inBlack, inWhite, gamma, outBlack, outWhite })` | 黒点・白点は 0〜1、`gamma` は 0.1〜10 | 0〜255 の目盛りなら値を 255 で割って指定。`gamma` が 1 より大きいと中間調が明るくなる |
+| [browser-image-enhancement](packages/browser-image-enhancement/) | 色補正（明るさ、コントラスト、露出、ガンマ、彩度、色温度、レベル補正）。Web Worker で並列処理 | v0.1.0 |
+| browser-image-geometry | 幾何補正（アフィン・射影・多項式変換、基準点からの推定、再サンプリング） | 設計中（[設計メモ](docs/geometry-design.md)） |
+| [@browser-image/workers](packages/workers/) | 上の 2 つが共有する Worker プールと横帯の並列処理。非公開で、各パッケージのビルドに取り込まれる | 内部用 |
 
-範囲外の値は例外にせず範囲内に丸め、開発ビルドでのみ `console.warn` で警告します（`process.env.NODE_ENV === 'production'` のビルドでは警告を出しません）。
-
-## モノクロ画像
-
-- 既定（`colorMode: 'auto'`）では、全画素が R=G=B の画像をモノクロと判定し、輝度 1 チャンネルで計算します。結果も R=G=B のままです
-- 彩度と色温度はモノクロ画像には何もしません。色を付けたいときは `colorMode: 'rgb'` を指定してください
-- `colorMode: 'gray'` を指定すると、カラー画像も輝度（Rec. 709）に変換してから補正します
-- アルファチャンネルは補正せずそのまま返します
-
-```ts
-await pipeline().temperature(0.5).run(grayImg, { colorMode: 'rgb' }); // モノクロ画像に色を付ける
-```
-
-## Web Worker
-
-- `run` は既定で Web Worker を使います。大きな画像は横帯に分けて複数の Worker（既定の上限は `navigator.hardwareConcurrency`）で並列処理します
-- Worker が作れない環境（CSP の `worker-src` で禁止されている、Worker ファイルが読み込めないなど）では自動でメインスレッドで処理します
-- `run(img, { worker: false })` でメインスレッドに固定できます
-- `run(img, { signal })` に `AbortSignal` を渡すと中断できます（`AbortError` で reject）
-- Worker のファイルは `new URL('./worker.js', import.meta.url)` で参照しているので、Vite や webpack 5 などのバンドラでそのまま動きます（CDN 用ファイルは Worker を同梱しています）。別の場所に置いた Worker を使う場合や並列数を変える場合は `configureWorkers` を使います
-
-```ts
-import { configureWorkers, terminateWorkers } from 'browser-image-enhancement';
-
-configureWorkers({
-  maxWorkers: 2,
-  createWorker: () => new Worker('/static/bie-worker.js', { type: 'module' }),
-});
-
-terminateWorkers(); // 使い終わったら Worker を止める（次の run で再起動する）
-```
-
-## 色空間と制約
-
-- 入出力は sRGB です。Display P3 などの画像や `ImageData` は、パイプラインがブラウザの機能で sRGB に変換してから処理します（関数 API は sRGB の `ImageData` のみ受け付けます）
-- 16bit PNG も Canvas 経由で読み込むため 8bit になります
-- 対応ブラウザは Chrome / Edge / Firefox / Safari の最新 2 バージョンです
+使い方は各パッケージの README を見てください。
 
 ## 開発
 
 ```sh
-npm install
+npm install            # すべてのパッケージの依存を入れる（npm workspaces）
 npm run lint
-npm run typecheck
-npm test               # Vitest（ユニットテスト）
-npm run test:browser   # Playwright（実ブラウザで Worker・Canvas・Blob を確認）
-npm run demo           # スライダーで補正を試せるデモ
+npm run typecheck      # 全パッケージ
+npm test               # 全パッケージのユニットテスト
+npm run build          # 各パッケージの dist/ を作る
+npm run test:browser   # Playwright（ブラウザのパスは CHROMIUM_PATH で指定できます）
 ```
 
-`dist/` はコミットしています（GitHub から CDN 配信するため）。`src/` を変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
-
-Playwright のブラウザを別の場所に入れている場合は `CHROMIUM_PATH` に実行ファイルのパスを指定してください。
+各パッケージの `dist/` はコミットしています（GitHub のタグから CDN 配信するため）。ソースを変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
 
 ## ライセンス
 
