@@ -7,9 +7,8 @@
  * a worker from that URL, so a same-origin Blob worker that imports it is used
  * instead. The CDN bundles replace this module with `default-worker.inline.ts`.
  */
+import { crossOriginWorkerUrl as shimFor } from '@browser-image/workers';
 import type { WorkerLike } from './pool.js';
-
-const shims = new Map<string, string>();
 
 /**
  * Returns a Blob URL for a module worker that imports the `worker.js` next to
@@ -18,15 +17,7 @@ const shims = new Map<string, string>();
  */
 export function crossOriginWorkerUrl(moduleUrl: string, pageOrigin: string | undefined): string | null {
   // Not written as `new URL('./worker.js', import.meta.url)` so bundlers don't treat it as an asset.
-  const script = new URL('worker.js', moduleUrl);
-  if (pageOrigin === undefined || script.origin === pageOrigin) return null;
-  let shim = shims.get(script.href);
-  if (!shim) {
-    // One small Blob per script URL, kept for the page's lifetime so workers can restart.
-    shim = URL.createObjectURL(new Blob([`import ${JSON.stringify(script.href)};`], { type: 'text/javascript' }));
-    shims.set(script.href, shim);
-  }
-  return shim;
+  return shimFor(new URL('worker.js', moduleUrl), pageOrigin);
 }
 
 export function defaultCreateWorker(): WorkerLike {

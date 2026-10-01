@@ -3,9 +3,10 @@
  */
 import { compile, isMonochrome, processPixels, resolveMode, type Program, type ResolvedMode } from '../core/process.js';
 import type { OpSpec } from '../types.js';
+import type { Post as SharedPost } from '@browser-image/workers';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
-export type Post = (message: WorkerResponse, transfer?: Transferable[]) => void;
+export type Post = SharedPost<WorkerResponse>;
 
 export function createWorkerHandler(post: Post): (request: WorkerRequest) => void {
   const held = new Map<number, ArrayBuffer>();

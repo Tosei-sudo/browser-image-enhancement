@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "noEmit": false,
+    "paths": { "@browser-image/workers": ["../workers/src/index.ts"] }
+  },
+  "include": ["src", "../workers/src"]
+}

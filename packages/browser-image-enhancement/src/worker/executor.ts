@@ -6,10 +6,13 @@
  * In `auto` color mode with several strips, workers first report whether their
  * strip is monochrome so the whole image is computed in one mode.
  */
+import { abortError, race, splitRows, stripCount, throwIfAborted, yieldToEventLoop } from '@browser-image/workers';
 import { compile, processPixels, resolveMode, type ResolvedMode } from '../core/process.js';
 import type { ColorMode, ImageDataLike, OpSpec } from '../types.js';
 import { getPool, WorkerUnavailableError, type Slot, type WorkerPool } from './pool.js';
 import type { WorkerResponse } from './protocol.js';
+
+export { abortError, splitRows };
 
 export interface ExecuteOptions {
   colorMode?: ColorMode;
@@ -32,53 +35,12 @@ export interface ExecuteResult {
 
 let nextId = 1;
 
-export function abortError(signal?: AbortSignal): Error {
-  const reason: unknown = signal?.reason;
-  if (reason instanceof Error) return reason;
-  if (typeof DOMException !== 'undefined') return new DOMException('The operation was aborted.', 'AbortError');
-  const e = new Error('The operation was aborted.');
-  e.name = 'AbortError';
-  return e;
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw abortError(signal);
-}
-
 /** Processes on the calling thread. */
 export function executeOnMainThread(image: ImageDataLike, ops: readonly OpSpec[], colorMode: ColorMode = 'auto'): ExecuteResult {
   const mode = resolveMode(image.data, colorMode);
   const data = new Uint8ClampedArray(image.data.length);
   processPixels(image.data, data, compile(ops, mode));
   return { data, width: image.width, height: image.height, mode, usedWorker: false };
-}
-
-/** Splits `height` rows into `count` contiguous ranges of near-equal size. */
-export function splitRows(height: number, count: number): Array<[start: number, end: number]> {
-  const n = Math.max(1, Math.min(count, height));
-  const ranges: Array<[number, number]> = [];
-  for (let i = 0; i < n; i++) ranges.push([Math.floor((height * i) / n), Math.floor((height * (i + 1)) / n)]);
-  return ranges;
-}
-
-/** Resolves with `promise`, or rejects as soon as `signal` aborts. */
-function race<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(abortError(signal));
-    if (signal.aborted) return onAbort();
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (v) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(v);
-      },
-      (e: unknown) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(e);
-      },
-    );
-  });
 }
 
 export async function execute(image: ImageDataLike, ops: readonly OpSpec[], options: ExecuteOptions = {}): Promise<ExecuteResult> {
@@ -90,7 +52,7 @@ export async function execute(image: ImageDataLike, ops: readonly OpSpec[], opti
   if (!pool.available) return executeOnMainThread(image, ops, colorMode);
 
   const pixels = image.width * image.height;
-  const wanted = Math.min(pool.maxWorkers, Math.ceil(pixels / pool.minStripPixels), image.height);
+  const wanted = stripCount(pixels, image.height, pool.maxWorkers, pool.minStripPixels);
   let slots: Slot[];
   try {
     slots = await race(pool.acquire(wanted), signal);
@@ -109,11 +71,6 @@ export async function execute(image: ImageDataLike, ops: readonly OpSpec[], opti
     }
     throw e;
   }
-}
-
-/** Lets other main-thread tasks (rendering, input) run between strip copies. */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 type Done = Extract<WorkerResponse, { type: 'done' }>;

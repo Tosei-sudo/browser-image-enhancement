@@ -18,15 +18,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": []
-  },
-  "include": [
-    "src",
-    "test",
-    "demo",
-    "examples",
-    "*.ts"
-  ],
-  "exclude": [
-    "test/browser/bundled"
-  ]
+  }
 }

@@ -1,0 +1,57 @@
+{
+  "name": "browser-image-enhancement",
+  "version": "0.1.0",
+  "description": "Dependency-free image correction (brightness, contrast, exposure, gamma, saturation, temperature, levels) that runs in the browser, in Web Workers by default.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/cdn/browser-image-enhancement.iife.min.js",
+  "jsdelivr": "./dist/cdn/browser-image-enhancement.iife.min.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "image",
+    "image-processing",
+    "color-correction",
+    "brightness",
+    "contrast",
+    "web-worker",
+    "browser"
+  ],
+  "scripts": {
+    "build": "tsdown && vite build -c cdn/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "npm run build && npm run demo:build && npm run example:ol:build && vite build test/browser/bundled --outDir ../../../.bundled-test --emptyOutDir --base ./ && playwright test",
+    "demo": "vite demo",
+    "example:ol": "vite examples/openlayers-cog",
+    "example:ol:build": "vite build examples/openlayers-cog --outDir ../../.example-dist/openlayers-cog --emptyOutDir --base ./",
+    "check": "npm run typecheck && npm test && npm run test:browser",
+    "demo:build": "vite build demo --outDir ../demo-dist --emptyOutDir --base ./",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@browser-image/workers": "0.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tosei-sudo/browser-image-enhancement.git",
+    "directory": "packages/browser-image-enhancement"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

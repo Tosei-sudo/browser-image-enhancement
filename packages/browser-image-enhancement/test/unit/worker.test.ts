@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import type { ControlResponse } from '@browser-image/workers';
 import { compile, processPixels } from '../../src/core/process.js';
 import { normalizeOp } from '../../src/ops/index.js';
 import type { OpSpec } from '../../src/types.js';
@@ -98,7 +99,7 @@ describe('splitRows', () => {
 
 describe('worker message handler', () => {
   function collect() {
-    const out: WorkerResponse[] = [];
+    const out: Array<WorkerResponse | ControlResponse> = [];
     return { out, handle: createWorkerHandler((m) => out.push(m)) };
   }
 

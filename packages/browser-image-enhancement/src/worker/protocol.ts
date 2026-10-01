@@ -16,8 +16,7 @@ export type WorkerRequest =
   | { type: 'process'; id: number; ops: OpSpec[]; mode: ResolvedMode }
   | { type: 'release'; id: number };
 
+/** Answers to requests. `ready` and `error` are sent too; see `ControlResponse` in @browser-image/workers. */
 export type WorkerResponse =
-  | { type: 'ready' }
   | { type: 'detected'; id: number; mono: boolean }
-  | { type: 'done'; id: number; buffer: ArrayBuffer; mode: ResolvedMode }
-  | { type: 'error'; id: number; message: string };
+  | { type: 'done'; id: number; buffer: ArrayBuffer; mode: ResolvedMode };
