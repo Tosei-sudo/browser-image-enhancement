@@ -424,21 +424,31 @@ test('works after being bundled by Vite in a consumer app', async ({ page }) => 
   expect(r).toEqual({ workers: 2, same: true });
 });
 
-test('demo page renders and reacts to sliders', async ({ page }) => {
+test('demo page renders and reacts to sliders, on the GPU and in workers', async ({ page }) => {
   await page.goto('/demo-dist/index.html');
   const status = page.locator('#status');
-  await expect(status).toContainText('640×400');
-  const before = await page.evaluate(() => {
-    const c = document.getElementById('view') as HTMLCanvasElement;
-    return Array.from(c.getContext('2d')!.getImageData(10, 10, 1, 1).data);
-  });
-  await page.locator('#sliders input').first().fill('0.5');
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const c = document.getElementById('view') as HTMLCanvasElement;
-        return Array.from(c.getContext('2d')!.getImageData(10, 10, 1, 1).data);
-      }),
-    )
-    .not.toEqual(before);
+  // The pixel at (10, 10) of whichever canvas is shown.
+  const pixel = () =>
+    page.evaluate(() => {
+      const shown = [...document.querySelectorAll('canvas')].find((c) => !c.hidden)!;
+      const copy = document.createElement('canvas');
+      copy.width = shown.width;
+      copy.height = shown.height;
+      const ctx = copy.getContext('2d')!;
+      ctx.drawImage(shown, 0, 0);
+      return [shown.id, ...ctx.getImageData(10, 10, 1, 1).data];
+    });
+  await expect(status).toContainText('640×400 · GPU');
+  const before = await pixel();
+  expect(before[0]).toBe('gpuView');
+  const slider = page.locator('#sliders input').first();
+  await slider.fill('0.5');
+  await expect.poll(pixel).not.toEqual(before);
+  const onGpu = await pixel();
+
+  await page.locator('#gpu').uncheck();
+  await expect(status).not.toContainText('GPU');
+  await expect.poll(pixel).toEqual(['view', ...onGpu.slice(1)]);
+  await slider.fill('0');
+  await expect.poll(pixel).toEqual(['view', ...before.slice(1)]);
 });

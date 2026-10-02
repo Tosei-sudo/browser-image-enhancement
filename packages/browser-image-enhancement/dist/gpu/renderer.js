@@ -1,0 +1,274 @@
+import { createImageData } from "../workers/src/image.js";
+import { COLOR_ONLY_OPS, isIdentity, kernelRadius, normalizeOp } from "../ops/index.js";
+import { forGray, resolveMode } from "../core/process.js";
+import { countPixels, needsStats, resolveOps } from "../core/histogram.js";
+import { warnColorOnly } from "../functional.js";
+import { DECODE, PRESENT, VERTEX, horizontalShader, opParams, pixelShader, verticalShader } from "./shaders.js";
+//#region src/gpu/renderer.ts
+/**
+* WebGL2 renderer: the same corrections as the JS engine, computed on the GPU
+* at full resolution, fast enough to follow a slider. The image is uploaded
+* once; each `render` runs a few fullscreen passes and draws the result to a
+* canvas, without reading pixels back unless asked.
+*
+* Results match the JS engine to within one 8-bit level (float32 on the GPU
+* instead of float64). Use the pipeline's `run` for the final, exact output.
+*/
+/**
+* Creates a WebGL2 renderer, or returns `null` when the browser cannot run
+* one (no WebGL2, or no rendering to float textures), so callers can fall
+* back to the pipeline's `run`.
+*
+* @example
+* ```ts
+* const gpu = createGpuRenderer({ canvas: view });
+* if (gpu) {
+*   gpu.setImage(img);
+*   slider.oninput = () => gpu.render(current()); // full size, every move
+* }
+* ```
+*/
+function createGpuRenderer(options = {}) {
+	const canvas = options.canvas ?? newCanvas();
+	if (!canvas) return null;
+	const gl = canvas.getContext("webgl2", {
+		alpha: true,
+		premultipliedAlpha: false,
+		preserveDrawingBuffer: true,
+		antialias: false,
+		depth: false,
+		stencil: false
+	});
+	if (!gl || !gl.getExtension("EXT_color_buffer_float")) return null;
+	return new Renderer(gl, canvas);
+}
+function newCanvas() {
+	if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(1, 1);
+	if (typeof document !== "undefined") return document.createElement("canvas");
+	return null;
+}
+const ENCODED = ["encoded0", "encoded1"];
+var Renderer = class {
+	gl;
+	canvas;
+	maxSize;
+	programs = /* @__PURE__ */ new Map();
+	vertex;
+	lut;
+	kernel;
+	source = null;
+	image = null;
+	/**
+	* Render targets, allocated when first needed: encoded values between
+	* sharpens (RGBA32F, two for ping-pong), the horizontal blur (RG32F) and the
+	* result (RGBA8). At 12 MP the float ones take about 100-200 MB each.
+	*/
+	targets = /* @__PURE__ */ new Map();
+	params = /* @__PURE__ */ new Float32Array(8);
+	constructor(gl, canvas) {
+		this.gl = gl;
+		this.canvas = canvas;
+		this.maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
+		this.vertex = this.shader(gl.VERTEX_SHADER, VERTEX);
+		gl.bindVertexArray(gl.createVertexArray());
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
+		this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
+		this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, /* @__PURE__ */ new Float32Array(1));
+	}
+	setImage(image, options = {}) {
+		const { width, height, data } = image;
+		if (width > this.maxSize || height > this.maxSize) throw new RangeError(`${width}x${height} is larger than this GPU accepts (${this.maxSize} pixels per side).`);
+		const gl = this.gl;
+		const sameSize = this.image?.width === width && this.image.height === height;
+		this.image = {
+			data,
+			width,
+			height,
+			mode: resolveMode(data, options.colorMode),
+			stats: null
+		};
+		if (this.source) gl.deleteTexture(this.source);
+		const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+		this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, bytes);
+		if (!sameSize) this.freeTargets();
+		this.canvas.width = width;
+		this.canvas.height = height;
+	}
+	render(steps) {
+		const image = this.image;
+		if (!image || !this.source) throw new Error("Call setImage before render.");
+		const gl = this.gl;
+		const gray = image.mode === "gray";
+		let ops = ("ops" in steps ? steps.ops : steps).map(normalizeOp);
+		if (needsStats(ops)) {
+			image.stats ??= countPixels(image.data, image.width, image.mode);
+			ops = resolveOps(ops, image.stats);
+		}
+		if (gray) warnColorOnly(ops);
+		const plan = ops.filter((op) => !isIdentity(op) && !(gray && COLOR_ONLY_OPS.has(op.op))).map((op) => gray ? forGray(op) : op).map((op) => op.op === "sharpen" ? {
+			kind: "sharpen",
+			op
+		} : {
+			kind: "pixel",
+			op
+		});
+		gl.viewport(0, 0, image.width, image.height);
+		const firstSharpen = plan.findIndex((s) => s.kind === "sharpen");
+		const head = pixelOps(plan, 0);
+		let input = 0;
+		this.pass(pixelShader(head, gray, firstSharpen < 0), this.use(firstSharpen < 0 ? "result" : "encoded0"), [["u_src", this.source], ["u_lut", this.lut]], head);
+		for (let i = firstSharpen; i >= 0 && i < plan.length;) {
+			const { amount, radius, threshold } = plan[i].op;
+			const after = pixelOps(plan, i + 1);
+			const next = plan.findIndex((s, j) => j > i && s.kind === "sharpen");
+			const r = this.setKernel(radius);
+			const src = this.use(ENCODED[input]).texture;
+			const blur = this.use("blur");
+			this.pass(horizontalShader(gray), blur, [["u_src", src], ["u_kernel", this.kernel]], [], { u_r: r });
+			const out = this.use(next < 0 ? "result" : ENCODED[1 - input]);
+			this.pass(verticalShader(after, gray, next < 0), out, [
+				["u_src", src],
+				["u_blur", blur.texture],
+				["u_kernel", this.kernel]
+			], after, {
+				u_r: r,
+				u_amount: amount,
+				u_threshold: threshold
+			});
+			input = 1 - input;
+			i = next;
+		}
+		this.pass(PRESENT, null, [["u_src", this.use("result").texture]], []);
+	}
+	read() {
+		const image = this.image;
+		const result = this.targets.get("result");
+		if (!image || !result) throw new Error("Call render before read.");
+		const gl = this.gl;
+		const out = new Uint8ClampedArray(image.width * image.height * 4);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, result.framebuffer);
+		gl.readPixels(0, 0, image.width, image.height, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(out.buffer));
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		return createImageData(out, image.width, image.height);
+	}
+	dispose() {
+		const gl = this.gl;
+		this.freeTargets();
+		if (this.source) gl.deleteTexture(this.source);
+		gl.deleteTexture(this.lut);
+		gl.deleteTexture(this.kernel);
+		for (const p of this.programs.values()) gl.deleteProgram(p);
+		this.programs.clear();
+		gl.deleteShader(this.vertex);
+		this.source = null;
+		this.image = null;
+	}
+	/** Uploads the Gaussian weights for offsets -r..r (as in core/filter.ts) and returns r. */
+	setKernel(radius) {
+		const gl = this.gl;
+		const r = kernelRadius(radius);
+		const k = new Float32Array(2 * r + 1);
+		const s = 2 * radius * radius;
+		for (let i = -r; i <= r; i++) k[i + r] = Math.exp(-(i * i) / s);
+		gl.bindTexture(gl.TEXTURE_2D, this.kernel);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, k.length, 1, 0, gl.RED, gl.FLOAT, k);
+		return r;
+	}
+	/** Runs one fullscreen pass of `fragment` into `target` (null: the canvas). */
+	pass(fragment, target, textures, ops, scalars = {}) {
+		const gl = this.gl;
+		const program = this.program(fragment);
+		gl.useProgram(program);
+		textures.forEach(([name, texture], unit) => {
+			gl.activeTexture(gl.TEXTURE0 + unit);
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.uniform1i(gl.getUniformLocation(program, name), unit);
+		});
+		if (ops.length > 0) {
+			if (this.params.length < 8 * ops.length) this.params = new Float32Array(8 * ops.length);
+			ops.forEach((op, i) => opParams(op, this.params, i));
+			gl.uniform4fv(gl.getUniformLocation(program, "u_op"), this.params, 0, 8 * ops.length);
+		}
+		for (const [name, value] of Object.entries(scalars)) {
+			const at = gl.getUniformLocation(program, name);
+			if (name === "u_r") gl.uniform1i(at, value);
+			else gl.uniform1f(at, value);
+		}
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+	}
+	program(fragment) {
+		let p = this.programs.get(fragment);
+		if (p) return p;
+		const gl = this.gl;
+		p = gl.createProgram();
+		const f = this.shader(gl.FRAGMENT_SHADER, fragment);
+		gl.attachShader(p, this.vertex);
+		gl.attachShader(p, f);
+		gl.linkProgram(p);
+		gl.deleteShader(f);
+		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`WebGL program failed to link: ${gl.getProgramInfoLog(p) ?? ""}`);
+		this.programs.set(fragment, p);
+		return p;
+	}
+	shader(type, source) {
+		const gl = this.gl;
+		const s = gl.createShader(type);
+		gl.shaderSource(s, source);
+		gl.compileShader(s);
+		if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`WebGL shader failed to compile: ${gl.getShaderInfoLog(s) ?? ""}`);
+		return s;
+	}
+	texture(internal, width, height, format, type, data) {
+		const gl = this.gl;
+		const t = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, t);
+		for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+		for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T]) gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+		gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, type, data);
+		return t;
+	}
+	target(internal, width, height, format, type) {
+		const gl = this.gl;
+		const texture = this.texture(internal, width, height, format, type, null);
+		const framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`WebGL framebuffer is incomplete (0x${status.toString(16)}).`);
+		return {
+			texture,
+			framebuffer
+		};
+	}
+	use(name) {
+		let t = this.targets.get(name);
+		if (t) return t;
+		const gl = this.gl;
+		const { width, height } = this.image;
+		if (name === "result") t = this.target(gl.RGBA8, width, height, gl.RGBA, gl.UNSIGNED_BYTE);
+		else if (name === "blur") t = this.target(gl.RG32F, width, height, gl.RG, gl.FLOAT);
+		else t = this.target(gl.RGBA32F, width, height, gl.RGBA, gl.FLOAT);
+		this.targets.set(name, t);
+		return t;
+	}
+	freeTargets() {
+		for (const { texture, framebuffer } of this.targets.values()) {
+			this.gl.deleteTexture(texture);
+			this.gl.deleteFramebuffer(framebuffer);
+		}
+		this.targets.clear();
+	}
+};
+/** The per-pixel ops from `plan[from]` up to the next sharpen. */
+function pixelOps(plan, from) {
+	const out = [];
+	for (let i = from; i < plan.length && plan[i].kind === "pixel"; i++) out.push(plan[i].op);
+	return out;
+}
+//#endregion
+export { createGpuRenderer };
+
+//# sourceMappingURL=renderer.js.map

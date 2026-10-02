@@ -34,10 +34,10 @@ export type Stage = PixelStage | SpatialStage;
 export const COLOR_ONLY_OPS: ReadonlySet<OpName> = new Set<OpName>(['saturation', 'temperature']);
 
 /** Contrast pivots around sRGB 50 % gray so mid-gray stays put. */
-const CONTRAST_PIVOT = srgbToLinear(0.5);
+export const CONTRAST_PIVOT = srgbToLinear(0.5);
 
 /** Strength of `temperature`: at +1 red gain is 1.4x and blue 0.6x before luminance normalization. */
-const TEMPERATURE_STRENGTH = 0.4;
+export const TEMPERATURE_STRENGTH = 0.4;
 
 function num(name: string, value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {

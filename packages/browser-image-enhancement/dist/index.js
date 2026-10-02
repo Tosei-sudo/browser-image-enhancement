@@ -4,4 +4,5 @@ import { autoStretch, brightness, contrast, exposure, gamma, levels, saturation,
 import { computeStretch, histogram } from "./stats.js";
 import { configureWorkers, terminateWorkers } from "./worker/pool.js";
 import { Pipeline, createPreviewRunner, pipeline } from "./pipeline.js";
-export { Pipeline, autoStretch, brightness, computeStretch, configureWorkers, contrast, createPreviewRunner, exposure, gamma, histogram, isMonochrome, levels, mergeHistograms, pipeline, saturation, sharpen, stretch, temperature, terminateWorkers };
+import { createGpuRenderer } from "./gpu/renderer.js";
+export { Pipeline, autoStretch, brightness, computeStretch, configureWorkers, contrast, createGpuRenderer, createPreviewRunner, exposure, gamma, histogram, isMonochrome, levels, mergeHistograms, pipeline, saturation, sharpen, stretch, temperature, terminateWorkers };
