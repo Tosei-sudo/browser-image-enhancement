@@ -7,6 +7,7 @@ import { invertTransform, pointFunction, assertTransform } from './transform.js'
 import { halve, KERNEL_MARGIN, rowMapper, type Mapping } from './resample.js';
 import type { AffineMatrix, CoordinateTransform, RGBA, Resample, Transform } from './types.js';
 
+/** How the output image is laid out and sampled. Used by {@link warp} and {@link warpImageData}. */
 export interface OutputOptions {
   /** Interpolation. Default `bilinear`. */
   resample?: Resample;
@@ -36,6 +37,7 @@ export interface OutputOptions {
   yUp?: boolean;
 }
 
+/** Where a warped image sits in output coordinates. */
 export interface WarpInfo {
   /** Output pixel → output coordinates, GDAL order: `[x0, pixelWidth, rowRotation, y0, columnRotation, pixelHeight]`. */
   readonly geoTransform: readonly [number, number, number, number, number, number];

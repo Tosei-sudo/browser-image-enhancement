@@ -16,12 +16,17 @@ export { WorkerUnavailableError } from '@browser-image/workers';
 
 /** The part of `Worker` the pool uses. Lets tests and custom setups supply their own. */
 export interface WorkerLike {
+  /** Sends a job to the worker, transferring the listed buffers. */
   postMessage(message: WorkerRequest, transfer: Transferable[]): void;
+  /** Receives the worker's results and its `ready` message. */
   addEventListener(type: 'message', listener: (event: MessageEvent<WorkerResponse | ControlResponse>) => void): void;
+  /** Reports a worker that failed to load or to read a message. */
   addEventListener(type: 'error' | 'messageerror', listener: (event: Event) => void): void;
+  /** Stops the worker. */
   terminate(): void;
 }
 
+/** Settings for {@link configureWorkers}. */
 export interface WorkerConfig extends SharedWorkerConfig<WorkerRequest, WorkerResponse> {
   /** Creates a worker. Override to serve the worker script from a custom URL. */
   createWorker?: () => WorkerLike;

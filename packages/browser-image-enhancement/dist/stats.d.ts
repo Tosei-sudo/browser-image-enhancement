@@ -16,7 +16,9 @@ export declare function histogram(image: ImageDataLike, options?: HistogramOptio
  * use for an image with this histogram, as the first step of a pipeline.
  */
 export declare function computeStretch(stats: Histogram, options?: AutoStretchOptions): {
+  /** Per-channel input value that becomes black. */
   black: RGBValues;
+  /** Per-channel input value that becomes white. */
   white: RGBValues;
 };
 //#endregion

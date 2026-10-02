@@ -7,7 +7,7 @@
 - 計算はリニア RGB で行い、8bit への丸めは最後の 1 回だけ
 - モノクロ画像を自動判定し、輝度 1 チャンネルで処理（結果も R=G=B のまま）
 
-設計の背景は [docs/design.md](docs/design.md) にあります。
+設計の背景は [docs/design.md](docs/design.md) にあります。すべての関数・型の説明は [API リファレンス](https://tosei-sudo.github.io/browser-image-enhancement/modules/browser-image-enhancement.html) にあります。
 
 ## インストール
 
@@ -184,7 +184,7 @@ terminateWorkers(); // 使い終わったら Worker を止める（次の run �
 
 ## 地図（OpenLayers + COG）での利用
 
-[examples/openlayers-cog](examples/openlayers-cog/) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。地図の表示範囲の統計で引き伸ばす DRA も入っています。
+[examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。地図の表示範囲の統計で引き伸ばす DRA も入っています。
 
 ## 開発
 
@@ -199,7 +199,7 @@ npm run demo           # スライダーで補正を試せるデモ
 npm run example:ol     # OpenLayers + COG（GeoTIFF）に補正をかけて地図に重ねる例
 ```
 
-このパッケージはモノレポの一部です。Worker プールなどの共通部分は [packages/workers](../workers/)（非公開）にあり、ビルド時に `dist/` に取り込まれます。
+このパッケージはモノレポの一部です。Worker プールなどの共通部分は [packages/workers](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/workers)（非公開）にあり、ビルド時に `dist/` に取り込まれます。
 
 `dist/` はコミットしています（GitHub から CDN 配信するため）。`src/` や `packages/workers/src/` を変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
 

@@ -13,12 +13,18 @@ interface TransformBase {
    */
   readonly yUp?: boolean;
 }
+/** An affine transform: shift, rotation, scale and shear. */
 export interface AffineTransform extends TransformBase {
+  /** Discriminator. */
   readonly type: 'affine';
+  /** Source pixel → target coefficients. */
   readonly matrix: AffineMatrix;
 }
+/** A projective transform (homography), which can model perspective. */
 export interface ProjectiveTransform extends TransformBase {
+  /** Discriminator. */
   readonly type: 'projective';
+  /** Source pixel → target homography. */
   readonly matrix: ProjectiveMatrix;
 }
 /**
@@ -28,14 +34,20 @@ export interface ProjectiveTransform extends TransformBase {
  * followed by `u³, u²v, uv², v³` (order 3).
  */
 export interface PolynomialMap {
+  /** Subtracted from the input before scaling. */
   readonly origin: Point;
+  /** Divides the input after subtracting `origin`. */
   readonly scale: number;
+  /** Coefficients of X, one per term. */
   readonly x: readonly number[];
+  /** Coefficients of Y, one per term. */
   readonly y: readonly number[];
 }
 /** Polynomials have no closed-form inverse, so both directions are stored (as GDAL does). */
 export interface PolynomialTransform extends TransformBase {
+  /** Discriminator. */
   readonly type: 'polynomial';
+  /** Polynomial order. */
   readonly order: 2 | 3;
   /** Source pixel → target. */
   readonly forward: PolynomialMap;

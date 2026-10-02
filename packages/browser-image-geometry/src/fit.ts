@@ -11,8 +11,14 @@ export interface ControlPoint {
   readonly world: Point;
 }
 
+/**
+ * Which transform {@link fitTransform} estimates: `affine` (shift, rotation,
+ * scale, shear), `projective` (homography, for perspective), or a 2nd/3rd order
+ * polynomial (for gently curved distortion). See {@link MIN_POINTS}.
+ */
 export type TransformModel = 'affine' | 'projective' | 'polynomial2' | 'polynomial3';
 
+/** Options for {@link fitTransform}. */
 export interface FitOptions {
   /** Default `affine`. */
   model?: TransformModel;
@@ -23,14 +29,19 @@ export interface FitOptions {
   target?: 'map' | 'image';
 }
 
+/** How far the fitted transform misses one control point, in target units. */
 export interface Residual {
-  /** Fitted minus given target position. */
+  /** Fitted minus given target x. */
   readonly dx: number;
+  /** Fitted minus given target y. */
   readonly dy: number;
+  /** Length of `(dx, dy)`. */
   readonly distance: number;
 }
 
+/** What {@link fitTransform} returns. */
 export interface FitResult {
+  /** The fitted transform, ready for {@link warp} or {@link applyTransform}. */
   readonly transform: Transform;
   /** Root mean square of the residual distances, in target units. */
   readonly rms: number;

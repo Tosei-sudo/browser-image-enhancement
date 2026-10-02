@@ -13,7 +13,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "test:browser": "npm run test:browser --workspaces --if-present",
-    "check": "npm run lint && npm run typecheck && npm test && npm run test:browser"
+    "check": "npm run lint && npm run typecheck && npm run docs:check && npm test && npm run test:browser",
+    "docs": "typedoc",
+    "docs:check": "typedoc --emit none"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -23,6 +25,7 @@
     "ol": "^10.10.0",
     "proj4": "^2.22.0",
     "tsdown": "^0.23.0",
+    "typedoc": "^0.28.20",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.0",
     "vite": "^8.3.2",

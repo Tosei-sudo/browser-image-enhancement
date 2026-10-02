@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/playwright-report/',
       '**/.bundled-test/',
       '**/.example-dist/',
+      'api-docs/',
     ],
   },
   js.configs.recommended,

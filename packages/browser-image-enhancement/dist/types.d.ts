@@ -53,33 +53,42 @@ export interface AutoStretchOptions {
 /** A single correction step in serializable form. */
 export type OpSpec = {
   op: 'brightness';
+  /** -1 to 1. */
   amount: number;
 } | {
   op: 'contrast';
+  /** -1 to 1. */
   amount: number;
 } | {
   op: 'exposure';
+  /** Exposure in EV stops, -10 to 10. */
   ev: number;
 } | {
   op: 'gamma';
+  /** Gamma, 0.1 to 10. Above 1 brightens midtones. */
   gamma: number;
 } | {
   op: 'saturation';
+  /** -1 (grayscale) to 1 (double). */
   amount: number;
 } | {
   op: 'temperature';
+  /** -1 (cooler/bluer) to 1 (warmer/yellower). */
   amount: number;
 } | ({
   op: 'levels';
 } & Required<LevelsOptions>) | {
   op: 'stretch';
+  /** Per-channel input value that becomes black. */
   black: RGBValues;
+  /** Per-channel input value that becomes white. */
   white: RGBValues;
 } |
 /** Replaced by a `stretch` computed from the image's statistics before it runs. */
 ({
   op: 'autoStretch';
 } & Required<AutoStretchOptions>);
+/** The name of a correction step. */
 export type OpName = OpSpec['op'];
 /** Options shared by every entry point. */
 export interface ColorOptions {
@@ -88,9 +97,13 @@ export interface ColorOptions {
 }
 /** A rectangle in pixels. */
 export interface Rect {
+  /** Left edge. */
   x: number;
+  /** Top edge. */
   y: number;
+  /** Width. */
   width: number;
+  /** Height. */
   height: number;
 }
 /**

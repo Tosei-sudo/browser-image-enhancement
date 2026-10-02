@@ -27,6 +27,14 @@ export function histogram(image: ImageDataLike, options: HistogramOptions = {}):
  * The black and white points (sRGB-encoded, per channel) `autoStretch` would
  * use for an image with this histogram, as the first step of a pipeline.
  */
-export function computeStretch(stats: Histogram, options?: AutoStretchOptions): { black: RGBValues; white: RGBValues } {
+export function computeStretch(
+  stats: Histogram,
+  options?: AutoStretchOptions,
+): {
+  /** Per-channel input value that becomes black. */
+  black: RGBValues;
+  /** Per-channel input value that becomes white. */
+  white: RGBValues;
+} {
   return stretchRange(stats, options);
 }
