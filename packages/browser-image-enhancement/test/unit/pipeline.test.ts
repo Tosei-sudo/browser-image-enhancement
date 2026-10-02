@@ -174,3 +174,14 @@ describe('createPreviewRunner', () => {
     await expect(preview.run(pipeline(), { data: new Uint8ClampedArray(1), width: 1, height: 1 })).rejects.toThrow(RangeError);
   });
 });
+
+describe('Pipeline.scaled', () => {
+  it('scales the sharpen radius and leaves other steps alone', () => {
+    const p = pipeline().exposure(0.5).sharpen({ amount: 1, radius: 2 }).contrast(0.1);
+    const half = p.scaled(0.5);
+    expect(half.ops).toEqual([p.ops[0], { op: 'sharpen', amount: 1, radius: 1, threshold: 0 }, p.ops[2]]);
+    expect(p.scaled(1)).toBe(p);
+    expect(pipeline().sharpen({ radius: 0.5 }).scaled(0.01).ops[0]).toMatchObject({ radius: 0.1 });
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});

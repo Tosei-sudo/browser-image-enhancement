@@ -30,6 +30,8 @@ for (const s of sliders) {
     out.textContent = input.value;
     render();
   });
+  // While dragging the preview works on a shrunk copy; the full-size result follows on release.
+  input.addEventListener('change', () => render(true));
   inputs[s.key] = input;
   $('sliders').append(label);
 }
@@ -47,18 +49,21 @@ const current = () =>
     .sharpen({ amount: v('sharpen'), radius: v('sharpenRadius'), threshold: v('sharpenThreshold') });
 
 let source: ImageDataLike = sampleImage();
-let preview = makeRunner();
+let preview = makeRunner(1280);
+let full = makeRunner();
 
-function makeRunner() {
+function makeRunner(maxSize?: number) {
   return createPreviewRunner({
     colorMode: $<HTMLSelectElement>('colorMode').value as ColorMode,
     worker: $<HTMLInputElement>('worker').checked,
+    maxSize,
   });
 }
 
-async function render() {
+async function render(fullSize = false) {
   const t0 = performance.now();
-  const result = await preview.run(current(), source);
+  (fullSize ? preview : full).cancel();
+  const result = await (fullSize ? full : preview).run(current(), source);
   if (!result) return; // superseded by a newer slider value
   view.width = result.width;
   view.height = result.height;
@@ -87,13 +92,15 @@ $<HTMLInputElement>('file').addEventListener('change', async (e) => {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
   source = await pipeline().run(file); // decode once (applies EXIF orientation, converts to sRGB)
-  render();
+  render(true);
 });
 for (const id of ['colorMode', 'worker']) {
   $(id).addEventListener('change', () => {
     preview.cancel();
-    preview = makeRunner();
-    render();
+    full.cancel();
+    preview = makeRunner(1280);
+    full = makeRunner();
+    render(true);
   });
 }
 $('reset').addEventListener('click', () => {
@@ -101,7 +108,7 @@ $('reset').addEventListener('click', () => {
     inputs[s.key].value = String(s.value);
     inputs[s.key].nextElementSibling!.textContent = String(s.value);
   }
-  render();
+  render(true);
 });
 $('download').addEventListener('click', async () => {
   const blob = await current().run(source, { output: 'blob', colorMode: $<HTMLSelectElement>('colorMode').value as ColorMode });
@@ -112,4 +119,4 @@ $('download').addEventListener('click', async () => {
   URL.revokeObjectURL(a.href);
 });
 
-render();
+render(true);

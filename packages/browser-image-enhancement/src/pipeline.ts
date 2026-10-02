@@ -8,6 +8,7 @@ import { extractGray } from './core/process.js';
 import { applySync, warnColorOnly } from './functional.js';
 import { toBlob, toCanvas, toImageData, type ImageInput } from './io.js';
 import { marginOf, normalizeOp } from './ops/index.js';
+import { downscale } from './preview.js';
 import type {
   AutoStretchOptions,
   ColorOptions,
@@ -176,6 +177,16 @@ export class Pipeline {
     return marginOf(this.ops);
   }
 
+  /**
+   * The same correction for the image shrunk by `factor` (0.5 = half the
+   * width and height): pixel distances (the `sharpen` radius) are scaled with
+   * it, so a preview on a smaller copy looks like the full-size result.
+   */
+  scaled(factor: number): Pipeline {
+    if (!(factor > 0) || factor === 1) return this;
+    return new Pipeline(this.ops.map((op) => (op.op === 'sharpen' ? { ...op, radius: Math.min(50, Math.max(0.1, op.radius * factor)) } : op)));
+  }
+
   /** True when the pipeline has `autoStretch` steps that still need statistics. */
   get needsStats(): boolean {
     return needsStats(this.ops);
@@ -236,6 +247,18 @@ export function pipeline(): Pipeline {
 /** Same as {@link Pipeline.fromJSON}. */
 pipeline.fromJSON = Pipeline.fromJSON;
 
+/** Options for {@link createPreviewRunner}. */
+export interface PreviewOptions extends Omit<RunOptions, 'signal'> {
+  /**
+   * Longest side, in pixels, the preview is computed at. A larger input is
+   * shrunk once (and reused while the same input is passed) and each run
+   * works on the small copy, with the `sharpen` radius scaled to match, so
+   * slider moves are fast. Results then have the reduced size. Default: no
+   * limit. Run the pipeline on the original for the final full-size result.
+   */
+  maxSize?: number;
+}
+
 /** Created by {@link createPreviewRunner}. */
 export interface PreviewRunner<O extends RunOptions | undefined> {
   /**
@@ -249,15 +272,22 @@ export interface PreviewRunner<O extends RunOptions | undefined> {
 
 /**
  * For slider previews: each call supersedes the previous one. The last decoded
- * input is reused while the same input object is passed again.
+ * (and, with `maxSize`, shrunk) input is reused while the same input object is
+ * passed again.
+ *
+ * @example
+ * ```ts
+ * const preview = createPreviewRunner({ maxSize: 1280 });
+ * slider.oninput = async () => show(await preview.run(current(), img));
+ * slider.onchange = async () => show(await current().run(img)); // full size on release
+ * ```
  */
-export function createPreviewRunner<O extends Omit<RunOptions, 'signal'> | undefined = undefined>(
-  options?: O,
-): PreviewRunner<O> {
+export function createPreviewRunner<O extends PreviewOptions | undefined = undefined>(options?: O): PreviewRunner<O> {
   let generation = 0;
   let controller: AbortController | null = null;
   let lastInput: ImageInput | null = null;
-  let lastDecoded: Promise<ImageDataLike> | null = null;
+  let lastDecoded: Promise<{ image: ImageDataLike; scale: number }> | null = null;
+  const { maxSize, ...runOptions } = (options ?? {}) as PreviewOptions;
 
   return {
     async run(p, input) {
@@ -267,7 +297,9 @@ export function createPreviewRunner<O extends Omit<RunOptions, 'signal'> | undef
       controller = current;
       if (input !== lastInput || !lastDecoded) {
         lastInput = input;
-        lastDecoded = toImageData(input);
+        lastDecoded = toImageData(input).then((image) =>
+          maxSize !== undefined && maxSize > 0 ? downscale(image, maxSize) : { image, scale: 1 },
+        );
         lastDecoded.catch(() => {
           if (lastInput === input) lastDecoded = null;
         });
@@ -275,7 +307,7 @@ export function createPreviewRunner<O extends Omit<RunOptions, 'signal'> | undef
       try {
         const decoded = await lastDecoded;
         if (mine !== generation) return null;
-        const result = await p.run(decoded, { ...(options ?? {}), signal: current.signal } as RunOptions);
+        const result = await p.scaled(decoded.scale).run(decoded.image, { ...runOptions, signal: current.signal } as RunOptions);
         return mine === generation ? (result as RunResult<O>) : null;
       } catch (e) {
         if (mine !== generation) return null;

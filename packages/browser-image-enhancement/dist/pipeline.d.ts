@@ -106,6 +106,12 @@ export declare class Pipeline {
    * pipeline has `sharpen` steps.
    */
   get margin(): number;
+  /**
+   * The same correction for the image shrunk by `factor` (0.5 = half the
+   * width and height): pixel distances (the `sharpen` radius) are scaled with
+   * it, so a preview on a smaller copy looks like the full-size result.
+   */
+  scaled(factor: number): Pipeline;
   /** True when the pipeline has `autoStretch` steps that still need statistics. */
   get needsStats(): boolean;
   /**
@@ -127,6 +133,17 @@ export declare function pipeline(): Pipeline;
 export declare namespace pipeline {
   var fromJSON: typeof Pipeline.fromJSON;
 }
+/** Options for {@link createPreviewRunner}. */
+export interface PreviewOptions extends Omit<RunOptions, 'signal'> {
+  /**
+   * Longest side, in pixels, the preview is computed at. A larger input is
+   * shrunk once (and reused while the same input is passed) and each run
+   * works on the small copy, with the `sharpen` radius scaled to match, so
+   * slider moves are fast. Results then have the reduced size. Default: no
+   * limit. Run the pipeline on the original for the final full-size result.
+   */
+  maxSize?: number;
+}
 /** Created by {@link createPreviewRunner}. */
 export interface PreviewRunner<O extends RunOptions | undefined> {
   /**
@@ -139,8 +156,16 @@ export interface PreviewRunner<O extends RunOptions | undefined> {
 }
 /**
  * For slider previews: each call supersedes the previous one. The last decoded
- * input is reused while the same input object is passed again.
+ * (and, with `maxSize`, shrunk) input is reused while the same input object is
+ * passed again.
+ *
+ * @example
+ * ```ts
+ * const preview = createPreviewRunner({ maxSize: 1280 });
+ * slider.oninput = async () => show(await preview.run(current(), img));
+ * slider.onchange = async () => show(await current().run(img)); // full size on release
+ * ```
  */
-export declare function createPreviewRunner<O extends Omit<RunOptions, 'signal'> | undefined = undefined>(options?: O): PreviewRunner<O>;
+export declare function createPreviewRunner<O extends PreviewOptions | undefined = undefined>(options?: O): PreviewRunner<O>;
 //#endregion
 //# sourceMappingURL=pipeline.d.ts.map

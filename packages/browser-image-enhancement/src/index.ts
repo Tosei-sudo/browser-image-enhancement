@@ -18,6 +18,7 @@ export {
   type GrayImage,
   type OutputKind,
   type PipelineJSON,
+  type PreviewOptions,
   type PreviewRunner,
   type RunOptions,
   type RunResult,
