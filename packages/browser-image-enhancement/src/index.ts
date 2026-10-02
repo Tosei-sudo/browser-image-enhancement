@@ -18,11 +18,13 @@ export {
   type GrayImage,
   type OutputKind,
   type PipelineJSON,
+  type PreviewOptions,
   type PreviewRunner,
   type RunOptions,
   type RunResult,
 } from './pipeline.js';
 export { isMonochrome } from './core/process.js';
+export { createGpuRenderer, type GpuRenderer, type GpuRendererOptions } from './gpu/renderer.js';
 export { configureWorkers, terminateWorkers, type WorkerConfig, type WorkerLike } from './worker/pool.js';
 export type { ImageInput } from './io.js';
 export type {

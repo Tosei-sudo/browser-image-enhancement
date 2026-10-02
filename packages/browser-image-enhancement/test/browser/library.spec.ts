@@ -334,6 +334,38 @@ test('preview runner keeps only the latest result', async ({ page }) => {
   expect(r.lastOk).toBe(true);
 });
 
+test('preview runner with maxSize works on a shrunk copy, fast enough for sliders', async ({ page }) => {
+  const r = await page.evaluate(async () => {
+    const { lib, helpers } = window;
+    const big = helpers.noise(4000, 3000, 4);
+    const preview = lib.createPreviewRunner({ maxSize: 1280 });
+    const full = () =>
+      lib.pipeline().autoStretch().exposure(0.2).contrast(0.2).levels({ inBlack: 0.02, inWhite: 0.98 }).temperature(0.1).saturation(0.2).sharpen({ amount: 0.8, radius: 2 });
+    const first = (await preview.run(full(), big))!; // shrinks the input once
+    // Slider moves: the shrunk copy is reused.
+    const times: number[] = [];
+    for (const ev of [0.1, 0.2, 0.3, 0.4, 0.5]) {
+      const t0 = performance.now();
+      await preview.run(full().exposure(ev), big);
+      times.push(performance.now() - t0);
+    }
+    // Same as running the scaled pipeline on a copy shrunk the same way.
+    const c = new OffscreenCanvas(1280, 960);
+    const ctx = c.getContext('2d')!;
+    ctx.imageSmoothingQuality = 'high';
+    const src = new OffscreenCanvas(4000, 3000);
+    src.getContext('2d')!.putImageData(big, 0, 0);
+    ctx.drawImage(src, 0, 0, 1280, 960);
+    const small = ctx.getImageData(0, 0, 1280, 960);
+    const expected = full().scaled(0.32).runSync(small);
+    times.sort((a, b) => a - b);
+    return { size: [first.width, first.height], same: helpers.same(first.data, expected.data), median: Math.round(times[2]) };
+  });
+  console.log(`preview 4000x3000 -> 1280x960, 7 steps with sharpen: median ${r.median} ms per slider move`);
+  expect(r.size).toEqual([1280, 960]);
+  expect(r.same).toBe(true);
+});
+
 test('abort rejects with AbortError', async ({ page }) => {
   const name = await page.evaluate(async () => {
     const { helpers } = window;
@@ -392,21 +424,31 @@ test('works after being bundled by Vite in a consumer app', async ({ page }) => 
   expect(r).toEqual({ workers: 2, same: true });
 });
 
-test('demo page renders and reacts to sliders', async ({ page }) => {
+test('demo page renders and reacts to sliders, on the GPU and in workers', async ({ page }) => {
   await page.goto('/demo-dist/index.html');
   const status = page.locator('#status');
-  await expect(status).toContainText('640×400');
-  const before = await page.evaluate(() => {
-    const c = document.getElementById('view') as HTMLCanvasElement;
-    return Array.from(c.getContext('2d')!.getImageData(10, 10, 1, 1).data);
-  });
-  await page.locator('#sliders input').first().fill('0.5');
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const c = document.getElementById('view') as HTMLCanvasElement;
-        return Array.from(c.getContext('2d')!.getImageData(10, 10, 1, 1).data);
-      }),
-    )
-    .not.toEqual(before);
+  // The pixel at (10, 10) of whichever canvas is shown.
+  const pixel = () =>
+    page.evaluate(() => {
+      const shown = [...document.querySelectorAll('canvas')].find((c) => !c.hidden)!;
+      const copy = document.createElement('canvas');
+      copy.width = shown.width;
+      copy.height = shown.height;
+      const ctx = copy.getContext('2d')!;
+      ctx.drawImage(shown, 0, 0);
+      return [shown.id, ...ctx.getImageData(10, 10, 1, 1).data];
+    });
+  await expect(status).toContainText('640×400 · GPU');
+  const before = await pixel();
+  expect(before[0]).toBe('gpuView');
+  const slider = page.locator('#sliders input').first();
+  await slider.fill('0.5');
+  await expect.poll(pixel).not.toEqual(before);
+  const onGpu = await pixel();
+
+  await page.locator('#gpu').uncheck();
+  await expect(status).not.toContainText('GPU');
+  await expect.poll(pixel).toEqual(['view', ...onGpu.slice(1)]);
+  await slider.fill('0');
+  await expect.poll(pixel).toEqual(['view', ...before.slice(1)]);
 });

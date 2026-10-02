@@ -25,13 +25,17 @@
           <span></span>
         </label>
         <label><span>Worker</span><input type="checkbox" id="worker" checked /><span></span></label>
+        <label><span>GPU</span><input type="checkbox" id="gpu" checked /><span></span></label>
       </fieldset>
       <fieldset id="sliders"><legend>補正</legend></fieldset>
       <button type="button" id="reset">リセット</button>
       <button type="button" id="download">PNG で保存</button>
       <p id="status"></p>
     </form>
-    <canvas id="view"></canvas>
+    <div>
+      <canvas id="view"></canvas>
+      <canvas id="gpuView" hidden></canvas>
+    </div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

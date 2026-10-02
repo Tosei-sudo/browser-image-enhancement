@@ -272,6 +272,6 @@ function toStage(op) {
 	}
 }
 //#endregion
-export { COLOR_ONLY_OPS, isIdentity, kernelRadius, marginOf, normalizeAutoStretch, normalizeLevels, normalizeOp, normalizeSharpen, normalizeStretch, toStage };
+export { COLOR_ONLY_OPS, CONTRAST_PIVOT, TEMPERATURE_STRENGTH, isIdentity, kernelRadius, marginOf, normalizeAutoStretch, normalizeLevels, normalizeOp, normalizeSharpen, normalizeStretch, toStage };
 
 //# sourceMappingURL=index.js.map

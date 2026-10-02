@@ -1,6 +1,6 @@
 import { LUMA_B, LUMA_G, LUMA_R, SRGB_TO_LINEAR, linearToSrgb, quantize, srgbToLinear } from "../color/srgb.js";
 import { COLOR_ONLY_OPS, isIdentity, toStage } from "../ops/index.js";
-import { sharpenPlanes } from "./filter.js";
+import { sharpenPlanes, sharpenRows } from "./filter.js";
 import { Quantizer } from "./quantizer.js";
 //#region src/core/process.ts
 /**
@@ -128,13 +128,15 @@ function compileSpatial(rest, lutLinear, leading, encodeTable, fuse) {
 		for (let i = 0; i < 256; i++) e[i] = linearToSrgb(t[i]);
 		return e;
 	}) : null;
+	const stream = fuse && filters.length === 1;
 	return {
 		lead: chain(leading, 0),
 		lutEncoded,
 		filters,
 		middle,
 		tail,
-		tailTakesEncoded
+		tailTakesEncoded,
+		stream
 	};
 }
 /** True when every pixel has R = G = B. Stops at the first colored pixel. */
@@ -228,48 +230,19 @@ function runStages(stages, v) {
 }
 function processSpatial(src, dst, p, sp, width) {
 	const n = src.length >> 2;
-	const rgb = p.mode === "rgb";
-	const planes = Array.from({ length: rgb ? 3 : 1 }, () => new Float32Array(n));
-	const [p0, p1, p2] = planes;
-	const v = /* @__PURE__ */ new Float64Array(3);
-	const enc = sp.lutEncoded;
-	const lin = p.lutLinear;
-	if (rgb && enc) {
-		const [e0, e1, e2] = enc;
-		for (let j = 0, i = 0; j < n; j++, i += 4) {
-			p0[j] = e0[src[i]];
-			p1[j] = e1[src[i + 1]];
-			p2[j] = e2[src[i + 2]];
-		}
-	} else if (rgb) {
-		const [l0, l1, l2] = lin;
-		for (let j = 0, i = 0; j < n; j++, i += 4) {
-			v[0] = l0[src[i]];
-			v[1] = l1[src[i + 1]];
-			v[2] = l2[src[i + 2]];
-			runStages(p.middle, v);
-			p0[j] = linearToSrgb(v[0]);
-			p1[j] = linearToSrgb(v[1]);
-			p2[j] = linearToSrgb(v[2]);
-		}
-	} else {
-		const e0 = enc ? enc[0] : null;
-		const l0 = lin[0];
-		for (let j = 0, i = 0; j < n; j++, i += 4) {
-			const r = src[i];
-			const g = src[i + 1];
-			const b = src[i + 2];
-			if (r === g && g === b) p0[j] = e0 ? e0[r] : linearToSrgb(applyChannel(p.middle, l0[r]));
-			else {
-				const y = LUMA_R * SRGB_TO_LINEAR[r] + LUMA_G * SRGB_TO_LINEAR[g] + LUMA_B * SRGB_TO_LINEAR[b];
-				p0[j] = linearToSrgb(applyChannel(p.middle, sp.lead(y)));
-			}
-		}
+	const channels = p.mode === "rgb" ? 3 : 1;
+	if (sp.stream) {
+		sharpenRows(src, width, channels, sp.filters[0].stage, (y, out, o) => head(src, p, sp, y * width, (y + 1) * width, out, o), (y, vals, o) => finish(src, dst, sp, y * width, (y + 1) * width, vals, o));
+		return;
 	}
+	const planes = Array.from({ length: channels }, () => new Float32Array(n));
+	head(src, p, sp, 0, n, planes, 0);
+	const v = /* @__PURE__ */ new Float64Array(3);
+	const [p0, p1, p2] = planes;
 	for (const { stage, after } of sp.filters) {
 		sharpenPlanes(planes, src, width, stage);
 		if (after.length === 0) continue;
-		for (let j = 0; j < n; j++) if (rgb) {
+		for (let j = 0; j < n; j++) if (channels === 3) {
 			v[0] = srgbToLinear(p0[j]);
 			v[1] = srgbToLinear(p1[j]);
 			v[2] = srgbToLinear(p2[j]);
@@ -279,18 +252,66 @@ function processSpatial(src, dst, p, sp, width) {
 			p2[j] = linearToSrgb(v[2]);
 		} else p0[j] = linearToSrgb(applyChannel(after, srgbToLinear(p0[j])));
 	}
+	finish(src, dst, sp, 0, n, planes, 0);
+}
+/**
+* Steps before the first spatial step for pixels j0..j1: input codes ->
+* encoded values, written to `out[c]` from index `o`.
+*/
+function head(src, p, sp, j0, j1, out, o) {
+	const [p0, p1, p2] = out;
+	const enc = sp.lutEncoded;
+	const lin = p.lutLinear;
+	if (p.mode === "rgb" && enc) {
+		const [e0, e1, e2] = enc;
+		for (let j = j0, i = j0 * 4, k = o; j < j1; j++, i += 4, k++) {
+			p0[k] = e0[src[i]];
+			p1[k] = e1[src[i + 1]];
+			p2[k] = e2[src[i + 2]];
+		}
+	} else if (p.mode === "rgb") {
+		const [l0, l1, l2] = lin;
+		const v = /* @__PURE__ */ new Float64Array(3);
+		for (let j = j0, i = j0 * 4, k = o; j < j1; j++, i += 4, k++) {
+			v[0] = l0[src[i]];
+			v[1] = l1[src[i + 1]];
+			v[2] = l2[src[i + 2]];
+			runStages(p.middle, v);
+			p0[k] = linearToSrgb(v[0]);
+			p1[k] = linearToSrgb(v[1]);
+			p2[k] = linearToSrgb(v[2]);
+		}
+	} else {
+		const e0 = enc ? enc[0] : null;
+		const l0 = lin[0];
+		for (let j = j0, i = j0 * 4, k = o; j < j1; j++, i += 4, k++) {
+			const r = src[i];
+			const g = src[i + 1];
+			const b = src[i + 2];
+			if (r === g && g === b) p0[k] = e0 ? e0[r] : linearToSrgb(applyChannel(p.middle, l0[r]));
+			else {
+				const y = LUMA_R * SRGB_TO_LINEAR[r] + LUMA_G * SRGB_TO_LINEAR[g] + LUMA_B * SRGB_TO_LINEAR[b];
+				p0[k] = linearToSrgb(applyChannel(p.middle, sp.lead(y)));
+			}
+		}
+	}
+}
+/** Steps after the last spatial step for pixels j0..j1 (values in `vals[c]` from index `o`), then rounding to 8 bits. */
+function finish(src, dst, sp, j0, j1, vals, o) {
 	const { middle, tail, tailTakesEncoded } = sp;
-	if (rgb) {
+	const [p0, p1, p2] = vals;
+	if (vals.length === 3) {
 		const [t0, t1, t2] = tail;
-		for (let j = 0, i = 0; j < n; j++, i += 4) {
+		const v = /* @__PURE__ */ new Float64Array(3);
+		for (let i = j0 * 4, k = o, end = j1 * 4; i < end; i += 4, k++) {
 			if (tailTakesEncoded) {
-				dst[i] = t0.quantize(p0[j]);
-				dst[i + 1] = t1.quantize(p1[j]);
-				dst[i + 2] = t2.quantize(p2[j]);
+				dst[i] = t0.quantize(p0[k]);
+				dst[i + 1] = t1.quantize(p1[k]);
+				dst[i + 2] = t2.quantize(p2[k]);
 			} else {
-				v[0] = srgbToLinear(p0[j]);
-				v[1] = srgbToLinear(p1[j]);
-				v[2] = srgbToLinear(p2[j]);
+				v[0] = srgbToLinear(p0[k]);
+				v[1] = srgbToLinear(p1[k]);
+				v[2] = srgbToLinear(p2[k]);
 				runStages(middle, v);
 				dst[i] = t0.quantize(v[0]);
 				dst[i + 1] = t1.quantize(v[1]);
@@ -300,8 +321,8 @@ function processSpatial(src, dst, p, sp, width) {
 		}
 	} else {
 		const t0 = tail[0];
-		for (let j = 0, i = 0; j < n; j++, i += 4) {
-			const out = tailTakesEncoded ? t0.quantize(p0[j]) : t0.quantize(applyChannel(middle, srgbToLinear(p0[j])));
+		for (let i = j0 * 4, k = o, end = j1 * 4; i < end; i += 4, k++) {
+			const out = tailTakesEncoded ? t0.quantize(p0[k]) : t0.quantize(applyChannel(middle, srgbToLinear(p0[k])));
 			dst[i] = out;
 			dst[i + 1] = out;
 			dst[i + 2] = out;

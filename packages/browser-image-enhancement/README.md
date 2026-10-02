@@ -91,7 +91,49 @@ slider.oninput = async () => {
 };
 ```
 
-新しい要求が来ると古い要求の結果は捨てられ、最新の結果だけが返ります。同じ入力を続けて渡したときはデコード結果を使い回します。大きな画像は縮小してからプレビューし、確定時だけ原寸で処理するのがおすすめです。
+新しい要求が来ると古い要求の結果は捨てられ、最新の結果だけが返ります。同じ入力を続けて渡したときはデコード結果を使い回します。
+
+大きな画像では `maxSize` を指定すると、長辺がその大きさになるよう 1 回だけ縮小したコピーでプレビューします（シャープの半径も縮小率に合わせます）。スライダーを動かしている間は縮小版、離したときだけ原寸で処理すると、操作に追従します。
+
+```ts
+const preview = createPreviewRunner({ maxSize: 1280 });
+slider.oninput = async () => show(await preview.run(current(), img));  // 縮小版
+slider.onchange = async () => show(await current().run(img));         // 原寸
+```
+
+参考値（1200 万画素の写真、ヘッドレス Chromium・4 コア、Worker 使用、スライダー 1 回あたり）:
+
+| プレビューの長辺 | 点処理 5 個 | ＋彩度 | ＋DRA・シャープ |
+| --- | --- | --- | --- |
+| 800 px | 5 ms | 16 ms | 57 ms |
+| 1280 px | 9 ms | 27 ms | 89 ms |
+| 1920 px | 17 ms | 59 ms | 180 ms |
+| 原寸（4000 px） | 86 ms | 246 ms | 888 ms |
+
+縮小版は `pipeline.scaled(縮小率)` を縮小した画像に掛けたものと同じです。
+
+### GPU（WebGL2）で原寸のままプレビュー
+
+WebGL2 が使えるブラウザでは、`createGpuRenderer` で原寸の画像をスライダーに合わせて GPU で補正し、canvas に直接描けます。画像は最初に 1 回だけ GPU に送り、以降は補正の値が変わるたびに描き直すだけです。
+
+```ts
+import { createGpuRenderer, pipeline } from 'browser-image-enhancement';
+
+const gpu = createGpuRenderer({ canvas: view }); // WebGL2 が使えなければ null
+if (gpu) {
+  gpu.setImage(img);                               // ImageData など（1 回だけ）
+  slider.oninput = () => gpu.render(current());   // 原寸で描画
+  save.onclick = async () => download(await current().run(img, { output: 'blob' })); // 保存は JS 版
+} else {
+  // 縮小プレビュー（createPreviewRunner の maxSize）にフォールバック
+}
+```
+
+- すべての補正（DRA・シャープ・モノクロ画像・透明画素を含む）が使えます。`autoStretch` の統計は `setImage` に渡した画像から取ります
+- GPU は float32 で計算するため、JS 版（float64）と 1 階調ずれる画素がまれにあります（テストでは 0.01% 未満）。保存や後続処理に使う最終結果は `run` / `runSync` で作ってください
+- 結果の画素が必要なときは `gpu.read()`（GPU からの読み戻しなので `render` より遅い）
+- 一辺が `gpu.maxSize`（GPU の上限、多くは 8192〜16384 px）を超える画像は `setImage` が `RangeError` を投げます
+- シャープを使うと作業用に float のテクスチャを確保します（12MP で 1 枚 100〜200 MB 程度）
 
 ### 設定の保存と復元
 

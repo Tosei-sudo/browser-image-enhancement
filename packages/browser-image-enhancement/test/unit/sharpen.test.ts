@@ -214,6 +214,30 @@ describe('folding steps around sharpen changes nothing', () => {
   }
 });
 
+describe('streaming one sharpen row by row equals the full-image planes', () => {
+  // Folding on streams the rows (with shortcuts for opaque rows); folding off keeps the
+  // whole image in planes. Opaque, partly transparent (a few holes) and random-alpha images.
+  const holes = photo(41, 37, 31);
+  for (const [x, y] of [[3, 4], [20, 18], [40, 36], [0, 36]]) holes.data[(y * 41 + x) * 4 + 3] = 0;
+  holes.data[(10 * 41 + 10) * 4 + 3] = 128;
+  const images = [photo(41, 37, 30), holes, noiseImage(41, 37, 32)];
+  const r = rng(99);
+  for (let t = 0; t < 12; t++) {
+    const ops = randomOps(r).slice(0, 3);
+    ops.splice(Math.floor(r() * (ops.length + 1)), 0, SHARPEN(r() * 3, 0.3 + r() * 4, r() < 0.3 ? r() * 0.05 : 0));
+    it(`chain #${t}: ${ops.map((o) => o.op).join(' > ')}`, () => {
+      for (const img of images) {
+        for (const mode of ['rgb', 'gray'] as const) expect(run(img, ops, mode, true)).toEqual(run(img, ops, mode, false));
+      }
+    });
+  }
+
+  it('is used for a single sharpen', () => {
+    expect(compile([normalizeOp(SHARPEN())], 'rgb').spatial?.stream).toBe(true);
+    expect(compile([normalizeOp(SHARPEN()), normalizeOp(SHARPEN())], 'rgb').spatial?.stream).toBe(false);
+  });
+});
+
 describe('tiles with a margin match the whole image exactly', () => {
   const ops = [
     { op: 'exposure', ev: 0.4 },

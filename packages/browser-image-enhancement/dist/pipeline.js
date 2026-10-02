@@ -5,6 +5,7 @@ import { marginOf, normalizeOp } from "./ops/index.js";
 import { extractGray } from "./core/process.js";
 import { needsStats, resolveOps } from "./core/histogram.js";
 import { applySync, warnColorOnly } from "./functional.js";
+import { downscale } from "./preview.js";
 import { execute } from "./worker/executor.js";
 //#region src/pipeline.ts
 /**
@@ -132,6 +133,18 @@ var Pipeline = class Pipeline {
 	get margin() {
 		return marginOf(this.ops);
 	}
+	/**
+	* The same correction for the image shrunk by `factor` (0.5 = half the
+	* width and height): pixel distances (the `sharpen` radius) are scaled with
+	* it, so a preview on a smaller copy looks like the full-size result.
+	*/
+	scaled(factor) {
+		if (!(factor > 0) || factor === 1) return this;
+		return new Pipeline(this.ops.map((op) => op.op === "sharpen" ? {
+			...op,
+			radius: Math.min(50, Math.max(.1, op.radius * factor))
+		} : op));
+	}
 	/** True when the pipeline has `autoStretch` steps that still need statistics. */
 	get needsStats() {
 		return needsStats(this.ops);
@@ -189,13 +202,22 @@ function pipeline() {
 pipeline.fromJSON = Pipeline.fromJSON;
 /**
 * For slider previews: each call supersedes the previous one. The last decoded
-* input is reused while the same input object is passed again.
+* (and, with `maxSize`, shrunk) input is reused while the same input object is
+* passed again.
+*
+* @example
+* ```ts
+* const preview = createPreviewRunner({ maxSize: 1280 });
+* slider.oninput = async () => show(await preview.run(current(), img));
+* slider.onchange = async () => show(await current().run(img)); // full size on release
+* ```
 */
 function createPreviewRunner(options) {
 	let generation = 0;
 	let controller = null;
 	let lastInput = null;
 	let lastDecoded = null;
+	const { maxSize, ...runOptions } = options ?? {};
 	return {
 		async run(p, input) {
 			const mine = ++generation;
@@ -204,7 +226,10 @@ function createPreviewRunner(options) {
 			controller = current;
 			if (input !== lastInput || !lastDecoded) {
 				lastInput = input;
-				lastDecoded = toImageData(input);
+				lastDecoded = toImageData(input).then((image) => maxSize !== void 0 && maxSize > 0 ? downscale(image, maxSize) : {
+					image,
+					scale: 1
+				});
 				lastDecoded.catch(() => {
 					if (lastInput === input) lastDecoded = null;
 				});
@@ -212,8 +237,8 @@ function createPreviewRunner(options) {
 			try {
 				const decoded = await lastDecoded;
 				if (mine !== generation) return null;
-				const result = await p.run(decoded, {
-					...options ?? {},
+				const result = await p.scaled(decoded.scale).run(decoded.image, {
+					...runOptions,
 					signal: current.signal
 				});
 				return mine === generation ? result : null;

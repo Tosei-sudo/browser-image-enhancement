@@ -1,4 +1,4 @@
-import { createPreviewRunner, pipeline, type ColorMode, type ImageDataLike } from '../src/index.js';
+import { createGpuRenderer, createPreviewRunner, pipeline, type ColorMode, type ImageDataLike } from '../src/index.js';
 
 const sliders = [
   { key: 'brightness', label: '明るさ', min: -1, max: 1, step: 0.01, value: 0 },
@@ -30,6 +30,8 @@ for (const s of sliders) {
     out.textContent = input.value;
     render();
   });
+  // While dragging the preview works on a shrunk copy; the full-size result follows on release.
+  input.addEventListener('change', () => render(true));
   inputs[s.key] = input;
   $('sliders').append(label);
 }
@@ -47,22 +49,66 @@ const current = () =>
     .sharpen({ amount: v('sharpen'), radius: v('sharpenRadius'), threshold: v('sharpenThreshold') });
 
 let source: ImageDataLike = sampleImage();
-let preview = makeRunner();
 
-function makeRunner() {
+// With WebGL2 the full-size image follows every slider move on the GPU; without it, a shrunk preview in workers.
+const gpuView = $<HTMLCanvasElement>('gpuView');
+const gpu = createGpuRenderer({ canvas: gpuView });
+const gpuBox = $<HTMLInputElement>('gpu');
+if (!gpu) {
+  gpuBox.checked = false;
+  gpuBox.disabled = true;
+}
+let gpuImage: { source: ImageDataLike; colorMode: string } | null = null;
+let frame = 0;
+
+function useGpu(): boolean {
+  return !!gpu && gpuBox.checked && Math.max(source.width, source.height) <= gpu.maxSize;
+}
+
+function renderGpu() {
+  const colorMode = $<HTMLSelectElement>('colorMode').value as ColorMode;
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    if (!gpu) return;
+    const t0 = performance.now();
+    if (gpuImage?.source !== source || gpuImage.colorMode !== colorMode) {
+      gpu.setImage(source, { colorMode });
+      gpuImage = { source, colorMode };
+    }
+    gpu.render(current());
+    // Reading one pixel waits for the GPU, so the time shown is the real one.
+    const gl = gpuView.getContext('webgl2')!;
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    view.hidden = true;
+    gpuView.hidden = false;
+    status.textContent = `${source.width}×${source.height} · GPU ${Math.round(performance.now() - t0)} ms`;
+  });
+}
+let preview = makeRunner(1280);
+let full = makeRunner();
+
+function makeRunner(maxSize?: number) {
   return createPreviewRunner({
     colorMode: $<HTMLSelectElement>('colorMode').value as ColorMode,
     worker: $<HTMLInputElement>('worker').checked,
+    maxSize,
   });
 }
 
-async function render() {
+async function render(fullSize = false) {
+  if (useGpu()) {
+    renderGpu();
+    return;
+  }
   const t0 = performance.now();
-  const result = await preview.run(current(), source);
+  (fullSize ? preview : full).cancel();
+  const result = await (fullSize ? full : preview).run(current(), source);
   if (!result) return; // superseded by a newer slider value
   view.width = result.width;
   view.height = result.height;
   view.getContext('2d')!.putImageData(result, 0, 0);
+  view.hidden = false;
+  gpuView.hidden = true;
   status.textContent = `${result.width}×${result.height} · ${Math.round(performance.now() - t0)} ms`;
 }
 
@@ -87,13 +133,15 @@ $<HTMLInputElement>('file').addEventListener('change', async (e) => {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
   source = await pipeline().run(file); // decode once (applies EXIF orientation, converts to sRGB)
-  render();
+  render(true);
 });
-for (const id of ['colorMode', 'worker']) {
+for (const id of ['colorMode', 'worker', 'gpu']) {
   $(id).addEventListener('change', () => {
     preview.cancel();
-    preview = makeRunner();
-    render();
+    full.cancel();
+    preview = makeRunner(1280);
+    full = makeRunner();
+    render(true);
   });
 }
 $('reset').addEventListener('click', () => {
@@ -101,7 +149,7 @@ $('reset').addEventListener('click', () => {
     inputs[s.key].value = String(s.value);
     inputs[s.key].nextElementSibling!.textContent = String(s.value);
   }
-  render();
+  render(true);
 });
 $('download').addEventListener('click', async () => {
   const blob = await current().run(source, { output: 'blob', colorMode: $<HTMLSelectElement>('colorMode').value as ColorMode });
@@ -112,4 +160,4 @@ $('download').addEventListener('click', async () => {
   URL.revokeObjectURL(a.href);
 });
 
-render();
+render(true);
