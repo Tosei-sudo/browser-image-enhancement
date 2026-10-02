@@ -1,5 +1,5 @@
 import { ImageDataLike } from "./workers/src/image.js";
-import { AutoStretchOptions, ColorOptions, LevelsOptions, StretchOptions } from "./types.js";
+import { AutoStretchOptions, ColorOptions, LevelsOptions, SharpenOptions, StretchOptions } from "./types.js";
 //#region src/functional.d.ts
 /** Brightness, -1 to 1. Positive moves toward white, negative toward black. */
 export declare function brightness(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData;
@@ -25,5 +25,13 @@ export declare function stretch(image: ImageDataLike, params: StretchOptions, op
  * image's own pixel distribution, ignoring transparent pixels.
  */
 export declare function autoStretch(image: ImageDataLike, params?: AutoStretchOptions, options?: ColorOptions): ImageData;
+/**
+ * Sharpens with an unsharp mask: adds `amount` times the difference between
+ * the image and a Gaussian blur of `radius` pixels, where that difference is
+ * at least `threshold`. Works on luminance, so colors do not fringe.
+ * Transparent pixels are left as they are and do not darken or lighten their
+ * neighbours.
+ */
+export declare function sharpen(image: ImageDataLike, params?: SharpenOptions, options?: ColorOptions): ImageData;
 //#endregion
 //# sourceMappingURL=functional.d.ts.map

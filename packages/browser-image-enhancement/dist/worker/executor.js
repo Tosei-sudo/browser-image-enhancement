@@ -1,6 +1,7 @@
 import { abortError, race, throwIfAborted } from "../workers/src/abort.js";
 import { WorkerUnavailableError } from "../workers/src/pool.js";
 import { splitRows, stripCount, yieldToEventLoop } from "../workers/src/strips.js";
+import { marginOf } from "../ops/index.js";
 import { compile, processPixels, resolveMode } from "../core/process.js";
 import { grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps } from "../core/histogram.js";
 import { getPool } from "./pool.js";
@@ -14,13 +15,17 @@ import { getPool } from "./pool.js";
 * strip is monochrome so the whole image is computed in one mode. With
 * `autoStretch` they also report their strip's histogram, and the main thread
 * resolves one stretch for the whole image from the sum.
+*
+* With `sharpen`, which reads neighbouring pixels, each strip is sent with
+* `marginOf(ops)` extra rows above and below; the strip's own rows then come
+* out exactly as they would from the whole image.
 */
 let nextId = 1;
 /** Processes on the calling thread. */
 function executeOnMainThread(image, ops, colorMode = "auto") {
 	const mode = resolveMode(image.data, colorMode);
 	const data = new Uint8ClampedArray(image.data.length);
-	processPixels(image.data, data, compile(resolveForPixels(ops, image.data, mode), mode));
+	processPixels(image.data, data, compile(resolveForPixels(ops, image.data, mode), mode), image.width);
 	return {
 		data,
 		width: image.width,
@@ -55,8 +60,11 @@ async function execute(image, ops, options = {}) {
 	}
 }
 async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
-	const rowBytes = image.width * 4;
-	const ranges = splitRows(image.height, slots.length);
+	const { width, height } = image;
+	const rowBytes = width * 4;
+	const ranges = splitRows(height, slots.length);
+	const margin = marginOf(ops);
+	const sentRows = ranges.map(([start, end]) => [Math.max(0, start - margin), Math.min(height, end + margin)]);
 	const ids = ranges.map(() => nextId++);
 	const stats = needsStats(ops);
 	const twoPhase = ranges.length > 1 && (colorMode === "auto" || stats);
@@ -74,17 +82,21 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 				throw abortError(signal);
 			}
 		}
-		const [start, end] = ranges[i];
-		const buffer = image.data.slice(start * rowBytes, end * rowBytes).buffer;
+		const [from, to] = sentRows[i];
+		const core = [ranges[i][0] - from, ranges[i][1] - from];
+		const buffer = image.data.slice(from * rowBytes, to * rowBytes).buffer;
 		const reply = twoPhase ? pool.request(slots[i], {
 			type: "detect",
 			id: ids[i],
 			buffer,
+			width,
+			core,
 			stats: statsMode
 		}, [buffer]) : pool.request(slots[i], {
 			type: "run",
 			id: ids[i],
 			buffer,
+			width,
 			ops,
 			colorMode
 		}, [buffer]);
@@ -122,23 +134,24 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 		const done = await pending[0];
 		return {
 			data: new Uint8ClampedArray(done.buffer),
-			width: image.width,
-			height: image.height,
+			width,
+			height,
 			mode: done.mode,
 			usedWorker: true
 		};
 	}
 	const data = new Uint8ClampedArray(image.data.length);
-	const modes = await Promise.all(pending.map(async (reply, i) => {
-		const done = await reply;
-		data.set(new Uint8ClampedArray(done.buffer), ranges[i][0] * rowBytes);
-		return done.mode;
-	}));
 	return {
 		data,
-		width: image.width,
-		height: image.height,
-		mode: modes[0],
+		width,
+		height,
+		mode: (await Promise.all(pending.map(async (reply, i) => {
+			const done = await reply;
+			const [start, end] = ranges[i];
+			const offset = (start - sentRows[i][0]) * rowBytes;
+			data.set(new Uint8ClampedArray(done.buffer, offset, (end - start) * rowBytes), start * rowBytes);
+			return done.mode;
+		})))[0],
 		usedWorker: true
 	};
 }

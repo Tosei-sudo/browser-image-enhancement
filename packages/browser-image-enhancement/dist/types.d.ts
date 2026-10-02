@@ -50,6 +50,27 @@ export interface AutoStretchOptions {
    */
   linked?: boolean;
 }
+/**
+ * Sharpening (unsharp mask) parameters. Edges are found on the luminance of
+ * sRGB-encoded values and the same change is added to R, G and B, so colors
+ * do not fringe; monochrome images are sharpened on their one channel.
+ */
+export interface SharpenOptions {
+  /** Strength, 0-5: how much of the difference from the blurred image is added. Default 0.5. */
+  amount?: number;
+  /**
+   * Radius of the Gaussian blur (its standard deviation) in pixels, 0.1-50.
+   * Default 1. Each pixel looks about `ceil(3 * radius)` pixels away, so time
+   * grows with the radius.
+   */
+  radius?: number;
+  /**
+   * Differences smaller than this (sRGB-encoded, 0-1; multiply by 255 for
+   * levels) are left alone, which keeps smooth areas and noise from being
+   * sharpened. Default 0.
+   */
+  threshold?: number;
+}
 /** A single correction step in serializable form. */
 export type OpSpec = {
   op: 'brightness';
@@ -87,7 +108,11 @@ export type OpSpec = {
 /** Replaced by a `stretch` computed from the image's statistics before it runs. */
 ({
   op: 'autoStretch';
-} & Required<AutoStretchOptions>);
+} & Required<AutoStretchOptions>) |
+/** Unsharp mask. Unlike the other steps it looks at neighbouring pixels. */
+({
+  op: 'sharpen';
+} & Required<SharpenOptions>);
 /** The name of a correction step. */
 export type OpName = OpSpec['op'];
 /** Options shared by every entry point. */

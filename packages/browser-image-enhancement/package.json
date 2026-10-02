@@ -1,7 +1,7 @@
 {
   "name": "browser-image-enhancement",
   "version": "0.1.0",
-  "description": "Dependency-free image correction (brightness, contrast, exposure, gamma, saturation, temperature, levels, automatic stretch / DRA) that runs in the browser, in Web Workers by default.",
+  "description": "Dependency-free image correction (brightness, contrast, exposure, gamma, saturation, temperature, levels, sharpening, automatic stretch / DRA) that runs in the browser, in Web Workers by default.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -27,6 +27,8 @@
     "color-correction",
     "brightness",
     "contrast",
+    "sharpen",
+    "unsharp-mask",
     "histogram",
     "dynamic-range",
     "web-worker",

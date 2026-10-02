@@ -6,6 +6,7 @@ import { warn } from "../warn.js";
 *
 * All math runs on linear-light values (see color/srgb.ts). Values may leave
 * [0, 1] between steps; they are clamped only when quantized to 8 bits at the end.
+* `sharpen` is the one step that reads neighbouring pixels; core/filter.ts runs it.
 */
 /** Corrections that only make sense for color images; no-ops on monochrome input. */
 const COLOR_ONLY_OPS = /* @__PURE__ */ new Set(["saturation", "temperature"]);
@@ -76,6 +77,29 @@ function normalizeStretch(o = {}) {
 		white
 	};
 }
+/** Validates sharpening options, filling defaults. */
+function normalizeSharpen(o = {}) {
+	return {
+		amount: num("sharpen.amount", o.amount, 0, 5, .5),
+		radius: num("sharpen.radius", o.radius, .1, 50, 1),
+		threshold: num("sharpen.threshold", o.threshold, 0, 1, 0)
+	};
+}
+/** How far (in pixels) the blur of a sharpen step with this radius reaches. */
+function kernelRadius(radius) {
+	return Math.ceil(3 * radius);
+}
+/**
+* Pixels of context the steps need on each side: a pixel's result depends
+* only on input pixels at most this far away (0 when every step is per-pixel).
+* An image cut into tiles or strips gives exactly the same pixels as the
+* whole image when each part is processed with this much margin around it.
+*/
+function marginOf(ops) {
+	let m = 0;
+	for (const op of ops) if (op.op === "sharpen" && !isIdentity(op)) m += kernelRadius(op.radius);
+	return m;
+}
 const STRETCH_METHODS = [
 	"percentClip",
 	"minMax",
@@ -130,6 +154,10 @@ function normalizeOp(raw) {
 			op: "autoStretch",
 			...normalizeAutoStretch(o)
 		};
+		case "sharpen": return {
+			op: "sharpen",
+			...normalizeSharpen(o)
+		};
 		default: throw new TypeError(`Unknown correction: ${String(o.op)}`);
 	}
 }
@@ -145,9 +173,10 @@ function isIdentity(op) {
 		case "levels": return op.inBlack === 0 && op.inWhite === 1 && op.gamma === 1 && op.outBlack === 0 && op.outWhite === 1;
 		case "stretch": return op.black.every((b, c) => b === 0 && op.white[c] === 1);
 		case "autoStretch": return false;
+		case "sharpen": return op.amount === 0;
 	}
 }
-/** Builds the per-pixel math for a normalized op. */
+/** Builds the math for a normalized op. */
 function toStage(op) {
 	switch (op.op) {
 		case "brightness": {
@@ -233,10 +262,16 @@ function toStage(op) {
 				}
 			};
 		}
+		case "sharpen": return {
+			kind: "sharpen",
+			amount: op.amount,
+			radius: op.radius,
+			threshold: op.threshold
+		};
 		case "autoStretch": throw new Error("autoStretch has no fixed math; resolve it with image statistics first.");
 	}
 }
 //#endregion
-export { COLOR_ONLY_OPS, isIdentity, normalizeAutoStretch, normalizeLevels, normalizeOp, normalizeStretch, toStage };
+export { COLOR_ONLY_OPS, isIdentity, kernelRadius, marginOf, normalizeAutoStretch, normalizeLevels, normalizeOp, normalizeSharpen, normalizeStretch, toStage };
 
 //# sourceMappingURL=index.js.map

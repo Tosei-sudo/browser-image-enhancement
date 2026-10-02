@@ -8,6 +8,7 @@ export {
   levels,
   stretch,
   autoStretch,
+  sharpen,
 } from './functional.js';
 export { histogram, mergeHistograms, computeStretch, type HistogramOptions } from './stats.js';
 export {
@@ -35,6 +36,7 @@ export type {
   OpSpec,
   Rect,
   RGBValues,
+  SharpenOptions,
   StretchMethod,
   StretchOptions,
 } from './types.js';

@@ -54,7 +54,7 @@ describe('normalizeOp', () => {
   });
 
   it('throws on an unknown op', () => {
-    expect(() => normalizeOp({ op: 'sharpen', amount: 1 })).toThrow(/Unknown correction: sharpen/);
+    expect(() => normalizeOp({ op: 'blur', amount: 1 })).toThrow(/Unknown correction: blur/);
     expect(() => normalizeOp(null)).toThrow(TypeError);
   });
 

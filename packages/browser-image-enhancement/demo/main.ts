@@ -10,6 +10,9 @@ const sliders = [
   { key: 'inBlack', label: 'レベル 黒', min: 0, max: 0.5, step: 0.005, value: 0 },
   { key: 'inWhite', label: 'レベル 白', min: 0.5, max: 1, step: 0.005, value: 1 },
   { key: 'midGamma', label: 'レベル 中間', min: 0.2, max: 3, step: 0.01, value: 1 },
+  { key: 'sharpen', label: 'シャープ 量', min: 0, max: 3, step: 0.05, value: 0 },
+  { key: 'sharpenRadius', label: 'シャープ 半径', min: 0.3, max: 5, step: 0.1, value: 1 },
+  { key: 'sharpenThreshold', label: 'シャープ しきい値', min: 0, max: 0.1, step: 0.002, value: 0 },
 ] as const;
 
 type Key = (typeof sliders)[number]['key'];
@@ -40,7 +43,8 @@ const current = () =>
     .gamma(v('gamma'))
     .levels({ inBlack: v('inBlack'), inWhite: v('inWhite'), gamma: v('midGamma') })
     .temperature(v('temperature'))
-    .saturation(v('saturation'));
+    .saturation(v('saturation'))
+    .sharpen({ amount: v('sharpen'), radius: v('sharpenRadius'), threshold: v('sharpenThreshold') });
 
 let source: ImageDataLike = sampleImage();
 let preview = makeRunner();

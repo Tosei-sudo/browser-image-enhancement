@@ -9,7 +9,7 @@ import { createImageData, assertImageData } from './core/image.js';
 import { compile, processPixels, resolveMode } from './core/process.js';
 import { resolveForPixels } from './core/histogram.js';
 import { normalizeOp } from './ops/index.js';
-import type { AutoStretchOptions, ColorOptions, ImageDataLike, LevelsOptions, OpSpec, StretchOptions } from './types.js';
+import type { AutoStretchOptions, ColorOptions, ImageDataLike, LevelsOptions, OpSpec, SharpenOptions, StretchOptions } from './types.js';
 import { warn } from './warn.js';
 
 /** Runs normalized-or-raw ops on an image synchronously. Shared by the pipeline's sync path. */
@@ -19,7 +19,7 @@ export function applySync(image: ImageDataLike, ops: readonly OpSpec[], options:
   const resolved = resolveForPixels(ops.map(normalizeOp), image.data, mode);
   if (mode === 'gray') warnColorOnly(resolved);
   const out = new Uint8ClampedArray(image.data.length);
-  processPixels(image.data, out, compile(resolved, mode));
+  processPixels(image.data, out, compile(resolved, mode), image.width);
   return createImageData(out, image.width, image.height);
 }
 
@@ -94,4 +94,15 @@ export function stretch(image: ImageDataLike, params: StretchOptions, options?: 
  */
 export function autoStretch(image: ImageDataLike, params?: AutoStretchOptions, options?: ColorOptions): ImageData {
   return applySync(image, [{ op: 'autoStretch', ...params } as OpSpec], options);
+}
+
+/**
+ * Sharpens with an unsharp mask: adds `amount` times the difference between
+ * the image and a Gaussian blur of `radius` pixels, where that difference is
+ * at least `threshold`. Works on luminance, so colors do not fringe.
+ * Transparent pixels are left as they are and do not darken or lighten their
+ * neighbours.
+ */
+export function sharpen(image: ImageDataLike, params?: SharpenOptions, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'sharpen', ...params } as OpSpec], options);
 }
