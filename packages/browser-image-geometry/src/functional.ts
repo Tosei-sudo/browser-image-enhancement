@@ -12,8 +12,11 @@ const HINT = 'Use warp(), which converts other color spaces to sRGB.';
 
 /** A warped image and where it sits in output coordinates. */
 export interface WarpResult<I = ImageData> extends WarpInfo {
+  /** The output image. */
   readonly image: I;
+  /** Output width in pixels. */
   readonly width: number;
+  /** Output height in pixels. */
   readonly height: number;
 }
 
@@ -24,6 +27,7 @@ export function warpImageData(image: ImageDataLike, transform: Transform, option
   return { image: renderPlan(image, plan), width: plan.width, height: plan.height, geoTransform: plan.geoTransform, extent: plan.extent };
 }
 
+/** Options for {@link rotate}. */
 export interface RotateOptions {
   /** Default `bilinear`. Quarter turns are exact whatever the method. */
   resample?: Resample;
@@ -45,6 +49,7 @@ export function rotate(image: ImageDataLike, degrees: number, options: RotateOpt
   return warpImageData(image, t, opts).image;
 }
 
+/** Which way {@link flip} mirrors: `horizontal` swaps left and right, `vertical` top and bottom. */
 export type FlipDirection = 'horizontal' | 'vertical' | 'both';
 
 /** Mirrors the image. Exact: pixels are moved, not resampled. */
@@ -72,10 +77,15 @@ export function flip(image: ImageDataLike, direction: FlipDirection = 'horizonta
   return createImageData(out, width, height);
 }
 
+/** A rectangle in whole pixels, for {@link crop}. */
 export interface CropRect {
+  /** Left edge. */
   x: number;
+  /** Top edge. */
   y: number;
+  /** Width, at least 1. */
   width: number;
+  /** Height, at least 1. */
   height: number;
 }
 
@@ -97,6 +107,7 @@ export function crop(image: ImageDataLike, rect: CropRect): ImageData {
   return createImageData(out, width, height);
 }
 
+/** Options for {@link resize}. */
 export interface ResizeOptions {
   /** Default `bilinear`. Shrinking by more than 2× halves the image first to avoid aliasing. */
   resample?: Resample;

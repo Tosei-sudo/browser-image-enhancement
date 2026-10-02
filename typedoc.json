@@ -1,0 +1,13 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "browser-image",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/browser-image-enhancement",
+    "packages/browser-image-geometry"
+  ],
+  "out": "api-docs",
+  "readme": "none",
+  "includeVersion": false,
+  "treatWarningsAsErrors": true
+}

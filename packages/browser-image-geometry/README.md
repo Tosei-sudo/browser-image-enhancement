@@ -9,7 +9,7 @@
 - 投影法: proj4 などの変換を渡せる（本体は proj4 に依存しない）
 - 依存ライブラリなし。モノクロ画像もそのまま扱える
 
-設計の背景は [docs/geometry-design.md](../../docs/geometry-design.md) にあります。npm にはまだ公開していません。
+設計の背景は [docs/geometry-design.md](../../docs/geometry-design.md) にあります。npm にはまだ公開していません。すべての関数・型の説明は [API リファレンス](https://tosei-sudo.github.io/browser-image-enhancement/modules/browser-image-geometry.html) にあります。
 
 ## 使い方
 

@@ -5,8 +5,10 @@ import { planWarp, type OutputOptions } from './plan.js';
 import type { Transform } from './types.js';
 import { execute } from './worker/executor.js';
 
+/** What {@link warp} resolves with: `imageData` (default), a `canvas` (`OffscreenCanvas` where available) or an encoded `blob`. */
 export type OutputKind = 'imageData' | 'canvas' | 'blob';
 
+/** Options for {@link warp}. */
 export interface WarpOptions extends OutputOptions {
   /** Result type. Default `imageData`. */
   output?: OutputKind;
@@ -20,12 +22,14 @@ export interface WarpOptions extends OutputOptions {
   signal?: AbortSignal;
 }
 
+/** The image type {@link warp} produces, chosen by `output` in the options. */
 export type WarpOutput<O extends WarpOptions | undefined> = O extends { output: 'canvas' }
   ? HTMLCanvasElement | OffscreenCanvas
   : O extends { output: 'blob' }
     ? Blob
     : ImageData;
 
+/** What {@link warp} resolves with. */
 export interface AsyncWarpResult<I> extends WarpResult<I> {
   /** True when the pixels were computed in workers. */
   readonly usedWorker: boolean;

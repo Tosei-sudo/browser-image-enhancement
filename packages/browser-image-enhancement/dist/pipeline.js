@@ -11,6 +11,17 @@ import { execute } from "./worker/executor.js";
 * Pipeline API: declare a chain of corrections, then run it in one pass
 * (no 8-bit rounding between steps), in Web Workers by default.
 */
+/**
+* An immutable chain of corrections. Each method returns a new pipeline with
+* one more step; `run()` applies all steps in one pass in linear light, so no
+* precision is lost to 8-bit rounding between steps.
+*
+* @example
+* ```ts
+* const p = pipeline().exposure(0.5).contrast(0.2).saturation(0.1);
+* const out = await p.run(img, { output: 'canvas' });
+* ```
+*/
 var Pipeline = class Pipeline {
 	/** The normalized steps, in order. */
 	ops;
@@ -112,6 +123,7 @@ var Pipeline = class Pipeline {
 	resolve(stats) {
 		return needsStats(this.ops) ? new Pipeline(resolveOps(this.ops, stats)) : this;
 	}
+	/** Serializable form of the steps, for saving presets. Restore with {@link Pipeline.fromJSON}. */
 	toJSON() {
 		return {
 			version: 1,
@@ -151,6 +163,7 @@ var Pipeline = class Pipeline {
 function pipeline() {
 	return new Pipeline();
 }
+/** Same as {@link Pipeline.fromJSON}. */
 pipeline.fromJSON = Pipeline.fromJSON;
 /**
 * For slider previews: each call supersedes the previous one. The last decoded

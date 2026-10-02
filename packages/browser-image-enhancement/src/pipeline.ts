@@ -11,15 +11,24 @@ import { normalizeOp } from './ops/index.js';
 import type { AutoStretchOptions, ColorOptions, Histogram, ImageDataLike, LevelsOptions, OpSpec, StretchOptions } from './types.js';
 import { abortError, execute } from './worker/executor.js';
 
+/**
+ * What `run()` resolves with: `imageData` (default), a `canvas`
+ * (`OffscreenCanvas` where available), an encoded `blob`, or a single-channel
+ * `gray` image.
+ */
 export type OutputKind = 'imageData' | 'canvas' | 'blob' | 'gray';
 
 /** One 8-bit luminance value per pixel. */
 export interface GrayImage {
+  /** `width * height` values, row by row from the top left. */
   data: Uint8ClampedArray;
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
 }
 
+/** Options for {@link Pipeline.run} and {@link createPreviewRunner}. */
 export interface RunOptions extends ColorOptions {
   /** Result type. Default `imageData`. */
   output?: OutputKind;
@@ -33,6 +42,7 @@ export interface RunOptions extends ColorOptions {
   signal?: AbortSignal;
 }
 
+/** The type `run()` resolves with, chosen by `output` in the options. */
 export type RunResult<O extends RunOptions | undefined> = O extends { output: 'canvas' }
   ? HTMLCanvasElement | OffscreenCanvas
   : O extends { output: 'blob' }
@@ -43,10 +53,23 @@ export type RunResult<O extends RunOptions | undefined> = O extends { output: 'c
 
 /** Serialized pipeline, from `toJSON()`. */
 export interface PipelineJSON {
+  /** Format version. Always 1. */
   version: 1;
+  /** The steps, in order. */
   ops: OpSpec[];
 }
 
+/**
+ * An immutable chain of corrections. Each method returns a new pipeline with
+ * one more step; `run()` applies all steps in one pass in linear light, so no
+ * precision is lost to 8-bit rounding between steps.
+ *
+ * @example
+ * ```ts
+ * const p = pipeline().exposure(0.5).contrast(0.2).saturation(0.1);
+ * const out = await p.run(img, { output: 'canvas' });
+ * ```
+ */
 export class Pipeline {
   /** The normalized steps, in order. */
   readonly ops: readonly OpSpec[];
@@ -138,6 +161,7 @@ export class Pipeline {
     return needsStats(this.ops) ? new Pipeline(resolveOps(this.ops, stats)) : this;
   }
 
+  /** Serializable form of the steps, for saving presets. Restore with {@link Pipeline.fromJSON}. */
   toJSON(): PipelineJSON {
     return { version: 1, ops: this.ops.map((op) => ({ ...op })) };
   }
@@ -179,8 +203,10 @@ export class Pipeline {
 export function pipeline(): Pipeline {
   return new Pipeline();
 }
+/** Same as {@link Pipeline.fromJSON}. */
 pipeline.fromJSON = Pipeline.fromJSON;
 
+/** Created by {@link createPreviewRunner}. */
 export interface PreviewRunner<O extends RunOptions | undefined> {
   /**
    * Runs `p` on `input`. Resolves with `null` if a newer `run` (or `cancel`)

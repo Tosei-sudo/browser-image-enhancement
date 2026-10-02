@@ -5,3 +5,4 @@ playwright-report/
 *.log
 .bundled-test/
 .example-dist/
+api-docs/

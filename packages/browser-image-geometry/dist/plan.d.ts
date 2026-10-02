@@ -1,5 +1,6 @@
 import { CoordinateTransform, RGBA, Resample } from "./types.js";
 //#region src/plan.d.ts
+/** How the output image is laid out and sampled. Used by {@link warp} and {@link warpImageData}. */
 export interface OutputOptions {
   /** Interpolation. Default `bilinear`. */
   resample?: Resample;
@@ -28,6 +29,7 @@ export interface OutputOptions {
   /** Overrides the transform's `yUp`: true puts the largest y at the top of the output. */
   yUp?: boolean;
 }
+/** Where a warped image sits in output coordinates. */
 export interface WarpInfo {
   /** Output pixel → output coordinates, GDAL order: `[x0, pixelWidth, rowRotation, y0, columnRotation, pixelHeight]`. */
   readonly geoTransform: readonly [number, number, number, number, number, number];

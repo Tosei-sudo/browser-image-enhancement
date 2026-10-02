@@ -1,0 +1,15 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "extends": [
+    "../../typedoc.base.json"
+  ],
+  "entryPoints": [
+    "src/index.ts"
+  ],
+  "tsconfig": "tsconfig.build.json",
+  "readme": "README.md",
+  "intentionallyNotDocumented": [
+    "WarpOutput.__type.output",
+    "DegenerateError.name"
+  ]
+}

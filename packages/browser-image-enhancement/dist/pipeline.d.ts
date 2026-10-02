@@ -2,13 +2,22 @@ import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
 import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpSpec, StretchOptions } from "./types.js";
 //#region src/pipeline.d.ts
+/**
+ * What `run()` resolves with: `imageData` (default), a `canvas`
+ * (`OffscreenCanvas` where available), an encoded `blob`, or a single-channel
+ * `gray` image.
+ */
 export type OutputKind = 'imageData' | 'canvas' | 'blob' | 'gray';
 /** One 8-bit luminance value per pixel. */
 export interface GrayImage {
+  /** `width * height` values, row by row from the top left. */
   data: Uint8ClampedArray;
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
 }
+/** Options for {@link Pipeline.run} and {@link createPreviewRunner}. */
 export interface RunOptions extends ColorOptions {
   /** Result type. Default `imageData`. */
   output?: OutputKind;
@@ -21,6 +30,7 @@ export interface RunOptions extends ColorOptions {
   /** Cancels the run; the promise rejects with an AbortError. */
   signal?: AbortSignal;
 }
+/** The type `run()` resolves with, chosen by `output` in the options. */
 export type RunResult<O extends RunOptions | undefined> = O extends {
   output: 'canvas';
 } ? HTMLCanvasElement | OffscreenCanvas : O extends {
@@ -30,9 +40,22 @@ export type RunResult<O extends RunOptions | undefined> = O extends {
 } ? GrayImage : ImageData;
 /** Serialized pipeline, from `toJSON()`. */
 export interface PipelineJSON {
+  /** Format version. Always 1. */
   version: 1;
+  /** The steps, in order. */
   ops: OpSpec[];
 }
+/**
+ * An immutable chain of corrections. Each method returns a new pipeline with
+ * one more step; `run()` applies all steps in one pass in linear light, so no
+ * precision is lost to 8-bit rounding between steps.
+ *
+ * @example
+ * ```ts
+ * const p = pipeline().exposure(0.5).contrast(0.2).saturation(0.1);
+ * const out = await p.run(img, { output: 'canvas' });
+ * ```
+ */
 export declare class Pipeline {
   /** The normalized steps, in order. */
   readonly ops: readonly OpSpec[];
@@ -77,6 +100,7 @@ export declare class Pipeline {
    * same range. With `null`, `autoStretch` steps are removed.
    */
   resolve(stats: Histogram | null): Pipeline;
+  /** Serializable form of the steps, for saving presets. Restore with {@link Pipeline.fromJSON}. */
   toJSON(): PipelineJSON;
   /** Runs synchronously on the calling thread. */
   runSync(image: ImageDataLike, options?: ColorOptions): ImageData;
@@ -88,6 +112,7 @@ export declare function pipeline(): Pipeline;
 export declare namespace pipeline {
   var fromJSON: typeof Pipeline.fromJSON;
 }
+/** Created by {@link createPreviewRunner}. */
 export interface PreviewRunner<O extends RunOptions | undefined> {
   /**
    * Runs `p` on `input`. Resolves with `null` if a newer `run` (or `cancel`)
