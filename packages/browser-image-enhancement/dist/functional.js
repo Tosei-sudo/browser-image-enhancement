@@ -18,7 +18,7 @@ function applySync(image, ops, options = {}) {
 	const resolved = resolveForPixels(ops.map(normalizeOp), image.data, mode);
 	if (mode === "gray") warnColorOnly(resolved);
 	const out = new Uint8ClampedArray(image.data.length);
-	processPixels(image.data, out, compile(resolved, mode));
+	processPixels(image.data, out, compile(resolved, mode), image.width);
 	return createImageData(out, image.width, image.height);
 }
 /**
@@ -102,7 +102,20 @@ function autoStretch(image, params, options) {
 		...params
 	}], options);
 }
+/**
+* Sharpens with an unsharp mask: adds `amount` times the difference between
+* the image and a Gaussian blur of `radius` pixels, where that difference is
+* at least `threshold`. Works on luminance, so colors do not fringe.
+* Transparent pixels are left as they are and do not darken or lighten their
+* neighbours.
+*/
+function sharpen(image, params, options) {
+	return applySync(image, [{
+		op: "sharpen",
+		...params
+	}], options);
+}
 //#endregion
-export { applySync, autoStretch, brightness, contrast, exposure, gamma, levels, saturation, stretch, temperature, warnColorOnly };
+export { applySync, autoStretch, brightness, contrast, exposure, gamma, levels, saturation, sharpen, stretch, temperature, warnColorOnly };
 
 //# sourceMappingURL=functional.js.map

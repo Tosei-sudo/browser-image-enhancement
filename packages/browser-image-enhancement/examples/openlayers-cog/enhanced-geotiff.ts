@@ -11,6 +11,10 @@
  * `updateDra(map)` collects the statistics of the area the map shows and fixes
  * the stretch from them. Every tile then gets the same range, so there are no
  * seams; tiles are never stretched on their own statistics.
+ *
+ * Sharpening reads neighbouring pixels, so each tile is corrected with
+ * `pipeline.margin` pixels of its neighbour tiles around it (read through the
+ * same raw cache) and cropped back: tile edges match the whole image exactly.
  */
 import GeoTIFF, { type Options as GeoTIFFOptions } from 'ol/source/GeoTIFF.js';
 import type { Loader, LoaderOptions } from 'ol/source/DataTile.js';
@@ -19,6 +23,7 @@ import type OlMap from 'ol/Map.js';
 import { getHeight, getIntersection, getWidth, isEmpty, type Extent } from 'ol/extent.js';
 import { transformExtent } from 'ol/proj.js';
 import { histogram, mergeHistograms, pipeline, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../../src/index.js';
+import { cropMargin, withMargin } from './margin.js';
 
 export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
   /** Correction to apply. Default: an empty pipeline (no change). */
@@ -214,9 +219,14 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     if (!Number.isInteger(bands) || bands < 1 || bands > 4) return raw; // multispectral: left as is
 
     const t0 = performance.now();
+    const margin = p.margin;
     const rgba = toRGBA(raw, bands, width * height);
+    const input =
+      margin > 0
+        ? { data: await this.withNeighbours_(loader, z, x, y, rgba, margin), width: width + 2 * margin, height: height + 2 * margin }
+        : { data: rgba, width, height };
     const result = await p.run(
-      { data: rgba, width, height },
+      input,
       {
         // Decide per source, never per tile: `auto` could judge one tile gray
         // and its neighbour color, leaving a visible seam.
@@ -227,7 +237,39 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     );
     this.stats.tiles++;
     this.stats.ms += performance.now() - t0;
-    return fromRGBA(result.data, bands, width * height);
+    return fromRGBA(cropMargin(result.data, width, height, margin), bands, width * height);
+  }
+
+  /** The tile's pixels with `margin` pixels of its neighbour tiles around it; transparent where there are none. */
+  private async withNeighbours_(loader: Loader, z: number, x: number, y: number, rgba: Uint8ClampedArray, margin: number): Promise<Uint8ClampedArray> {
+    const [width, height] = this.getTileSize(z);
+    const range = this.getTileGrid()?.getFullTileRange(z);
+    const nx = Math.ceil(margin / width);
+    const ny = Math.ceil(margin / height);
+    const tiles = new Map<string, Uint8ClampedArray | null>();
+    const reads: Array<Promise<void>> = [];
+    for (let dy = -ny; dy <= ny; dy++) {
+      for (let dx = -nx; dx <= nx; dx++) {
+        const key = `${dx},${dy}`;
+        if (dx === 0 && dy === 0) {
+          tiles.set(key, rgba);
+          continue;
+        }
+        if (!range || !range.containsXY(x + dx, y + dy)) continue;
+        reads.push(
+          this.rawTile_(loader, z, x + dx, y + dy, { signal: neverAborted, crossOrigin: 'anonymous' }).then(
+            (raw) => {
+              if (!(raw instanceof Uint8Array) && !(raw instanceof Uint8ClampedArray)) return;
+              const bands = raw.length / (width * height);
+              if (Number.isInteger(bands) && bands >= 1 && bands <= 4) tiles.set(key, toRGBA(raw, bands, width * height));
+            },
+            () => {}, // a neighbour that fails to load is left transparent
+          ),
+        );
+      }
+    }
+    await Promise.all(reads);
+    return withMargin((dx, dy) => tiles.get(`${dx},${dy}`) ?? null, width, height, margin);
   }
 
   private rawTile_(loader: Loader, z: number, x: number, y: number, options: LoaderOptions): Promise<Data> {

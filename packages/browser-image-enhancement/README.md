@@ -1,6 +1,6 @@
 # browser-image-enhancement
 
-ブラウザだけで動く画像補正ライブラリです。画像をサーバーに送らず、明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル補正と、画素の分布からダイナミックレンジを自動で決める DRA（自動ストレッチ）をかけられます。
+ブラウザだけで動く画像補正ライブラリです。画像をサーバーに送らず、明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル補正、シャープ（アンシャープマスク）と、画素の分布からダイナミックレンジを自動で決める DRA（自動ストレッチ）をかけられます。
 
 - 依存ライブラリなし、ESM + TypeScript 型定義付き
 - 重い処理は Web Worker で実行し、メインスレッドを止めない（使えない環境では自動でメインスレッド実行）
@@ -111,9 +111,9 @@ const restored = pipeline.fromJSON(json);
 | `saturation(amount)` | -1〜1 | -1 でグレースケール、1 で彩度 2 倍 |
 | `temperature(amount)` | -1〜1 | 正で暖色（黄〜橙）、負で寒色（青） |
 | `levels({ inBlack, inWhite, gamma, outBlack, outWhite })` | 黒点・白点は 0〜1、`gamma` は 0.1〜10 | 0〜255 の目盛りなら値を 255 で割って指定。`gamma` が 1 より大きいと中間調が明るくなる |
-
 | `stretch({ black, white })` | 0〜1（sRGB の符号化値）。1 つの数か `[R, G, B]` | `black`〜`white` を 0〜255 いっぱいに引き伸ばし、外側は切り捨てる |
 | `autoStretch({ method, lowPercent, highPercent, stdDevs, linked })` | 下の「DRA」を参照 | 画素の分布から `stretch` の範囲を自動で決める |
+| `sharpen({ amount, radius, threshold })` | 下の「シャープ」を参照 | 輪郭を強調する。`amount` が 0 で無変化 |
 
 範囲外の値は例外にせず範囲内に丸め、開発ビルドでのみ `console.warn` で警告します（`process.env.NODE_ENV === 'production'` のビルドでは警告を出しません）。
 
@@ -145,6 +145,37 @@ const fixed = pipeline().autoStretch().resolve(stats);
 - 真っ平らな画像やチャンネル（黒点 ≥ 白点）は変えません
 
 設計は [docs/dra.md](docs/dra.md) にあります。
+
+## シャープ（アンシャープマスク）
+
+```ts
+import { pipeline, sharpen } from 'browser-image-enhancement';
+
+const out = sharpen(imageData, { amount: 0.8, radius: 1.2 });
+await pipeline().autoStretch().contrast(0.1).sharpen({ amount: 0.6, radius: 1, threshold: 0.02 }).run(img);
+```
+
+| オプション | 既定 | 意味 |
+| --- | --- | --- |
+| `amount` | `0.5` | 強さ（0〜5）。元画像とぼかした画像の差をこの倍率で足す |
+| `radius` | `1` | ガウスぼかしの半径（標準偏差、0.1〜50 px）。各画素は `ceil(3 × radius)` px 先まで参照するので、大きいほど遅くなる |
+| `threshold` | `0` | 差がこれより小さい所は変えない（sRGB 符号化値で 0〜1、255 倍すると階調）。平坦な部分やノイズを強調しないために使う |
+
+- 輪郭は sRGB 符号化値の輝度で検出し、同じ量を R・G・B に足します。色がにじまず、モノクロ画像は R=G=B のままです
+- 透明な画素（α = 0、地図の nodata など）は変えず、周りの画素のぼかしにも数えません。画像の外側も透明として扱います
+- パイプラインの途中に置いても 1 パスで計算し、前後の補正との間で 8bit に丸めません
+- Worker で横帯に分けるときは、帯の上下に `margin` 行の重なりを付けて送るので、結果はメインスレッドで全体を処理したときと 1 ビットも違いません
+
+### タイル画像でのシャープ
+
+隣の画素を見る補正なので、タイルを 1 枚ずつ処理すると境目が見えます。`pipeline.margin` px だけ周りのタイルの画素を付けて処理し、結果から中央を切り出すと、全体を一度に処理したときと同じ画素になります。隣のタイルがない所（画像の外側）は透明（α = 0）で埋めてください。
+
+```ts
+const p = pipeline().sharpen({ amount: 0.8 });
+const m = p.margin; // 例: radius 1 なら 3
+const padded = await p.run({ data: tileWithNeighbours, width: w + 2 * m, height: h + 2 * m }, { colorMode: 'rgb' });
+// padded の (m, m) から w × h を切り出す
+```
 
 ## モノクロ画像
 
@@ -184,7 +215,7 @@ terminateWorkers(); // 使い終わったら Worker を止める（次の run �
 
 ## 地図（OpenLayers + COG）での利用
 
-[examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。地図の表示範囲の統計で引き伸ばす DRA も入っています。
+[examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。地図の表示範囲の統計で引き伸ばす DRA と、隣のタイルを余白にしてタイル境界が出ないシャープも入っています。
 
 ## 開発
 

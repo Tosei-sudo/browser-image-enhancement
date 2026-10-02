@@ -1,6 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
-import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpSpec, StretchOptions } from "./types.js";
+import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpSpec, SharpenOptions, StretchOptions } from "./types.js";
 //#region src/pipeline.d.ts
 /**
  * What `run()` resolves with: `imageData` (default), a `canvas`
@@ -91,6 +91,21 @@ export declare class Pipeline {
    * for tiles, collect statistics over the area you show and call `resolve`.
    */
   autoStretch(options?: AutoStretchOptions): Pipeline;
+  /**
+   * Sharpens with an unsharp mask (see {@link SharpenOptions}). Run on its own
+   * image, the result is the same whether or not it is split across workers.
+   * For tiles of a larger picture, give each tile {@link Pipeline.margin}
+   * pixels of its neighbours so the tile edges do not show.
+   */
+  sharpen(options?: SharpenOptions): Pipeline;
+  /**
+   * Pixels of context the pipeline needs around each part of a picture: when
+   * a tile is run with this many pixels of its neighbours on every side (and
+   * the margin is cropped off afterwards), it matches the same area of the
+   * whole picture run at once, so tile seams cannot show. 0 unless the
+   * pipeline has `sharpen` steps.
+   */
+  get margin(): number;
   /** True when the pipeline has `autoStretch` steps that still need statistics. */
   get needsStats(): boolean;
   /**

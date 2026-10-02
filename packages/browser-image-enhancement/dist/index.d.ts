@@ -1,10 +1,10 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
-import { AutoStretchOptions, ColorMode, ColorOptions, Histogram, LevelsOptions, OpName, OpSpec, RGBValues, Rect, StretchMethod, StretchOptions } from "./types.js";
-import { autoStretch, brightness, contrast, exposure, gamma, levels, saturation, stretch, temperature } from "./functional.js";
+import { AutoStretchOptions, ColorMode, ColorOptions, Histogram, LevelsOptions, OpName, OpSpec, RGBValues, Rect, SharpenOptions, StretchMethod, StretchOptions } from "./types.js";
+import { autoStretch, brightness, contrast, exposure, gamma, levels, saturation, sharpen, stretch, temperature } from "./functional.js";
 import { isMonochrome } from "./core/process.js";
 import { mergeHistograms } from "./core/histogram.js";
 import { HistogramOptions, computeStretch, histogram } from "./stats.js";
 import { GrayImage, OutputKind, Pipeline, PipelineJSON, PreviewRunner, RunOptions, RunResult, createPreviewRunner, pipeline } from "./pipeline.js";
 import { WorkerConfig, WorkerLike, configureWorkers, terminateWorkers } from "./worker/pool.js";
-export { type AutoStretchOptions, type ColorMode, type ColorOptions, type GrayImage, type Histogram, type HistogramOptions, type ImageDataLike, type ImageInput, type LevelsOptions, type OpName, type OpSpec, type OutputKind, Pipeline, type PipelineJSON, type PreviewRunner, type RGBValues, type Rect, type RunOptions, type RunResult, type StretchMethod, type StretchOptions, type WorkerConfig, type WorkerLike, autoStretch, brightness, computeStretch, configureWorkers, contrast, createPreviewRunner, exposure, gamma, histogram, isMonochrome, levels, mergeHistograms, pipeline, saturation, stretch, temperature, terminateWorkers };
+export { type AutoStretchOptions, type ColorMode, type ColorOptions, type GrayImage, type Histogram, type HistogramOptions, type ImageDataLike, type ImageInput, type LevelsOptions, type OpName, type OpSpec, type OutputKind, Pipeline, type PipelineJSON, type PreviewRunner, type RGBValues, type Rect, type RunOptions, type RunResult, type SharpenOptions, type StretchMethod, type StretchOptions, type WorkerConfig, type WorkerLike, autoStretch, brightness, computeStretch, configureWorkers, contrast, createPreviewRunner, exposure, gamma, histogram, isMonochrome, levels, mergeHistograms, pipeline, saturation, sharpen, stretch, temperature, terminateWorkers };

@@ -4,6 +4,12 @@ import type { ColorMode, Histogram, OpSpec } from '../types.js';
 /**
  * Messages from the main thread to a worker. Pixel buffers are transferred, not copied.
  *
+ * A strip carries `width` pixels per row. When the steps read neighbouring
+ * pixels (`sharpen`), it also carries rows of margin above and below its own
+ * rows, which are `core` (first row, end row) within the buffer; the margin
+ * rows are processed too but only the core rows are used, and only they are
+ * counted for statistics.
+ *
  * - `run`: resolve the color mode (and any `autoStretch`) on this buffer alone,
  *   process it, send it back.
  * - `detect` + `process`: two-phase form for an image split across workers in
@@ -14,8 +20,8 @@ import type { ColorMode, Histogram, OpSpec } from '../types.js';
  * - `release`: drop a strip held after `detect` (the job was cancelled).
  */
 export type WorkerRequest =
-  | { type: 'run'; id: number; buffer: ArrayBuffer; ops: OpSpec[]; colorMode: ColorMode }
-  | { type: 'detect'; id: number; buffer: ArrayBuffer; stats: ResolvedMode | null }
+  | { type: 'run'; id: number; buffer: ArrayBuffer; width: number; ops: OpSpec[]; colorMode: ColorMode }
+  | { type: 'detect'; id: number; buffer: ArrayBuffer; width: number; core: [number, number]; stats: ResolvedMode | null }
   | { type: 'process'; id: number; ops: OpSpec[]; mode: ResolvedMode }
   | { type: 'release'; id: number };
 

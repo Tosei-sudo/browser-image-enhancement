@@ -136,6 +136,42 @@ test('autoStretch in workers: one range for the whole image, same as the main th
   expect(r.graySame).toBe(true);
 });
 
+test('sharpen in workers: strips with a margin give exactly the main-thread result', async ({ page }) => {
+  const r = await page.evaluate(async () => {
+    const { lib, helpers } = window;
+    lib.configureWorkers({ maxWorkers: 4 });
+    const img = helpers.noise(1024, 1024, 5);
+    const p = lib.pipeline().exposure(0.2).sharpen({ amount: 1.2, radius: 2 }).saturation(0.2).sharpen({ amount: 0.5, radius: 0.7 });
+    const viaWorker = await p.run(img);
+    const viaMain = await p.run(img, { worker: false });
+    const gray = helpers.gray(500, 700, 3);
+    const grayWorker = await p.run(gray);
+
+    // Timing on 12 MP, for the log.
+    const big = helpers.noise(4000, 3000, 2);
+    const one = lib.pipeline().sharpen({ amount: 1, radius: 1 });
+    let t0 = performance.now();
+    await one.run(big, { worker: false });
+    const mainMs = Math.round(performance.now() - t0);
+    t0 = performance.now();
+    await one.run(big);
+    const workerMs = Math.round(performance.now() - t0);
+    return {
+      same: helpers.same(viaWorker.data, viaMain.data),
+      changed: !helpers.same(viaWorker.data, img.data),
+      workers: helpers.workersCreated(),
+      graySame: helpers.same(grayWorker.data, p.runSync(gray).data),
+      mainMs,
+      workerMs,
+    };
+  });
+  console.log(`12MP sharpen (radius 1): main thread ${r.mainMs} ms, workers ${r.workerMs} ms`);
+  expect(r.workers).toBe(4);
+  expect(r.changed).toBe(true);
+  expect(r.same).toBe(true);
+  expect(r.graySame).toBe(true);
+});
+
 test('monochrome images are detected across strips and stay gray', async ({ page }) => {
   const r = await page.evaluate(async () => {
     const { lib, helpers } = window;

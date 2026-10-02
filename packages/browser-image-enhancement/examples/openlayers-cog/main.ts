@@ -33,6 +33,8 @@ const sliders = [
   { key: 'midGamma', label: 'レベル 中間', min: 0.2, max: 3, step: 0.01, value: 1 },
   { key: 'temperature', label: '色温度', min: -1, max: 1, step: 0.01, value: 0 },
   { key: 'saturation', label: '彩度', min: -1, max: 1, step: 0.01, value: 0 },
+  { key: 'sharpen', label: 'シャープ 量', min: 0, max: 3, step: 0.05, value: 0 },
+  { key: 'sharpenRadius', label: 'シャープ 半径', min: 0.3, max: 5, step: 0.1, value: 1 },
 ] as const;
 
 type Key = (typeof sliders)[number]['key'];
@@ -76,6 +78,7 @@ const current = () =>
         .levels({ inBlack: v('inBlack'), inWhite: v('inWhite'), gamma: v('midGamma') })
         .temperature(v('temperature'))
         .saturation(v('saturation'))
+        .sharpen({ amount: v('sharpen'), radius: v('sharpenRadius') })
     : pipeline();
 
 const cogLayer = new WebGLTileLayer({ opacity: 1 });

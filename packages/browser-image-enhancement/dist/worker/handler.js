@@ -16,9 +16,9 @@ function createWorkerHandler(post) {
 		}
 		return cached;
 	}
-	function finish(id, buffer, ops, mode) {
+	function finish(id, buffer, width, ops, mode) {
 		const pixels = new Uint8ClampedArray(buffer);
-		processPixels(pixels, pixels, program(ops, mode));
+		processPixels(pixels, pixels, program(ops, mode), width);
 		post({
 			type: "done",
 			id,
@@ -33,13 +33,23 @@ function createWorkerHandler(post) {
 				case "run": {
 					const pixels = new Uint8ClampedArray(request.buffer);
 					const mode = resolveMode(pixels, request.colorMode);
-					finish(id, request.buffer, resolveForPixels(request.ops, pixels, mode), mode);
+					finish(id, request.buffer, request.width, resolveForPixels(request.ops, pixels, mode), mode);
 					break;
 				}
 				case "detect": {
-					held.set(id, request.buffer);
-					const pixels = new Uint8ClampedArray(request.buffer);
-					const stats = request.stats ? countPixels(pixels, Math.max(1, pixels.length >> 2), request.stats) : null;
+					const { buffer, width, core } = request;
+					held.set(id, {
+						buffer,
+						width
+					});
+					const pixels = new Uint8ClampedArray(buffer);
+					const rect = {
+						x: 0,
+						y: core[0],
+						width,
+						height: core[1] - core[0]
+					};
+					const stats = request.stats ? countPixels(pixels, width, request.stats, rect) : null;
 					post({
 						type: "detected",
 						id,
@@ -49,10 +59,10 @@ function createWorkerHandler(post) {
 					break;
 				}
 				case "process": {
-					const buffer = held.get(id);
-					if (!buffer) throw new Error(`No strip held for job ${id}.`);
+					const strip = held.get(id);
+					if (!strip) throw new Error(`No strip held for job ${id}.`);
 					held.delete(id);
-					finish(id, buffer, request.ops, request.mode);
+					finish(id, strip.buffer, strip.width, request.ops, request.mode);
 					break;
 				}
 				case "release": held.delete(id);

@@ -3,16 +3,32 @@
  *
  * All math runs on linear-light values (see color/srgb.ts). Values may leave
  * [0, 1] between steps; they are clamped only when quantized to 8 bits at the end.
+ * `sharpen` is the one step that reads neighbouring pixels; core/filter.ts runs it.
  */
 import { linearToSrgb, srgbToLinear, LUMA_B, LUMA_G, LUMA_R } from '../color/srgb.js';
-import type { AutoStretchOptions, LevelsOptions, OpName, OpSpec, RGBValues, StretchMethod, StretchOptions } from '../types.js';
+import type {
+  AutoStretchOptions,
+  LevelsOptions,
+  OpName,
+  OpSpec,
+  RGBValues,
+  SharpenOptions,
+  StretchMethod,
+  StretchOptions,
+} from '../types.js';
 import { warn } from '../warn.js';
 
 /** A per-channel transform. `c` is 0, 1, 2 for R, G, B (or 0 for a gray channel). */
 export type ChannelFn = (v: number, c: number) => number;
 
-/** One compiled step. `channel` steps act on each channel independently; `saturation` mixes channels. */
-export type Stage = { kind: 'channel'; fn: ChannelFn } | { kind: 'saturation'; factor: number };
+/** A step computed from each pixel alone. `channel` steps act on each channel independently; `saturation` mixes channels. */
+export type PixelStage = { kind: 'channel'; fn: ChannelFn } | { kind: 'saturation'; factor: number };
+
+/** A step that reads neighbouring pixels (see core/filter.ts). */
+export type SpatialStage = { kind: 'sharpen' } & Required<SharpenOptions>;
+
+/** One compiled step. */
+export type Stage = PixelStage | SpatialStage;
 
 /** Corrections that only make sense for color images; no-ops on monochrome input. */
 export const COLOR_ONLY_OPS: ReadonlySet<OpName> = new Set<OpName>(['saturation', 'temperature']);
@@ -83,6 +99,32 @@ export function normalizeStretch(o: StretchOptions = {}): { black: RGBValues; wh
   return { black, white };
 }
 
+/** Validates sharpening options, filling defaults. */
+export function normalizeSharpen(o: SharpenOptions = {}): Required<SharpenOptions> {
+  return {
+    amount: num('sharpen.amount', o.amount, 0, 5, 0.5),
+    radius: num('sharpen.radius', o.radius, 0.1, 50, 1),
+    threshold: num('sharpen.threshold', o.threshold, 0, 1, 0),
+  };
+}
+
+/** How far (in pixels) the blur of a sharpen step with this radius reaches. */
+export function kernelRadius(radius: number): number {
+  return Math.ceil(3 * radius);
+}
+
+/**
+ * Pixels of context the steps need on each side: a pixel's result depends
+ * only on input pixels at most this far away (0 when every step is per-pixel).
+ * An image cut into tiles or strips gives exactly the same pixels as the
+ * whole image when each part is processed with this much margin around it.
+ */
+export function marginOf(ops: readonly OpSpec[]): number {
+  let m = 0;
+  for (const op of ops) if (op.op === 'sharpen' && !isIdentity(op)) m += kernelRadius(op.radius);
+  return m;
+}
+
 const STRETCH_METHODS: readonly StretchMethod[] = ['percentClip', 'minMax', 'standardDeviation'];
 
 /** Validates automatic stretch options, filling defaults. */
@@ -123,6 +165,8 @@ export function normalizeOp(raw: unknown): OpSpec {
       return { op: 'stretch', ...normalizeStretch(o as StretchOptions) };
     case 'autoStretch':
       return { op: 'autoStretch', ...normalizeAutoStretch(o as AutoStretchOptions) };
+    case 'sharpen':
+      return { op: 'sharpen', ...normalizeSharpen(o as SharpenOptions) };
     default:
       throw new TypeError(`Unknown correction: ${String(o.op)}`);
   }
@@ -146,10 +190,12 @@ export function isIdentity(op: OpSpec): boolean {
       return op.black.every((b, c) => b === 0 && op.white[c] === 1);
     case 'autoStretch':
       return false;
+    case 'sharpen':
+      return op.amount === 0;
   }
 }
 
-/** Builds the per-pixel math for a normalized op. */
+/** Builds the math for a normalized op. */
 export function toStage(op: OpSpec): Stage {
   switch (op.op) {
     case 'brightness': {
@@ -214,6 +260,8 @@ export function toStage(op: OpSpec): Stage {
         },
       };
     }
+    case 'sharpen':
+      return { kind: 'sharpen', amount: op.amount, radius: op.radius, threshold: op.threshold };
     case 'autoStretch':
       throw new Error('autoStretch has no fixed math; resolve it with image statistics first.');
   }

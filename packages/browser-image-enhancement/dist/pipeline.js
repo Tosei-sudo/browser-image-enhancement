@@ -1,7 +1,7 @@
 import { abortError } from "./workers/src/abort.js";
 import { assertImageData, createImageData } from "./workers/src/image.js";
 import { toBlob, toCanvas, toImageData } from "./workers/src/io.js";
-import { normalizeOp } from "./ops/index.js";
+import { marginOf, normalizeOp } from "./ops/index.js";
 import { extractGray } from "./core/process.js";
 import { needsStats, resolveOps } from "./core/histogram.js";
 import { applySync, warnColorOnly } from "./functional.js";
@@ -109,6 +109,28 @@ var Pipeline = class Pipeline {
 			op: "autoStretch",
 			...options
 		});
+	}
+	/**
+	* Sharpens with an unsharp mask (see {@link SharpenOptions}). Run on its own
+	* image, the result is the same whether or not it is split across workers.
+	* For tiles of a larger picture, give each tile {@link Pipeline.margin}
+	* pixels of its neighbours so the tile edges do not show.
+	*/
+	sharpen(options) {
+		return this.add({
+			op: "sharpen",
+			...options
+		});
+	}
+	/**
+	* Pixels of context the pipeline needs around each part of a picture: when
+	* a tile is run with this many pixels of its neighbours on every side (and
+	* the margin is cropped off afterwards), it matches the same area of the
+	* whole picture run at once, so tile seams cannot show. 0 unless the
+	* pipeline has `sharpen` steps.
+	*/
+	get margin() {
+		return marginOf(this.ops);
 	}
 	/** True when the pipeline has `autoStretch` steps that still need statistics. */
 	get needsStats() {

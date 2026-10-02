@@ -10,7 +10,7 @@ import type { WorkerRequest, WorkerResponse } from './protocol.js';
 export type Post = SharedPost<WorkerResponse>;
 
 export function createWorkerHandler(post: Post): (request: WorkerRequest) => void {
-  const held = new Map<number, ArrayBuffer>();
+  const held = new Map<number, { buffer: ArrayBuffer; width: number }>();
   // Strips of one image arrive with the same ops; reuse the compiled tables.
   let cacheKey = '';
   let cached: Program | null = null;
@@ -24,9 +24,9 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
     return cached;
   }
 
-  function finish(id: number, buffer: ArrayBuffer, ops: OpSpec[], mode: ResolvedMode): void {
+  function finish(id: number, buffer: ArrayBuffer, width: number, ops: OpSpec[], mode: ResolvedMode): void {
     const pixels = new Uint8ClampedArray(buffer);
-    processPixels(pixels, pixels, program(ops, mode));
+    processPixels(pixels, pixels, program(ops, mode), width);
     post({ type: 'done', id, buffer, mode }, [buffer]);
   }
 
@@ -37,21 +37,23 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
         case 'run': {
           const pixels = new Uint8ClampedArray(request.buffer);
           const mode = resolveMode(pixels, request.colorMode);
-          finish(id, request.buffer, resolveForPixels(request.ops, pixels, mode), mode);
+          finish(id, request.buffer, request.width, resolveForPixels(request.ops, pixels, mode), mode);
           break;
         }
         case 'detect': {
-          held.set(id, request.buffer);
-          const pixels = new Uint8ClampedArray(request.buffer);
-          const stats = request.stats ? countPixels(pixels, Math.max(1, pixels.length >> 2), request.stats) : null;
+          const { buffer, width, core } = request;
+          held.set(id, { buffer, width });
+          const pixels = new Uint8ClampedArray(buffer);
+          const rect = { x: 0, y: core[0], width, height: core[1] - core[0] };
+          const stats = request.stats ? countPixels(pixels, width, request.stats, rect) : null;
           post({ type: 'detected', id, mono: isMonochrome(pixels), stats });
           break;
         }
         case 'process': {
-          const buffer = held.get(id);
-          if (!buffer) throw new Error(`No strip held for job ${id}.`);
+          const strip = held.get(id);
+          if (!strip) throw new Error(`No strip held for job ${id}.`);
           held.delete(id);
-          finish(id, buffer, request.ops, request.mode);
+          finish(id, strip.buffer, strip.width, request.ops, request.mode);
           break;
         }
         case 'release':

@@ -7,8 +7,17 @@ import { needsStats, resolveOps } from './core/histogram.js';
 import { extractGray } from './core/process.js';
 import { applySync, warnColorOnly } from './functional.js';
 import { toBlob, toCanvas, toImageData, type ImageInput } from './io.js';
-import { normalizeOp } from './ops/index.js';
-import type { AutoStretchOptions, ColorOptions, Histogram, ImageDataLike, LevelsOptions, OpSpec, StretchOptions } from './types.js';
+import { marginOf, normalizeOp } from './ops/index.js';
+import type {
+  AutoStretchOptions,
+  ColorOptions,
+  Histogram,
+  ImageDataLike,
+  LevelsOptions,
+  OpSpec,
+  SharpenOptions,
+  StretchOptions,
+} from './types.js';
 import { abortError, execute } from './worker/executor.js';
 
 /**
@@ -144,6 +153,27 @@ export class Pipeline {
    */
   autoStretch(options?: AutoStretchOptions): Pipeline {
     return this.add({ op: 'autoStretch', ...options } as OpSpec);
+  }
+
+  /**
+   * Sharpens with an unsharp mask (see {@link SharpenOptions}). Run on its own
+   * image, the result is the same whether or not it is split across workers.
+   * For tiles of a larger picture, give each tile {@link Pipeline.margin}
+   * pixels of its neighbours so the tile edges do not show.
+   */
+  sharpen(options?: SharpenOptions): Pipeline {
+    return this.add({ op: 'sharpen', ...options } as OpSpec);
+  }
+
+  /**
+   * Pixels of context the pipeline needs around each part of a picture: when
+   * a tile is run with this many pixels of its neighbours on every side (and
+   * the margin is cropped off afterwards), it matches the same area of the
+   * whole picture run at once, so tile seams cannot show. 0 unless the
+   * pipeline has `sharpen` steps.
+   */
+  get margin(): number {
+    return marginOf(this.ops);
   }
 
   /** True when the pipeline has `autoStretch` steps that still need statistics. */

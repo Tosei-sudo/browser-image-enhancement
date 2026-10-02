@@ -182,8 +182,8 @@ export function needsStats(ops: readonly OpSpec[]): boolean {
  * histogram of the image the steps will run on. Each one uses the distribution
  * of values as they reach it: steps before it are applied to the histogram's
  * values (exact, since every per-channel step keeps values in order).
- * Saturation mixes channels and cannot be followed this way; it is ignored,
- * with a warning. With `stats` null, `autoStretch` steps are dropped.
+ * Saturation mixes channels and sharpen mixes neighbouring pixels, so neither
+ * can be followed this way; they are ignored, with a warning. With `stats` null, `autoStretch` steps are dropped.
  */
 export function resolveOps(ops: readonly OpSpec[], stats: Histogram | null): OpSpec[] {
   const out: OpSpec[] = [];
@@ -194,8 +194,10 @@ export function resolveOps(ops: readonly OpSpec[], stats: Histogram | null): OpS
     }
     if (!stats) continue;
     const before = out.filter((p) => !isIdentity(p) && !(stats.mode === 'gray' && COLOR_ONLY_OPS.has(p.op)));
-    if (before.some((p) => p.op === 'saturation')) {
-      warn('autoStretch after saturation uses statistics without the saturation change. Put autoStretch first to avoid this.');
+    for (const name of ['saturation', 'sharpen'] as const) {
+      if (before.some((p) => p.op === name)) {
+        warn(`autoStretch after ${name} uses statistics without the ${name} change. Put autoStretch first to avoid this.`);
+      }
     }
     const fns = before.flatMap((p) => {
       const s = toStage(stats.mode === 'gray' ? forGray(p) : p);

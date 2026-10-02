@@ -124,6 +124,32 @@ test('changing the pipeline re-corrects cached tiles without reading the COG aga
   expect(after.tiles).toBeGreaterThan(0); // reset on each change, so these are the latest re-corrections
 });
 
+test('sharpening corrects tiles with their neighbours as margin', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+  // A line across the fixture's stripes (an edge every 48 image pixels): sharpening shows next to them.
+  const points = Array.from({ length: 40 }, (_, i): [number, number] => [w * (0.2 + i * 0.015), h * 0.5]);
+  const before = await Promise.all(points.map(([x, y]) => sample(page, x, y)));
+
+  await page.evaluate(() => {
+    const { inputs } = window.example;
+    inputs.sharpen.value = '2';
+    inputs.sharpenRadius.value = '2';
+    inputs.sharpen.dispatchEvent(new Event('input'));
+  });
+  await page.waitForFunction(() => window.example.source.getEffectivePipeline().margin === 6);
+  await page.waitForTimeout(50);
+  await settle(page);
+  const stats = await page.evaluate(() => ({ ...window.example.source.stats }));
+  expect(stats.tiles).toBeGreaterThan(0);
+  const after = await Promise.all(points.map(([x, y]) => sample(page, x, y)));
+  for (const px of after) expect(px.length).toBe(4);
+  expect(after).not.toEqual(before);
+  expect(errors).toEqual([]);
+});
+
 /** Fixture pixel values (see examples/openlayers-cog/fixture.ts). */
 const FX = { width: 768, height: 384, extent: [139.6, 35.6, 139.9, 35.75] };
 const stripe = (x: number) => (Math.floor(x / 48) % 2 === 0 ? 0 : 24);

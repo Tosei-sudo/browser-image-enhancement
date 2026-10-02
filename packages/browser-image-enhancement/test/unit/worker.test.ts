@@ -107,7 +107,7 @@ describe('worker message handler', () => {
     const { out, handle } = collect();
     const img = noiseImage(8, 8);
     const buffer = img.data.slice().buffer;
-    handle({ type: 'run', id: 1, buffer, ops: OPS, colorMode: 'auto' });
+    handle({ type: 'run', id: 1, buffer, width: 8, ops: OPS, colorMode: 'auto' });
     expect(out).toHaveLength(1);
     const done = out[0] as Extract<WorkerResponse, { type: 'done' }>;
     expect(done).toMatchObject({ type: 'done', id: 1, mode: 'rgb' });
@@ -116,14 +116,14 @@ describe('worker message handler', () => {
 
   it('run: detects monochrome strips', () => {
     const { out, handle } = collect();
-    handle({ type: 'run', id: 2, buffer: grayImage(4, 4).data.slice().buffer, ops: OPS, colorMode: 'auto' });
+    handle({ type: 'run', id: 2, buffer: grayImage(4, 4).data.slice().buffer, width: 4, ops: OPS, colorMode: 'auto' });
     expect(out[0]).toMatchObject({ type: 'done', mode: 'gray' });
   });
 
   it('detect then process uses the held strip', () => {
     const { out, handle } = collect();
     const img = grayImage(4, 4);
-    handle({ type: 'detect', id: 3, buffer: img.data.slice().buffer, stats: null });
+    handle({ type: 'detect', id: 3, buffer: img.data.slice().buffer, width: 4, core: [0, 4], stats: null });
     expect(out[0]).toEqual({ type: 'detected', id: 3, mono: true, stats: null });
     handle({ type: 'process', id: 3, ops: OPS, mode: 'rgb' });
     expect(out[1]).toMatchObject({ type: 'done', id: 3, mode: 'rgb' });
@@ -131,7 +131,7 @@ describe('worker message handler', () => {
 
   it('release drops a held strip', () => {
     const { out, handle } = collect();
-    handle({ type: 'detect', id: 4, buffer: new ArrayBuffer(16), stats: null });
+    handle({ type: 'detect', id: 4, buffer: new ArrayBuffer(16), width: 4, core: [0, 1], stats: null });
     handle({ type: 'release', id: 4 });
     handle({ type: 'process', id: 4, ops: [], mode: 'rgb' });
     expect(out[1]).toMatchObject({ type: 'error', id: 4 });
@@ -139,7 +139,7 @@ describe('worker message handler', () => {
 
   it('reports errors instead of throwing', () => {
     const { out, handle } = collect();
-    handle({ type: 'run', id: 5, buffer: new ArrayBuffer(4), ops: [{ op: 'bogus' } as any], colorMode: 'rgb' });
+    handle({ type: 'run', id: 5, buffer: new ArrayBuffer(4), width: 1, ops: [{ op: 'bogus' } as any], colorMode: 'rgb' });
     expect(out[0]).toMatchObject({ type: 'error', id: 5 });
   });
 });
@@ -271,7 +271,7 @@ describe('autoStretch in workers', () => {
     const out: Array<WorkerResponse | ControlResponse> = [];
     const handle = createWorkerHandler((m) => out.push(m));
     const img = noiseImage(5, 4, 2);
-    handle({ type: 'detect', id: 9, buffer: img.data.slice().buffer, stats: 'rgb' });
+    handle({ type: 'detect', id: 9, buffer: img.data.slice().buffer, width: 5, core: [0, 4], stats: 'rgb' });
     const reply = out[0] as Extract<WorkerResponse, { type: 'detected' }>;
     expect(reply.stats?.mode).toBe('rgb');
     expect(reply.stats?.count).toBe(Array.from({ length: 20 }, (_, i) => img.data[i * 4 + 3]).filter((a) => a > 0).length);
@@ -409,4 +409,57 @@ it('main-thread execution equals compile + processPixels', () => {
   const out = new Uint8ClampedArray(img.data.length);
   processPixels(img.data, out, compile(OPS, 'rgb'));
   expect(executeOnMainThread(img, OPS).data).toEqual(out);
+});
+
+describe('sharpen in workers', () => {
+  const SHARP: OpSpec[] = [
+    { op: 'exposure', ev: 0.3 },
+    { op: 'sharpen', amount: 1.5, radius: 1.4, threshold: 0 },
+    { op: 'saturation', amount: 0.2 },
+    { op: 'sharpen', amount: 0.6, radius: 2.1, threshold: 0.01 },
+    { op: 'contrast', amount: 0.15 },
+  ].map(normalizeOp);
+
+  it('strips get a margin, so the result equals the main thread exactly', async () => {
+    // Several strip counts, including strips thinner than the margin (16 rows).
+    for (const workers of [2, 3, 5, 8]) {
+      const img = noiseImage(29, 41, workers);
+      const res = await execute(img, SHARP, { pool: pool('ok', workers), colorMode: 'rgb' });
+      expect(res.usedWorker).toBe(true);
+      expect(res.data).toEqual(executeOnMainThread(img, SHARP, 'rgb').data);
+    }
+  });
+
+  it('auto mode and monochrome images too', async () => {
+    for (const img of [noiseImage(30, 40, 3), grayImage(30, 40, 4)]) {
+      const res = await execute(img, SHARP, { pool: pool('ok', 4) });
+      const main = executeOnMainThread(img, SHARP);
+      expect(res.mode).toBe(main.mode);
+      expect(res.data).toEqual(main.data);
+    }
+  });
+
+  it('with autoStretch, margin rows are not counted twice in the statistics', async () => {
+    const ops = [{ op: 'autoStretch', method: 'minMax' }, { op: 'sharpen', amount: 1, radius: 3 }].map(normalizeOp);
+    // A tall image whose rows differ: a strip's margin rows double-counted would move a percentile.
+    const img = image(12, 60, (x, y) => [y * 3, 100 + (x % 5), 255 - y * 2, 255]);
+    const clip = [{ op: 'autoStretch', method: 'percentClip', lowPercent: 10, highPercent: 10 }, ...ops.slice(1)].map(normalizeOp);
+    for (const o of [ops, clip]) {
+      const res = await execute(img, o, { pool: pool('ok', 4) });
+      expect(FakeWorker.log).toContain('detect');
+      expect(res.data).toEqual(executeOnMainThread(img, o).data);
+    }
+  });
+
+  it('detect counts only the core rows of a strip', () => {
+    const out: Array<WorkerResponse | ControlResponse> = [];
+    const handle = createWorkerHandler((m) => out.push(m));
+    const img = image(3, 5, (x, y) => [y * 10, 0, 0, 255]);
+    handle({ type: 'detect', id: 11, buffer: img.data.slice().buffer, width: 3, core: [1, 3], stats: 'rgb' });
+    const reply = out[0] as Extract<WorkerResponse, { type: 'detected' }>;
+    expect(reply.stats?.count).toBe(6);
+    expect(reply.stats?.bins[0][10]).toBe(3);
+    expect(reply.stats?.bins[0][20]).toBe(3);
+    expect(reply.stats?.bins[0][0]).toBe(0);
+  });
 });
