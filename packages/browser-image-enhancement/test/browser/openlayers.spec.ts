@@ -18,10 +18,10 @@ declare global {
   }
 }
 
-async function open(page: Page) {
+async function open(page: Page, query = '') {
   // The base map is not needed for these checks.
   await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
-  await page.goto('/.example-dist/openlayers-cog/index.html?fixture');
+  await page.goto(`/.example-dist/openlayers-cog/index.html?fixture${query}`);
   await page.waitForFunction(() => window.example?.source?.getState() === 'ready');
   await settle(page);
 }
@@ -147,6 +147,43 @@ test('sharpening corrects tiles with their neighbours as margin', async ({ page 
   const after = await Promise.all(points.map(([x, y]) => sample(page, x, y)));
   for (const px of after) expect(px.length).toBe(4);
   expect(after).not.toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+test('tiles corrected on the GPU match the JS engine', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const read = async (query: string) => {
+    await open(page, query);
+    await page.evaluate(() => {
+      const { inputs } = window.example;
+      inputs.exposure.value = '0.7';
+      inputs.contrast.value = '0.3';
+      inputs.temperature.value = '-0.4';
+      inputs.saturation.value = '0.5';
+      inputs.sharpen.value = '1.5';
+      inputs.exposure.dispatchEvent(new Event('input'));
+    });
+    await page.waitForFunction(() => window.example.source.getEffectivePipeline().margin > 0);
+    await page.waitForTimeout(50);
+    await settle(page);
+    const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+    const points = Array.from({ length: 30 }, (_, i): [number, number] => [w * (0.2 + i * 0.02), h * (0.3 + (i % 5) * 0.1)]);
+    const stats = await page.evaluate(() => ({ ...window.example.source.stats, gpu: window.example.source.usesGpu() }));
+    return { stats, pixels: await Promise.all(points.map(([x, y]) => sample(page, x, y))) };
+  };
+
+  const gpu = await read('');
+  test.skip(!gpu.stats.gpu, 'WebGL2 with float render targets is not available in this browser');
+  expect(gpu.stats.gpuTiles).toBe(gpu.stats.tiles);
+  const js = await read('&engine=worker');
+  expect(js.stats.gpu).toBe(false);
+  expect(js.stats.gpuTiles).toBe(0);
+
+  // The GPU computes in float32 instead of float64: within one 8-bit level.
+  for (let i = 0; i < js.pixels.length; i++) {
+    for (let c = 0; c < 4; c++) expect(Math.abs(gpu.pixels[i][c] - js.pixels[i][c])).toBeLessThanOrEqual(1);
+  }
   expect(errors).toEqual([]);
 });
 

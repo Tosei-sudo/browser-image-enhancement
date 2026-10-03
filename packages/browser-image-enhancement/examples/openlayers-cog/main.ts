@@ -43,6 +43,10 @@ const inputs = {} as Record<Key, HTMLInputElement>;
 const status = $<HTMLParagraphElement>('status');
 const params = new URLSearchParams(location.search);
 const useFixture = params.has('fixture');
+const engine = $<HTMLSelectElement>('engine');
+// `?engine=worker` (or `main`) starts on the JS engine, e.g. to compare speeds.
+const engineParam = params.get('engine');
+if (engineParam && [...engine.options].some((o) => o.value === engineParam)) engine.value = engineParam;
 
 for (const s of sliders) {
   const label = document.createElement('label');
@@ -92,10 +96,12 @@ let source: EnhancedGeoTIFF;
 
 function load() {
   const url = $<HTMLInputElement>('url').value.trim();
+  source?.dispose(); // frees its GPU renderer
   source = new EnhancedGeoTIFF({
     sources: [useFixture || !url ? { blob: fixtureBlob() } : { url }],
     pipeline: current(),
-    worker: $<HTMLInputElement>('worker').checked,
+    gpu: engine.value === 'gpu',
+    worker: engine.value === 'worker',
     loadMissingProjection: true,
   });
   cogLayer.setSource(source);
@@ -133,13 +139,20 @@ function draText(): string {
 }
 
 map.on('rendercomplete', () => {
-  const { tiles, ms } = source.stats;
-  if (tiles > 0) status.textContent = `補正したタイル ${tiles} 枚 · 1 枚あたり平均 ${(ms / tiles).toFixed(1)} ms（Worker の順番待ちを含む）${draText()}`;
+  const { tiles, ms, gpuTiles } = source.stats;
+  if (tiles === 0) return;
+  const how =
+    gpuTiles === tiles ? 'GPU'
+    : gpuTiles > 0 ? `GPU ${gpuTiles} 枚、残りは JS`
+    : engine.value === 'gpu' ? 'WebGL2 が使えないため Worker（JS）、順番待ちを含む'
+    : engine.value === 'main' ? 'メインスレッド'
+    : 'Worker の順番待ちを含む';
+  status.textContent = `補正したタイル ${tiles} 枚 · 1 枚あたり平均 ${(ms / tiles).toFixed(1)} ms（${how}）${draText()}`;
 });
 
 $<HTMLInputElement>('url').value = useFixture ? '' : DEFAULT_URL;
 $('load').addEventListener('click', load);
-$('worker').addEventListener('change', load);
+engine.addEventListener('change', load);
 $('enabled').addEventListener('change', scheduleUpdate);
 for (const id of ['dra', 'draMethod', 'draLinked']) $(id).addEventListener('change', scheduleUpdate);
 draClip.addEventListener('input', () => {
