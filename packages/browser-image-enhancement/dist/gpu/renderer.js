@@ -42,6 +42,11 @@ function createGpuRenderer(options = {}) {
 	if (!gl || !gl.getExtension("EXT_color_buffer_float")) return null;
 	return new Renderer(gl, canvas);
 }
+function sourceSize(source) {
+	if (typeof HTMLImageElement !== "undefined" && source instanceof HTMLImageElement) return [source.naturalWidth, source.naturalHeight];
+	if (typeof HTMLVideoElement !== "undefined" && source instanceof HTMLVideoElement) return [source.videoWidth, source.videoHeight];
+	return [source.width, source.height];
+}
 function newCanvas() {
 	if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(1, 1);
 	if (typeof document !== "undefined") return document.createElement("canvas");
@@ -57,6 +62,8 @@ var Renderer = class {
 	lut;
 	kernel;
 	source = null;
+	/** Whether `source` holds a {@link GpuImageSource} (and can be overwritten in place). */
+	sourceFromPicture = false;
 	image = null;
 	/**
 	* Render targets, allocated when first needed: encoded values between
@@ -77,23 +84,37 @@ var Renderer = class {
 		this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, /* @__PURE__ */ new Float32Array(1));
 	}
 	setImage(image, options = {}) {
-		const { width, height, data } = image;
+		const pixels = "data" in image ? image : null;
+		const [width, height] = pixels ? [pixels.width, pixels.height] : sourceSize(image);
 		if (width > this.maxSize || height > this.maxSize) throw new RangeError(`${width}x${height} is larger than this GPU accepts (${this.maxSize} pixels per side).`);
 		const gl = this.gl;
 		const sameSize = this.image?.width === width && this.image.height === height;
+		const mode = pixels ? resolveMode(pixels.data, options.colorMode) : options.colorMode === "gray" ? "gray" : "rgb";
 		this.image = {
-			data,
+			data: pixels?.data ?? null,
 			width,
 			height,
-			mode: resolveMode(data, options.colorMode),
+			mode,
 			stats: null
 		};
-		if (this.source) gl.deleteTexture(this.source);
-		const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-		this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, bytes);
-		if (!sameSize) this.freeTargets();
-		this.canvas.width = width;
-		this.canvas.height = height;
+		if (pixels) {
+			if (this.source) gl.deleteTexture(this.source);
+			const bytes = new Uint8Array(pixels.data.buffer, pixels.data.byteOffset, pixels.data.byteLength);
+			this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, bytes);
+		} else if (this.source && sameSize && this.sourceFromPicture) {
+			gl.bindTexture(gl.TEXTURE_2D, this.source);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, image);
+		} else {
+			if (this.source) gl.deleteTexture(this.source);
+			this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, null);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, image);
+		}
+		this.sourceFromPicture = !pixels;
+		if (!sameSize) {
+			this.freeTargets();
+			this.canvas.width = width;
+			this.canvas.height = height;
+		}
 	}
 	render(steps) {
 		const image = this.image;
@@ -102,6 +123,7 @@ var Renderer = class {
 		const gray = image.mode === "gray";
 		let ops = ("ops" in steps ? steps.ops : steps).map(normalizeOp);
 		if (needsStats(ops)) {
+			if (!image.data) throw new TypeError("autoStretch needs the pixels of the image; resolve it before rendering a picture the GPU reads directly.");
 			image.stats ??= countPixels(image.data, image.width, image.mode);
 			ops = resolveOps(ops, image.stats);
 		}

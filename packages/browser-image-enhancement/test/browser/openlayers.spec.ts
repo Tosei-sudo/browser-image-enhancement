@@ -9,7 +9,7 @@ declare global {
   interface Window {
     example: {
       map: import('ol/Map.js').default;
-      layer: import('ol/layer/WebGLTile.js').default;
+      layer: import('../../examples/openlayers-cog/gpu-layer.js').default;
       source: import('../../examples/openlayers-cog/enhanced-geotiff.js').default;
       inputs: Record<string, HTMLInputElement>;
       pipeline: typeof import('../../src/index.js').pipeline;
@@ -18,7 +18,7 @@ declare global {
   }
 }
 
-async function open(page: Page, query = '') {
+async function open(page: Page, query = '&engine=worker') {
   // The base map is not needed for these checks.
   await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
   await page.goto(`/.example-dist/openlayers-cog/index.html?fixture${query}`);
@@ -150,40 +150,80 @@ test('sharpening corrects tiles with their neighbours as margin', async ({ page 
   expect(errors).toEqual([]);
 });
 
-test('tiles corrected on the GPU match the JS engine', async ({ page }) => {
+/** RGBA of the map's COG layer as shown on screen, at CSS pixels `points`. */
+function shown(page: Page, points: Array<[number, number]>) {
+  return page.evaluate((points) => {
+    const canvas = document.querySelector<HTMLCanvasElement>('.ol-layers canvas.gpu-corrected')!;
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(canvas, 0, 0);
+    const ratio = canvas.width / canvas.clientWidth;
+    return points.map(([x, y]) => Array.from(ctx.getImageData(Math.floor(x * ratio), Math.floor(y * ratio), 1, 1).data));
+  }, points);
+}
+
+/** Sets sliders and waits until the map is drawn with them. */
+async function setSliders(page: Page, values: Record<string, string>) {
+  await page.evaluate((values) => {
+    const { inputs } = window.example;
+    for (const [k, v] of Object.entries(values)) inputs[k].value = v;
+    inputs.exposure.dispatchEvent(new Event('input'));
+  }, values);
+  await page.waitForTimeout(50);
+  await settle(page);
+}
+
+test('the GPU corrects the drawn map without reloading tiles, matching corrected tiles', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const read = async (query: string) => {
-    await open(page, query);
-    await page.evaluate(() => {
-      const { inputs } = window.example;
-      inputs.exposure.value = '0.7';
-      inputs.contrast.value = '0.3';
-      inputs.temperature.value = '-0.4';
-      inputs.saturation.value = '0.5';
-      inputs.sharpen.value = '1.5';
-      inputs.exposure.dispatchEvent(new Event('input'));
-    });
-    await page.waitForFunction(() => window.example.source.getEffectivePipeline().margin > 0);
-    await page.waitForTimeout(50);
-    await settle(page);
-    const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
-    const points = Array.from({ length: 30 }, (_, i): [number, number] => [w * (0.2 + i * 0.02), h * (0.3 + (i % 5) * 0.1)]);
-    const stats = await page.evaluate(() => ({ ...window.example.source.stats, gpu: window.example.source.usesGpu() }));
-    return { stats, pixels: await Promise.all(points.map(([x, y]) => sample(page, x, y))) };
-  };
+  const corrections = { exposure: '0.7', contrast: '0.3', temperature: '-0.4', saturation: '0.5' };
+  const [w, h] = [800, 600];
+  await page.setViewportSize({ width: w + 320, height: h });
+  const points = Array.from({ length: 30 }, (_, i): [number, number] => [w * (0.2 + i * 0.02), h * (0.3 + (i % 5) * 0.1)]);
 
-  const gpu = await read('');
-  test.skip(!gpu.stats.gpu, 'WebGL2 with float render targets is not available in this browser');
-  expect(gpu.stats.gpuTiles).toBe(gpu.stats.tiles);
-  const js = await read('&engine=worker');
-  expect(js.stats.gpu).toBe(false);
-  expect(js.stats.gpuTiles).toBe(0);
+  await open(page, '&engine=gpu');
+  test.skip(!(await page.evaluate(() => window.example.layer.hasGpu())), 'WebGL2 with float render targets is not available in this browser');
+  expect(await page.evaluate(() => window.example.source.correctsTiles())).toBe(false);
+  const raw = await shown(page, points);
+  const reads = await page.evaluate(() => window.example.source.stats.reads);
+  await setSliders(page, corrections);
+  const gpu = await shown(page, points);
+  const after = await page.evaluate(() => ({ ...window.example.source.stats, frames: window.example.layer.frames }));
+  expect(after.reads).toBe(reads); // no tile read again
+  expect(after.tiles).toBe(0); // and none corrected: the map was only redrawn
+  expect(after.frames).toBeGreaterThan(0);
+  expect(gpu).not.toEqual(raw);
 
-  // The GPU computes in float32 instead of float64: within one 8-bit level.
-  for (let i = 0; i < js.pixels.length; i++) {
-    for (let c = 0; c < 4; c++) expect(Math.abs(gpu.pixels[i][c] - js.pixels[i][c])).toBeLessThanOrEqual(1);
+  // Tiles corrected in Workers, then drawn: per-pixel steps give the same picture
+  // (up to resampling, which happens before the correction on the GPU and after it here).
+  await open(page, '&engine=worker');
+  await setSliders(page, corrections);
+  const js = await shown(page, points);
+  for (let i = 0; i < points.length; i++) {
+    for (let c = 0; c < 4; c++) expect(Math.abs(gpu[i][c] - js[i][c])).toBeLessThanOrEqual(2);
   }
+  expect(errors).toEqual([]);
+});
+
+test('the GPU layer sharpens the drawn map and follows DRA', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page, '&engine=gpu');
+  test.skip(!(await page.evaluate(() => window.example.layer.hasGpu())), 'WebGL2 is not available');
+  const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+  const points = Array.from({ length: 40 }, (_, i): [number, number] => [w * (0.2 + i * 0.015), h * 0.5]);
+  const before = await shown(page, points);
+  await setSliders(page, { sharpen: '2', sharpenRadius: '2' });
+  const sharpened = await shown(page, points);
+  expect(sharpened).not.toEqual(before);
+
+  await setSliders(page, { sharpen: '0' });
+  await enableDra(page, 'minMax');
+  const stretched = await shown(page, points);
+  expect(stretched).not.toEqual(before);
+  expect(await page.evaluate(() => window.example.source.stats.tiles)).toBe(0);
   expect(errors).toEqual([]);
 });
 

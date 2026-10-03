@@ -16,10 +16,9 @@
  * `pipeline.margin` pixels of its neighbour tiles around it (read through the
  * same raw cache) and cropped back: tile edges match the whole image exactly.
  *
- * With `gpu: true` tiles are corrected with one shared WebGL2 renderer
- * (`createGpuRenderer`) instead of the JS engine, which is fast enough to
- * re-correct every visible tile on each slider move. Without WebGL2, or if the
- * GPU context is lost, tiles fall back to the JS engine (`worker`).
+ * With `correctTiles: false` tiles are left as read and only the pipeline is
+ * kept (DRA included): `GpuCorrectedTileLayer` then corrects the drawn map on
+ * the GPU, so a new pipeline needs no tile to be reloaded.
  */
 import GeoTIFF, { type Options as GeoTIFFOptions } from 'ol/source/GeoTIFF.js';
 import type { Loader, LoaderOptions } from 'ol/source/DataTile.js';
@@ -27,19 +26,20 @@ import type { Data } from 'ol/DataTile.js';
 import type OlMap from 'ol/Map.js';
 import { getHeight, getIntersection, getWidth, isEmpty, type Extent } from 'ol/extent.js';
 import { transformExtent } from 'ol/proj.js';
-import { createGpuRenderer, histogram, mergeHistograms, pipeline, type ColorMode, type GpuRenderer, type Histogram, type OpSpec, type Pipeline } from '../../src/index.js';
+import { histogram, mergeHistograms, pipeline, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../../src/index.js';
 import { cropMargin, withMargin } from './margin.js';
 
 export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
   /** Correction to apply. Default: an empty pipeline (no change). */
   pipeline?: Pipeline;
-  /**
-   * Correct tiles on the GPU (WebGL2) when the browser can (default false).
-   * Results are within one 8-bit level of the JS engine.
-   */
-  gpu?: boolean;
-  /** Run JS corrections in Web Workers (default true). Used when `gpu` is off or unavailable. */
+  /** Run corrections in Web Workers (default true). */
   worker?: boolean;
+  /**
+   * Correct each tile as it loads (default true). With false, tiles are drawn
+   * as read and the pipeline is applied when the map is drawn, by a
+   * `GpuCorrectedTileLayer`.
+   */
+  correctTiles?: boolean;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -69,8 +69,6 @@ export interface TileStats {
   ms: number;
   /** Tiles read from the COG (cache misses). Not reset by `resetStats()`. */
   reads: number;
-  /** Tiles corrected on the GPU since the last `resetStats()` (the rest ran on the JS engine). */
-  gpuTiles: number;
 }
 
 export default class EnhancedGeoTIFF extends GeoTIFF {
@@ -78,8 +76,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** The pipeline tiles are corrected with: `pipeline_` with `autoStretch` fixed from the DRA statistics. */
   private effective_: Pipeline;
   private readonly worker_: boolean;
-  /** The shared GPU renderer; null when `gpu` is off or WebGL2 is not available. */
-  private gpu_: GpuRenderer | null;
+  private readonly correctTiles_: boolean;
   private readonly rawCacheSize_: number;
   private readonly draSampleSize_: number;
   private readonly draMaxTiles_: number;
@@ -89,7 +86,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draInfo_: DraInfo | null = null;
   private draKey_ = '';
   private draRequest_ = 0;
-  readonly stats: TileStats = { tiles: 0, ms: 0, reads: 0, gpuTiles: 0 };
+  readonly stats: TileStats = { tiles: 0, ms: 0, reads: 0 };
 
   constructor(options: EnhancedGeoTIFFOptions) {
     if (options.normalize === false) {
@@ -98,30 +95,22 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     super(options);
     this.pipeline_ = options.pipeline ?? pipeline();
     this.worker_ = options.worker ?? true;
-    this.gpu_ = options.gpu ? createGpuRenderer() : null;
-    // The browser can drop the GPU context at any time (driver reset, too many
-    // contexts). Its tiles would come back blank, so switch to JS and redo them.
-    this.gpu_?.canvas.addEventListener('webglcontextlost', () => {
-      this.gpu_ = null;
-      this.setKey(`${keyFor(this.effective_)}:js`);
-    });
+    this.correctTiles_ = options.correctTiles ?? true;
     this.rawCacheSize_ = options.rawCacheSize ?? 256;
     this.draSampleSize_ = options.draSampleSize ?? 1024;
     this.draMaxTiles_ = options.draMaxTiles ?? 64;
     this.effective_ = this.pipeline_.resolve(null);
-    this.setKey(keyFor(this.effective_));
+    if (this.correctTiles_) this.setKey(keyFor(this.effective_));
   }
 
-  /** Whether tiles are corrected on the GPU (false when it was not asked for, is not available, or was lost). */
-  usesGpu(): boolean {
-    return this.gpu_ !== null;
+  /** Whether tiles are corrected as they load (false: the layer corrects the drawn map). */
+  correctsTiles(): boolean {
+    return this.correctTiles_;
   }
 
-  /** Frees the GPU renderer. Call when the source is no longer used. */
-  protected override disposeInternal(): void {
-    this.gpu_?.dispose();
-    this.gpu_ = null;
-    super.disposeInternal();
+  /** How the image is corrected: decided by its band count, the same for every tile. Null before the COG is read. */
+  getColorMode(): ColorMode | null {
+    return this.getState() === 'ready' ? colorModeFor(this.bandCount) : null;
   }
 
   getPipeline(): Pipeline {
@@ -227,13 +216,15 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     const next = this.pipeline_.resolve(this.draStats_);
     const changed = keyFor(next) !== keyFor(this.effective_);
     this.effective_ = next;
-    if (changed) this.setKey(keyFor(next));
+    if (!changed) return;
+    // Reload the tiles with the new correction, or only redraw them when the layer corrects the map.
+    if (this.correctTiles_) this.setKey(keyFor(next));
+    else this.changed();
   }
 
   resetStats(): void {
     this.stats.tiles = 0;
     this.stats.ms = 0;
-    this.stats.gpuTiles = 0;
   }
 
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
@@ -246,7 +237,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     const raw = await this.rawTile_(loader, z, x, y, options);
     if (!(raw instanceof Uint8Array) && !(raw instanceof Uint8ClampedArray)) return raw;
     const p = this.effective_;
-    if (p.ops.length === 0) return raw;
+    if (p.ops.length === 0 || !this.correctTiles_) return raw;
 
     const [width, height] = this.getTileSize(z);
     const bands = raw.length / (width * height);
@@ -259,36 +250,19 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
       margin > 0
         ? { data: await this.withNeighbours_(loader, z, x, y, rgba, margin), width: width + 2 * margin, height: height + 2 * margin }
         : { data: rgba, width, height };
-    // Decide per source, never per tile: `auto` could judge one tile gray
-    // and its neighbour color, leaving a visible seam.
-    const colorMode = colorModeFor(bands);
-    const result = this.runGpu_(p, input, colorMode) ?? (await p.run(input, { colorMode, worker: this.worker_, signal: options.signal }));
+    const result = await p.run(
+      input,
+      {
+        // Decide per source, never per tile: `auto` could judge one tile gray
+        // and its neighbour color, leaving a visible seam.
+        colorMode: colorModeFor(bands),
+        worker: this.worker_,
+        signal: options.signal,
+      },
+    );
     this.stats.tiles++;
     this.stats.ms += performance.now() - t0;
     return fromRGBA(cropMargin(result.data, width, height, margin), bands, width * height);
-  }
-
-  /**
-   * Corrects `input` on the GPU; null when there is no GPU renderer (the caller
-   * then uses the JS engine). The renderer is shared by all tiles: each tile is
-   * uploaded, rendered and read back in one synchronous step.
-   */
-  private runGpu_(p: Pipeline, input: { data: Uint8ClampedArray; width: number; height: number }, colorMode: ColorMode): { data: Uint8ClampedArray } | null {
-    const gpu = this.gpu_;
-    if (!gpu || input.width > gpu.maxSize || input.height > gpu.maxSize) return null;
-    try {
-      gpu.setImage(input, { colorMode });
-      gpu.render(p);
-      const result = gpu.read();
-      this.stats.gpuTiles++;
-      return result;
-    } catch (e) {
-      // A lost context or failed shader: stay on the JS engine from now on.
-      console.warn('EnhancedGeoTIFF: GPU correction failed, falling back to JS.', e);
-      gpu.dispose();
-      this.gpu_ = null;
-      return null;
-    }
   }
 
   /** The tile's pixels with `margin` pixels of its neighbour tiles around it; transparent where there are none. */
