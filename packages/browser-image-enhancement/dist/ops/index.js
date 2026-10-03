@@ -1,5 +1,6 @@
 import { LUMA_B, LUMA_G, LUMA_R, linearToSrgb, srgbToLinear } from "../color/srgb.js";
 import { warn } from "../warn.js";
+import { numberParam } from "./info.js";
 //#region src/ops/index.ts
 /**
 * Correction definitions: parameter normalization and the per-pixel math.
@@ -14,6 +15,11 @@ const COLOR_ONLY_OPS = /* @__PURE__ */ new Set(["saturation", "temperature"]);
 const CONTRAST_PIVOT = srgbToLinear(.5);
 /** Strength of `temperature`: at +1 red gain is 1.4x and blue 0.6x before luminance normalization. */
 const TEMPERATURE_STRENGTH = .4;
+/** Clamps the number parameter `param` of `op` to its range in the table (ops/info.ts), or gives its default. */
+function param(op, name, value, label = `${op}.${name}`) {
+	const { min, max, default: fallback } = numberParam(op, name);
+	return num(label, value, min, max, fallback);
+}
 function num(name, value, min, max, fallback) {
 	if (typeof value !== "number" || Number.isNaN(value)) {
 		if (value !== void 0) warn(`${name} must be a number, got ${String(value)}; using ${fallback}.`);
@@ -28,8 +34,8 @@ function num(name, value, min, max, fallback) {
 }
 /** Validates and clamps a levels parameter object, filling defaults. */
 function normalizeLevels(o = {}) {
-	let inBlack = num("levels.inBlack", o.inBlack, 0, 1, 0);
-	let inWhite = num("levels.inWhite", o.inWhite, 0, 1, 1);
+	let inBlack = param("levels", "inBlack", o.inBlack);
+	let inWhite = param("levels", "inWhite", o.inWhite);
 	if (inWhite <= inBlack) {
 		const gap = 1 / 255;
 		const before = `inBlack ${inBlack}, inWhite ${inWhite}`;
@@ -40,9 +46,9 @@ function normalizeLevels(o = {}) {
 	return {
 		inBlack,
 		inWhite,
-		gamma: num("levels.gamma", o.gamma, .1, 10, 1),
-		outBlack: num("levels.outBlack", o.outBlack, 0, 1, 0),
-		outWhite: num("levels.outWhite", o.outWhite, 0, 1, 1)
+		gamma: param("levels", "gamma", o.gamma),
+		outBlack: param("levels", "outBlack", o.outBlack),
+		outWhite: param("levels", "outWhite", o.outWhite)
 	};
 }
 /** Upper bound for stretch points: far above white, but finite. */
@@ -80,9 +86,9 @@ function normalizeStretch(o = {}) {
 /** Validates sharpening options, filling defaults. */
 function normalizeSharpen(o = {}) {
 	return {
-		amount: num("sharpen.amount", o.amount, 0, 5, .5),
-		radius: num("sharpen.radius", o.radius, .1, 50, 1),
-		threshold: num("sharpen.threshold", o.threshold, 0, 1, 0)
+		amount: param("sharpen", "amount", o.amount),
+		radius: param("sharpen", "radius", o.radius),
+		threshold: param("sharpen", "threshold", o.threshold)
 	};
 }
 /** How far (in pixels) the blur of a sharpen step with this radius reaches. */
@@ -114,9 +120,9 @@ function normalizeAutoStretch(o = {}) {
 	}
 	return {
 		method,
-		lowPercent: num("autoStretch.lowPercent", o.lowPercent, 0, 50, .5),
-		highPercent: num("autoStretch.highPercent", o.highPercent, 0, 50, .5),
-		stdDevs: num("autoStretch.stdDevs", o.stdDevs, .1, 10, 2),
+		lowPercent: param("autoStretch", "lowPercent", o.lowPercent),
+		highPercent: param("autoStretch", "highPercent", o.highPercent),
+		stdDevs: param("autoStretch", "stdDevs", o.stdDevs),
 		linked: o.linked === void 0 ? false : Boolean(o.linked)
 	};
 }
@@ -132,15 +138,15 @@ function normalizeOp(raw) {
 		case "saturation":
 		case "temperature": return {
 			op: o.op,
-			amount: num(`${o.op}`, o.amount, -1, 1, 0)
+			amount: param(o.op, "amount", o.amount, o.op)
 		};
 		case "exposure": return {
 			op: "exposure",
-			ev: num("exposure", o.ev, -10, 10, 0)
+			ev: param("exposure", "ev", o.ev, "exposure")
 		};
 		case "gamma": return {
 			op: "gamma",
-			gamma: num("gamma", o.gamma, .1, 10, 1)
+			gamma: param("gamma", "gamma", o.gamma, "gamma")
 		};
 		case "levels": return {
 			op: "levels",

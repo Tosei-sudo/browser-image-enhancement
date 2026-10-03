@@ -115,6 +115,47 @@ export type OpSpec = {
 } & Required<SharpenOptions>);
 /** The name of a correction step. */
 export type OpName = OpSpec['op'];
+/** The options each step takes, by step name (what {@link Pipeline.set} accepts besides a number). */
+export interface StepOptions {
+  /** Brightness. */
+  brightness: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Contrast. */
+  contrast: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Exposure in EV. */
+  exposure: {
+    /** EV stops, -10 to 10. */
+    ev?: number;
+  };
+  /** Gamma. */
+  gamma: {
+    /** 0.1 to 10. */
+    gamma?: number;
+  };
+  /** Saturation. */
+  saturation: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Color temperature. */
+  temperature: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Levels. */
+  levels: LevelsOptions;
+  /** Fixed stretch. */
+  stretch: StretchOptions;
+  /** Automatic stretch. */
+  autoStretch: AutoStretchOptions;
+  /** Unsharp mask. */
+  sharpen: SharpenOptions;
+}
 /** Options shared by every entry point. */
 export interface ColorOptions {
   /** Default `auto`. */

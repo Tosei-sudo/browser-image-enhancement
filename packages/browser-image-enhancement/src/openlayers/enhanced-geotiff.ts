@@ -26,9 +26,10 @@ import type { Data } from 'ol/DataTile.js';
 import type OlMap from 'ol/Map.js';
 import { getHeight, getIntersection, getWidth, isEmpty, type Extent } from 'ol/extent.js';
 import { transformExtent } from 'ol/proj.js';
-import { histogram, mergeHistograms, pipeline, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../../src/index.js';
+import { histogram, mergeHistograms, pipeline, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../index.js';
 import { cropMargin, withMargin } from './margin.js';
 
+/** Options for {@link EnhancedGeoTIFF}: those of `ol/source/GeoTIFF`, plus the correction. */
 export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
   /** Correction to apply. Default: an empty pipeline (no change). */
   pipeline?: Pipeline;
@@ -57,11 +58,13 @@ export interface DraInfo {
   extent: Extent;
   /** Zoom level of the tile grid the statistics were read from. */
   z: number;
+  /** Tiles read for the statistics. */
   tiles: number;
   /** Pixels counted (transparent nodata pixels are not). */
   pixels: number;
 }
 
+/** Counters for measuring tile correction ({@link EnhancedGeoTIFF.stats}). */
 export interface TileStats {
   /** Tiles corrected since the last `resetStats()`. */
   tiles: number;
@@ -71,6 +74,11 @@ export interface TileStats {
   reads: number;
 }
 
+/**
+ * `ol/source/GeoTIFF` that corrects its tiles with a pipeline. Needs
+ * `normalize: true` (the default). Call {@link EnhancedGeoTIFF.updateDra} on the
+ * map's `moveend` when the pipeline has `autoStretch`.
+ */
 export default class EnhancedGeoTIFF extends GeoTIFF {
   private pipeline_: Pipeline;
   /** The pipeline tiles are corrected with: `pipeline_` with `autoStretch` fixed from the DRA statistics. */
@@ -86,6 +94,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draInfo_: DraInfo | null = null;
   private draKey_ = '';
   private draRequest_ = 0;
+  /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats = { tiles: 0, ms: 0, reads: 0 };
 
   constructor(options: EnhancedGeoTIFFOptions) {
@@ -113,6 +122,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     return this.getState() === 'ready' ? colorModeFor(this.bandCount) : null;
   }
 
+  /** The correction as set, before `autoStretch` is fixed from statistics. */
   getPipeline(): Pipeline {
     return this.pipeline_;
   }
@@ -222,6 +232,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     else this.changed();
   }
 
+  /** Sets the tile count and time in {@link EnhancedGeoTIFF.stats} back to zero. */
   resetStats(): void {
     this.stats.tiles = 0;
     this.stats.ms = 0;

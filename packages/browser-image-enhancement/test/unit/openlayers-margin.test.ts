@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cropMargin, withMargin } from '../../examples/openlayers-cog/margin.js';
+import { cropMargin, withMargin } from '../../src/openlayers/margin.js';
 import { pipeline } from '../../src/index.js';
 import { noiseImage } from '../helpers.js';
 

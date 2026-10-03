@@ -78,7 +78,47 @@ const out = contrast(brightness(imageData, 0.1), 0.2);
 
 各関数は新しい `ImageData` を返し、入力は変更しません。メインスレッドで同期的に動きます。続けて呼ぶと補正ごとに 8bit に丸められるので、複数の補正を重ねるときはパイプラインを使ってください。
 
-### スライダーでのプレビュー
+### エディター（スライダー向け、いちばん簡単な方法）
+
+`createEditor` は、そのブラウザでいちばん速い方法で補正結果を canvas に描きます。WebGL2 が使えれば原寸を GPU で、使えなければ Worker で縮小版を描き、スライダーが止まると原寸に差し替えます。保存用の結果は常に正確な JS 版で作ります。
+
+```ts
+import { createEditor, pipeline } from 'browser-image-enhancement';
+
+const editor = createEditor({ canvas: document.querySelector('canvas')! });
+await editor.setImage(file);                       // Blob・<img>・ImageData など
+
+let p = pipeline().exposure(0).contrast(0).sharpen({ amount: 0 });
+exposureSlider.oninput = () => editor.render((p = p.set('exposure', Number(exposureSlider.value))));
+contrastSlider.oninput = () => editor.render((p = p.set('contrast', Number(contrastSlider.value))));
+saveButton.onclick = async () => download(await editor.export(p, { output: 'blob' }));
+```
+
+- `render` は何度呼んでもよく、最新の補正だけが描かれます（追い越された呼び出しは `false` で終わります）
+- `autoStretch` の統計は常に原寸の画像から取るので、プレビューと保存結果の範囲は同じです
+- `engine: 'cpu'` で GPU を使わない、`previewSize`（既定 1280 px）と `settleDelay`（既定 250 ms）で JS 版のプレビューの大きさと原寸に切り替えるまでの時間を変えられます。`onRender` で描画のたびに所要時間などを受け取れます
+- canvas の画素サイズは表示中の画像の大きさになるので、表示サイズは CSS で決めてください。GPU が失われた（WebGL のコンテキストが落ちた）ときは、新しい canvas に差し替えて JS 版で続けます（`editor.canvas` が変わります）
+
+### スライダー用の情報と、補正の差し替え
+
+`opInfo` に、すべての補正のパラメータの範囲・既定値・スライダーの刻みがあります。UI をコードから組み立てられます。
+
+```ts
+import { opInfo, type NumberParamInfo } from 'browser-image-enhancement';
+
+const { min, max, step, default: value } = opInfo.contrast.params.amount as NumberParamInfo;
+```
+
+`p.set(op, 値)` は、その種類の最初の補正の値を（位置を変えずに）書き換えた新しいパイプラインを返します。なければ末尾に足します。1 つの値で決まる補正（明るさ・コントラスト・露出・ガンマ・彩度・色温度・シャープの量など）は数値だけ、それ以外はオブジェクトで渡し、渡さなかったパラメータは元の値のままです。`p.get(op)` で今の値、`p.remove(op)` で削除、`p.isIdentity` で何も変えないパイプラインかどうかが分かります。
+
+```ts
+p = p.set('sharpen', { radius: 2 });   // amount はそのまま
+p = p.set('levels', { inBlack: 0.05 }); // levels がなければ追加
+```
+
+### スライダーでのプレビュー（個別の部品）
+
+`createEditor` の中身の部品も使えます。
 
 ```ts
 import { createPreviewRunner, pipeline } from 'browser-image-enhancement';
@@ -258,7 +298,29 @@ terminateWorkers(); // 使い終わったら Worker を止める（次の run �
 
 ## 地図（OpenLayers + COG）での利用
 
-[examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) に、クラウド最適化 GeoTIFF を OpenLayers で読み、タイルごとに補正して背景地図に重ねる例があります。地図の表示範囲の統計で引き伸ばす DRA と、隣のタイルを余白にしてタイル境界が出ないシャープも入っています。
+OpenLayers 用の部品を `browser-image-enhancement/openlayers` から読み込めます（`ol` 10 以降を別にインストールしてください）。
+
+```ts
+import { pipeline } from 'browser-image-enhancement';
+import { EnhancedGeoTIFF, GpuCorrectedTileLayer } from 'browser-image-enhancement/openlayers';
+
+const layer = new GpuCorrectedTileLayer();        // 描いた地図を GPU で補正
+const source = new EnhancedGeoTIFF({
+  sources: [{ url: 'https://example.com/image.tif' }],
+  pipeline: pipeline().autoStretch().sharpen({ amount: 0.5 }),
+  correctTiles: !layer.hasGpu(),                  // GPU がなければタイルごとに補正
+});
+layer.setSource(source);
+map.addLayer(layer);
+map.on('moveend', () => source.updateDra(map));   // 表示範囲の統計で DRA
+slider.oninput = () => source.setPipeline(current());
+```
+
+- `EnhancedGeoTIFF` は `ol/source/GeoTIFF` を継承したソースで、タイルを補正して返します。補正前のタイルをキャッシュするので、補正を変えても COG は読み直しません
+- `GpuCorrectedTileLayer` は `ol/layer/WebGLTile` を継承したレイヤーで、`correctTiles: false` のソースの補正を描いた地図に GPU で掛けます
+- DRA は表示範囲の統計で全タイル共通の範囲を決めるので、タイルの継ぎ目は出ません。シャープは隣のタイルを余白にして補正します（`withMargin` / `cropMargin`）
+
+動く例と詳しい仕組みは [examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) にあります。
 
 ## 開発
 

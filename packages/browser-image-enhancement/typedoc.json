@@ -4,12 +4,15 @@
     "../../typedoc.base.json"
   ],
   "entryPoints": [
-    "src/index.ts"
+    "src/index.ts",
+    "src/openlayers/index.ts"
   ],
   "tsconfig": "tsconfig.build.json",
   "readme": "README.md",
+  "excludeExternals": true,
   "intentionallyNotDocumented": [
-    "RunResult.__type.output",
-    "OpSpec.__type.op"
+    "index.RunResult.__type.output",
+    "index.OpSpec.__type.op",
+    "index.Pipeline.get.__type.op"
   ]
 }

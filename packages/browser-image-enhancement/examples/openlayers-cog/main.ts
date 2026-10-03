@@ -7,8 +7,7 @@ import { transformExtent } from 'ol/proj.js';
 import { register } from 'ol/proj/proj4.js';
 import proj4 from 'proj4';
 import { pipeline } from '../../src/index.js';
-import EnhancedGeoTIFF from './enhanced-geotiff.js';
-import GpuCorrectedTileLayer from './gpu-layer.js';
+import { EnhancedGeoTIFF, GpuCorrectedTileLayer } from '../../src/openlayers/index.js';
 import { fixtureBlob } from './fixture.js';
 
 // Sentinel-2 true color, Tokyo area, 2024-01-12 (cloud cover 0.1%). 8-bit RGB COG, public, CORS enabled.

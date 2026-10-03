@@ -1,6 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
-import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpSpec, SharpenOptions, StretchOptions } from "./types.js";
+import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpName, OpSpec, SharpenOptions, StepOptions, StretchOptions } from "./types.js";
 //#region src/pipeline.d.ts
 /**
  * What `run()` resolves with: `imageData` (default), a `canvas`
@@ -106,6 +106,33 @@ export declare class Pipeline {
    * pipeline has `sharpen` steps.
    */
   get margin(): number;
+  /**
+   * Returns a pipeline with step `op` set to `params`: the first step of that
+   * kind is updated in place (parameters not given keep their values), or the
+   * step is appended when the pipeline has none. Made for controls: each
+   * slider sets its own step without rebuilding the chain.
+   *
+   * Steps with one main value (`brightness`, `contrast`, `exposure`, `gamma`,
+   * `saturation`, `temperature`, `sharpen`, ...) also take that value as a number;
+   * {@link OpInfo.value} names it.
+   *
+   * @example
+   * ```ts
+   * let p = pipeline().exposure(0).contrast(0).sharpen({ amount: 0 });
+   * p = p.set('contrast', 0.3);                // same as { amount: 0.3 }
+   * p = p.set('sharpen', { radius: 2 });       // amount stays 0
+   * p = p.set('levels', { inBlack: 0.05 });    // appended: there was no levels step
+   * ```
+   */
+  set<N extends OpName>(op: N, params: StepOptions[N] | number): Pipeline;
+  /** The first step of kind `op`, with its normalized parameters, or undefined when there is none. */
+  get<N extends OpName>(op: N): Extract<OpSpec, {
+    op: N;
+  }> | undefined;
+  /** Returns a pipeline without any step of kind `op`. */
+  remove(op: OpName): Pipeline;
+  /** True when no step changes the image (an empty pipeline, or every step at its neutral value). */
+  get isIdentity(): boolean;
   /**
    * The same correction for the image shrunk by `factor` (0.5 = half the
    * width and height): pixel distances (the `sharpen` radius) are scaled with

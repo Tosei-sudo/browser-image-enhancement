@@ -15,14 +15,20 @@
  */
 import WebGLTileLayer, { type Options } from 'ol/layer/WebGLTile.js';
 import type { FrameState } from 'ol/Map.js';
-import { createGpuRenderer, type GpuRenderer } from '../../src/index.js';
+import { createGpuRenderer, type GpuRenderer } from '../index.js';
 import EnhancedGeoTIFF from './enhanced-geotiff.js';
 
+/** Options for {@link GpuCorrectedTileLayer}: those of `ol/layer/WebGLTile`, plus `gpu`. */
 export interface GpuCorrectedTileLayerOptions extends Options {
   /** Set to false to draw the tiles as the source gives them, like a plain WebGLTile layer. Default true. */
   gpu?: boolean;
 }
 
+/**
+ * `ol/layer/WebGLTile` that corrects the drawn map on the GPU with the
+ * pipeline of its {@link EnhancedGeoTIFF} source (created with
+ * `correctTiles: false`). Without WebGL2 it draws the tiles as read.
+ */
 export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private readonly output_ = document.createElement('canvas');
   private gpu_: GpuRenderer | null;

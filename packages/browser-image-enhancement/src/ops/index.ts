@@ -17,6 +17,7 @@ import type {
   StretchOptions,
 } from '../types.js';
 import { warn } from '../warn.js';
+import { numberParam } from './info.js';
 
 /** A per-channel transform. `c` is 0, 1, 2 for R, G, B (or 0 for a gray channel). */
 export type ChannelFn = (v: number, c: number) => number;
@@ -39,6 +40,12 @@ export const CONTRAST_PIVOT = srgbToLinear(0.5);
 /** Strength of `temperature`: at +1 red gain is 1.4x and blue 0.6x before luminance normalization. */
 export const TEMPERATURE_STRENGTH = 0.4;
 
+/** Clamps the number parameter `param` of `op` to its range in the table (ops/info.ts), or gives its default. */
+function param(op: OpName, name: string, value: unknown, label = `${op}.${name}`): number {
+  const { min, max, default: fallback } = numberParam(op, name);
+  return num(label, value, min, max, fallback);
+}
+
 function num(name: string, value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     if (value !== undefined) warn(`${name} must be a number, got ${String(value)}; using ${fallback}.`);
@@ -54,8 +61,8 @@ function num(name: string, value: unknown, min: number, max: number, fallback: n
 
 /** Validates and clamps a levels parameter object, filling defaults. */
 export function normalizeLevels(o: LevelsOptions = {}): Required<LevelsOptions> {
-  let inBlack = num('levels.inBlack', o.inBlack, 0, 1, 0);
-  let inWhite = num('levels.inWhite', o.inWhite, 0, 1, 1);
+  let inBlack = param('levels', 'inBlack', o.inBlack);
+  let inWhite = param('levels', 'inWhite', o.inWhite);
   if (inWhite <= inBlack) {
     // Keep a one-code gap so the input range is never empty.
     const gap = 1 / 255;
@@ -67,9 +74,9 @@ export function normalizeLevels(o: LevelsOptions = {}): Required<LevelsOptions> 
   return {
     inBlack,
     inWhite,
-    gamma: num('levels.gamma', o.gamma, 0.1, 10, 1),
-    outBlack: num('levels.outBlack', o.outBlack, 0, 1, 0),
-    outWhite: num('levels.outWhite', o.outWhite, 0, 1, 1),
+    gamma: param('levels', 'gamma', o.gamma),
+    outBlack: param('levels', 'outBlack', o.outBlack),
+    outWhite: param('levels', 'outWhite', o.outWhite),
   };
 }
 
@@ -102,9 +109,9 @@ export function normalizeStretch(o: StretchOptions = {}): { black: RGBValues; wh
 /** Validates sharpening options, filling defaults. */
 export function normalizeSharpen(o: SharpenOptions = {}): Required<SharpenOptions> {
   return {
-    amount: num('sharpen.amount', o.amount, 0, 5, 0.5),
-    radius: num('sharpen.radius', o.radius, 0.1, 50, 1),
-    threshold: num('sharpen.threshold', o.threshold, 0, 1, 0),
+    amount: param('sharpen', 'amount', o.amount),
+    radius: param('sharpen', 'radius', o.radius),
+    threshold: param('sharpen', 'threshold', o.threshold),
   };
 }
 
@@ -136,9 +143,9 @@ export function normalizeAutoStretch(o: AutoStretchOptions = {}): Required<AutoS
   }
   return {
     method,
-    lowPercent: num('autoStretch.lowPercent', o.lowPercent, 0, 50, 0.5),
-    highPercent: num('autoStretch.highPercent', o.highPercent, 0, 50, 0.5),
-    stdDevs: num('autoStretch.stdDevs', o.stdDevs, 0.1, 10, 2),
+    lowPercent: param('autoStretch', 'lowPercent', o.lowPercent),
+    highPercent: param('autoStretch', 'highPercent', o.highPercent),
+    stdDevs: param('autoStretch', 'stdDevs', o.stdDevs),
     linked: o.linked === undefined ? false : Boolean(o.linked),
   };
 }
@@ -154,11 +161,11 @@ export function normalizeOp(raw: unknown): OpSpec {
     case 'contrast':
     case 'saturation':
     case 'temperature':
-      return { op: o.op, amount: num(`${o.op}`, o.amount, -1, 1, 0) };
+      return { op: o.op, amount: param(o.op, 'amount', o.amount, o.op) };
     case 'exposure':
-      return { op: 'exposure', ev: num('exposure', o.ev, -10, 10, 0) };
+      return { op: 'exposure', ev: param('exposure', 'ev', o.ev, 'exposure') };
     case 'gamma':
-      return { op: 'gamma', gamma: num('gamma', o.gamma, 0.1, 10, 1) };
+      return { op: 'gamma', gamma: param('gamma', 'gamma', o.gamma, 'gamma') };
     case 'levels':
       return { op: 'levels', ...normalizeLevels(o as LevelsOptions) };
     case 'stretch':

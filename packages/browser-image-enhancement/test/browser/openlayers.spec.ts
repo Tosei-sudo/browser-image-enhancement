@@ -9,8 +9,8 @@ declare global {
   interface Window {
     example: {
       map: import('ol/Map.js').default;
-      layer: import('../../examples/openlayers-cog/gpu-layer.js').default;
-      source: import('../../examples/openlayers-cog/enhanced-geotiff.js').default;
+      layer: import('../../src/openlayers/gpu-layer.js').default;
+      source: import('../../src/openlayers/enhanced-geotiff.js').default;
       inputs: Record<string, HTMLInputElement>;
       pipeline: typeof import('../../src/index.js').pipeline;
       fitLonLat: (extent: number[]) => void;

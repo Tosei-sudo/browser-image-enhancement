@@ -1,7 +1,8 @@
 import { abortError } from "./workers/src/abort.js";
 import { assertImageData, createImageData } from "./workers/src/image.js";
 import { toBlob, toCanvas, toImageData } from "./workers/src/io.js";
-import { marginOf, normalizeOp } from "./ops/index.js";
+import { opInfo } from "./ops/info.js";
+import { isIdentity, marginOf, normalizeOp } from "./ops/index.js";
 import { extractGray } from "./core/process.js";
 import { needsStats, resolveOps } from "./core/histogram.js";
 import { applySync, warnColorOnly } from "./functional.js";
@@ -132,6 +133,57 @@ var Pipeline = class Pipeline {
 	*/
 	get margin() {
 		return marginOf(this.ops);
+	}
+	/**
+	* Returns a pipeline with step `op` set to `params`: the first step of that
+	* kind is updated in place (parameters not given keep their values), or the
+	* step is appended when the pipeline has none. Made for controls: each
+	* slider sets its own step without rebuilding the chain.
+	*
+	* Steps with one main value (`brightness`, `contrast`, `exposure`, `gamma`,
+	* `saturation`, `temperature`, `sharpen`, ...) also take that value as a number;
+	* {@link OpInfo.value} names it.
+	*
+	* @example
+	* ```ts
+	* let p = pipeline().exposure(0).contrast(0).sharpen({ amount: 0 });
+	* p = p.set('contrast', 0.3);                // same as { amount: 0.3 }
+	* p = p.set('sharpen', { radius: 2 });       // amount stays 0
+	* p = p.set('levels', { inBlack: 0.05 });    // appended: there was no levels step
+	* ```
+	*/
+	set(op, params) {
+		const info = opInfo[op];
+		if (!info) throw new TypeError(`Unknown correction: ${String(op)}`);
+		let given;
+		if (typeof params === "number") {
+			if (!info.value) throw new TypeError(`${op} takes an object of parameters, not a number.`);
+			given = { [info.value]: params };
+		} else given = params ?? {};
+		const i = this.ops.findIndex((s) => s.op === op);
+		const next = [...this.ops];
+		if (i < 0) next.push({
+			...given,
+			op
+		});
+		else next[i] = {
+			...next[i],
+			...given,
+			op
+		};
+		return new Pipeline(next);
+	}
+	/** The first step of kind `op`, with its normalized parameters, or undefined when there is none. */
+	get(op) {
+		return this.ops.find((s) => s.op === op);
+	}
+	/** Returns a pipeline without any step of kind `op`. */
+	remove(op) {
+		return this.ops.some((s) => s.op === op) ? new Pipeline(this.ops.filter((s) => s.op !== op)) : this;
+	}
+	/** True when no step changes the image (an empty pipeline, or every step at its neutral value). */
+	get isIdentity() {
+		return this.ops.every(isIdentity);
 	}
 	/**
 	* The same correction for the image shrunk by `factor` (0.5 = half the
