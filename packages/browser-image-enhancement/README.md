@@ -362,6 +362,27 @@ slider.oninput = () => source.setPipeline(current());
 
 動く例と詳しい仕組みは [examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) にあります。
 
+### 地図に載せる UI（コントロール）
+
+スライダーのパネルと画像を開くボタンを、OpenLayers のコントロールとして地図に重ねられます。
+
+```ts
+import {
+  EnhanceControl, enhanceLabelsJa, GpuCorrectedTileLayer, LoadImageControl, loadImageLabelsJa,
+} from 'browser-image-enhancement/openlayers';
+
+const layer = new GpuCorrectedTileLayer();
+map.addLayer(layer);
+map.addControl(new LoadImageControl({ layer, labels: loadImageLabelsJa }));   // 開く・URL・ドラッグ＆ドロップ
+map.addControl(new EnhanceControl({ layer, labels: enhanceLabelsJa }));       // 補正パネル（DRA・不透明度つき）
+```
+
+- `LoadImageControl` は GeoTIFF / COG をファイル・URL・ドロップで開き、位置情報どおりに置きます。PNG や JPEG などの普通の画像は表示範囲の中央に置きます（`placement` で変更可）。どれも `EnhancedGeoTIFF` になるので、補正・DRA・GPU は同じように効きます
+- `EnhanceControl` のスライダーは `opInfo` から作ります。`sliders` で並びと範囲を変えられ、`getPipeline()` / `setPipeline()` で補正の保存・復元ができます。モノクロ画像では色だけの補正（彩度・色温度）を隠します
+- 見た目は `ol.css` の色に合わせた既定の CSS が入ります。自分で付けるときは `css: false`
+
+動く例は [examples/openlayers-controls](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-controls)（`npm run example:olc`）にあります。
+
 ## 開発
 
 ```sh
@@ -373,6 +394,7 @@ npm test               # Vitest（ユニットテスト）
 npm run test:browser   # Playwright（実ブラウザで Worker・Canvas・Blob を確認）
 npm run demo           # スライダーで補正を試せるデモ
 npm run example:ol     # OpenLayers + COG（GeoTIFF）に補正をかけて地図に重ねる例
+npm run example:olc    # 地図上の補正パネルと画像を開くボタン（OpenLayers コントロール）
 ```
 
 このパッケージはモノレポの一部です。Worker プールなどの共通部分は [packages/workers](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/workers)（非公開）にあり、ビルド時に `dist/` に取り込まれます。

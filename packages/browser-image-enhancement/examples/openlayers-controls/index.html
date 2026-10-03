@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenLayers 補正コントロール</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      html, body, #map { height: 100%; margin: 0; }
+      #status { position: absolute; left: 8px; bottom: 8px; margin: 0; padding: 2px 6px; border-radius: 4px; font-size: 12px;
+        background: var(--ol-background-color, #fff); color: var(--ol-subtle-foreground-color, #666); max-width: calc(100% - 16px); }
+      #status:empty { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <p id="status">左上のボタンか、地図へのドラッグ＆ドロップで画像・GeoTIFF を開けます。</p>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
