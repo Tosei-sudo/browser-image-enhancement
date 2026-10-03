@@ -1,5 +1,6 @@
-import { ColorMode } from "../types.js";
+import { AutoStretchOptions, ColorMode } from "../types.js";
 import { Pipeline } from "../pipeline.js";
+import { RasterStretch, RasterStretchRange } from "../raster.js";
 import GeoTIFF, { Options } from "ol/source/GeoTIFF.js";
 import { Extent } from "ol/extent.js";
 import { Loader } from "ol/source/DataTile.js";
@@ -17,6 +18,13 @@ export interface EnhancedGeoTIFFOptions extends Options {
    * `GpuCorrectedTileLayer`.
    */
   correctTiles?: boolean;
+  /**
+   * With `normalize: false`: how raw values become 0-255 before the
+   * pipeline. A fixed {@link RasterStretch}, or automatic stretch options
+   * (default `{}`: percentClip, 0.5 % at each end) applied to the statistics
+   * of the whole image and, after each `updateDra`, of the visible area.
+   */
+  rawStretch?: RasterStretch | AutoStretchOptions;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -37,6 +45,8 @@ export interface DraInfo {
   tiles: number;
   /** Pixels counted (transparent nodata pixels are not). */
   pixels: number;
+  /** With `normalize: false`: the raw values that became black and white (one per picture band). */
+  rawStretch?: RasterStretchRange;
 }
 /** Counters for measuring tile correction ({@link EnhancedGeoTIFF.stats}). */
 export interface TileStats {
@@ -67,9 +77,21 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draInfo_;
   private draKey_;
   private draRequest_;
+  /** The key tiles were last corrected (or drawn) for. */
+  private appliedKey_;
+  /** True with `normalize: false`: tiles hold raw values that are stretched here. */
+  private readonly rawValues_;
+  private readonly rawStretchOption_;
+  /** The raw stretch in use; null until the first statistics are read. */
+  private rawStretch_;
+  private rawStretchReady_;
   /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats;
   constructor(options: EnhancedGeoTIFFOptions);
+  /** The tile key: changes whenever tiles must be corrected again. */
+  private tileKey_;
+  /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
+  private get autoRaw_();
   /** Whether tiles are corrected as they load (false: the layer corrects the drawn map). */
   correctsTiles(): boolean;
   /** How the image is corrected: decided by its band count, the same for every tile. Null before the COG is read. */
@@ -92,6 +114,18 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
    * Tiles are re-corrected only when the resulting range changes.
    */
   updateDra(map: OlMap): Promise<void>;
+  /** Statistics of `area` read at level `z`: the raw stretch (normalize: false) and the 8-bit histogram. */
+  private collectStats_;
+  private applyStats_;
+  /** Normalize: false: waits for the first raw stretch, from the statistics of the whole image. */
+  private rawReady_;
+  /** The raw tile as a {@link Raster} (normalize: false), or null when its band layout is not gray or RGB. */
+  private raster_;
+  /**
+   * The tile's pixels as RGBA and its band count, or null for tiles the
+   * pipeline cannot take (multispectral). Raw tiles are stretched with `rawStretch`.
+   */
+  private tileRGBA_;
   /** The finest level that is no finer than the sample size, coarsened until the tile count fits. */
   private draZoom_;
   /** Re-resolves the pipeline; tiles are re-corrected only if the result changed. */

@@ -1,6 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
-import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpName, OpSpec, SharpenOptions, StepOptions, StretchOptions } from "./types.js";
+import { AutoStretchOptions, ColorOptions, CurveOptions, Histogram, LevelsOptions, OpName, OpSpec, SharpenOptions, StepOptions, StretchOptions, WhiteBalanceOptions } from "./types.js";
 //#region src/pipeline.d.ts
 /**
  * What `run()` resolves with: `imageData` (default), a `canvas`
@@ -77,6 +77,29 @@ export declare class Pipeline {
   saturation(amount: number): Pipeline;
   /** Color temperature, -1 (cool) to 1 (warm). No effect on monochrome images. */
   temperature(amount: number): Pipeline;
+  /** Tint, -1 (green) to 1 (magenta): the color axis temperature does not cover. No effect on monochrome images. */
+  tint(amount: number): Pipeline;
+  /**
+   * White balance from a gray point: `gray` is the color (sRGB-encoded, 0-1)
+   * of something that should be neutral, for example from `sampleColor` on the
+   * image. Put it first so it sees the colors of the original image. No effect
+   * on monochrome images.
+   */
+  whiteBalance(gray: WhiteBalanceOptions): Pipeline;
+  /** Shadows, -1 (darker) to 1 (lifted): moves dark tones, leaving black, white and highlights almost unchanged. */
+  shadows(amount: number): Pipeline;
+  /** Highlights, -1 (recovered, darker) to 1 (brighter): moves light tones, leaving black, white and shadows almost unchanged. */
+  highlights(amount: number): Pipeline;
+  /**
+   * Tone curve (see {@link CurveOptions}): points `[input, output]` on the
+   * sRGB 0-1 scale joined by a smooth curve, for all channels and per channel.
+   *
+   * @example
+   * ```ts
+   * pipeline().curve({ points: [[0.25, 0.2], [0.75, 0.8]] }); // gentle S curve: more contrast
+   * ```
+   */
+  curve(options: CurveOptions): Pipeline;
   /** Levels (black/white points 0-1, midtone gamma). */
   levels(params: LevelsOptions): Pipeline;
   /**

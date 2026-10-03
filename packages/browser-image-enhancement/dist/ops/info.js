@@ -1,4 +1,8 @@
 //#region src/ops/info.ts
+const CURVE = {
+	type: "curve",
+	default: [[0, 0], [1, 1]]
+};
 const amount = (step = .01) => ({
 	type: "number",
 	min: -1,
@@ -69,6 +73,68 @@ const opInfo = {
 		params: { amount: amount() },
 		value: "amount",
 		colorOnly: true,
+		spatial: false,
+		auto: false
+	},
+	tint: {
+		params: { amount: amount() },
+		value: "amount",
+		colorOnly: true,
+		spatial: false,
+		auto: false
+	},
+	whiteBalance: {
+		params: {
+			r: {
+				type: "number",
+				min: 1 / 255,
+				max: 1,
+				default: .5,
+				step: 1 / 255
+			},
+			g: {
+				type: "number",
+				min: 1 / 255,
+				max: 1,
+				default: .5,
+				step: 1 / 255
+			},
+			b: {
+				type: "number",
+				min: 1 / 255,
+				max: 1,
+				default: .5,
+				step: 1 / 255
+			}
+		},
+		value: null,
+		colorOnly: true,
+		spatial: false,
+		auto: false
+	},
+	shadows: {
+		params: { amount: amount() },
+		value: "amount",
+		colorOnly: false,
+		spatial: false,
+		auto: false
+	},
+	highlights: {
+		params: { amount: amount() },
+		value: "amount",
+		colorOnly: false,
+		spatial: false,
+		auto: false
+	},
+	curve: {
+		params: {
+			points: CURVE,
+			red: CURVE,
+			green: CURVE,
+			blue: CURVE
+		},
+		value: null,
+		colorOnly: false,
 		spatial: false,
 		auto: false
 	},

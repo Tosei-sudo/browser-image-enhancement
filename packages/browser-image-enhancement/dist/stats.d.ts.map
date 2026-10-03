@@ -1,1 +1,1 @@
-{"version":3,"file":"stats.d.ts","names":[],"sources":["../src/stats.ts"],"mappings":";;;;iBAWiB,yBAAyB;;EAExC,OAAO;;;;;;wBAOO,UAAU,OAAO,eAAe,UAAS,mBAAwB;;;;;wBASjE,eACd,OAAO,WACP,UAAU;;EAGV,OAAO;;EAEP,OAAO"}
+{"version":3,"file":"stats.d.ts","names":[],"sources":["../src/stats.ts"],"mappings":";;;;iBAYiB,yBAAyB;;EAExC,OAAO;;;;;;wBAOO,UAAU,OAAO,eAAe,UAAS,mBAAwB;;;;;wBASjE,eACd,OAAO,WACP,UAAU;;EAGV,OAAO;;EAEP,OAAO;;;iBAMQ;;EAEf;;;;;;;;;;;;;;;;wBAiBc,YAAY,OAAO,eAAe,WAAW,WAAW,UAAS,qBAA0B"}

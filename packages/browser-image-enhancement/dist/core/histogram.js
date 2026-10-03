@@ -237,6 +237,6 @@ function resolveForPixels(ops, data, mode) {
 	return resolveOps(ops, countPixels(data, Math.max(1, data.length >> 2), mode));
 }
 //#endregion
-export { countPixels, emptyHistogram, grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps, stretchRange };
+export { countPixels, emptyHistogram, grayFromRgb, mergeHistograms, needsStats, rangeOf, resolveForPixels, resolveOps, stretchRange };
 
 //# sourceMappingURL=histogram.js.map

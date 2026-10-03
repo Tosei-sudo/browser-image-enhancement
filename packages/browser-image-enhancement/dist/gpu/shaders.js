@@ -1,5 +1,6 @@
 import { LUMA_B, LUMA_G, LUMA_R, srgbToLinear } from "../color/srgb.js";
-import { CONTRAST_PIVOT, TEMPERATURE_STRENGTH } from "../ops/index.js";
+import { curveFunction } from "../ops/curve.js";
+import { CONTRAST_PIVOT, TONE_STRENGTH, temperatureGains, tintGains, whiteBalanceGains } from "../ops/index.js";
 //#region src/gpu/shaders.ts
 /**
 * GLSL for the WebGL2 path. The same math as ops/index.ts and core/filter.ts,
@@ -15,6 +16,8 @@ void main() {
   vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
   gl_Position = vec4(p, 0.0, 1.0);
 }`;
+/** Samples per curve in the curve texture (linearly interpolated between them). */
+const CURVE_SAMPLES = 1024;
 const HEADER = `#version 300 es
 precision highp float;
 precision highp int;
@@ -36,6 +39,22 @@ float stretch(float v, float black, float scale) {
   float x = (enc(v) - black) * scale;
   return x <= 0.0 ? 0.0 : x >= 1.0 ? 1.0 : dec(x);
 }
+float tone(float v, float k, float high) {
+  if (!(v > 0.0) || v >= 1.0) return v;
+  float x = enc(v);
+  return dec(x + k * x * (1.0 - x) * mix(1.0 - x, x, high));
+}
+uniform sampler2D u_curves;
+/** The curves of row \`row\` of u_curves (R, G, B: already composed with the curve for all channels), on sRGB-encoded values. */
+vec3 curve(vec3 v, float row) {
+  vec3 x = clamp(enc3(v), 0.0, 1.0) * 1023.0;
+  vec3 i = min(floor(x), vec3(1022.0));
+  vec3 f = x - i;
+  int y = int(row);
+  vec3 lo = vec3(texelFetch(u_curves, ivec2(int(i.r), y), 0).r, texelFetch(u_curves, ivec2(int(i.g), y), 0).g, texelFetch(u_curves, ivec2(int(i.b), y), 0).b);
+  vec3 hi = vec3(texelFetch(u_curves, ivec2(int(i.r) + 1, y), 0).r, texelFetch(u_curves, ivec2(int(i.g) + 1, y), 0).g, texelFetch(u_curves, ivec2(int(i.b) + 1, y), 0).b);
+  return dec3(mix(lo, hi, f));
+}
 /** 8-bit code of a linear value, rounded half up, as a unorm value. */
 float quant(float v) { return floor(clamp(enc(v), 0.0, 1.0) * 255.0 + 0.5) / 255.0; }
 out vec4 o;
@@ -50,13 +69,21 @@ function opCode(op, i) {
 		case "exposure": return `v *= ${a}.x;`;
 		case "gamma": return `v = vec3(powPos(v.r, ${a}.x), powPos(v.g, ${a}.x), powPos(v.b, ${a}.x));`;
 		case "saturation": return `{ float y = dot(LUMA, v); v = y + (v - y) * ${a}.x; }`;
-		case "temperature": return `v *= ${a}.xyz;`;
+		case "temperature":
+		case "tint":
+		case "whiteBalance": return `v *= ${a}.xyz;`;
+		case "shadows":
+		case "highlights": return `v = vec3(tone(v.r, ${a}.x, ${a}.y), tone(v.g, ${a}.x, ${a}.y), tone(v.b, ${a}.x, ${a}.y));`;
+		case "curve": return `v = curve(v, ${a}.x);`;
 		case "levels": return `v = vec3(levels(v.r, ${a}, ${b}.x), levels(v.g, ${a}, ${b}.x), levels(v.b, ${a}, ${b}.x));`;
 		case "stretch": return `v = vec3(stretch(v.r, ${a}.x, ${b}.x), stretch(v.g, ${a}.y, ${b}.y), stretch(v.b, ${a}.z, ${b}.z));`;
 	}
 }
-/** The two vec4 uniforms of `op`, matching {@link opCode} and the math in ops/index.ts. */
-function opParams(op, out, i) {
+/**
+* The two vec4 uniforms of `op`, matching {@link opCode} and the math in
+* ops/index.ts. `curveRow` is the row of the curve texture holding a `curve` op.
+*/
+function opParams(op, out, i, curveRow = 0) {
 	const a = 8 * i;
 	out.fill(0, a, a + 8);
 	switch (op.op) {
@@ -81,17 +108,23 @@ function opParams(op, out, i) {
 		case "saturation":
 			out[a] = 1 + op.amount;
 			return;
-		case "temperature": {
-			const r = 1 + TEMPERATURE_STRENGTH * op.amount;
-			const b = 1 - TEMPERATURE_STRENGTH * op.amount;
-			const n = LUMA_R * r + LUMA_G + LUMA_B * b;
-			out.set([
-				r / n,
-				1 / n,
-				b / n
-			], a);
+		case "temperature":
+			out.set(temperatureGains(op.amount), a);
 			return;
-		}
+		case "tint":
+			out.set(tintGains(op.amount), a);
+			return;
+		case "whiteBalance":
+			out.set(whiteBalanceGains(op), a);
+			return;
+		case "shadows":
+		case "highlights":
+			out[a] = TONE_STRENGTH * op.amount;
+			out[a + 1] = op.op === "highlights" ? 1 : 0;
+			return;
+		case "curve":
+			out[a] = curveRow;
+			return;
 		case "levels":
 			out.set([
 				op.inBlack,
@@ -201,6 +234,21 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   o = texelFetch(u_src, ivec2(p.x, textureSize(u_src, 0).y - 1 - p.y), 0);
 }`;
+/** One row of the curve texture: RGBA samples of the composed curves (the curve for all channels, then each channel's own). */
+function curveRow(op, out, row) {
+	const all = curveFunction(op.points);
+	const own = [
+		op.red,
+		op.green,
+		op.blue
+	].map(curveFunction);
+	const o = row * CURVE_SAMPLES * 4;
+	for (let k = 0; k < CURVE_SAMPLES; k++) {
+		const y = all(k / 1023);
+		for (let c = 0; c < 3; c++) out[o + 4 * k + c] = own[c](y);
+		out[o + 4 * k + 3] = 1;
+	}
+}
 /** Decoding table: linear value of each 8-bit sRGB code. */
 const DECODE = /* @__PURE__ */ (() => {
 	const t = /* @__PURE__ */ new Float32Array(256);
@@ -208,6 +256,6 @@ const DECODE = /* @__PURE__ */ (() => {
 	return t;
 })();
 //#endregion
-export { DECODE, PRESENT, VERTEX, horizontalShader, opParams, pixelShader, verticalShader };
+export { CURVE_SAMPLES, DECODE, PRESENT, VERTEX, curveRow, horizontalShader, opParams, pixelShader, verticalShader };
 
 //# sourceMappingURL=shaders.js.map

@@ -1,6 +1,7 @@
 import { assertImageData, createImageData } from "./workers/src/image.js";
 import { warn } from "./warn.js";
-import { normalizeOp } from "./ops/index.js";
+import { isIdentityCurve } from "./ops/curve.js";
+import { COLOR_ONLY_OPS, isIdentity, normalizeOp } from "./ops/index.js";
 import { compile, processPixels, resolveMode } from "./core/process.js";
 import { resolveForPixels } from "./core/histogram.js";
 //#region src/functional.ts
@@ -26,7 +27,9 @@ function applySync(image, ops, options = {}) {
 * gray: saturation, temperature, and a stretch with different points per channel.
 */
 function warnColorOnly(ops) {
-	const ignored = ops.filter((op) => (op.op === "saturation" || op.op === "temperature") && op.amount !== 0).map((op) => op.op);
+	const ignored = ops.filter((op) => COLOR_ONLY_OPS.has(op.op) && !isIdentity(op)).map((op) => op.op);
+	const curve = ops.find((op) => op.op === "curve");
+	if (curve && curve.op === "curve" && !(isIdentityCurve(curve.red) && isIdentityCurve(curve.green) && isIdentityCurve(curve.blue))) warn("The red, green and blue curves have no effect on a monochrome image. Pass colorMode: 'rgb' to tint it.");
 	if (ignored.length > 0) warn(`${ignored.join(", ")} has no effect on a monochrome image. Pass colorMode: 'rgb' to tint it.`);
 	if (ops.some((op) => op.op === "stretch" && !(sameChannels(op.black) && sameChannels(op.white)))) warn("A per-channel stretch uses the mean of its R, G, B points on a monochrome image. Pass colorMode: 'rgb' to tint it.");
 }
@@ -75,6 +78,41 @@ function temperature(image, amount, options) {
 		amount
 	}], options);
 }
+/** Tint, -1 (green) to 1 (magenta). No effect on monochrome images. */
+function tint(image, amount, options) {
+	return applySync(image, [{
+		op: "tint",
+		amount
+	}], options);
+}
+/** White balance from a gray point (the sRGB 0-1 color of something that should be neutral, see `sampleColor`). */
+function whiteBalance(image, gray, options) {
+	return applySync(image, [{
+		op: "whiteBalance",
+		...gray
+	}], options);
+}
+/** Shadows, -1 (darker) to 1 (lifted). */
+function shadows(image, amount, options) {
+	return applySync(image, [{
+		op: "shadows",
+		amount
+	}], options);
+}
+/** Highlights, -1 (recovered, darker) to 1 (brighter). */
+function highlights(image, amount, options) {
+	return applySync(image, [{
+		op: "highlights",
+		amount
+	}], options);
+}
+/** Tone curve: `[input, output]` points (sRGB 0-1) for all channels and per channel. */
+function curve(image, params, options) {
+	return applySync(image, [{
+		op: "curve",
+		...params
+	}], options);
+}
 /** Levels: input/output black and white points (0-1, sRGB-encoded) and midtone gamma. */
 function levels(image, params, options) {
 	return applySync(image, [{
@@ -116,6 +154,6 @@ function sharpen(image, params, options) {
 	}], options);
 }
 //#endregion
-export { applySync, autoStretch, brightness, contrast, exposure, gamma, levels, saturation, sharpen, stretch, temperature, warnColorOnly };
+export { applySync, autoStretch, brightness, contrast, curve, exposure, gamma, highlights, levels, saturation, shadows, sharpen, stretch, temperature, tint, warnColorOnly, whiteBalance };
 
 //# sourceMappingURL=functional.js.map

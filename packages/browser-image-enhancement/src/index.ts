@@ -9,8 +9,13 @@ export {
   stretch,
   autoStretch,
   sharpen,
+  tint,
+  whiteBalance,
+  shadows,
+  highlights,
+  curve,
 } from './functional.js';
-export { histogram, mergeHistograms, computeStretch, type HistogramOptions } from './stats.js';
+export { histogram, mergeHistograms, computeStretch, sampleColor, type HistogramOptions, type SampleColorOptions } from './stats.js';
 export {
   pipeline,
   Pipeline,
@@ -23,6 +28,20 @@ export {
   type RunOptions,
   type RunResult,
 } from './pipeline.js';
+export {
+  computeRasterStretch,
+  mergeRasterHistograms,
+  rasterHistogram,
+  rasterRange,
+  rasterToImageData,
+  type Raster,
+  type RasterHistogram,
+  type RasterHistogramOptions,
+  type RasterStretch,
+  type RasterStretchRange,
+  type RasterToImageDataOptions,
+} from './raster.js';
+export { autoEnhance, presets, type PresetName } from './presets.js';
 export { isMonochrome } from './core/process.js';
 export {
   createEditor,
@@ -48,6 +67,8 @@ export type {
   AutoStretchOptions,
   ColorMode,
   ColorOptions,
+  CurveOptions,
+  CurvePoint,
   Histogram,
   ImageDataLike,
   LevelsOptions,
@@ -59,4 +80,5 @@ export type {
   StepOptions,
   StretchMethod,
   StretchOptions,
+  WhiteBalanceOptions,
 } from './types.js';

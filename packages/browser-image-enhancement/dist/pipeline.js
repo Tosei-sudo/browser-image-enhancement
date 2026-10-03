@@ -83,6 +83,54 @@ var Pipeline = class Pipeline {
 			amount
 		});
 	}
+	/** Tint, -1 (green) to 1 (magenta): the color axis temperature does not cover. No effect on monochrome images. */
+	tint(amount) {
+		return this.add({
+			op: "tint",
+			amount
+		});
+	}
+	/**
+	* White balance from a gray point: `gray` is the color (sRGB-encoded, 0-1)
+	* of something that should be neutral, for example from `sampleColor` on the
+	* image. Put it first so it sees the colors of the original image. No effect
+	* on monochrome images.
+	*/
+	whiteBalance(gray) {
+		return this.add({
+			op: "whiteBalance",
+			...gray
+		});
+	}
+	/** Shadows, -1 (darker) to 1 (lifted): moves dark tones, leaving black, white and highlights almost unchanged. */
+	shadows(amount) {
+		return this.add({
+			op: "shadows",
+			amount
+		});
+	}
+	/** Highlights, -1 (recovered, darker) to 1 (brighter): moves light tones, leaving black, white and shadows almost unchanged. */
+	highlights(amount) {
+		return this.add({
+			op: "highlights",
+			amount
+		});
+	}
+	/**
+	* Tone curve (see {@link CurveOptions}): points `[input, output]` on the
+	* sRGB 0-1 scale joined by a smooth curve, for all channels and per channel.
+	*
+	* @example
+	* ```ts
+	* pipeline().curve({ points: [[0.25, 0.2], [0.75, 0.8]] }); // gentle S curve: more contrast
+	* ```
+	*/
+	curve(options) {
+		return this.add({
+			op: "curve",
+			...options
+		});
+	}
 	/** Levels (black/white points 0-1, midtone gamma). */
 	levels(params) {
 		return this.add({

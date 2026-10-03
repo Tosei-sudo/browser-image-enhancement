@@ -3,7 +3,7 @@ import { COLOR_ONLY_OPS, isIdentity, kernelRadius, normalizeOp } from "../ops/in
 import { forGray, resolveMode } from "../core/process.js";
 import { countPixels, needsStats, resolveOps } from "../core/histogram.js";
 import { warnColorOnly } from "../functional.js";
-import { DECODE, PRESENT, VERTEX, horizontalShader, opParams, pixelShader, verticalShader } from "./shaders.js";
+import { CURVE_SAMPLES, DECODE, PRESENT, VERTEX, curveRow, horizontalShader, opParams, pixelShader, verticalShader } from "./shaders.js";
 //#region src/gpu/renderer.ts
 /**
 * WebGL2 renderer: the same corrections as the JS engine, computed on the GPU
@@ -61,6 +61,10 @@ var Renderer = class {
 	vertex;
 	lut;
 	kernel;
+	/** Samples of the curves of the `curve` steps being rendered, one row each. */
+	curves;
+	/** Row of {@link Renderer.curves} of each `curve` step being rendered. */
+	curveRows = /* @__PURE__ */ new Map();
 	source = null;
 	/** Whether `source` holds a {@link GpuImageSource} (and can be overwritten in place). */
 	sourceFromPicture = false;
@@ -82,6 +86,7 @@ var Renderer = class {
 		gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
 		this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
 		this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, /* @__PURE__ */ new Float32Array(1));
+		this.curves = this.texture(gl.RGBA32F, 1, 1, gl.RGBA, gl.FLOAT, /* @__PURE__ */ new Float32Array(4));
 	}
 	setImage(image, options = {}) {
 		const pixels = "data" in image ? image : null;
@@ -135,6 +140,7 @@ var Renderer = class {
 			kind: "pixel",
 			op
 		});
+		this.setCurves(plan);
 		gl.viewport(0, 0, image.width, image.height);
 		const firstSharpen = plan.findIndex((s) => s.kind === "sharpen");
 		const head = pixelOps(plan, 0);
@@ -180,11 +186,23 @@ var Renderer = class {
 		if (this.source) gl.deleteTexture(this.source);
 		gl.deleteTexture(this.lut);
 		gl.deleteTexture(this.kernel);
+		gl.deleteTexture(this.curves);
 		for (const p of this.programs.values()) gl.deleteProgram(p);
 		this.programs.clear();
 		gl.deleteShader(this.vertex);
 		this.source = null;
 		this.image = null;
+	}
+	/** Uploads the curves of the plan's `curve` steps, one row each. */
+	setCurves(plan) {
+		const curves = plan.flatMap((s) => s.kind === "pixel" && s.op.op === "curve" ? [s.op] : []);
+		this.curveRows = new Map(curves.map((op, row) => [op, row]));
+		if (curves.length === 0) return;
+		const data = new Float32Array(CURVE_SAMPLES * 4 * curves.length);
+		curves.forEach((op, row) => curveRow(op, data, row));
+		const gl = this.gl;
+		gl.bindTexture(gl.TEXTURE_2D, this.curves);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, CURVE_SAMPLES, curves.length, 0, gl.RGBA, gl.FLOAT, data);
 	}
 	/** Uploads the Gaussian weights for offsets -r..r (as in core/filter.ts) and returns r. */
 	setKernel(radius) {
@@ -202,6 +220,7 @@ var Renderer = class {
 		const gl = this.gl;
 		const program = this.program(fragment);
 		gl.useProgram(program);
+		if (ops.some((op) => op.op === "curve")) textures = [...textures, ["u_curves", this.curves]];
 		textures.forEach(([name, texture], unit) => {
 			gl.activeTexture(gl.TEXTURE0 + unit);
 			gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -209,7 +228,7 @@ var Renderer = class {
 		});
 		if (ops.length > 0) {
 			if (this.params.length < 8 * ops.length) this.params = new Float32Array(8 * ops.length);
-			ops.forEach((op, i) => opParams(op, this.params, i));
+			ops.forEach((op, i) => opParams(op, this.params, i, this.curveRows.get(op)));
 			gl.uniform4fv(gl.getUniformLocation(program, "u_op"), this.params, 0, 8 * ops.length);
 		}
 		for (const [name, value] of Object.entries(scalars)) {

@@ -8,6 +8,7 @@
 import { linearToSrgb, srgbToLinear, LUMA_B, LUMA_G, LUMA_R } from '../color/srgb.js';
 import type {
   AutoStretchOptions,
+  CurveOptions,
   LevelsOptions,
   OpName,
   OpSpec,
@@ -15,8 +16,10 @@ import type {
   SharpenOptions,
   StretchMethod,
   StretchOptions,
+  WhiteBalanceOptions,
 } from '../types.js';
 import { warn } from '../warn.js';
+import { curveFunction, isIdentityCurve, normalizeCurve } from './curve.js';
 import { numberParam } from './info.js';
 
 /** A per-channel transform. `c` is 0, 1, 2 for R, G, B (or 0 for a gray channel). */
@@ -32,13 +35,54 @@ export type SpatialStage = { kind: 'sharpen' } & Required<SharpenOptions>;
 export type Stage = PixelStage | SpatialStage;
 
 /** Corrections that only make sense for color images; no-ops on monochrome input. */
-export const COLOR_ONLY_OPS: ReadonlySet<OpName> = new Set<OpName>(['saturation', 'temperature']);
+export const COLOR_ONLY_OPS: ReadonlySet<OpName> = new Set<OpName>(['saturation', 'temperature', 'tint', 'whiteBalance']);
 
 /** Contrast pivots around sRGB 50 % gray so mid-gray stays put. */
 export const CONTRAST_PIVOT = srgbToLinear(0.5);
 
 /** Strength of `temperature`: at +1 red gain is 1.4x and blue 0.6x before luminance normalization. */
 export const TEMPERATURE_STRENGTH = 0.4;
+
+/** Strength of `tint`: at +1 green gain is 0.7x and red and blue 1.15x before luminance normalization. */
+export const TINT_STRENGTH = 0.3;
+
+/**
+ * Strength of `shadows` and `highlights`: the largest change, at 1/3 (shadows)
+ * or 2/3 (highlights) of the sRGB scale, is 0.14. Below 1 / 6.75 so the curve
+ * stays rising for every amount in -1..1.
+ */
+export const TONE_STRENGTH = 0.945;
+
+/** Linear gains (R, G, B) that keep white's luminance. */
+function balancedGains(r: number, g: number, b: number): [number, number, number] {
+  const n = LUMA_R * r + LUMA_G * g + LUMA_B * b;
+  return [r / n, g / n, b / n];
+}
+
+/** Gains of a `temperature` step. */
+export function temperatureGains(amount: number): [number, number, number] {
+  return balancedGains(1 + TEMPERATURE_STRENGTH * amount, 1, 1 - TEMPERATURE_STRENGTH * amount);
+}
+
+/** Gains of a `tint` step. */
+export function tintGains(amount: number): [number, number, number] {
+  const side = 1 + (TINT_STRENGTH * amount) / 2;
+  return balancedGains(side, 1 - TINT_STRENGTH * amount, side);
+}
+
+/** Gains of a `whiteBalance` step: the gray point becomes neutral. */
+export function whiteBalanceGains(op: Required<WhiteBalanceOptions>): [number, number, number] {
+  return balancedGains(1 / srgbToLinear(op.r), 1 / srgbToLinear(op.g), 1 / srgbToLinear(op.b));
+}
+
+/**
+ * The `shadows` (`high` false) or `highlights` (`high` true) change of the
+ * sRGB-encoded value `x` in [0, 1]: a bump that is 0 at black and white.
+ */
+export function toneShift(x: number, amount: number, high: boolean): number {
+  const k = TONE_STRENGTH * amount;
+  return x + k * (high ? x * x * (1 - x) : x * (1 - x) * (1 - x));
+}
 
 /** Clamps the number parameter `param` of `op` to its range in the table (ops/info.ts), or gives its default. */
 function param(op: OpName, name: string, value: unknown, label = `${op}.${name}`): number {
@@ -106,6 +150,21 @@ export function normalizeStretch(o: StretchOptions = {}): { black: RGBValues; wh
   return { black, white };
 }
 
+/** Validates white balance options, filling defaults. */
+export function normalizeWhiteBalance(o: WhiteBalanceOptions = {}): Required<WhiteBalanceOptions> {
+  return { r: param('whiteBalance', 'r', o.r), g: param('whiteBalance', 'g', o.g), b: param('whiteBalance', 'b', o.b) };
+}
+
+/** Validates curve options, filling in straight lines. */
+export function normalizeCurveOptions(o: CurveOptions = {}): Omit<Extract<OpSpec, { op: 'curve' }>, 'op'> {
+  return {
+    points: normalizeCurve('curve.points', o.points),
+    red: normalizeCurve('curve.red', o.red),
+    green: normalizeCurve('curve.green', o.green),
+    blue: normalizeCurve('curve.blue', o.blue),
+  };
+}
+
 /** Validates sharpening options, filling defaults. */
 export function normalizeSharpen(o: SharpenOptions = {}): Required<SharpenOptions> {
   return {
@@ -161,7 +220,14 @@ export function normalizeOp(raw: unknown): OpSpec {
     case 'contrast':
     case 'saturation':
     case 'temperature':
+    case 'tint':
+    case 'shadows':
+    case 'highlights':
       return { op: o.op, amount: param(o.op, 'amount', o.amount, o.op) };
+    case 'whiteBalance':
+      return { op: 'whiteBalance', ...normalizeWhiteBalance(o as WhiteBalanceOptions) };
+    case 'curve':
+      return { op: 'curve', ...normalizeCurveOptions(o as CurveOptions) };
     case 'exposure':
       return { op: 'exposure', ev: param('exposure', 'ev', o.ev, 'exposure') };
     case 'gamma':
@@ -186,7 +252,14 @@ export function isIdentity(op: OpSpec): boolean {
     case 'contrast':
     case 'saturation':
     case 'temperature':
+    case 'tint':
+    case 'shadows':
+    case 'highlights':
       return op.amount === 0;
+    case 'whiteBalance':
+      return op.r === op.g && op.g === op.b;
+    case 'curve':
+      return isIdentityCurve(op.points) && isIdentityCurve(op.red) && isIdentityCurve(op.green) && isIdentityCurve(op.blue);
     case 'exposure':
       return op.ev === 0;
     case 'gamma':
@@ -232,13 +305,31 @@ export function toStage(op: OpSpec): Stage {
     }
     case 'saturation':
       return { kind: 'saturation', factor: 1 + op.amount };
-    case 'temperature': {
+    case 'temperature':
+    case 'tint':
+    case 'whiteBalance': {
       // White-balance style gains, normalized so white keeps its luminance.
-      const r = 1 + TEMPERATURE_STRENGTH * op.amount;
-      const b = 1 - TEMPERATURE_STRENGTH * op.amount;
-      const n = LUMA_R * r + LUMA_G + LUMA_B * b;
-      const gains = [r / n, 1 / n, b / n];
+      const gains = op.op === 'temperature' ? temperatureGains(op.amount) : op.op === 'tint' ? tintGains(op.amount) : whiteBalanceGains(op);
       return { kind: 'channel', fn: (v, c) => v * gains[c] };
+    }
+    case 'shadows':
+    case 'highlights': {
+      // On sRGB-encoded values, like levels; values outside 0..1 are left alone.
+      const amount = op.amount;
+      const high = op.op === 'highlights';
+      return {
+        kind: 'channel',
+        fn: (v) => {
+          if (!(v > 0) || v >= 1) return v;
+          return srgbToLinear(toneShift(linearToSrgb(v), amount, high));
+        },
+      };
+    }
+    case 'curve': {
+      // On sRGB-encoded values: the curve for all channels, then the channel's own.
+      const all = curveFunction(op.points);
+      const own = [op.red, op.green, op.blue].map(curveFunction);
+      return { kind: 'channel', fn: (v, c) => srgbToLinear(own[c](all(linearToSrgb(v)))) };
     }
     case 'levels': {
       // Levels act on sRGB-encoded values, as on a histogram, but without 8-bit rounding.

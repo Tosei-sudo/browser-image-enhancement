@@ -7,7 +7,8 @@
  * parameters are uniforms, so moving a slider reuses the compiled program.
  */
 import { LUMA_B, LUMA_G, LUMA_R, srgbToLinear } from '../color/srgb.js';
-import { CONTRAST_PIVOT, TEMPERATURE_STRENGTH } from '../ops/index.js';
+import { curveFunction } from '../ops/curve.js';
+import { CONTRAST_PIVOT, TONE_STRENGTH, temperatureGains, tintGains, whiteBalanceGains } from '../ops/index.js';
 import type { OpSpec } from '../types.js';
 
 /** A per-pixel op (every op but `sharpen` and `autoStretch`). */
@@ -19,6 +20,9 @@ void main() {
   vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
   gl_Position = vec4(p, 0.0, 1.0);
 }`;
+
+/** Samples per curve in the curve texture (linearly interpolated between them). */
+export const CURVE_SAMPLES = 1024;
 
 const HEADER = `#version 300 es
 precision highp float;
@@ -41,6 +45,22 @@ float stretch(float v, float black, float scale) {
   float x = (enc(v) - black) * scale;
   return x <= 0.0 ? 0.0 : x >= 1.0 ? 1.0 : dec(x);
 }
+float tone(float v, float k, float high) {
+  if (!(v > 0.0) || v >= 1.0) return v;
+  float x = enc(v);
+  return dec(x + k * x * (1.0 - x) * mix(1.0 - x, x, high));
+}
+uniform sampler2D u_curves;
+/** The curves of row \`row\` of u_curves (R, G, B: already composed with the curve for all channels), on sRGB-encoded values. */
+vec3 curve(vec3 v, float row) {
+  vec3 x = clamp(enc3(v), 0.0, 1.0) * ${CURVE_SAMPLES - 1}.0;
+  vec3 i = min(floor(x), vec3(${CURVE_SAMPLES - 2}.0));
+  vec3 f = x - i;
+  int y = int(row);
+  vec3 lo = vec3(texelFetch(u_curves, ivec2(int(i.r), y), 0).r, texelFetch(u_curves, ivec2(int(i.g), y), 0).g, texelFetch(u_curves, ivec2(int(i.b), y), 0).b);
+  vec3 hi = vec3(texelFetch(u_curves, ivec2(int(i.r) + 1, y), 0).r, texelFetch(u_curves, ivec2(int(i.g) + 1, y), 0).g, texelFetch(u_curves, ivec2(int(i.b) + 1, y), 0).b);
+  return dec3(mix(lo, hi, f));
+}
 /** 8-bit code of a linear value, rounded half up, as a unorm value. */
 float quant(float v) { return floor(clamp(enc(v), 0.0, 1.0) * 255.0 + 0.5) / 255.0; }
 out vec4 o;
@@ -62,7 +82,14 @@ function opCode(op: PixelOp, i: number): string {
     case 'saturation':
       return `{ float y = dot(LUMA, v); v = y + (v - y) * ${a}.x; }`;
     case 'temperature':
+    case 'tint':
+    case 'whiteBalance':
       return `v *= ${a}.xyz;`;
+    case 'shadows':
+    case 'highlights':
+      return `v = vec3(tone(v.r, ${a}.x, ${a}.y), tone(v.g, ${a}.x, ${a}.y), tone(v.b, ${a}.x, ${a}.y));`;
+    case 'curve':
+      return `v = curve(v, ${a}.x);`;
     case 'levels':
       return `v = vec3(levels(v.r, ${a}, ${b}.x), levels(v.g, ${a}, ${b}.x), levels(v.b, ${a}, ${b}.x));`;
     case 'stretch':
@@ -70,8 +97,11 @@ function opCode(op: PixelOp, i: number): string {
   }
 }
 
-/** The two vec4 uniforms of `op`, matching {@link opCode} and the math in ops/index.ts. */
-export function opParams(op: PixelOp, out: Float32Array, i: number): void {
+/**
+ * The two vec4 uniforms of `op`, matching {@link opCode} and the math in
+ * ops/index.ts. `curveRow` is the row of the curve texture holding a `curve` op.
+ */
+export function opParams(op: PixelOp, out: Float32Array, i: number, curveRow = 0): void {
   const a = 8 * i;
   out.fill(0, a, a + 8);
   switch (op.op) {
@@ -96,13 +126,23 @@ export function opParams(op: PixelOp, out: Float32Array, i: number): void {
     case 'saturation':
       out[a] = 1 + op.amount;
       return;
-    case 'temperature': {
-      const r = 1 + TEMPERATURE_STRENGTH * op.amount;
-      const b = 1 - TEMPERATURE_STRENGTH * op.amount;
-      const n = LUMA_R * r + LUMA_G + LUMA_B * b;
-      out.set([r / n, 1 / n, b / n], a);
+    case 'temperature':
+      out.set(temperatureGains(op.amount), a);
       return;
-    }
+    case 'tint':
+      out.set(tintGains(op.amount), a);
+      return;
+    case 'whiteBalance':
+      out.set(whiteBalanceGains(op), a);
+      return;
+    case 'shadows':
+    case 'highlights':
+      out[a] = TONE_STRENGTH * op.amount;
+      out[a + 1] = op.op === 'highlights' ? 1 : 0;
+      return;
+    case 'curve':
+      out[a] = curveRow;
+      return;
     case 'levels':
       out.set([op.inBlack, op.inWhite - op.inBlack, 1 / op.gamma, op.outBlack, op.outWhite - op.outBlack], a);
       return;
@@ -212,6 +252,18 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   o = texelFetch(u_src, ivec2(p.x, textureSize(u_src, 0).y - 1 - p.y), 0);
 }`;
+
+/** One row of the curve texture: RGBA samples of the composed curves (the curve for all channels, then each channel's own). */
+export function curveRow(op: Extract<PixelOp, { op: 'curve' }>, out: Float32Array, row: number): void {
+  const all = curveFunction(op.points);
+  const own = [op.red, op.green, op.blue].map(curveFunction);
+  const o = row * CURVE_SAMPLES * 4;
+  for (let k = 0; k < CURVE_SAMPLES; k++) {
+    const y = all(k / (CURVE_SAMPLES - 1));
+    for (let c = 0; c < 3; c++) out[o + 4 * k + c] = own[c](y);
+    out[o + 4 * k + 3] = 1;
+  }
+}
 
 /** Decoding table: linear value of each 8-bit sRGB code. */
 export const DECODE: Float32Array = /* @__PURE__ */ (() => {

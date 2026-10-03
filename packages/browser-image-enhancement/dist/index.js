@@ -1,10 +1,12 @@
 import { opInfo } from "./ops/info.js";
 import { isMonochrome } from "./core/process.js";
 import { mergeHistograms } from "./core/histogram.js";
-import { autoStretch, brightness, contrast, exposure, gamma, levels, saturation, sharpen, stretch, temperature } from "./functional.js";
-import { computeStretch, histogram } from "./stats.js";
+import { autoStretch, brightness, contrast, curve, exposure, gamma, highlights, levels, saturation, shadows, sharpen, stretch, temperature, tint, whiteBalance } from "./functional.js";
+import { computeStretch, histogram, sampleColor } from "./stats.js";
 import { configureWorkers, terminateWorkers } from "./worker/pool.js";
 import { Pipeline, createPreviewRunner, pipeline } from "./pipeline.js";
+import { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToImageData } from "./raster.js";
+import { autoEnhance, presets } from "./presets.js";
 import { createGpuRenderer } from "./gpu/renderer.js";
 import { createEditor } from "./editor.js";
-export { Pipeline, autoStretch, brightness, computeStretch, configureWorkers, contrast, createEditor, createGpuRenderer, createPreviewRunner, exposure, gamma, histogram, isMonochrome, levels, mergeHistograms, opInfo, pipeline, saturation, sharpen, stretch, temperature, terminateWorkers };
+export { Pipeline, autoEnhance, autoStretch, brightness, computeRasterStretch, computeStretch, configureWorkers, contrast, createEditor, createGpuRenderer, createPreviewRunner, curve, exposure, gamma, highlights, histogram, isMonochrome, levels, mergeHistograms, mergeRasterHistograms, opInfo, pipeline, presets, rasterHistogram, rasterRange, rasterToImageData, sampleColor, saturation, shadows, sharpen, stretch, temperature, terminateWorkers, tint, whiteBalance };

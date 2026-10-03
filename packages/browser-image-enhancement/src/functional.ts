@@ -8,8 +8,19 @@
 import { createImageData, assertImageData } from './core/image.js';
 import { compile, processPixels, resolveMode } from './core/process.js';
 import { resolveForPixels } from './core/histogram.js';
-import { normalizeOp } from './ops/index.js';
-import type { AutoStretchOptions, ColorOptions, ImageDataLike, LevelsOptions, OpSpec, SharpenOptions, StretchOptions } from './types.js';
+import { COLOR_ONLY_OPS, isIdentity, normalizeOp } from './ops/index.js';
+import { isIdentityCurve } from './ops/curve.js';
+import type {
+  AutoStretchOptions,
+  ColorOptions,
+  CurveOptions,
+  ImageDataLike,
+  LevelsOptions,
+  OpSpec,
+  SharpenOptions,
+  StretchOptions,
+  WhiteBalanceOptions,
+} from './types.js';
 import { warn } from './warn.js';
 
 /** Runs normalized-or-raw ops on an image synchronously. Shared by the pipeline's sync path. */
@@ -29,8 +40,12 @@ export function applySync(image: ImageDataLike, ops: readonly OpSpec[], options:
  */
 export function warnColorOnly(ops: readonly OpSpec[]): void {
   const ignored = ops
-    .filter((op) => (op.op === 'saturation' || op.op === 'temperature') && op.amount !== 0)
+    .filter((op) => COLOR_ONLY_OPS.has(op.op) && !isIdentity(op))
     .map((op) => op.op);
+  const curve = ops.find((op) => op.op === 'curve');
+  if (curve && curve.op === 'curve' && !(isIdentityCurve(curve.red) && isIdentityCurve(curve.green) && isIdentityCurve(curve.blue))) {
+    warn("The red, green and blue curves have no effect on a monochrome image. Pass colorMode: 'rgb' to tint it.");
+  }
   if (ignored.length > 0) {
     warn(
       `${ignored.join(', ')} has no effect on a monochrome image. ` + "Pass colorMode: 'rgb' to tint it.",
@@ -73,6 +88,31 @@ export function saturation(image: ImageDataLike, amount: number, options?: Color
 /** Color temperature, -1 (cooler/bluer) to 1 (warmer/yellower). No effect on monochrome images. */
 export function temperature(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData {
   return applySync(image, [{ op: 'temperature', amount }], options);
+}
+
+/** Tint, -1 (green) to 1 (magenta). No effect on monochrome images. */
+export function tint(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'tint', amount }], options);
+}
+
+/** White balance from a gray point (the sRGB 0-1 color of something that should be neutral, see `sampleColor`). */
+export function whiteBalance(image: ImageDataLike, gray: WhiteBalanceOptions, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'whiteBalance', ...gray } as OpSpec], options);
+}
+
+/** Shadows, -1 (darker) to 1 (lifted). */
+export function shadows(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'shadows', amount }], options);
+}
+
+/** Highlights, -1 (recovered, darker) to 1 (brighter). */
+export function highlights(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'highlights', amount }], options);
+}
+
+/** Tone curve: `[input, output]` points (sRGB 0-1) for all channels and per channel. */
+export function curve(image: ImageDataLike, params: CurveOptions, options?: ColorOptions): ImageData {
+  return applySync(image, [{ op: 'curve', ...params } as OpSpec], options);
 }
 
 /** Levels: input/output black and white points (0-1, sRGB-encoded) and midtone gamma. */

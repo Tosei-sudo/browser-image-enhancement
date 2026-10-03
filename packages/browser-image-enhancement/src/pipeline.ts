@@ -13,6 +13,7 @@ import { downscale } from './preview.js';
 import type {
   AutoStretchOptions,
   ColorOptions,
+  CurveOptions,
   Histogram,
   ImageDataLike,
   LevelsOptions,
@@ -21,6 +22,7 @@ import type {
   SharpenOptions,
   StepOptions,
   StretchOptions,
+  WhiteBalanceOptions,
 } from './types.js';
 import { abortError, execute } from './worker/executor.js';
 
@@ -134,6 +136,44 @@ export class Pipeline {
   /** Color temperature, -1 (cool) to 1 (warm). No effect on monochrome images. */
   temperature(amount: number): Pipeline {
     return this.add({ op: 'temperature', amount });
+  }
+
+  /** Tint, -1 (green) to 1 (magenta): the color axis temperature does not cover. No effect on monochrome images. */
+  tint(amount: number): Pipeline {
+    return this.add({ op: 'tint', amount });
+  }
+
+  /**
+   * White balance from a gray point: `gray` is the color (sRGB-encoded, 0-1)
+   * of something that should be neutral, for example from `sampleColor` on the
+   * image. Put it first so it sees the colors of the original image. No effect
+   * on monochrome images.
+   */
+  whiteBalance(gray: WhiteBalanceOptions): Pipeline {
+    return this.add({ op: 'whiteBalance', ...gray } as OpSpec);
+  }
+
+  /** Shadows, -1 (darker) to 1 (lifted): moves dark tones, leaving black, white and highlights almost unchanged. */
+  shadows(amount: number): Pipeline {
+    return this.add({ op: 'shadows', amount });
+  }
+
+  /** Highlights, -1 (recovered, darker) to 1 (brighter): moves light tones, leaving black, white and shadows almost unchanged. */
+  highlights(amount: number): Pipeline {
+    return this.add({ op: 'highlights', amount });
+  }
+
+  /**
+   * Tone curve (see {@link CurveOptions}): points `[input, output]` on the
+   * sRGB 0-1 scale joined by a smooth curve, for all channels and per channel.
+   *
+   * @example
+   * ```ts
+   * pipeline().curve({ points: [[0.25, 0.2], [0.75, 0.8]] }); // gentle S curve: more contrast
+   * ```
+   */
+  curve(options: CurveOptions): Pipeline {
+    return this.add({ op: 'curve', ...options } as OpSpec);
   }
 
   /** Levels (black/white points 0-1, midtone gamma). */

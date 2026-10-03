@@ -8,7 +8,7 @@ import { register } from 'ol/proj/proj4.js';
 import proj4 from 'proj4';
 import { pipeline } from '../../src/index.js';
 import { EnhancedGeoTIFF, GpuCorrectedTileLayer } from '../../src/openlayers/index.js';
-import { fixtureBlob } from './fixture.js';
+import { fixture16Blob, fixtureBlob } from './fixture.js';
 
 // Sentinel-2 true color, Tokyo area, 2024-01-12 (cloud cover 0.1%). 8-bit RGB COG, public, CORS enabled.
 const DEFAULT_URL =
@@ -42,6 +42,7 @@ const inputs = {} as Record<Key, HTMLInputElement>;
 const status = $<HTMLParagraphElement>('status');
 const params = new URLSearchParams(location.search);
 const useFixture = params.has('fixture');
+const useFixture16 = params.has('fixture16');
 const engine = $<HTMLSelectElement>('engine');
 // `?engine=worker` (or `main`) starts on the JS engine, e.g. to compare speeds.
 const engineParam = params.get('engine');
@@ -99,10 +100,12 @@ function load() {
   const url = $<HTMLInputElement>('url').value.trim();
   source?.dispose(); // frees its GPU renderer
   source = new EnhancedGeoTIFF({
-    sources: [useFixture || !url ? { blob: fixtureBlob() } : { url }],
+    sources: [useFixture16 ? { blob: fixture16Blob() } : useFixture || !url ? { blob: fixtureBlob() } : { url }],
     pipeline: current(),
+    // 16-bit fixture: raw values, stretched by the source from their own statistics.
+    normalize: !useFixture16,
     // GPU: tiles stay as read and the layer corrects the map. Without WebGL2, tiles are corrected in Workers.
-    correctTiles: !onGpu(),
+    correctTiles: useFixture16 || !onGpu(),
     worker: engine.value !== 'main',
     loadMissingProjection: true,
   });
