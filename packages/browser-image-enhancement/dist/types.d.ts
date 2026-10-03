@@ -71,6 +71,37 @@ export interface SharpenOptions {
    */
   threshold?: number;
 }
+/** A curve point: `[input, output]`, both sRGB-encoded values in [0, 1]. */
+export type CurvePoint = readonly [number, number];
+/**
+ * Tone curve parameters. Each curve is a list of points joined by a smooth
+ * curve that never overshoots between them (monotone cubic interpolation).
+ * Points are sorted by input; a curve that does not start at input 0 or end
+ * at input 1 gets the point (0, 0) or (1, 1) added.
+ */
+export interface CurveOptions {
+  /** Curve for all channels. Default: the straight line (no change). */
+  points?: readonly CurvePoint[];
+  /** Extra curve for red, applied after `points`. No effect on monochrome images. */
+  red?: readonly CurvePoint[];
+  /** Extra curve for green, applied after `points`. */
+  green?: readonly CurvePoint[];
+  /** Extra curve for blue, applied after `points`. */
+  blue?: readonly CurvePoint[];
+}
+/**
+ * White balance from a gray point: the color (sRGB-encoded, 0-1) of something
+ * in the picture that should be neutral gray. Pixels of that color become gray
+ * and white keeps its brightness. Take it from the image with `sampleColor`.
+ */
+export interface WhiteBalanceOptions {
+  /** Red of the gray point. Default 0.5. */
+  r?: number;
+  /** Green of the gray point. Default 0.5. */
+  g?: number;
+  /** Blue of the gray point. Default 0.5. */
+  b?: number;
+}
 /** A single correction step in serializable form. */
 export type OpSpec = {
   op: 'brightness';
@@ -96,6 +127,30 @@ export type OpSpec = {
   op: 'temperature';
   /** -1 (cooler/bluer) to 1 (warmer/yellower). */
   amount: number;
+} | {
+  op: 'tint';
+  /** -1 (greener) to 1 (more magenta). */
+  amount: number;
+} | ({
+  op: 'whiteBalance';
+} & Required<WhiteBalanceOptions>) | {
+  op: 'shadows';
+  /** -1 (darker shadows) to 1 (lifted shadows). */
+  amount: number;
+} | {
+  op: 'highlights';
+  /** -1 (recovered, darker highlights) to 1 (brighter highlights). */
+  amount: number;
+} | {
+  op: 'curve';
+  /** Curve for all channels, sorted, from input 0 to 1. */
+  points: CurvePoint[];
+  /** Red curve, applied after `points`. */
+  red: CurvePoint[];
+  /** Green curve, applied after `points`. */
+  green: CurvePoint[];
+  /** Blue curve, applied after `points`. */
+  blue: CurvePoint[];
 } | ({
   op: 'levels';
 } & Required<LevelsOptions>) | {
@@ -115,6 +170,66 @@ export type OpSpec = {
 } & Required<SharpenOptions>);
 /** The name of a correction step. */
 export type OpName = OpSpec['op'];
+/** The options each step takes, by step name (what {@link Pipeline.set} accepts besides a number). */
+export interface StepOptions {
+  /** Brightness. */
+  brightness: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Contrast. */
+  contrast: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Exposure in EV. */
+  exposure: {
+    /** EV stops, -10 to 10. */
+    ev?: number;
+  };
+  /** Gamma. */
+  gamma: {
+    /** 0.1 to 10. */
+    gamma?: number;
+  };
+  /** Saturation. */
+  saturation: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Color temperature. */
+  temperature: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Tint. */
+  tint: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** White balance from a gray point. */
+  whiteBalance: WhiteBalanceOptions;
+  /** Shadows. */
+  shadows: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Highlights. */
+  highlights: {
+    /** -1 to 1. */
+    amount?: number;
+  };
+  /** Tone curve. */
+  curve: CurveOptions;
+  /** Levels. */
+  levels: LevelsOptions;
+  /** Fixed stretch. */
+  stretch: StretchOptions;
+  /** Automatic stretch. */
+  autoStretch: AutoStretchOptions;
+  /** Unsharp mask. */
+  sharpen: SharpenOptions;
+}
 /** Options shared by every entry point. */
 export interface ColorOptions {
   /** Default `auto`. */

@@ -11,7 +11,7 @@ npm run example:ol
 
 ## 仕組み
 
-[`enhanced-geotiff.ts`](enhanced-geotiff.ts) の `EnhancedGeoTIFF` は `ol/source/GeoTIFF` を継承したソースです。
+`browser-image-enhancement/openlayers` の `EnhancedGeoTIFF`（[src/openlayers/enhanced-geotiff.ts](../../src/openlayers/enhanced-geotiff.ts)） は `ol/source/GeoTIFF` を継承したソースです。
 
 - COG の読み込み（Range リクエスト、オーバービュー、nodata とマスク、0〜255 への正規化、投影法の変換）は OpenLayers にそのまま任せる
 - 読み込んだタイルを RGBA に並べ替えて `pipeline().run()` に渡し、元のバンド構成（グレー、グレー＋α、RGB、RGB＋α）に戻して返す
@@ -21,7 +21,7 @@ npm run example:ol
 ```ts
 import WebGLTileLayer from 'ol/layer/WebGLTile.js';
 import { pipeline } from 'browser-image-enhancement';
-import EnhancedGeoTIFF from './enhanced-geotiff.js';
+import { EnhancedGeoTIFF } from 'browser-image-enhancement/openlayers';
 
 const source = new EnhancedGeoTIFF({
   sources: [{ url: 'https://example.com/image.tif' }],
@@ -39,8 +39,7 @@ source.setPipeline(pipeline().exposure(1));
 
 ```ts
 import { pipeline } from 'browser-image-enhancement';
-import EnhancedGeoTIFF from './enhanced-geotiff.js';
-import GpuCorrectedTileLayer from './gpu-layer.js';
+import { EnhancedGeoTIFF, GpuCorrectedTileLayer } from 'browser-image-enhancement/openlayers';
 
 const layer = new GpuCorrectedTileLayer();          // WebGL2 が使えなければ layer.hasGpu() が false
 const source = new EnhancedGeoTIFF({
@@ -53,7 +52,7 @@ map.addLayer(layer);
 source.setPipeline(pipeline().exposure(1));          // 地図を描き直すだけ
 ```
 
-- [`gpu-layer.ts`](gpu-layer.ts) の `GpuCorrectedTileLayer` は `ol/layer/WebGLTile` を継承したレイヤーです。OpenLayers が補正前のタイルを WebGL の canvas に描いたあと、その canvas を `createGpuRenderer` に渡して（GPU の中でコピー）補正し、結果の canvas を代わりに表示します
+- `GpuCorrectedTileLayer`（[src/openlayers/gpu-layer.ts](../../src/openlayers/gpu-layer.ts)） は `ol/layer/WebGLTile` を継承したレイヤーです。OpenLayers が補正前のタイルを WebGL の canvas に描いたあと、その canvas を `createGpuRenderer` に渡して（GPU の中でコピー）補正し、結果の canvas を代わりに表示します
 - 補正は画面の画素に掛かります。露出・コントラスト・色温度・レベルなど 1 画素ごとの補正は、タイルを補正した場合と同じ結果になります（再サンプリングの前後の違いで 2 階調以内。ブラウザテストで確認）
 - DRA の統計は今までどおりソースが元画像から取り、その範囲で補正するので、継ぎ目は出ません
 - シャープは画面の画素に掛かります。半径は画面の px になり、どのズームでも同じ見え方になります。元画像の画素で正確にシャープを掛けたいときは「Worker」を選んでください
@@ -91,4 +90,4 @@ map.on('moveend', () => source.updateDra(map));
 - 8bit の RGB かグレースケールの COG を想定しています。16bit や浮動小数点の COG（Sentinel-2 の各バンドや DEM など）は OpenLayers の `normalize`（GDAL の統計値、なければデータ型の範囲を 0〜255 に引き伸ばす）を通った後の 8bit 値を補正します。引き伸ばしの範囲を自分で決めたい場合は `sources` の `min` / `max` を指定してください
 - 5 バンド以上（マルチスペクトル）のタイルは補正せずにそのまま返します
 - 補正はタイル単位です。1 画素ごとに閉じている補正（明るさ、コントラスト、露出、ガンマ、彩度、色温度、レベル）では継ぎ目は出ません。DRA（画像全体の分布を使う）は上のとおり表示範囲全体の統計を先に取ってから全タイルに同じ範囲を掛けます
-- シャープは周りの画素を使うので、タイルの周りに `pipeline.margin` px（半径 1 なら 3 px）だけ隣のタイルの画素を付けて補正し、中央を切り出します。隣のタイルは補正前タイルのキャッシュから読み、画像の外側は透明で埋めます。こうするとタイルの境目の画素は、そのズームレベルの画像全体を一度に補正した場合と同じになります（`margin.ts`、ユニットテストで確認）。そのぶん、シャープを掛けている間は画面外の隣のタイルも読み込みます
+- シャープは周りの画素を使うので、タイルの周りに `pipeline.margin` px（半径 1 なら 3 px）だけ隣のタイルの画素を付けて補正し、中央を切り出します。隣のタイルは補正前タイルのキャッシュから読み、画像の外側は透明で埋めます。こうするとタイルの境目の画素は、そのズームレベルの画像全体を一度に補正した場合と同じになります（[src/openlayers/margin.ts](../../src/openlayers/margin.ts)、ユニットテストで確認）。そのぶん、シャープを掛けている間は画面外の隣のタイルも読み込みます

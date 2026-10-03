@@ -13,7 +13,7 @@ import { forGray, resolveMode, type ResolvedMode } from '../core/process.js';
 import { warnColorOnly } from '../functional.js';
 import { COLOR_ONLY_OPS, isIdentity, kernelRadius, normalizeOp } from '../ops/index.js';
 import type { ColorOptions, Histogram, ImageDataLike, OpSpec, SharpenOptions } from '../types.js';
-import { DECODE, horizontalShader, opParams, pixelShader, PRESENT, verticalShader, VERTEX, type PixelOp } from './shaders.js';
+import { CURVE_SAMPLES, curveRow, DECODE, horizontalShader, opParams, pixelShader, PRESENT, verticalShader, VERTEX, type PixelOp } from './shaders.js';
 
 /** Options for {@link createGpuRenderer}. */
 export interface GpuRendererOptions {
@@ -129,6 +129,10 @@ class Renderer implements GpuRenderer {
   private readonly vertex: WebGLShader;
   private readonly lut: WebGLTexture;
   private readonly kernel: WebGLTexture;
+  /** Samples of the curves of the `curve` steps being rendered, one row each. */
+  private readonly curves: WebGLTexture;
+  /** Row of {@link Renderer.curves} of each `curve` step being rendered. */
+  private curveRows = new Map<PixelOp, number>();
   private source: WebGLTexture | null = null;
   /** Whether `source` holds a {@link GpuImageSource} (and can be overwritten in place). */
   private sourceFromPicture = false;
@@ -152,6 +156,7 @@ class Renderer implements GpuRenderer {
     gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
     this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
     this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, new Float32Array(1));
+    this.curves = this.texture(gl.RGBA32F, 1, 1, gl.RGBA, gl.FLOAT, new Float32Array(4));
   }
 
   setImage(image: ImageDataLike | GpuImageSource, options: ColorOptions = {}): void {
@@ -202,6 +207,7 @@ class Renderer implements GpuRenderer {
       .map((op) => (gray ? forGray(op) : op))
       .map((op) => (op.op === 'sharpen' ? { kind: 'sharpen', op } : { kind: 'pixel', op: op as PixelOp }));
 
+    this.setCurves(plan);
     gl.viewport(0, 0, image.width, image.height);
     const firstSharpen = plan.findIndex((s) => s.kind === 'sharpen');
     const head = pixelOps(plan, 0);
@@ -246,11 +252,24 @@ class Renderer implements GpuRenderer {
     if (this.source) gl.deleteTexture(this.source);
     gl.deleteTexture(this.lut);
     gl.deleteTexture(this.kernel);
+    gl.deleteTexture(this.curves);
     for (const p of this.programs.values()) gl.deleteProgram(p);
     this.programs.clear();
     gl.deleteShader(this.vertex);
     this.source = null;
     this.image = null;
+  }
+
+  /** Uploads the curves of the plan's `curve` steps, one row each. */
+  private setCurves(plan: readonly Step[]): void {
+    const curves = plan.flatMap((s) => (s.kind === 'pixel' && s.op.op === 'curve' ? [s.op] : []));
+    this.curveRows = new Map(curves.map((op, row) => [op, row]));
+    if (curves.length === 0) return;
+    const data = new Float32Array(CURVE_SAMPLES * 4 * curves.length);
+    curves.forEach((op, row) => curveRow(op as Extract<PixelOp, { op: 'curve' }>, data, row));
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.curves);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, CURVE_SAMPLES, curves.length, 0, gl.RGBA, gl.FLOAT, data);
   }
 
   /** Uploads the Gaussian weights for offsets -r..r (as in core/filter.ts) and returns r. */
@@ -276,6 +295,7 @@ class Renderer implements GpuRenderer {
     const gl = this.gl;
     const program = this.program(fragment);
     gl.useProgram(program);
+    if (ops.some((op) => op.op === 'curve')) textures = [...textures, ['u_curves', this.curves]];
     textures.forEach(([name, texture], unit) => {
       gl.activeTexture(gl.TEXTURE0 + unit);
       gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -283,7 +303,7 @@ class Renderer implements GpuRenderer {
     });
     if (ops.length > 0) {
       if (this.params.length < 8 * ops.length) this.params = new Float32Array(8 * ops.length);
-      ops.forEach((op, i) => opParams(op, this.params, i));
+      ops.forEach((op, i) => opParams(op, this.params, i, this.curveRows.get(op)));
       gl.uniform4fv(gl.getUniformLocation(program, 'u_op'), this.params, 0, 8 * ops.length);
     }
     for (const [name, value] of Object.entries(scalars)) {

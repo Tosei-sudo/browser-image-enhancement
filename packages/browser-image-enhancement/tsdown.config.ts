@@ -7,7 +7,9 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/worker/worker.ts'],
+  entry: ['src/index.ts', 'src/openlayers/index.ts', 'src/worker/worker.ts'],
+  // OpenLayers is a peer dependency of the `openlayers` entry, never bundled.
+  external: [/^ol(\/|$)/],
   outDir: 'dist',
   format: 'esm',
   platform: 'browser',

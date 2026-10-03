@@ -1,6 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
-import { AutoStretchOptions, ColorOptions, Histogram, LevelsOptions, OpSpec, SharpenOptions, StretchOptions } from "./types.js";
+import { AutoStretchOptions, ColorOptions, CurveOptions, Histogram, LevelsOptions, OpName, OpSpec, SharpenOptions, StepOptions, StretchOptions, WhiteBalanceOptions } from "./types.js";
 //#region src/pipeline.d.ts
 /**
  * What `run()` resolves with: `imageData` (default), a `canvas`
@@ -77,6 +77,29 @@ export declare class Pipeline {
   saturation(amount: number): Pipeline;
   /** Color temperature, -1 (cool) to 1 (warm). No effect on monochrome images. */
   temperature(amount: number): Pipeline;
+  /** Tint, -1 (green) to 1 (magenta): the color axis temperature does not cover. No effect on monochrome images. */
+  tint(amount: number): Pipeline;
+  /**
+   * White balance from a gray point: `gray` is the color (sRGB-encoded, 0-1)
+   * of something that should be neutral, for example from `sampleColor` on the
+   * image. Put it first so it sees the colors of the original image. No effect
+   * on monochrome images.
+   */
+  whiteBalance(gray: WhiteBalanceOptions): Pipeline;
+  /** Shadows, -1 (darker) to 1 (lifted): moves dark tones, leaving black, white and highlights almost unchanged. */
+  shadows(amount: number): Pipeline;
+  /** Highlights, -1 (recovered, darker) to 1 (brighter): moves light tones, leaving black, white and shadows almost unchanged. */
+  highlights(amount: number): Pipeline;
+  /**
+   * Tone curve (see {@link CurveOptions}): points `[input, output]` on the
+   * sRGB 0-1 scale joined by a smooth curve, for all channels and per channel.
+   *
+   * @example
+   * ```ts
+   * pipeline().curve({ points: [[0.25, 0.2], [0.75, 0.8]] }); // gentle S curve: more contrast
+   * ```
+   */
+  curve(options: CurveOptions): Pipeline;
   /** Levels (black/white points 0-1, midtone gamma). */
   levels(params: LevelsOptions): Pipeline;
   /**
@@ -106,6 +129,33 @@ export declare class Pipeline {
    * pipeline has `sharpen` steps.
    */
   get margin(): number;
+  /**
+   * Returns a pipeline with step `op` set to `params`: the first step of that
+   * kind is updated in place (parameters not given keep their values), or the
+   * step is appended when the pipeline has none. Made for controls: each
+   * slider sets its own step without rebuilding the chain.
+   *
+   * Steps with one main value (`brightness`, `contrast`, `exposure`, `gamma`,
+   * `saturation`, `temperature`, `sharpen`, ...) also take that value as a number;
+   * {@link OpInfo.value} names it.
+   *
+   * @example
+   * ```ts
+   * let p = pipeline().exposure(0).contrast(0).sharpen({ amount: 0 });
+   * p = p.set('contrast', 0.3);                // same as { amount: 0.3 }
+   * p = p.set('sharpen', { radius: 2 });       // amount stays 0
+   * p = p.set('levels', { inBlack: 0.05 });    // appended: there was no levels step
+   * ```
+   */
+  set<N extends OpName>(op: N, params: StepOptions[N] | number): Pipeline;
+  /** The first step of kind `op`, with its normalized parameters, or undefined when there is none. */
+  get<N extends OpName>(op: N): Extract<OpSpec, {
+    op: N;
+  }> | undefined;
+  /** Returns a pipeline without any step of kind `op`. */
+  remove(op: OpName): Pipeline;
+  /** True when no step changes the image (an empty pipeline, or every step at its neutral value). */
+  get isIdentity(): boolean;
   /**
    * The same correction for the image shrunk by `factor` (0.5 = half the
    * width and height): pixel distances (the `sharpen` radius) are scaled with

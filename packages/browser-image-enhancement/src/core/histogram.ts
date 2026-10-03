@@ -101,7 +101,7 @@ export function grayFromRgb(h: Histogram): Histogram {
 }
 
 /** A (value, count) list sorted by value. */
-type Distribution = Array<{ value: number; count: number }>;
+export type Distribution = Array<{ value: number; count: number }>;
 
 function distribution(bins: readonly Float64Array[], values: ReadonlyArray<(k: number) => number>): Distribution {
   const d: Distribution = [];
@@ -112,7 +112,7 @@ function distribution(bins: readonly Float64Array[], values: ReadonlyArray<(k: n
 }
 
 /** [black, white] for one distribution, or null when nothing can be stretched. */
-function rangeOf(d: Distribution, o: Required<AutoStretchOptions>): [number, number] | null {
+export function rangeOf(d: Distribution, o: Required<AutoStretchOptions>): [number, number] | null {
   let total = 0;
   for (const e of d) total += e.count;
   if (total === 0) return null;

@@ -60,6 +60,16 @@ test('matches the JS engine within one level for every kind of step', async ({ p
       ['forced gray on color', p().exposure(0.2).sharpen({ amount: 1, radius: 1 }).gamma(0.9), picture(97, 61, 11), 'gray'],
       ['forced rgb on gray', p().temperature(0.5).saturation(0.3), picture(50, 30, 12, true), 'rgb'],
       ['nothing', p(), picture(23, 9, 13, false, true)],
+      ['tint, white balance, shadows, highlights', p().whiteBalance({ r: 0.55, g: 0.5, b: 0.42 }).tint(-0.4).shadows(0.8).highlights(-0.7), picture(97, 61, 14)],
+      [
+        'curves',
+        p()
+          .curve({ points: [[0.2, 0.1], [0.5, 0.55], [0.8, 0.95]], red: [[0.5, 0.6]] })
+          .sharpen({ amount: 0.6 })
+          .curve({ points: [[0.3, 0.2]], blue: [[0, 0.1], [1, 0.9]] }),
+        picture(97, 61, 15),
+      ],
+      ['curve on monochrome', p().curve({ points: [[0.25, 0.4]], green: [[0.5, 0.1]] }).shadows(-0.5), picture(64, 40, 16, true)],
     ];
     const gpu = lib.createGpuRenderer();
     if (!gpu) return null;

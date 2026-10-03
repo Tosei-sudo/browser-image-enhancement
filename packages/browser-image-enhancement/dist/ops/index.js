@@ -1,5 +1,7 @@
 import { LUMA_B, LUMA_G, LUMA_R, linearToSrgb, srgbToLinear } from "../color/srgb.js";
 import { warn } from "../warn.js";
+import { curveFunction, isIdentityCurve, normalizeCurve } from "./curve.js";
+import { numberParam } from "./info.js";
 //#region src/ops/index.ts
 /**
 * Correction definitions: parameter normalization and the per-pixel math.
@@ -9,11 +11,58 @@ import { warn } from "../warn.js";
 * `sharpen` is the one step that reads neighbouring pixels; core/filter.ts runs it.
 */
 /** Corrections that only make sense for color images; no-ops on monochrome input. */
-const COLOR_ONLY_OPS = /* @__PURE__ */ new Set(["saturation", "temperature"]);
+const COLOR_ONLY_OPS = /* @__PURE__ */ new Set([
+	"saturation",
+	"temperature",
+	"tint",
+	"whiteBalance"
+]);
 /** Contrast pivots around sRGB 50 % gray so mid-gray stays put. */
 const CONTRAST_PIVOT = srgbToLinear(.5);
 /** Strength of `temperature`: at +1 red gain is 1.4x and blue 0.6x before luminance normalization. */
 const TEMPERATURE_STRENGTH = .4;
+/** Strength of `tint`: at +1 green gain is 0.7x and red and blue 1.15x before luminance normalization. */
+const TINT_STRENGTH = .3;
+/**
+* Strength of `shadows` and `highlights`: the largest change, at 1/3 (shadows)
+* or 2/3 (highlights) of the sRGB scale, is 0.14. Below 1 / 6.75 so the curve
+* stays rising for every amount in -1..1.
+*/
+const TONE_STRENGTH = .945;
+/** Linear gains (R, G, B) that keep white's luminance. */
+function balancedGains(r, g, b) {
+	const n = LUMA_R * r + LUMA_G * g + LUMA_B * b;
+	return [
+		r / n,
+		g / n,
+		b / n
+	];
+}
+/** Gains of a `temperature` step. */
+function temperatureGains(amount) {
+	return balancedGains(1 + TEMPERATURE_STRENGTH * amount, 1, 1 - TEMPERATURE_STRENGTH * amount);
+}
+/** Gains of a `tint` step. */
+function tintGains(amount) {
+	const side = 1 + TINT_STRENGTH * amount / 2;
+	return balancedGains(side, 1 - TINT_STRENGTH * amount, side);
+}
+/** Gains of a `whiteBalance` step: the gray point becomes neutral. */
+function whiteBalanceGains(op) {
+	return balancedGains(1 / srgbToLinear(op.r), 1 / srgbToLinear(op.g), 1 / srgbToLinear(op.b));
+}
+/**
+* The `shadows` (`high` false) or `highlights` (`high` true) change of the
+* sRGB-encoded value `x` in [0, 1]: a bump that is 0 at black and white.
+*/
+function toneShift(x, amount, high) {
+	return x + TONE_STRENGTH * amount * (high ? x * x * (1 - x) : x * (1 - x) * (1 - x));
+}
+/** Clamps the number parameter `param` of `op` to its range in the table (ops/info.ts), or gives its default. */
+function param(op, name, value, label = `${op}.${name}`) {
+	const { min, max, default: fallback } = numberParam(op, name);
+	return num(label, value, min, max, fallback);
+}
 function num(name, value, min, max, fallback) {
 	if (typeof value !== "number" || Number.isNaN(value)) {
 		if (value !== void 0) warn(`${name} must be a number, got ${String(value)}; using ${fallback}.`);
@@ -28,8 +77,8 @@ function num(name, value, min, max, fallback) {
 }
 /** Validates and clamps a levels parameter object, filling defaults. */
 function normalizeLevels(o = {}) {
-	let inBlack = num("levels.inBlack", o.inBlack, 0, 1, 0);
-	let inWhite = num("levels.inWhite", o.inWhite, 0, 1, 1);
+	let inBlack = param("levels", "inBlack", o.inBlack);
+	let inWhite = param("levels", "inWhite", o.inWhite);
 	if (inWhite <= inBlack) {
 		const gap = 1 / 255;
 		const before = `inBlack ${inBlack}, inWhite ${inWhite}`;
@@ -40,9 +89,9 @@ function normalizeLevels(o = {}) {
 	return {
 		inBlack,
 		inWhite,
-		gamma: num("levels.gamma", o.gamma, .1, 10, 1),
-		outBlack: num("levels.outBlack", o.outBlack, 0, 1, 0),
-		outWhite: num("levels.outWhite", o.outWhite, 0, 1, 1)
+		gamma: param("levels", "gamma", o.gamma),
+		outBlack: param("levels", "outBlack", o.outBlack),
+		outWhite: param("levels", "outWhite", o.outWhite)
 	};
 }
 /** Upper bound for stretch points: far above white, but finite. */
@@ -77,12 +126,29 @@ function normalizeStretch(o = {}) {
 		white
 	};
 }
+/** Validates white balance options, filling defaults. */
+function normalizeWhiteBalance(o = {}) {
+	return {
+		r: param("whiteBalance", "r", o.r),
+		g: param("whiteBalance", "g", o.g),
+		b: param("whiteBalance", "b", o.b)
+	};
+}
+/** Validates curve options, filling in straight lines. */
+function normalizeCurveOptions(o = {}) {
+	return {
+		points: normalizeCurve("curve.points", o.points),
+		red: normalizeCurve("curve.red", o.red),
+		green: normalizeCurve("curve.green", o.green),
+		blue: normalizeCurve("curve.blue", o.blue)
+	};
+}
 /** Validates sharpening options, filling defaults. */
 function normalizeSharpen(o = {}) {
 	return {
-		amount: num("sharpen.amount", o.amount, 0, 5, .5),
-		radius: num("sharpen.radius", o.radius, .1, 50, 1),
-		threshold: num("sharpen.threshold", o.threshold, 0, 1, 0)
+		amount: param("sharpen", "amount", o.amount),
+		radius: param("sharpen", "radius", o.radius),
+		threshold: param("sharpen", "threshold", o.threshold)
 	};
 }
 /** How far (in pixels) the blur of a sharpen step with this radius reaches. */
@@ -114,9 +180,9 @@ function normalizeAutoStretch(o = {}) {
 	}
 	return {
 		method,
-		lowPercent: num("autoStretch.lowPercent", o.lowPercent, 0, 50, .5),
-		highPercent: num("autoStretch.highPercent", o.highPercent, 0, 50, .5),
-		stdDevs: num("autoStretch.stdDevs", o.stdDevs, .1, 10, 2),
+		lowPercent: param("autoStretch", "lowPercent", o.lowPercent),
+		highPercent: param("autoStretch", "highPercent", o.highPercent),
+		stdDevs: param("autoStretch", "stdDevs", o.stdDevs),
 		linked: o.linked === void 0 ? false : Boolean(o.linked)
 	};
 }
@@ -130,17 +196,28 @@ function normalizeOp(raw) {
 		case "brightness":
 		case "contrast":
 		case "saturation":
-		case "temperature": return {
+		case "temperature":
+		case "tint":
+		case "shadows":
+		case "highlights": return {
 			op: o.op,
-			amount: num(`${o.op}`, o.amount, -1, 1, 0)
+			amount: param(o.op, "amount", o.amount, o.op)
+		};
+		case "whiteBalance": return {
+			op: "whiteBalance",
+			...normalizeWhiteBalance(o)
+		};
+		case "curve": return {
+			op: "curve",
+			...normalizeCurveOptions(o)
 		};
 		case "exposure": return {
 			op: "exposure",
-			ev: num("exposure", o.ev, -10, 10, 0)
+			ev: param("exposure", "ev", o.ev, "exposure")
 		};
 		case "gamma": return {
 			op: "gamma",
-			gamma: num("gamma", o.gamma, .1, 10, 1)
+			gamma: param("gamma", "gamma", o.gamma, "gamma")
 		};
 		case "levels": return {
 			op: "levels",
@@ -167,7 +244,12 @@ function isIdentity(op) {
 		case "brightness":
 		case "contrast":
 		case "saturation":
-		case "temperature": return op.amount === 0;
+		case "temperature":
+		case "tint":
+		case "shadows":
+		case "highlights": return op.amount === 0;
+		case "whiteBalance": return op.r === op.g && op.g === op.b;
+		case "curve": return isIdentityCurve(op.points) && isIdentityCurve(op.red) && isIdentityCurve(op.green) && isIdentityCurve(op.blue);
 		case "exposure": return op.ev === 0;
 		case "gamma": return op.gamma === 1;
 		case "levels": return op.inBlack === 0 && op.inWhite === 1 && op.gamma === 1 && op.outBlack === 0 && op.outWhite === 1;
@@ -223,18 +305,37 @@ function toStage(op) {
 			kind: "saturation",
 			factor: 1 + op.amount
 		};
-		case "temperature": {
-			const r = 1 + TEMPERATURE_STRENGTH * op.amount;
-			const b = 1 - TEMPERATURE_STRENGTH * op.amount;
-			const n = LUMA_R * r + LUMA_G + LUMA_B * b;
-			const gains = [
-				r / n,
-				1 / n,
-				b / n
-			];
+		case "temperature":
+		case "tint":
+		case "whiteBalance": {
+			const gains = op.op === "temperature" ? temperatureGains(op.amount) : op.op === "tint" ? tintGains(op.amount) : whiteBalanceGains(op);
 			return {
 				kind: "channel",
 				fn: (v, c) => v * gains[c]
+			};
+		}
+		case "shadows":
+		case "highlights": {
+			const amount = op.amount;
+			const high = op.op === "highlights";
+			return {
+				kind: "channel",
+				fn: (v) => {
+					if (!(v > 0) || v >= 1) return v;
+					return srgbToLinear(toneShift(linearToSrgb(v), amount, high));
+				}
+			};
+		}
+		case "curve": {
+			const all = curveFunction(op.points);
+			const own = [
+				op.red,
+				op.green,
+				op.blue
+			].map(curveFunction);
+			return {
+				kind: "channel",
+				fn: (v, c) => srgbToLinear(own[c](all(linearToSrgb(v))))
 			};
 		}
 		case "levels": {
@@ -272,6 +373,6 @@ function toStage(op) {
 	}
 }
 //#endregion
-export { COLOR_ONLY_OPS, CONTRAST_PIVOT, TEMPERATURE_STRENGTH, isIdentity, kernelRadius, marginOf, normalizeAutoStretch, normalizeLevels, normalizeOp, normalizeSharpen, normalizeStretch, toStage };
+export { COLOR_ONLY_OPS, CONTRAST_PIVOT, TEMPERATURE_STRENGTH, TINT_STRENGTH, TONE_STRENGTH, isIdentity, kernelRadius, marginOf, normalizeAutoStretch, normalizeCurveOptions, normalizeLevels, normalizeOp, normalizeSharpen, normalizeStretch, normalizeWhiteBalance, temperatureGains, tintGains, toStage, toneShift, whiteBalanceGains };
 
 //# sourceMappingURL=index.js.map

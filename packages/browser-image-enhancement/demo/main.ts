@@ -1,4 +1,4 @@
-import { createGpuRenderer, createPreviewRunner, pipeline, type ColorMode, type ImageDataLike } from '../src/index.js';
+import { createEditor, createGpuRenderer, pipeline, type ColorMode, type Editor, type ImageDataLike } from '../src/index.js';
 
 const sliders = [
   { key: 'brightness', label: '明るさ', min: -1, max: 1, step: 0.01, value: 0 },
@@ -17,7 +17,16 @@ const sliders = [
 
 type Key = (typeof sliders)[number]['key'];
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const view = $<HTMLCanvasElement>('view');
+/** Whether this browser can correct on the GPU at all. */
+const hasGpu = (() => {
+  const gpu = createGpuRenderer();
+  gpu?.dispose();
+  return gpu !== null;
+})();
+if (!hasGpu) {
+  $<HTMLInputElement>('gpu').checked = false;
+  $<HTMLInputElement>('gpu').disabled = true;
+}
 const status = $<HTMLParagraphElement>('status');
 const inputs = {} as Record<Key, HTMLInputElement>;
 
@@ -28,10 +37,8 @@ for (const s of sliders) {
   const out = label.querySelector('output')!;
   input.addEventListener('input', () => {
     out.textContent = input.value;
-    render();
+    void render();
   });
-  // While dragging the preview works on a shrunk copy; the full-size result follows on release.
-  input.addEventListener('change', () => render(true));
   inputs[s.key] = input;
   $('sliders').append(label);
 }
@@ -50,68 +57,30 @@ const current = () =>
 
 let source: ImageDataLike = sampleImage();
 
-// With WebGL2 the full-size image follows every slider move on the GPU; without it, a shrunk preview in workers.
-const gpuView = $<HTMLCanvasElement>('gpuView');
-const gpu = createGpuRenderer({ canvas: gpuView });
-const gpuBox = $<HTMLInputElement>('gpu');
-if (!gpu) {
-  gpuBox.checked = false;
-  gpuBox.disabled = true;
-}
-let gpuImage: { source: ImageDataLike; colorMode: string } | null = null;
-let frame = 0;
+// The editor shows the full-size image on the GPU (WebGL2) when it can, else a
+// shrunk preview in workers that the full size replaces once the sliders stop.
+let editor = makeEditor();
 
-function useGpu(): boolean {
-  return !!gpu && gpuBox.checked && Math.max(source.width, source.height) <= gpu.maxSize;
-}
-
-function renderGpu() {
-  const colorMode = $<HTMLSelectElement>('colorMode').value as ColorMode;
-  cancelAnimationFrame(frame);
-  frame = requestAnimationFrame(() => {
-    if (!gpu) return;
-    const t0 = performance.now();
-    if (gpuImage?.source !== source || gpuImage.colorMode !== colorMode) {
-      gpu.setImage(source, { colorMode });
-      gpuImage = { source, colorMode };
-    }
-    gpu.render(current());
-    // Reading one pixel waits for the GPU, so the time shown is the real one.
-    const gl = gpuView.getContext('webgl2')!;
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-    view.hidden = true;
-    gpuView.hidden = false;
-    status.textContent = `${source.width}×${source.height} · GPU ${Math.round(performance.now() - t0)} ms`;
-  });
-}
-let preview = makeRunner(1280);
-let full = makeRunner();
-
-function makeRunner(maxSize?: number) {
-  return createPreviewRunner({
+function makeEditor(): Editor {
+  // A canvas keeps the kind of context it first got, so each editor gets a new one.
+  const canvas = document.createElement('canvas');
+  canvas.id = 'view';
+  $('view').replaceWith(canvas);
+  const e = createEditor({
+    canvas,
+    engine: $<HTMLInputElement>('gpu').checked ? 'auto' : 'cpu',
     colorMode: $<HTMLSelectElement>('colorMode').value as ColorMode,
     worker: $<HTMLInputElement>('worker').checked,
-    maxSize,
+    onRender: ({ engine, width, height, ms }) => {
+      status.textContent = `${width}×${height} · ${engine === 'gpu' ? 'GPU' : 'JS'} ${Math.round(ms)} ms`;
+    },
   });
+  return e;
 }
 
-async function render(fullSize = false) {
-  if (useGpu()) {
-    renderGpu();
-    return;
-  }
-  const t0 = performance.now();
-  (fullSize ? preview : full).cancel();
-  const result = await (fullSize ? full : preview).run(current(), source);
-  if (!result) return; // superseded by a newer slider value
-  view.width = result.width;
-  view.height = result.height;
-  view.getContext('2d')!.putImageData(result, 0, 0);
-  view.hidden = false;
-  gpuView.hidden = true;
-  status.textContent = `${result.width}×${result.height} · ${Math.round(performance.now() - t0)} ms`;
+async function render() {
+  await editor.render(current());
 }
-
 function sampleImage(): ImageData {
   const w = 640;
   const h = 400;
@@ -132,16 +101,14 @@ function sampleImage(): ImageData {
 $<HTMLInputElement>('file').addEventListener('change', async (e) => {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
-  source = await pipeline().run(file); // decode once (applies EXIF orientation, converts to sRGB)
-  render(true);
+  await editor.setImage(file); // decodes once (applies EXIF orientation, converts to sRGB) and redraws
+  source = editor.image!;
 });
 for (const id of ['colorMode', 'worker', 'gpu']) {
   $(id).addEventListener('change', () => {
-    preview.cancel();
-    full.cancel();
-    preview = makeRunner(1280);
-    full = makeRunner();
-    render(true);
+    editor.dispose();
+    editor = makeEditor();
+    void editor.setImage(source).then(render);
   });
 }
 $('reset').addEventListener('click', () => {
@@ -149,10 +116,10 @@ $('reset').addEventListener('click', () => {
     inputs[s.key].value = String(s.value);
     inputs[s.key].nextElementSibling!.textContent = String(s.value);
   }
-  render(true);
+  void render();
 });
 $('download').addEventListener('click', async () => {
-  const blob = await current().run(source, { output: 'blob', colorMode: $<HTMLSelectElement>('colorMode').value as ColorMode });
+  const blob = await editor.export(current(), { output: 'blob' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'enhanced.png';
@@ -160,4 +127,4 @@ $('download').addEventListener('click', async () => {
   URL.revokeObjectURL(a.href);
 });
 
-render(true);
+void editor.setImage(source).then(render);

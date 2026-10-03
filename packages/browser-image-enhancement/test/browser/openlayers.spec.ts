@@ -9,8 +9,8 @@ declare global {
   interface Window {
     example: {
       map: import('ol/Map.js').default;
-      layer: import('../../examples/openlayers-cog/gpu-layer.js').default;
-      source: import('../../examples/openlayers-cog/enhanced-geotiff.js').default;
+      layer: import('../../src/openlayers/gpu-layer.js').default;
+      source: import('../../src/openlayers/enhanced-geotiff.js').default;
       inputs: Record<string, HTMLInputElement>;
       pipeline: typeof import('../../src/index.js').pipeline;
       fitLonLat: (extent: number[]) => void;
@@ -336,3 +336,38 @@ test('DRA statistics count only the image, not the empty map around it', async (
 function range(a: number, b: number): number[] {
   return Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
 }
+
+test('16-bit raw values (normalize: false) are stretched from their own statistics, then corrected', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page, '16&engine=worker');
+  const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+
+  // Corrections off: only the raw stretch.
+  await page.evaluate(() => (document.getElementById('enabled') as HTMLInputElement).click());
+  await page.waitForTimeout(50);
+  await settle(page);
+  const left = await sample(page, w * 0.3, h * 0.5);
+  const right = await sample(page, w * 0.7, h * 0.5);
+  const info = await page.evaluate(() => window.example.source.getDraInfo());
+  expect(info?.rawStretch).toBeDefined();
+  // The fixture's red runs from 3000 to 7480 (16-bit); the stretch covers about that, not 0-65535.
+  expect(info!.rawStretch!.black[0]).toBeGreaterThanOrEqual(3000);
+  expect(info!.rawStretch!.white[0]).toBeLessThanOrEqual(7480);
+  expect(info!.rawStretch!.white[0]).toBeGreaterThan(6000);
+  // Red rises from left to right and uses the 8-bit range (a 0-65535 scale would leave it near 20-30).
+  expect(right[0] - left[0]).toBeGreaterThan(60);
+  expect(left[3]).toBe(255);
+
+  // Corrections on: exposure applies on top of the stretched values.
+  await page.evaluate(() => {
+    (document.getElementById('enabled') as HTMLInputElement).click();
+    window.example.inputs.exposure.value = '1';
+    window.example.inputs.exposure.dispatchEvent(new Event('input'));
+  });
+  await page.waitForTimeout(50);
+  await settle(page);
+  const brighter = await sample(page, w * 0.3, h * 0.5);
+  expect(brighter[0]).toBeGreaterThan(left[0]);
+  expect(errors).toEqual([]);
+});

@@ -1,7 +1,8 @@
 import { abortError } from "./workers/src/abort.js";
 import { assertImageData, createImageData } from "./workers/src/image.js";
 import { toBlob, toCanvas, toImageData } from "./workers/src/io.js";
-import { marginOf, normalizeOp } from "./ops/index.js";
+import { opInfo } from "./ops/info.js";
+import { isIdentity, marginOf, normalizeOp } from "./ops/index.js";
 import { extractGray } from "./core/process.js";
 import { needsStats, resolveOps } from "./core/histogram.js";
 import { applySync, warnColorOnly } from "./functional.js";
@@ -82,6 +83,54 @@ var Pipeline = class Pipeline {
 			amount
 		});
 	}
+	/** Tint, -1 (green) to 1 (magenta): the color axis temperature does not cover. No effect on monochrome images. */
+	tint(amount) {
+		return this.add({
+			op: "tint",
+			amount
+		});
+	}
+	/**
+	* White balance from a gray point: `gray` is the color (sRGB-encoded, 0-1)
+	* of something that should be neutral, for example from `sampleColor` on the
+	* image. Put it first so it sees the colors of the original image. No effect
+	* on monochrome images.
+	*/
+	whiteBalance(gray) {
+		return this.add({
+			op: "whiteBalance",
+			...gray
+		});
+	}
+	/** Shadows, -1 (darker) to 1 (lifted): moves dark tones, leaving black, white and highlights almost unchanged. */
+	shadows(amount) {
+		return this.add({
+			op: "shadows",
+			amount
+		});
+	}
+	/** Highlights, -1 (recovered, darker) to 1 (brighter): moves light tones, leaving black, white and shadows almost unchanged. */
+	highlights(amount) {
+		return this.add({
+			op: "highlights",
+			amount
+		});
+	}
+	/**
+	* Tone curve (see {@link CurveOptions}): points `[input, output]` on the
+	* sRGB 0-1 scale joined by a smooth curve, for all channels and per channel.
+	*
+	* @example
+	* ```ts
+	* pipeline().curve({ points: [[0.25, 0.2], [0.75, 0.8]] }); // gentle S curve: more contrast
+	* ```
+	*/
+	curve(options) {
+		return this.add({
+			op: "curve",
+			...options
+		});
+	}
 	/** Levels (black/white points 0-1, midtone gamma). */
 	levels(params) {
 		return this.add({
@@ -132,6 +181,57 @@ var Pipeline = class Pipeline {
 	*/
 	get margin() {
 		return marginOf(this.ops);
+	}
+	/**
+	* Returns a pipeline with step `op` set to `params`: the first step of that
+	* kind is updated in place (parameters not given keep their values), or the
+	* step is appended when the pipeline has none. Made for controls: each
+	* slider sets its own step without rebuilding the chain.
+	*
+	* Steps with one main value (`brightness`, `contrast`, `exposure`, `gamma`,
+	* `saturation`, `temperature`, `sharpen`, ...) also take that value as a number;
+	* {@link OpInfo.value} names it.
+	*
+	* @example
+	* ```ts
+	* let p = pipeline().exposure(0).contrast(0).sharpen({ amount: 0 });
+	* p = p.set('contrast', 0.3);                // same as { amount: 0.3 }
+	* p = p.set('sharpen', { radius: 2 });       // amount stays 0
+	* p = p.set('levels', { inBlack: 0.05 });    // appended: there was no levels step
+	* ```
+	*/
+	set(op, params) {
+		const info = opInfo[op];
+		if (!info) throw new TypeError(`Unknown correction: ${String(op)}`);
+		let given;
+		if (typeof params === "number") {
+			if (!info.value) throw new TypeError(`${op} takes an object of parameters, not a number.`);
+			given = { [info.value]: params };
+		} else given = params ?? {};
+		const i = this.ops.findIndex((s) => s.op === op);
+		const next = [...this.ops];
+		if (i < 0) next.push({
+			...given,
+			op
+		});
+		else next[i] = {
+			...next[i],
+			...given,
+			op
+		};
+		return new Pipeline(next);
+	}
+	/** The first step of kind `op`, with its normalized parameters, or undefined when there is none. */
+	get(op) {
+		return this.ops.find((s) => s.op === op);
+	}
+	/** Returns a pipeline without any step of kind `op`. */
+	remove(op) {
+		return this.ops.some((s) => s.op === op) ? new Pipeline(this.ops.filter((s) => s.op !== op)) : this;
+	}
+	/** True when no step changes the image (an empty pipeline, or every step at its neutral value). */
+	get isIdentity() {
+		return this.ops.every(isIdentity);
 	}
 	/**
 	* The same correction for the image shrunk by `factor` (0.5 = half the

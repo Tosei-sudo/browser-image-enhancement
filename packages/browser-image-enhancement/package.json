@@ -1,7 +1,7 @@
 {
   "name": "browser-image-enhancement",
   "version": "0.1.0",
-  "description": "Dependency-free image correction (brightness, contrast, exposure, gamma, saturation, temperature, levels, sharpening, automatic stretch / DRA) that runs in the browser, in Web Workers by default.",
+  "description": "Dependency-free image correction (brightness, contrast, exposure, gamma, saturation, temperature, tint, white balance, shadows, highlights, curves, levels, sharpening, automatic stretch / DRA) that runs in the browser, in Web Workers by default.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -14,6 +14,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./openlayers": {
+      "types": "./dist/openlayers/index.d.ts",
+      "import": "./dist/openlayers/index.js"
     }
   },
   "files": [
@@ -46,6 +50,14 @@
     "check": "npm run typecheck && npm test && npm run test:browser",
     "demo:build": "vite build demo --outDir ../demo-dist --emptyOutDir --base ./",
     "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "ol": ">=10"
+  },
+  "peerDependenciesMeta": {
+    "ol": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@browser-image/workers": "0.0.0"

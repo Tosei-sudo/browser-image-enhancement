@@ -80,8 +80,10 @@ function chain(stages: readonly ChannelStage[], c: number): (v: number) => numbe
   };
 }
 
-/** In gray mode there is one channel; a per-channel stretch uses the mean of its points. */
+/** In gray mode there is one channel; a per-channel stretch uses the mean of its points and a curve only its curve for all channels. */
 export function forGray(op: OpSpec): OpSpec {
+  // One channel: only the curve for all channels applies.
+  if (op.op === 'curve') return { ...op, red: [[0, 0], [1, 1]], green: [[0, 0], [1, 1]], blue: [[0, 0], [1, 1]] };
   if (op.op !== 'stretch') return op;
   const mean = (v: readonly number[]) => (v[0] + v[1] + v[2]) / 3;
   const b = mean(op.black);
