@@ -33,6 +33,25 @@ map.addLayer(new WebGLTileLayer({ source, opacity: 0.8 }));
 source.setPipeline(pipeline().exposure(1));
 ```
 
+## GPU（WebGL2）で補正する
+
+画面の「実行」が既定で「GPU（WebGL2）」になっていて、タイルの補正を GPU で行います。スライダーを動かすたびに表示中のタイルをすべて補正し直すので、JS（Worker）よりも動きに付いてきやすくなります。
+
+```ts
+const source = new EnhancedGeoTIFF({
+  sources: [{ url }],
+  pipeline: current(),
+  gpu: true, // WebGL2 が使えなければ JS（worker）で補正する
+});
+source.usesGpu(); // 実際に GPU を使っているか
+```
+
+- ソースごとに `createGpuRenderer` を 1 つ作り、全タイルで使い回します。タイル（シャープ時は周りの余白付き）を送って補正し、結果を読み戻して OpenLayers に渡します
+- 結果は JS との差が 8bit で 1 以内です（GPU は float32 で計算するため。ブラウザテストで確認）
+- WebGL2（と浮動小数点テクスチャへの描画）が使えないブラウザでは、`worker` の設定どおり JS で補正します。途中で GPU のコンテキストが失われた場合も JS に切り替えて補正し直します
+- 速さを比べるときは「実行」を切り替えるか、URL に `?engine=worker` を付けて開きます。画面下に 1 枚あたりの平均時間が出ます
+- 使い終わったソースは `dispose()` で GPU のメモリを解放してください
+
 ## DRA（表示範囲でダイナミックレンジを自動調整）
 
 画面の「DRA」をオンにすると、いま見えている範囲の画素の分布から黒点・白点を決めて引き伸ばします。地図を動かし終えるたびに（`moveend`）範囲を取り直します。
