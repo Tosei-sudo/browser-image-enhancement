@@ -35,22 +35,38 @@ source.setPipeline(pipeline().exposure(1));
 
 ## GPU（WebGL2）で補正する
 
-画面の「実行」が既定で「GPU（WebGL2）」になっていて、タイルの補正を GPU で行います。スライダーを動かすたびに表示中のタイルをすべて補正し直すので、JS（Worker）よりも動きに付いてきやすくなります。
+画面の「実行」が既定で「GPU（WebGL2）」になっていて、タイルではなく、OpenLayers が描いた地図に GPU で補正を掛けます。スライダーを動かしてもタイルの読み込み直しや補正し直しは起きず、地図を描き直すだけになります。
 
 ```ts
+import { pipeline } from 'browser-image-enhancement';
+import EnhancedGeoTIFF from './enhanced-geotiff.js';
+import GpuCorrectedTileLayer from './gpu-layer.js';
+
+const layer = new GpuCorrectedTileLayer();          // WebGL2 が使えなければ layer.hasGpu() が false
 const source = new EnhancedGeoTIFF({
   sources: [{ url }],
-  pipeline: current(),
-  gpu: true, // WebGL2 が使えなければ JS（worker）で補正する
+  pipeline: pipeline().exposure(0.5),
+  correctTiles: !layer.hasGpu(),                    // GPU で補正するときはタイルを読んだまま描く
 });
-source.usesGpu(); // 実際に GPU を使っているか
+layer.setSource(source);
+map.addLayer(layer);
+source.setPipeline(pipeline().exposure(1));          // 地図を描き直すだけ
 ```
 
-- ソースごとに `createGpuRenderer` を 1 つ作り、全タイルで使い回します。タイル（シャープ時は周りの余白付き）を送って補正し、結果を読み戻して OpenLayers に渡します
-- 結果は JS との差が 8bit で 1 以内です（GPU は float32 で計算するため。ブラウザテストで確認）
-- WebGL2（と浮動小数点テクスチャへの描画）が使えないブラウザでは、`worker` の設定どおり JS で補正します。途中で GPU のコンテキストが失われた場合も JS に切り替えて補正し直します
-- 速さを比べるときは「実行」を切り替えるか、URL に `?engine=worker` を付けて開きます。画面下に 1 枚あたりの平均時間が出ます
-- 使い終わったソースは `dispose()` で GPU のメモリを解放してください
+- [`gpu-layer.ts`](gpu-layer.ts) の `GpuCorrectedTileLayer` は `ol/layer/WebGLTile` を継承したレイヤーです。OpenLayers が補正前のタイルを WebGL の canvas に描いたあと、その canvas を `createGpuRenderer` に渡して（GPU の中でコピー）補正し、結果の canvas を代わりに表示します
+- 補正は画面の画素に掛かります。露出・コントラスト・色温度・レベルなど 1 画素ごとの補正は、タイルを補正した場合と同じ結果になります（再サンプリングの前後の違いで 2 階調以内。ブラウザテストで確認）
+- DRA の統計は今までどおりソースが元画像から取り、その範囲で補正するので、継ぎ目は出ません
+- シャープは画面の画素に掛かります。半径は画面の px になり、どのズームでも同じ見え方になります。元画像の画素で正確にシャープを掛けたいときは「Worker」を選んでください
+- 地図を動かしている間も毎フレーム補正します（画面の大きさ 1 枚分）
+- WebGL2 が使えないブラウザでは、Worker（JS）でタイルごとに補正します。途中で GPU のコンテキストが失われた場合も同じです
+- 画面下に「変更から表示まで」の時間が出ます。URL に `?engine=worker` を付けると JS で始まるので、比べられます
+
+測定（Sentinel-2 の COG、1024 px のタイル 9 枚、1600×1000 の画面。GPU のないサンドボックスで、WebGL は CPU で動く SwiftShader なので比率だけの目安）：
+
+| 方式 | スライダーを動かしてから表示まで |
+| --- | --- |
+| タイルごとに Worker で補正 | 約 2.6 秒（うち 9 割以上はタイルの読み込み直し） |
+| 描画時に GPU で補正 | 約 0.14 秒（シャープありで約 0.23 秒） |
 
 ## DRA（表示範囲でダイナミックレンジを自動調整）
 

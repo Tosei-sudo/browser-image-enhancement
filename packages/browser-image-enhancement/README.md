@@ -133,6 +133,7 @@ if (gpu) {
 - GPU は float32 で計算するため、JS 版（float64）と 1 階調ずれる画素がまれにあります（テストでは 0.01% 未満）。保存や後続処理に使う最終結果は `run` / `runSync` で作ってください
 - 結果の画素が必要なときは `gpu.read()`（GPU からの読み戻しなので `render` より遅い）
 - 一辺が `gpu.maxSize`（GPU の上限、多くは 8192〜16384 px）を超える画像は `setImage` が `RangeError` を投げます
+- `setImage` には別の canvas（2D・WebGL）、`ImageBitmap`、読み込み済みの `<img>`、`<video>` も渡せます。画素をメモリに読み出さず GPU の中でコピーするので、毎フレーム描き直される canvas（WebGL の地図など）の補正に向きます。この場合 `colorMode: 'auto'` は `rgb` 扱いで、`autoStretch` は画素を読めないので `pipeline.resolve(stats)` で先に範囲を決めておきます
 - シャープを使うと作業用に float のテクスチャを確保します（12MP で 1 枚 100〜200 MB 程度）
 
 ### 設定の保存と復元

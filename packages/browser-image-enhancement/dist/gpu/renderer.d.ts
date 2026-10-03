@@ -9,6 +9,12 @@ export interface GpuRendererOptions {
    */
   canvas?: HTMLCanvasElement | OffscreenCanvas;
 }
+/**
+ * Pictures the GPU can read directly, without copying pixels through memory:
+ * another canvas (2D or WebGL), an `ImageBitmap`, a loaded `<img>`, or a
+ * `<video>` frame.
+ */
+export type GpuImageSource = HTMLCanvasElement | OffscreenCanvas | ImageBitmap | HTMLImageElement | HTMLVideoElement;
 /** Corrections on the GPU, created by {@link createGpuRenderer}. */
 export interface GpuRenderer {
   /** The canvas results are drawn on. */
@@ -19,8 +25,14 @@ export interface GpuRenderer {
    * Uploads the image to correct. Call once per image; `render` can then run
    * any number of times. Throws a RangeError for an image wider or taller
    * than {@link GpuRenderer.maxSize}.
+   *
+   * `image` can also be a {@link GpuImageSource} such as another canvas,
+   * copied on the GPU, which is much faster for a picture that is already
+   * there (a map drawn with WebGL, a video). Its pixels are not read back, so
+   * `colorMode: 'auto'` means `rgb` and `autoStretch` cannot take statistics
+   * from it: resolve it first (`pipeline.resolve(stats)`).
    */
-  setImage(image: ImageDataLike, options?: ColorOptions): void;
+  setImage(image: ImageDataLike | GpuImageSource, options?: ColorOptions): void;
   /**
    * Corrects the image with the steps of `steps` (a `Pipeline` or an array of
    * steps) and draws the result on {@link GpuRenderer.canvas}. `autoStretch`

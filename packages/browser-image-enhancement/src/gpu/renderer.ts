@@ -24,6 +24,13 @@ export interface GpuRendererOptions {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
 }
 
+/**
+ * Pictures the GPU can read directly, without copying pixels through memory:
+ * another canvas (2D or WebGL), an `ImageBitmap`, a loaded `<img>`, or a
+ * `<video>` frame.
+ */
+export type GpuImageSource = HTMLCanvasElement | OffscreenCanvas | ImageBitmap | HTMLImageElement | HTMLVideoElement;
+
 /** Corrections on the GPU, created by {@link createGpuRenderer}. */
 export interface GpuRenderer {
   /** The canvas results are drawn on. */
@@ -34,8 +41,14 @@ export interface GpuRenderer {
    * Uploads the image to correct. Call once per image; `render` can then run
    * any number of times. Throws a RangeError for an image wider or taller
    * than {@link GpuRenderer.maxSize}.
+   *
+   * `image` can also be a {@link GpuImageSource} such as another canvas,
+   * copied on the GPU, which is much faster for a picture that is already
+   * there (a map drawn with WebGL, a video). Its pixels are not read back, so
+   * `colorMode: 'auto'` means `rgb` and `autoStretch` cannot take statistics
+   * from it: resolve it first (`pipeline.resolve(stats)`).
    */
-  setImage(image: ImageDataLike, options?: ColorOptions): void;
+  setImage(image: ImageDataLike | GpuImageSource, options?: ColorOptions): void;
   /**
    * Corrects the image with the steps of `steps` (a `Pipeline` or an array of
    * steps) and draws the result on {@link GpuRenderer.canvas}. `autoStretch`
@@ -79,6 +92,12 @@ export function createGpuRenderer(options: GpuRendererOptions = {}): GpuRenderer
   return new Renderer(gl, canvas);
 }
 
+function sourceSize(source: GpuImageSource): [number, number] {
+  if (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement) return [source.naturalWidth, source.naturalHeight];
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) return [source.videoWidth, source.videoHeight];
+  return [source.width, source.height];
+}
+
 function newCanvas(): Canvas | null {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(1, 1);
   if (typeof document !== 'undefined') return document.createElement('canvas');
@@ -91,7 +110,8 @@ interface Target {
 }
 
 interface Image {
-  data: Uint8ClampedArray;
+  /** Null for a picture the GPU read directly. */
+  data: Uint8ClampedArray | null;
   width: number;
   height: number;
   mode: ResolvedMode;
@@ -110,6 +130,8 @@ class Renderer implements GpuRenderer {
   private readonly lut: WebGLTexture;
   private readonly kernel: WebGLTexture;
   private source: WebGLTexture | null = null;
+  /** Whether `source` holds a {@link GpuImageSource} (and can be overwritten in place). */
+  private sourceFromPicture = false;
   private image: Image | null = null;
   /**
    * Render targets, allocated when first needed: encoded values between
@@ -132,20 +154,35 @@ class Renderer implements GpuRenderer {
     this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, new Float32Array(1));
   }
 
-  setImage(image: ImageDataLike, options: ColorOptions = {}): void {
-    const { width, height, data } = image;
+  setImage(image: ImageDataLike | GpuImageSource, options: ColorOptions = {}): void {
+    const pixels = 'data' in image ? image : null;
+    const [width, height] = pixels ? [pixels.width, pixels.height] : sourceSize(image as GpuImageSource);
     if (width > this.maxSize || height > this.maxSize) {
       throw new RangeError(`${width}x${height} is larger than this GPU accepts (${this.maxSize} pixels per side).`);
     }
     const gl = this.gl;
     const sameSize = this.image?.width === width && this.image.height === height;
-    this.image = { data, width, height, mode: resolveMode(data, options.colorMode), stats: null };
-    if (this.source) gl.deleteTexture(this.source);
-    const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, bytes);
-    if (!sameSize) this.freeTargets();
-    this.canvas.width = width;
-    this.canvas.height = height;
+    const mode: ResolvedMode = pixels ? resolveMode(pixels.data, options.colorMode) : options.colorMode === 'gray' ? 'gray' : 'rgb';
+    this.image = { data: pixels?.data ?? null, width, height, mode, stats: null };
+    if (pixels) {
+      if (this.source) gl.deleteTexture(this.source);
+      const bytes = new Uint8Array(pixels.data.buffer, pixels.data.byteOffset, pixels.data.byteLength);
+      this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, bytes);
+    } else if (this.source && sameSize && this.sourceFromPicture) {
+      // Same size as the last picture (a canvas redrawn every frame): reuse the texture.
+      gl.bindTexture(gl.TEXTURE_2D, this.source);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, image as GpuImageSource);
+    } else {
+      if (this.source) gl.deleteTexture(this.source);
+      this.source = this.texture(gl.RGBA8UI, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, null);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, image as GpuImageSource);
+    }
+    this.sourceFromPicture = !pixels;
+    if (!sameSize) {
+      this.freeTargets();
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
   }
 
   render(steps: { readonly ops: readonly OpSpec[] } | readonly OpSpec[]): void {
@@ -155,6 +192,7 @@ class Renderer implements GpuRenderer {
     const gray = image.mode === 'gray';
     let ops = ('ops' in steps ? steps.ops : (steps as readonly OpSpec[])).map(normalizeOp);
     if (needsStats(ops)) {
+      if (!image.data) throw new TypeError('autoStretch needs the pixels of the image; resolve it before rendering a picture the GPU reads directly.');
       image.stats ??= countPixels(image.data, image.width, image.mode);
       ops = resolveOps(ops, image.stats);
     }

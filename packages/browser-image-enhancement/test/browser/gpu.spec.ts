@@ -121,3 +121,44 @@ test('rejects images larger than the GPU accepts', async ({ page }) => {
   });
   expect(message).toBe('RangeError');
 });
+
+test('reads another canvas directly, the same as its pixels', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { lib } = window;
+    const w = 37;
+    const h = 23;
+    const d = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) d.set([x * 6, y * 10, (x * y) % 256, 255], (y * w + x) * 4);
+    }
+    const img = new ImageData(d, w, h);
+    const picture = document.createElement('canvas');
+    picture.width = w;
+    picture.height = h;
+    picture.getContext('2d')!.putImageData(img, 0, 0);
+
+    const p = lib.pipeline().exposure(0.4).temperature(0.3).sharpen({ amount: 1, radius: 1 });
+    const gpu = lib.createGpuRenderer()!;
+    gpu.setImage(img, { colorMode: 'rgb' });
+    gpu.render(p);
+    const fromPixels = Array.from(gpu.read().data);
+    gpu.setImage(picture);
+    gpu.render(p);
+    const fromCanvas = Array.from(gpu.read().data);
+    // Redrawn canvas of the same size: the texture is overwritten in place.
+    picture.getContext('2d')!.fillRect(0, 0, w, h);
+    gpu.setImage(picture);
+    gpu.render(lib.pipeline());
+    const redrawn = Array.from(gpu.read().data.slice(0, 4));
+    let stretch = '';
+    try {
+      gpu.render(lib.pipeline().autoStretch());
+    } catch (e) {
+      stretch = (e as Error).name;
+    }
+    return { fromPixels, fromCanvas, redrawn, stretch };
+  });
+  expect(r.fromCanvas).toEqual(r.fromPixels);
+  expect(r.redrawn).toEqual([0, 0, 0, 255]);
+  expect(r.stretch).toBe('TypeError');
+});

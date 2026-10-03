@@ -2,13 +2,13 @@ import 'ol/ol.css';
 import Map from 'ol/Map.js';
 import View from 'ol/View.js';
 import TileLayer from 'ol/layer/Tile.js';
-import WebGLTileLayer from 'ol/layer/WebGLTile.js';
 import OSM from 'ol/source/OSM.js';
 import { transformExtent } from 'ol/proj.js';
 import { register } from 'ol/proj/proj4.js';
 import proj4 from 'proj4';
 import { pipeline } from '../../src/index.js';
 import EnhancedGeoTIFF from './enhanced-geotiff.js';
+import GpuCorrectedTileLayer from './gpu-layer.js';
 import { fixtureBlob } from './fixture.js';
 
 // Sentinel-2 true color, Tokyo area, 2024-01-12 (cloud cover 0.1%). 8-bit RGB COG, public, CORS enabled.
@@ -85,7 +85,9 @@ const current = () =>
         .sharpen({ amount: v('sharpen'), radius: v('sharpenRadius') })
     : pipeline();
 
-const cogLayer = new WebGLTileLayer({ opacity: 1 });
+// Corrects the drawn map on the GPU when the source leaves its tiles as read (engine "gpu").
+const cogLayer = new GpuCorrectedTileLayer({ opacity: 1 });
+const onGpu = () => engine.value === 'gpu' && cogLayer.hasGpu();
 const map = new Map({
   target: 'map',
   layers: [new TileLayer({ source: new OSM() }), cogLayer],
@@ -100,8 +102,9 @@ function load() {
   source = new EnhancedGeoTIFF({
     sources: [useFixture || !url ? { blob: fixtureBlob() } : { url }],
     pipeline: current(),
-    gpu: engine.value === 'gpu',
-    worker: engine.value === 'worker',
+    // GPU: tiles stay as read and the layer corrects the map. Without WebGL2, tiles are corrected in Workers.
+    correctTiles: !onGpu(),
+    worker: engine.value !== 'main',
     loadMissingProjection: true,
   });
   cogLayer.setSource(source);
@@ -117,8 +120,11 @@ function load() {
 
 // Slider moves are coalesced to one re-correction per frame.
 let pending = 0;
+/** When the last correction change started, for the time shown below the controls. */
+let changedAt = 0;
 function scheduleUpdate() {
   if (pending) return;
+  changedAt = performance.now();
   pending = requestAnimationFrame(() => {
     pending = 0;
     source.resetStats();
@@ -139,20 +145,26 @@ function draText(): string {
 }
 
 map.on('rendercomplete', () => {
-  const { tiles, ms, gpuTiles } = source.stats;
+  // Time from the slider move to the corrected map on screen, the number to compare between engines.
+  const latency = changedAt ? ` · 変更から表示まで ${(performance.now() - changedAt).toFixed(0)} ms` : '';
+  changedAt = 0;
+  if (onGpu()) {
+    if (cogLayer.frames > 0) status.textContent = `GPU で地図の描画時に補正（タイルの読み込み直しなし）${latency}${draText()}`;
+    return;
+  }
+  const { tiles, ms } = source.stats;
   if (tiles === 0) return;
-  const how =
-    gpuTiles === tiles ? 'GPU'
-    : gpuTiles > 0 ? `GPU ${gpuTiles} 枚、残りは JS`
-    : engine.value === 'gpu' ? 'WebGL2 が使えないため Worker（JS）、順番待ちを含む'
-    : engine.value === 'main' ? 'メインスレッド'
-    : 'Worker の順番待ちを含む';
-  status.textContent = `補正したタイル ${tiles} 枚 · 1 枚あたり平均 ${(ms / tiles).toFixed(1)} ms（${how}）${draText()}`;
+  const how = engine.value === 'gpu' ? 'WebGL2 が使えないため Worker（JS）、順番待ちを含む' : engine.value === 'main' ? 'メインスレッド' : 'Worker の順番待ちを含む';
+  status.textContent = `補正したタイル ${tiles} 枚 · 1 枚あたり平均 ${(ms / tiles).toFixed(1)} ms（${how}）${latency}${draText()}`;
 });
 
 $<HTMLInputElement>('url').value = useFixture ? '' : DEFAULT_URL;
 $('load').addEventListener('click', load);
 engine.addEventListener('change', load);
+// The GPU context can be lost (driver reset); go back to correcting tiles in Workers.
+cogLayer.on('change', () => {
+  if (source && !source.correctsTiles() && !cogLayer.hasGpu()) load();
+});
 $('enabled').addEventListener('change', scheduleUpdate);
 for (const id of ['dra', 'draMethod', 'draLinked']) $(id).addEventListener('change', scheduleUpdate);
 draClip.addEventListener('input', () => {
