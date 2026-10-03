@@ -1,0 +1,504 @@
+/**
+ * OpenLayers control with the correction sliders: a button on the map that
+ * opens a panel of sliders (built from `opInfo`), a DRA switch and a reset
+ * button. It drives the pipeline of an {@link EnhancedGeoTIFF}, directly or
+ * through a layer, and refreshes DRA when the map stops moving.
+ */
+import Control from 'ol/control/Control.js';
+import type OlMap from 'ol/Map.js';
+import type Layer from 'ol/layer/Layer.js';
+import type { EventsKey } from 'ol/events.js';
+import { unByKey } from 'ol/Observable.js';
+import { opInfo, pipeline, type NumberParamInfo, type OpName, type Pipeline } from '../index.js';
+import EnhancedGeoTIFF from './enhanced-geotiff.js';
+import { addControlStyles, iconButton } from './control-styles.js';
+
+/** Steps a slider can set: those with number parameters. */
+export type SliderOp = 'brightness' | 'contrast' | 'exposure' | 'gamma' | 'saturation' | 'temperature' | 'levels' | 'sharpen';
+
+/** One slider of an {@link EnhanceControl}. Ranges not given come from `opInfo`. */
+export interface EnhanceSlider {
+  /** The step the slider sets. */
+  op: SliderOp;
+  /** The parameter; default the step's main value (`opInfo[op].value`). Required for `levels`. */
+  param?: string;
+  /** Text before the slider. Default: the label for `op` or `op.param` in `labels`. */
+  label?: string;
+  /** Left end of the slider. */
+  min?: number;
+  /** Right end of the slider. */
+  max?: number;
+  /** Slider step. */
+  step?: number;
+  /** The neutral value, set by reset. Default: the parameter's default in `opInfo` (0 for the sharpen amount). */
+  value?: number;
+}
+
+/** Texts of the control, by key. Slider labels use the step name (`exposure`) or `step.param` (`levels.inBlack`). */
+export type EnhanceLabels = Record<string, string>;
+
+/** English texts (the default). */
+export const enhanceLabelsEn: EnhanceLabels = {
+  toggle: 'Image adjustments',
+  enabled: 'Adjust',
+  reset: 'Reset',
+  dra: 'DRA (fit range to view)',
+  'dra.enabled': 'On',
+  'dra.method': 'Method',
+  'dra.percentClip': 'Percent clip',
+  'dra.minMax': 'Min–max',
+  'dra.standardDeviation': 'Std. deviation (±2σ)',
+  'dra.clip': 'Clip (%)',
+  'dra.linked': 'Link RGB',
+  adjustments: 'Adjustments',
+  opacity: 'Opacity',
+  exposure: 'Exposure (EV)',
+  brightness: 'Brightness',
+  contrast: 'Contrast',
+  gamma: 'Gamma',
+  'levels.inBlack': 'Black point',
+  'levels.inWhite': 'White point',
+  'levels.gamma': 'Midtones',
+  temperature: 'Temperature',
+  saturation: 'Saturation',
+  sharpen: 'Sharpen',
+  'sharpen.radius': 'Sharpen radius',
+  'sharpen.threshold': 'Sharpen threshold',
+};
+
+/** Japanese texts. */
+export const enhanceLabelsJa: EnhanceLabels = {
+  toggle: '画像補正',
+  enabled: '補正',
+  reset: 'リセット',
+  dra: 'DRA（表示範囲で自動レンジ）',
+  'dra.enabled': 'オン',
+  'dra.method': '方式',
+  'dra.percentClip': 'パーセントクリップ',
+  'dra.minMax': '最小〜最大',
+  'dra.standardDeviation': '標準偏差（±2σ）',
+  'dra.clip': 'クリップ (%)',
+  'dra.linked': 'RGB 連動',
+  adjustments: '補正',
+  opacity: '不透明度',
+  exposure: '露出 (EV)',
+  brightness: '明るさ',
+  contrast: 'コントラスト',
+  gamma: 'ガンマ',
+  'levels.inBlack': 'レベル 黒',
+  'levels.inWhite': 'レベル 白',
+  'levels.gamma': 'レベル 中間',
+  temperature: '色温度',
+  saturation: '彩度',
+  sharpen: 'シャープ 量',
+  'sharpen.radius': 'シャープ 半径',
+  'sharpen.threshold': 'シャープ しきい値',
+};
+
+/** The sliders shown when `sliders` is not given, with ranges that suit a slider. */
+export const defaultEnhanceSliders: readonly EnhanceSlider[] = [
+  { op: 'exposure', min: -3, max: 3 },
+  { op: 'brightness' },
+  { op: 'contrast' },
+  { op: 'gamma', min: 0.2, max: 3 },
+  { op: 'levels', param: 'inBlack', max: 0.5, step: 0.005 },
+  { op: 'levels', param: 'inWhite', min: 0.5, step: 0.005 },
+  { op: 'levels', param: 'gamma', min: 0.2, max: 3 },
+  { op: 'temperature' },
+  { op: 'saturation' },
+  { op: 'sharpen', max: 3 },
+  { op: 'sharpen', param: 'radius', min: 0.3, max: 5 },
+];
+
+/** DRA settings of an {@link EnhanceControl}. */
+export interface EnhanceDra {
+  /** DRA on (an `autoStretch` step first in the pipeline). */
+  enabled: boolean;
+  /** How the range is found (see `AutoStretchOptions.method`). */
+  method: 'percentClip' | 'minMax' | 'standardDeviation';
+  /** Percent clipped at each end (`percentClip`). */
+  clip: number;
+  /** One range for R, G and B instead of one per channel. */
+  linked: boolean;
+}
+
+/** Options for {@link EnhanceControl}. */
+export interface EnhanceControlOptions {
+  /**
+   * The layer whose source is corrected (an {@link EnhancedGeoTIFF}). A new
+   * source set on the layer, for example by a `LoadImageControl`, gets the
+   * current correction. Also gives the opacity slider. The sliders replace
+   * the pipeline the source was created with.
+   */
+  layer?: Layer;
+  /** The source to correct, when there is no `layer`. */
+  source?: EnhancedGeoTIFF;
+  /** The sliders, in order. Default {@link defaultEnhanceSliders}. */
+  sliders?: readonly EnhanceSlider[];
+  /** Show the DRA settings (default true). */
+  dra?: boolean;
+  /** DRA settings at the start. Default: off, percent clip 0.5 %, not linked. */
+  draSettings?: Partial<EnhanceDra>;
+  /** Show an opacity slider for `layer` (default true). */
+  opacity?: boolean;
+  /** Texts; missing keys come from {@link enhanceLabelsEn}. {@link enhanceLabelsJa} has Japanese. */
+  labels?: EnhanceLabels;
+  /** Start with the panel closed (default true). */
+  collapsed?: boolean;
+  /** Add the default styles to the document (default true). */
+  css?: boolean;
+  /** Extra class names for the control element. */
+  className?: string;
+  /** Put the control in this element instead of the map's overlay container. */
+  target?: HTMLElement | string;
+  /** Called with the new pipeline after each change (at most once per frame). */
+  onChange?: (p: Pipeline) => void;
+}
+
+interface Row {
+  slider: Required<Omit<EnhanceSlider, 'label'>>;
+  input: HTMLInputElement;
+  output: HTMLOutputElement;
+  row: HTMLElement;
+  decimals: number;
+}
+
+/**
+ * A map control with correction sliders for an {@link EnhancedGeoTIFF}. Fires
+ * `change` after each new pipeline.
+ *
+ * @example
+ * ```ts
+ * const layer = new GpuCorrectedTileLayer({ source: new EnhancedGeoTIFF({ sources: [{ url }], correctTiles: false }) });
+ * map.addLayer(layer);
+ * map.addControl(new EnhanceControl({ layer, labels: enhanceLabelsJa }));
+ * ```
+ */
+export default class EnhanceControl extends Control {
+  private readonly layer_: Layer | null;
+  private source_: EnhancedGeoTIFF | null;
+  private readonly rows_: Row[] = [];
+  private readonly labels_: EnhanceLabels;
+  private readonly onChange_?: (p: Pipeline) => void;
+  private readonly panel_: HTMLElement;
+  private readonly toggle_: HTMLButtonElement;
+  private readonly enabled_: HTMLInputElement;
+  private readonly dra_: { enabled: HTMLInputElement; method: HTMLSelectElement; clip: HTMLInputElement; linked: HTMLInputElement } | null;
+  private readonly draDefaults_: EnhanceDra;
+  private pipeline_: Pipeline = pipeline();
+  private frame_ = 0;
+  private mapKeys_: EventsKey[] = [];
+  private sourceKeys_: EventsKey[] = [];
+
+  constructor(options: EnhanceControlOptions = {}) {
+    const element = document.createElement('div');
+    super({ element, target: options.target });
+    if (options.css !== false) addControlStyles();
+    element.className = `ol-enhance ol-unselectable ol-control${options.className ? ` ${options.className}` : ''}`;
+    this.layer_ = options.layer ?? null;
+    this.source_ = options.source ?? null;
+    this.labels_ = { ...enhanceLabelsEn, ...options.labels };
+    this.onChange_ = options.onChange;
+    const t = (key: string) => this.labels_[key] ?? key;
+
+    this.toggle_ = iconButton(t('toggle'), SLIDERS_ICON);
+    this.panel_ = document.createElement('div');
+    this.panel_.className = 'ol-enhance-panel';
+    this.panel_.id = `ol-enhance-${++panelCount}`;
+    this.toggle_.setAttribute('aria-controls', this.panel_.id);
+    this.toggle_.addEventListener('click', () => this.setCollapsed(!this.getCollapsed()));
+    element.append(this.toggle_, this.panel_);
+
+    // Header: on/off and reset.
+    const head = document.createElement('div');
+    head.className = 'ol-enhance-head';
+    const enabledLabel = document.createElement('label');
+    this.enabled_ = checkbox(true);
+    enabledLabel.append(this.enabled_, t('enabled'));
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = t('reset');
+    reset.addEventListener('click', () => this.reset());
+    head.append(enabledLabel, reset);
+    this.panel_.append(head);
+    this.enabled_.addEventListener('change', () => this.schedule_());
+
+    if (this.layer_ && options.opacity !== false) {
+      const layer = this.layer_;
+      const opacity = sliderRow(t('opacity'), 0, 1, 0.01, layer.getOpacity(), 2);
+      opacity.input.addEventListener('input', () => {
+        opacity.output.value = Number(opacity.input.value).toFixed(2);
+        layer.setOpacity(Number(opacity.input.value));
+      });
+      this.panel_.append(opacity.row);
+    }
+
+    this.draDefaults_ = { enabled: false, method: 'percentClip', clip: 0.5, linked: false, ...options.draSettings };
+    if (options.dra !== false) {
+      const set = fieldset(t('dra'));
+      const d = this.draDefaults_;
+      const enabled = checkbox(d.enabled);
+      const method = document.createElement('select');
+      for (const m of ['percentClip', 'minMax', 'standardDeviation']) method.add(new Option(t(`dra.${m}`), m));
+      method.value = d.method;
+      const clip = sliderRow(t('dra.clip'), 0, 5, 0.05, d.clip, 2);
+      const linked = checkbox(d.linked);
+      set.append(plainRow(t('dra.enabled'), enabled), plainRow(t('dra.method'), method), clip.row, plainRow(t('dra.linked'), linked));
+      this.panel_.append(set);
+      this.dra_ = { enabled, method, clip: clip.input, linked };
+      for (const el of [enabled, method, linked]) el.addEventListener('change', () => this.schedule_());
+      clip.input.addEventListener('input', () => {
+        clip.output.value = Number(clip.input.value).toFixed(2);
+        this.schedule_();
+      });
+    } else {
+      this.dra_ = null;
+    }
+
+    const adjustments = fieldset(t('adjustments'));
+    for (const s of options.sliders ?? defaultEnhanceSliders) {
+      const info = opInfo[s.op];
+      const param = s.param ?? info?.value;
+      const p = param ? info?.params[param] : undefined;
+      if (!param || !p || p.type !== 'number') throw new TypeError(`${s.op}${param ? `.${param}` : ''} is not a number parameter.`);
+      const num = p as NumberParamInfo;
+      const slider = {
+        op: s.op,
+        param,
+        min: s.min ?? num.min,
+        max: s.max ?? num.max,
+        step: s.step ?? num.step,
+        value: s.value ?? (s.op === 'sharpen' && param === 'amount' ? 0 : num.default),
+      };
+      const decimals = Math.min(3, Math.max(0, -Math.floor(Math.log10(slider.step) + 1e-9)));
+      const label = s.label ?? this.labels_[param === info.value ? s.op : `${s.op}.${param}`] ?? `${s.op}.${param}`;
+      const { row, input, output } = sliderRow(label, slider.min, slider.max, slider.step, slider.value, decimals);
+      const entry: Row = { slider, input, output, row, decimals };
+      input.addEventListener('input', () => {
+        output.value = Number(input.value).toFixed(decimals);
+        this.schedule_();
+      });
+      // Double-click the name to put this slider back.
+      row.firstElementChild!.addEventListener('dblclick', () => {
+        this.setRow_(entry, slider.value);
+        this.schedule_();
+      });
+      this.rows_.push(entry);
+      adjustments.append(row);
+    }
+    this.panel_.append(adjustments);
+
+    this.pipeline_ = this.build_();
+    this.setCollapsed(options.collapsed ?? true);
+    if (this.layer_) {
+      this.layer_.on('change:source', () => this.bindSource_());
+    }
+    this.bindSource_();
+  }
+
+  /** The source being corrected: `source`, or the layer's source when it is an {@link EnhancedGeoTIFF}. */
+  getSource(): EnhancedGeoTIFF | null {
+    if (this.source_) return this.source_;
+    const s = this.layer_?.getSource();
+    return s instanceof EnhancedGeoTIFF ? s : null;
+  }
+
+  /** Corrects `source` instead (only when the control was not given a `layer`). */
+  setSource(source: EnhancedGeoTIFF | null): void {
+    this.source_ = source;
+    this.bindSource_();
+  }
+
+  /** The correction the sliders set now. */
+  getPipeline(): Pipeline {
+    return this.pipeline_;
+  }
+
+  /**
+   * Moves the sliders (and DRA) to the values of `p`, for example a saved
+   * preset (`Pipeline.fromJSON`). Steps without a slider are left out.
+   */
+  setPipeline(p: Pipeline): void {
+    for (const row of this.rows_) {
+      const step = p.get(row.slider.op as OpName) as Record<string, unknown> | undefined;
+      const v = step?.[row.slider.param];
+      this.setRow_(row, typeof v === 'number' ? v : row.slider.value);
+    }
+    if (this.dra_) {
+      const auto = p.get('autoStretch');
+      this.dra_.enabled.checked = !!auto;
+      if (auto) {
+        this.dra_.method.value = auto.method;
+        this.dra_.clip.value = String(auto.lowPercent);
+        (this.dra_.clip.nextElementSibling as HTMLOutputElement).value = auto.lowPercent.toFixed(2);
+        this.dra_.linked.checked = auto.linked;
+      }
+    }
+    this.enabled_.checked = true;
+    this.schedule_();
+  }
+
+  /** Puts every slider back to its neutral value (DRA to its starting settings). */
+  reset(): void {
+    for (const row of this.rows_) this.setRow_(row, row.slider.value);
+    if (this.dra_) {
+      const d = this.draDefaults_;
+      this.dra_.enabled.checked = d.enabled;
+      this.dra_.method.value = d.method;
+      this.dra_.clip.value = String(d.clip);
+      (this.dra_.clip.nextElementSibling as HTMLOutputElement).value = d.clip.toFixed(2);
+      this.dra_.linked.checked = d.linked;
+    }
+    this.enabled_.checked = true;
+    this.schedule_();
+  }
+
+  /** Whether the panel is closed. */
+  getCollapsed(): boolean {
+    return this.panel_.hidden;
+  }
+
+  /** Opens (false) or closes (true) the panel. */
+  setCollapsed(collapsed: boolean): void {
+    this.panel_.hidden = collapsed;
+    this.toggle_.setAttribute('aria-expanded', String(!collapsed));
+    this.element.classList.toggle('ol-collapsed', collapsed);
+  }
+
+  override setMap(map: OlMap | null): void {
+    unByKey(this.mapKeys_);
+    this.mapKeys_ = [];
+    super.setMap(map);
+    if (map) {
+      // DRA follows the view: new statistics whenever the map stops moving.
+      this.mapKeys_.push(map.on('moveend', () => void this.getSource()?.updateDra(map)));
+    }
+  }
+
+  protected override disposeInternal(): void {
+    cancelAnimationFrame(this.frame_);
+    unByKey(this.mapKeys_);
+    unByKey(this.sourceKeys_);
+    super.disposeInternal();
+  }
+
+  /** Gives a newly set source the current correction, and follows its color mode. */
+  private bindSource_(): void {
+    unByKey(this.sourceKeys_);
+    this.sourceKeys_ = [];
+    const source = this.getSource();
+    this.updateColorRows_();
+    if (!source) return;
+    this.apply_(source);
+    // Once the COG is read: gray images hide color-only sliders; DRA gets its first statistics.
+    this.sourceKeys_.push(
+      source.on('change', () => {
+        if (source.getState() !== 'ready') return;
+        this.updateColorRows_();
+        const map = this.getMap();
+        if (map && !source.getDraInfo()) void source.updateDra(map);
+      }),
+    );
+  }
+
+  private updateColorRows_(): void {
+    const gray = this.getSource()?.getColorMode() === 'gray';
+    for (const row of this.rows_) row.row.hidden = gray && opInfo[row.slider.op].colorOnly;
+  }
+
+  private setRow_(row: Row, value: number): void {
+    row.input.value = String(value);
+    row.output.value = Number(row.input.value).toFixed(row.decimals);
+  }
+
+  /** Slider moves are coalesced to one new pipeline per frame. */
+  private schedule_(): void {
+    if (this.frame_) return;
+    this.frame_ = requestAnimationFrame(() => {
+      this.frame_ = 0;
+      this.pipeline_ = this.build_();
+      const source = this.getSource();
+      if (source) this.apply_(source);
+      this.onChange_?.(this.pipeline_);
+      this.changed();
+    });
+  }
+
+  private apply_(source: EnhancedGeoTIFF): void {
+    source.setPipeline(this.pipeline_);
+    const map = this.getMap();
+    if (map) void source.updateDra(map);
+  }
+
+  private build_(): Pipeline {
+    if (!this.enabled_.checked) return pipeline();
+    let p = pipeline();
+    const d = this.dra_;
+    if (d?.enabled.checked) {
+      const clip = Number(d.clip.value);
+      p = p.autoStretch({
+        method: d.method.value as EnhanceDra['method'],
+        lowPercent: clip,
+        highPercent: clip,
+        linked: d.linked.checked,
+      });
+    }
+    // One step per kind, in the order of its first slider; neutral steps are left out.
+    const steps = new Map<SliderOp, Record<string, number>>();
+    for (const { slider, input } of this.rows_) {
+      const params = steps.get(slider.op) ?? {};
+      params[slider.param] = Number(input.value);
+      steps.set(slider.op, params);
+    }
+    for (const [op, params] of steps) {
+      if (!pipeline().set(op, params).isIdentity) p = p.set(op, params);
+    }
+    return p;
+  }
+}
+
+let panelCount = 0;
+
+const SLIDERS_ICON = 'M3 5h8M15 5h2M3 10h2M9 10h8M3 15h10M17 15h0M13 3v4M7 8v4M15 13v4';
+
+function checkbox(checked: boolean): HTMLInputElement {
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = checked;
+  return input;
+}
+
+function fieldset(legend: string): HTMLFieldSetElement {
+  const set = document.createElement('fieldset');
+  const l = document.createElement('legend');
+  l.textContent = legend;
+  set.append(l);
+  return set;
+}
+
+function plainRow(label: string, control: HTMLElement): HTMLElement {
+  const row = document.createElement('label');
+  row.className = 'ol-enhance-row';
+  const name = document.createElement('span');
+  name.textContent = label;
+  row.append(name, control);
+  if (!(control instanceof HTMLSelectElement)) row.append(document.createElement('span'));
+  return row;
+}
+
+function sliderRow(label: string, min: number, max: number, step: number, value: number, decimals: number) {
+  const row = document.createElement('label');
+  row.className = 'ol-enhance-row';
+  const name = document.createElement('span');
+  name.textContent = label;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.value = String(value);
+  const output = document.createElement('output');
+  output.value = Number(input.value).toFixed(decimals);
+  row.append(name, input, output);
+  return { row, input, output };
+}

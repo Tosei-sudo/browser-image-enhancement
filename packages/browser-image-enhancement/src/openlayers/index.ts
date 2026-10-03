@@ -2,7 +2,9 @@
  * OpenLayers integration (`browser-image-enhancement/openlayers`): a GeoTIFF
  * (COG) source that corrects its tiles, with DRA over the visible area and
  * seam-free sharpening, and a WebGL tile layer that corrects the drawn map on
- * the GPU. Needs `ol` (OpenLayers 10) installed next to this package.
+ * the GPU, plus map controls: a correction panel (`EnhanceControl`) and a
+ * button that opens images and GeoTIFFs (`LoadImageControl`). Needs `ol`
+ * (OpenLayers 10) installed next to this package.
  *
  * @example
  * ```ts
@@ -24,3 +26,26 @@ export {
 } from './enhanced-geotiff.js';
 export { default as GpuCorrectedTileLayer, type GpuCorrectedTileLayerOptions } from './gpu-layer.js';
 export { cropMargin, withMargin, type NeighbourTile } from './margin.js';
+export {
+  default as EnhanceControl,
+  defaultEnhanceSliders,
+  enhanceLabelsEn,
+  enhanceLabelsJa,
+  type EnhanceControlOptions,
+  type EnhanceDra,
+  type EnhanceLabels,
+  type EnhanceSlider,
+  type SliderOp,
+} from './enhance-control.js';
+export {
+  default as LoadImageControl,
+  LoadImageEvent,
+  loadImageLabelsEn,
+  loadImageLabelsJa,
+  placeOverView,
+  type ImagePlacement,
+  type LoadedImage,
+  type LoadImageControlOptions,
+  type LoadImageLabels,
+} from './load-image-control.js';
+export { imageToGeoTIFF, type GeoTIFFPlacement } from './geotiff-writer.js';

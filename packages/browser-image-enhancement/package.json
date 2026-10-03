@@ -43,10 +43,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "npm run build && npm run demo:build && npm run example:ol:build && vite build test/browser/bundled --outDir ../../../.bundled-test --emptyOutDir --base ./ && playwright test",
+    "test:browser": "npm run build && npm run demo:build && npm run example:ol:build && npm run example:olc:build && vite build test/browser/bundled --outDir ../../../.bundled-test --emptyOutDir --base ./ && playwright test",
     "demo": "vite demo",
     "example:ol": "vite examples/openlayers-cog",
     "example:ol:build": "vite build examples/openlayers-cog --outDir ../../.example-dist/openlayers-cog --emptyOutDir --base ./",
+    "example:olc": "vite examples/openlayers-controls",
+    "example:olc:build": "vite build examples/openlayers-controls --outDir ../../.example-dist/openlayers-controls --emptyOutDir --base ./",
     "check": "npm run typecheck && npm test && npm run test:browser",
     "demo:build": "vite build demo --outDir ../demo-dist --emptyOutDir --base ./",
     "prepublishOnly": "npm run build"

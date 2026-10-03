@@ -1,4 +1,7 @@
 import EnhancedGeoTIFF, { DraInfo, EnhancedGeoTIFFOptions, TileStats } from "./enhanced-geotiff.js";
 import GpuCorrectedTileLayer, { GpuCorrectedTileLayerOptions } from "./gpu-layer.js";
 import { NeighbourTile, cropMargin, withMargin } from "./margin.js";
-export { type DraInfo, EnhancedGeoTIFF, type EnhancedGeoTIFFOptions, GpuCorrectedTileLayer, type GpuCorrectedTileLayerOptions, type NeighbourTile, type TileStats, cropMargin, withMargin };
+import EnhanceControl, { EnhanceControlOptions, EnhanceDra, EnhanceLabels, EnhanceSlider, SliderOp, defaultEnhanceSliders, enhanceLabelsEn, enhanceLabelsJa } from "./enhance-control.js";
+import LoadImageControl, { ImagePlacement, LoadImageControlOptions, LoadImageEvent, LoadImageLabels, LoadedImage, loadImageLabelsEn, loadImageLabelsJa, placeOverView } from "./load-image-control.js";
+import { GeoTIFFPlacement, imageToGeoTIFF } from "./geotiff-writer.js";
+export { type DraInfo, EnhanceControl, type EnhanceControlOptions, type EnhanceDra, type EnhanceLabels, type EnhanceSlider, EnhancedGeoTIFF, type EnhancedGeoTIFFOptions, type GeoTIFFPlacement, GpuCorrectedTileLayer, type GpuCorrectedTileLayerOptions, type ImagePlacement, LoadImageControl, type LoadImageControlOptions, LoadImageEvent, type LoadImageLabels, type LoadedImage, type NeighbourTile, type SliderOp, type TileStats, cropMargin, defaultEnhanceSliders, enhanceLabelsEn, enhanceLabelsJa, imageToGeoTIFF, loadImageLabelsEn, loadImageLabelsJa, placeOverView, withMargin };
