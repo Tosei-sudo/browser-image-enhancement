@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 declare global {
   interface Window {
-    example: {
+    controlsExample: {
       map: import('ol/Map.js').default;
       layer: import('../../src/openlayers/gpu-layer.js').default;
       loader: import('../../src/openlayers/load-image-control.js').default;
@@ -20,8 +20,8 @@ async function open(page: Page, query = '?fixture') {
   // The base map is not needed for these checks.
   await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
   await page.goto(`/.example-dist/openlayers-controls/index.html${query}`);
-  await page.waitForFunction(() => window.example !== undefined);
-  if (query.includes('fixture')) await page.waitForFunction(() => window.example.enhance.getSource()?.getState() === 'ready');
+  await page.waitForFunction(() => window.controlsExample !== undefined);
+  if (query.includes('fixture')) await page.waitForFunction(() => window.controlsExample.enhance.getSource()?.getState() === 'ready');
 }
 
 /** Sets the slider named `label` in the panel and waits for the next pipeline. */
@@ -38,7 +38,7 @@ async function slide(page: Page, label: string, value: string) {
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
-const ops = (page: Page) => page.evaluate(() => window.example.enhance.getSource()!.getPipeline().ops.map((o) => ({ ...o })));
+const ops = (page: Page) => page.evaluate(() => window.controlsExample.enhance.getSource()!.getPipeline().ops.map((o) => ({ ...o })));
 
 test('the panel builds the pipeline of the layer source from its sliders', async ({ page }) => {
   const errors: string[] = [];
@@ -68,7 +68,7 @@ test('the panel builds the pipeline of the layer source from its sliders', async
 
   // A preset moves the sliders.
   await page.evaluate(() => {
-    const { enhance } = window.example;
+    const { enhance } = window.controlsExample;
     enhance.setPipeline(enhance.getPipeline().set('contrast', 0.25).autoStretch({ method: 'minMax' }));
   });
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -82,18 +82,18 @@ test('the panel builds the pipeline of the layer source from its sliders', async
 test('DRA fixes the stretch from the visible area', async ({ page }) => {
   await open(page);
   await page.getByLabel('オン').check();
-  await page.waitForFunction(() => window.example.enhance.getSource()!.getEffectivePipeline().ops[0]?.op === 'stretch');
-  const info = await page.evaluate(() => window.example.enhance.getSource()!.getDraInfo());
+  await page.waitForFunction(() => window.controlsExample.enhance.getSource()!.getEffectivePipeline().ops[0]?.op === 'stretch');
+  const info = await page.evaluate(() => window.controlsExample.enhance.getSource()!.getDraInfo());
   expect(info!.pixels).toBeGreaterThan(0);
 });
 
 test('the GPU layer redraws the map with the new pipeline', async ({ page }) => {
   await open(page);
-  test.skip(!(await page.evaluate(() => window.example.layer.hasGpu())), 'WebGL2 with float render targets is not available in this browser');
-  expect(await page.evaluate(() => window.example.enhance.getSource()!.correctsTiles())).toBe(false);
-  const frames = await page.evaluate(() => window.example.layer.frames);
+  test.skip(!(await page.evaluate(() => window.controlsExample.layer.hasGpu())), 'WebGL2 with float render targets is not available in this browser');
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.correctsTiles())).toBe(false);
+  const frames = await page.evaluate(() => window.controlsExample.layer.frames);
   await slide(page, '露出 (EV)', '1');
-  await page.waitForFunction((frames) => window.example.layer.frames > frames, frames);
+  await page.waitForFunction((frames) => window.controlsExample.layer.frames > frames, frames);
 });
 
 test('an ordinary picture is placed over the view and keeps the correction', async ({ page }) => {
@@ -115,7 +115,7 @@ test('an ordinary picture is placed over the view and keeps the correction', asy
     ctx.fillRect(0, 0, 300, 200);
     ctx.clearRect(0, 0, 30, 30);
     const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), 'image/png'));
-    const { map, loader, enhance } = window.example;
+    const { map, loader, enhance } = window.controlsExample;
     const viewExtent = map.getView().calculateExtent(map.getSize());
     const loaded = new Promise<string>((r) => loader.once('load' as 'change', (e) => r((e as unknown as { loaded: { kind: string } }).loaded.kind)));
     const source = await loader.loadFile(new File([blob], 'gradient.png', { type: 'image/png' }));
@@ -144,7 +144,7 @@ test('an ordinary picture is placed over the view and keeps the correction', asy
 test('a file that cannot be read reports an error and keeps the current image', async ({ page }) => {
   await open(page);
   const result = await page.evaluate(async () => {
-    const { loader, layer } = window.example;
+    const { loader, layer } = window.controlsExample;
     const before = layer.getSource();
     let reported = '';
     loader.once('error' as 'change', (e) => (reported = (e as unknown as { name: string }).name));

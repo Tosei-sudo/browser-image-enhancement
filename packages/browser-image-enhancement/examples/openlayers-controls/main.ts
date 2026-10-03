@@ -50,4 +50,4 @@ map.addControl(enhance);
 if (new URLSearchParams(location.search).has('fixture')) void loader.loadFile(fixtureBlob(), 'fixture.tif');
 
 // For the browser test.
-Object.assign(window, { example: { map, layer, loader, enhance } });
+Object.assign(window, { controlsExample: { map, layer, loader, enhance } });
