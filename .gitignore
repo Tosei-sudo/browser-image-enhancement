@@ -6,3 +6,4 @@ playwright-report/
 .bundled-test/
 .example-dist/
 api-docs/
+usecase/*/dist/

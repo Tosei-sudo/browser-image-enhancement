@@ -8,6 +8,8 @@
 | [browser-image-geometry](packages/browser-image-geometry/) | 幾何補正（アフィン・射影・多項式変換、基準点からの推定、再サンプリング、地図座標の出力）。Web Worker で並列処理 | v0.1.0（npm 未公開、[設計メモ](docs/geometry-design.md)） |
 | [@browser-image/workers](packages/workers/) | 上の 2 つが共有する Worker プール、横帯の並列処理、画像の入出力。非公開で、各パッケージのビルドに取り込まれる | 内部用 |
 
+ライブラリを使って作ったサイトのサンプルは [usecase/](usecase/) にあります（[画像ビューア](usecase/image-viewer/): ローカルファイルと COG の URL を開いて補正しながら閲覧）。
+
 使い方は各パッケージの README を、関数や型の詳細は [API リファレンス](https://tosei-sudo.github.io/browser-image-enhancement/) を見てください。
 
 ## 開発

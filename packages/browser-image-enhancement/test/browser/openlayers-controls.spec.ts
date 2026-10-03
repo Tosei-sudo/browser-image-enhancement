@@ -157,6 +157,21 @@ test('a file that cannot be read reports an error and keeps the current image', 
   expect(result).toEqual({ failed: true, reported: 'broken.png', kept: true });
 });
 
+test('a URL that cannot be read reports an error instead of waiting forever', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const { loader, layer } = window.controlsExample;
+    const before = layer.getSource();
+    const url = new URL('/missing.tif', location.href).href;
+    const failed = await Promise.race([
+      loader.loadUrl(url).then(() => 'loaded', () => 'failed'),
+      new Promise((r) => setTimeout(() => r('timeout'), 10_000)),
+    ]);
+    return { failed, busy: loader.isLoading(), kept: layer.getSource() === before };
+  });
+  expect(result).toEqual({ failed: 'failed', busy: false, kept: true });
+});
+
 test('the band selects assign bands of a multiband image to R, G and B', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

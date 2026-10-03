@@ -8,7 +8,8 @@ import { unByKey } from "ol/Observable.js";
 /**
 * OpenLayers control with the correction sliders: a button on the map that
 * opens a panel of sliders (built from `opInfo`), a DRA switch and a reset
-* button. It drives the pipeline of an {@link EnhancedGeoTIFF}, directly or
+* button, and band selects that pick the bands R, G and B show. It drives the
+* pipeline of an {@link EnhancedGeoTIFF}, directly or
 * through a layer, and refreshes DRA when the map stops moving.
 */
 /** English texts (the default). */
