@@ -13,6 +13,7 @@ const CSS = `
   font: 12px/1.3 system-ui, sans-serif; }
 .ol-enhance-panel[hidden] { display: none; }
 .ol-enhance-panel fieldset { display: grid; gap: 6px; min-width: 0; margin: 0; padding: 6px 0 0; border: 0; border-top: 1px solid var(--ol-subtle-background-color, #8884); }
+.ol-enhance-panel fieldset[hidden] { display: none; }
 .ol-enhance-panel legend { padding: 0 4px 0 0; font-weight: 600; }
 .ol-enhance-row { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 3em; align-items: center; gap: 6px; }
 .ol-enhance-row[hidden] { display: none; }

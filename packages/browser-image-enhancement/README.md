@@ -335,6 +335,24 @@ const out = await pipeline().contrast(0.1).sharpen().run(img);
 - `noData` の値、NaN、`alpha: true` のときの最後のバンドが 0 の画素は透明になり、統計にも数えません
 - タイルに分かれた画像は、同じ `range` で取った `rasterHistogram` を `mergeRasterHistograms` で足し、`computeRasterStretch` で決めた 1 つの範囲を全タイルに渡すと継ぎ目が出ません
 
+## バンド割当（R・G・B に好きなバンド）
+
+マルチバンドの画像（マルチスペクトル衛星画像など）は、R・G・B に好きなバンドを割り当てて表示できます。バンド番号は 0 から数えます。
+
+```ts
+import { assignBands, rasterToImageData, selectBands } from 'browser-image-enhancement';
+
+// 4 バンド（青・緑・赤・近赤外）のうち 近赤外・赤・緑 を R・G・B に（フォールスカラー）。値の型はそのまま
+const nirRG = selectBands({ data, width, height, bands: 4 }, [3, 2, 1]);
+const img = rasterToImageData(nirRG);          // 表示用に 0〜255 へ。rasterToImageData の select でも同じ
+
+// 普通の RGBA 画像のチャンネル入れ替え（R と B を交換）。[1] なら G を白黒で表示
+const swapped = assignBands(imageData, [2, 1, 0]);
+```
+
+- `selectBands` は選んだバンドを順に取り出します（`alpha: true` の最後のバンドは残します）。16bit や float も元の値のままです
+- 同じバンドを 3 つとも選ぶと、そのバンドを白黒で表示します（`isGraySelection` で判定できます）
+
 ## 地図（OpenLayers + COG）での利用
 
 OpenLayers 用の部品を `browser-image-enhancement/openlayers` から読み込めます（`ol` 10 以降を別にインストールしてください）。
@@ -358,6 +376,7 @@ slider.oninput = () => source.setPipeline(current());
 - `EnhancedGeoTIFF` は `ol/source/GeoTIFF` を継承したソースで、タイルを補正して返します。補正前のタイルをキャッシュするので、補正を変えても COG は読み直しません
 - `GpuCorrectedTileLayer` は `ol/layer/WebGLTile` を継承したレイヤーで、`correctTiles: false` のソースの補正を描いた地図に GPU で掛けます
 - DRA は表示範囲の統計で全タイル共通の範囲を決めるので、タイルの継ぎ目は出ません。シャープは隣のタイルを余白にして補正します（`withMargin` / `cropMargin`）
+- `select: [3, 2, 1]` で R・G・B に表示するバンドを選べます（0 から数えます。`sources[].bands` は読み込むバンドを 1 から数えて選ぶ別の設定です）。あとから `setSelect()` で変えると、キャッシュしたタイルから作り直すので COG は読み直しません。5 バンド以上の画像は、指定がなければバンド 0, 1, 2 を表示します
 - `normalize: false` にすると、16bit や float の COG を元の値のまま読み、元の値の統計で 0〜255 に引き伸ばしてから補正します。統計は最初は画像全体、`updateDra(map)` のあとは表示範囲から取ります。範囲を固定するときは `rawStretch: { black, white }`、自動ストレッチの設定を変えるときは `rawStretch: { lowPercent: 2, highPercent: 2 }` のように渡します（このモードではタイルごとに補正するので `correctTiles: false` は使えません）
 
 動く例と詳しい仕組みは [examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) にあります。
@@ -379,6 +398,7 @@ map.addControl(new EnhanceControl({ layer, labels: enhanceLabelsJa }));       //
 
 - `LoadImageControl` は GeoTIFF / COG をファイル・URL・ドロップで開き、位置情報どおりに置きます。PNG や JPEG などの普通の画像は表示範囲の中央に置きます（`placement` で変更可）。どれも `EnhancedGeoTIFF` になるので、補正・DRA・GPU は同じように効きます
 - `EnhanceControl` のスライダーは `opInfo` から作ります。`sliders` で並びと範囲を変えられ、`getPipeline()` / `setPipeline()` で補正の保存・復元ができます。モノクロ画像では色だけの補正（彩度・色温度）を隠します
+- 3 バンド以上の画像では、パネルの「バンド割当」で R・G・B に表示するバンドを選べます（`bands: false` で隠せます）。DRA は選んだバンドの統計で取り直します
 - 見た目は `ol.css` の色に合わせた既定の CSS が入ります。自分で付けるときは `css: false`
 
 動く例は [examples/openlayers-controls](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-controls)（`npm run example:olc`）にあります。

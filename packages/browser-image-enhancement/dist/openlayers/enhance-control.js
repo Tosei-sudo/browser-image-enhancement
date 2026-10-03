@@ -25,6 +25,11 @@ const enhanceLabelsEn = {
 	"dra.clip": "Clip (%)",
 	"dra.linked": "Link RGB",
 	adjustments: "Adjustments",
+	bands: "Bands",
+	"bands.r": "Red",
+	"bands.g": "Green",
+	"bands.b": "Blue",
+	"bands.band": "Band {n}",
 	opacity: "Opacity",
 	exposure: "Exposure (EV)",
 	brightness: "Brightness",
@@ -53,6 +58,11 @@ const enhanceLabelsJa = {
 	"dra.clip": "クリップ (%)",
 	"dra.linked": "RGB 連動",
 	adjustments: "補正",
+	bands: "バンド割当",
+	"bands.r": "R（赤）",
+	"bands.g": "G（緑）",
+	"bands.b": "B（青）",
+	"bands.band": "バンド {n}",
 	opacity: "不透明度",
 	exposure: "露出 (EV)",
 	brightness: "明るさ",
@@ -134,6 +144,7 @@ var EnhanceControl = class extends Control {
 	enabled_;
 	dra_;
 	draDefaults_;
+	bands_;
 	pipeline_ = pipeline();
 	frame_ = 0;
 	mapKeys_ = [];
@@ -220,6 +231,26 @@ var EnhanceControl = class extends Control {
 				this.schedule_();
 			});
 		} else this.dra_ = null;
+		if (options.bands !== false) {
+			const set = fieldset(t("bands"));
+			set.className = "ol-enhance-bands";
+			set.hidden = true;
+			const selects = [
+				"r",
+				"g",
+				"b"
+			].map((c) => {
+				const select = document.createElement("select");
+				set.append(plainRow(t(`bands.${c}`), select));
+				select.addEventListener("change", () => this.applyBands_());
+				return select;
+			});
+			this.panel_.append(set);
+			this.bands_ = {
+				set,
+				selects
+			};
+		} else this.bands_ = null;
 		const adjustments = fieldset(t("adjustments"));
 		for (const s of options.sliders ?? defaultEnhanceSliders) {
 			const info = opInfo[s.op];
@@ -340,14 +371,49 @@ var EnhanceControl = class extends Control {
 		this.sourceKeys_ = [];
 		const source = this.getSource();
 		this.updateColorRows_();
+		this.updateBands_();
 		if (!source) return;
 		this.apply_(source);
 		this.sourceKeys_.push(source.on("change", () => {
 			if (source.getState() !== "ready") return;
 			this.updateColorRows_();
+			this.updateBands_();
 			const map = this.getMap();
 			if (map && !source.getDraInfo()) source.updateDra(map);
 		}));
+	}
+	/** Band choices for the source's band count, showing the bands it draws now. */
+	updateBands_() {
+		const b = this.bands_;
+		if (!b) return;
+		const source = this.getSource();
+		const n = source?.getValueBandCount() ?? 0;
+		b.set.hidden = n < 3;
+		if (n < 3) return;
+		const current = source.getSelect() ?? [
+			0,
+			1,
+			2
+		];
+		b.selects.forEach((select, c) => {
+			if (select.options.length !== n) select.replaceChildren(...Array.from({ length: n }, (_, i) => new Option(this.labels_["bands.band"].replace("{n}", String(i + 1)), String(i))));
+			select.value = String(current[c]);
+		});
+	}
+	/** Sends the chosen bands to the source. */
+	applyBands_() {
+		const source = this.getSource();
+		if (!source || !this.bands_) return;
+		const [r, g, b] = this.bands_.selects.map((s) => Number(s.value));
+		source.setSelect([
+			r,
+			g,
+			b
+		]).then(() => {
+			const map = this.getMap();
+			if (map) source.updateDra(map);
+		});
+		this.updateColorRows_();
 	}
 	updateColorRows_() {
 		const gray = this.getSource()?.getColorMode() === "gray";

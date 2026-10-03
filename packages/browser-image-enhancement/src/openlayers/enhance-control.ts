@@ -1,7 +1,8 @@
 /**
  * OpenLayers control with the correction sliders: a button on the map that
  * opens a panel of sliders (built from `opInfo`), a DRA switch and a reset
- * button. It drives the pipeline of an {@link EnhancedGeoTIFF}, directly or
+ * button, and band selects that pick the bands R, G and B show. It drives the
+ * pipeline of an {@link EnhancedGeoTIFF}, directly or
  * through a layer, and refreshes DRA when the map stops moving.
  */
 import Control from 'ol/control/Control.js';
@@ -51,6 +52,11 @@ export const enhanceLabelsEn: EnhanceLabels = {
   'dra.clip': 'Clip (%)',
   'dra.linked': 'Link RGB',
   adjustments: 'Adjustments',
+  bands: 'Bands',
+  'bands.r': 'Red',
+  'bands.g': 'Green',
+  'bands.b': 'Blue',
+  'bands.band': 'Band {n}',
   opacity: 'Opacity',
   exposure: 'Exposure (EV)',
   brightness: 'Brightness',
@@ -80,6 +86,11 @@ export const enhanceLabelsJa: EnhanceLabels = {
   'dra.clip': 'クリップ (%)',
   'dra.linked': 'RGB 連動',
   adjustments: '補正',
+  bands: 'バンド割当',
+  'bands.r': 'R（赤）',
+  'bands.g': 'G（緑）',
+  'bands.b': 'B（青）',
+  'bands.band': 'バンド {n}',
   opacity: '不透明度',
   exposure: '露出 (EV)',
   brightness: '明るさ',
@@ -139,6 +150,12 @@ export interface EnhanceControlOptions {
   dra?: boolean;
   /** DRA settings at the start. Default: off, percent clip 0.5 %, not linked. */
   draSettings?: Partial<EnhanceDra>;
+  /**
+   * Show the band assignment (default true): which band R, G and B show,
+   * for images with 3 bands or more (`EnhancedGeoTIFF.setSelect`). The same
+   * band in all three shows it in gray.
+   */
+  bands?: boolean;
   /** Show an opacity slider for `layer` (default true). */
   opacity?: boolean;
   /** Texts; missing keys come from {@link enhanceLabelsEn}. {@link enhanceLabelsJa} has Japanese. */
@@ -185,6 +202,7 @@ export default class EnhanceControl extends Control {
   private readonly enabled_: HTMLInputElement;
   private readonly dra_: { enabled: HTMLInputElement; method: HTMLSelectElement; clip: HTMLInputElement; linked: HTMLInputElement } | null;
   private readonly draDefaults_: EnhanceDra;
+  private readonly bands_: { set: HTMLFieldSetElement; selects: HTMLSelectElement[] } | null;
   private pipeline_: Pipeline = pipeline();
   private frame_ = 0;
   private mapKeys_: EventsKey[] = [];
@@ -253,6 +271,22 @@ export default class EnhanceControl extends Control {
       });
     } else {
       this.dra_ = null;
+    }
+
+    if (options.bands !== false) {
+      const set = fieldset(t('bands'));
+      set.className = 'ol-enhance-bands';
+      set.hidden = true;
+      const selects = ['r', 'g', 'b'].map((c) => {
+        const select = document.createElement('select');
+        set.append(plainRow(t(`bands.${c}`), select));
+        select.addEventListener('change', () => this.applyBands_());
+        return select;
+      });
+      this.panel_.append(set);
+      this.bands_ = { set, selects };
+    } else {
+      this.bands_ = null;
     }
 
     const adjustments = fieldset(t('adjustments'));
@@ -388,6 +422,7 @@ export default class EnhanceControl extends Control {
     this.sourceKeys_ = [];
     const source = this.getSource();
     this.updateColorRows_();
+    this.updateBands_();
     if (!source) return;
     this.apply_(source);
     // Once the COG is read: gray images hide color-only sliders; DRA gets its first statistics.
@@ -395,10 +430,40 @@ export default class EnhanceControl extends Control {
       source.on('change', () => {
         if (source.getState() !== 'ready') return;
         this.updateColorRows_();
+        this.updateBands_();
         const map = this.getMap();
         if (map && !source.getDraInfo()) void source.updateDra(map);
       }),
     );
+  }
+
+  /** Band choices for the source's band count, showing the bands it draws now. */
+  private updateBands_(): void {
+    const b = this.bands_;
+    if (!b) return;
+    const source = this.getSource();
+    const n = source?.getValueBandCount() ?? 0;
+    b.set.hidden = n < 3;
+    if (n < 3) return;
+    const current = source!.getSelect() ?? [0, 1, 2];
+    b.selects.forEach((select, c) => {
+      if (select.options.length !== n) {
+        select.replaceChildren(...Array.from({ length: n }, (_, i) => new Option(this.labels_['bands.band'].replace('{n}', String(i + 1)), String(i))));
+      }
+      select.value = String(current[c]);
+    });
+  }
+
+  /** Sends the chosen bands to the source. */
+  private applyBands_(): void {
+    const source = this.getSource();
+    if (!source || !this.bands_) return;
+    const [r, g, b] = this.bands_.selects.map((s) => Number(s.value));
+    void source.setSelect([r, g, b]).then(() => {
+      const map = this.getMap();
+      if (map) void source.updateDra(map);
+    });
+    this.updateColorRows_();
   }
 
   private updateColorRows_(): void {

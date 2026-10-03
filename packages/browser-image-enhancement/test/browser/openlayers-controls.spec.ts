@@ -156,3 +156,83 @@ test('a file that cannot be read reports an error and keeps the current image', 
   });
   expect(result).toEqual({ failed: true, reported: 'broken.png', kept: true });
 });
+
+test('the band selects assign bands of a multiband image to R, G and B', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.text().startsWith('[browser-image-enhancement]') && errors.push(m.text()));
+  await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
+  await page.goto('/.example-dist/openlayers-controls/index.html?fixture=multiband');
+  await page.waitForFunction(() => window.controlsExample?.enhance.getSource()?.getState() === 'ready');
+
+  /** The first pixel of tile 0/0/0 as the layer gets it: the bands OpenLayers draws. */
+  const pixel = () =>
+    page.evaluate(async () => {
+      const source = window.controlsExample.enhance.getSource()!;
+      const z = source.getTileGrid()!.getMinZoom();
+      const tile = source.getTile(z, 0, 0, 1, source.getProjection()!)!;
+      tile.load();
+      await new Promise<void>((r) => {
+        const done = () => tile.getState() >= 2;
+        if (done()) r();
+        else tile.addEventListener('change', () => done() && r());
+      });
+      const t = tile as unknown as { getData(): Uint8Array; getSize(): [number, number] };
+      const data = t.getData();
+      const bands = data.length / (t.getSize()[0] * t.getSize()[1]);
+      // The top left pixel: bands 1 and 2 are 0 there.
+      return { bands, values: [...data.slice(0, 4)] };
+    });
+
+  const bandSet = page.locator('.ol-enhance-bands');
+  await expect(bandSet).toBeVisible();
+  const r = bandSet.getByLabel('R（赤）');
+  await expect(r.locator('option')).toHaveCount(5);
+  await expect(r.locator('option').nth(4)).toHaveText('バンド 5');
+  // More than 4 bands: bands 1, 2, 3 by default.
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getSelect())).toEqual([0, 1, 2]);
+  expect(await r.inputValue()).toBe('0');
+  expect((await pixel()).values).toEqual([0, 0, 40, 255]);
+
+  // Bands 5, 4, 3 as R, G, B.
+  await r.selectOption('4');
+  await bandSet.getByLabel('G（緑）').selectOption('3');
+  await bandSet.getByLabel('B（青）').selectOption('2');
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getSelect())).toEqual([4, 3, 2]);
+  const after = await pixel();
+  expect(after.bands).toBe(5);
+  expect(after.values).toEqual([220, 120, 40, 255]);
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getColorMode())).toBe('rgb');
+
+  // One band in all three is gray: color-only sliders hide.
+  await bandSet.getByLabel('G（緑）').selectOption('4');
+  await bandSet.getByLabel('B（青）').selectOption('4');
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getColorMode())).toBe('gray');
+  expect((await pixel()).values).toEqual([220, 220, 220, 255]);
+  await expect(page.getByText('彩度', { exact: true })).toBeHidden();
+
+  // DRA follows the new bands: a flat band stretches to a fixed range.
+  await page.getByLabel('オン').check();
+  await page.waitForFunction(() => window.controlsExample.enhance.getSource()!.getEffectivePipeline().ops[0]?.op === 'stretch');
+  expect(errors).toEqual([]);
+});
+
+test('an RGB image is drawn as read until bands are chosen; a gray one has no band selects', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('.ol-enhance-bands')).toBeVisible();
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getSelect())).toBeNull();
+  await page.locator('.ol-enhance-bands').getByLabel('R（赤）').selectOption('2');
+  expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getSelect())).toEqual([2, 1, 2]);
+
+  // A gray picture: one band, nothing to assign.
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#888';
+    ctx.fillRect(0, 0, 64, 64);
+    const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), 'image/png'));
+    await window.controlsExample.loader.loadFile(new File([blob], 'gray.png', { type: 'image/png' }));
+  });
+  await expect(page.locator('.ol-enhance-bands')).toBeHidden();
+});
