@@ -41,6 +41,7 @@ export {
   type RasterStretchRange,
   type RasterToImageDataOptions,
 } from './raster.js';
+export { assignBands, isGraySelection, selectBands, type BandSelection, type SelectedBands } from './bands.js';
 export { autoEnhance, presets, type PresetName } from './presets.js';
 export { isMonochrome } from './core/process.js';
 export {

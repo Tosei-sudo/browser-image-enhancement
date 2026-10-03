@@ -1,7 +1,9 @@
+import { warn } from "../warn.js";
 import { mergeHistograms } from "../core/histogram.js";
 import { histogram } from "../stats.js";
 import { pipeline } from "../pipeline.js";
 import { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToImageData } from "../raster.js";
+import { isGraySelection } from "../bands.js";
 import { cropMargin, withMargin } from "./margin.js";
 import GeoTIFF from "ol/source/GeoTIFF.js";
 import { getHeight, getIntersection, getWidth, isEmpty } from "ol/extent.js";
@@ -33,6 +35,12 @@ import { transformExtent } from "ol/proj.js";
 * With `correctTiles: false` tiles are left as read and only the pipeline is
 * kept (DRA included): `GpuCorrectedTileLayer` then corrects the drawn map on
 * the GPU, so a new pipeline needs no tile to be reloaded.
+*
+* Band assignment: `select` (or `setSelect`) picks the bands R, G and B show,
+* for example `[3, 2, 1]` for a false-color composite of a 4-band image.
+* Tiles are then rebuilt from the raw cache with those bands in the first
+* three places (and alpha in the fourth), which is what OpenLayers draws.
+* Images with more than 4 bands show bands 0, 1, 2 unless told otherwise.
 */
 /**
 * `ol/source/GeoTIFF` that corrects its tiles with a pipeline. Needs
@@ -62,6 +70,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	/** The raw stretch in use; null until the first statistics are read. */
 	rawStretch_ = null;
 	rawStretchReady_ = null;
+	/** The bands R, G and B show, as set; null: as read. */
+	select_;
 	/** How many tiles were read and corrected, and the time it took. */
 	stats = {
 		tiles: 0,
@@ -74,6 +84,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		this.rawValues_ = options.normalize === false;
 		this.rawStretchOption_ = options.rawStretch ?? {};
 		if ("black" in this.rawStretchOption_ && "white" in this.rawStretchOption_) this.rawStretch_ = this.rawStretchOption_;
+		this.select_ = options.select ? toRgb(options.select) : null;
 		this.pipeline_ = options.pipeline ?? pipeline();
 		this.worker_ = options.worker ?? true;
 		this.correctTiles_ = options.correctTiles ?? true;
@@ -86,7 +97,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	}
 	/** The tile key: changes whenever tiles must be corrected again. */
 	tileKey_() {
-		return `${keyFor(this.effective_)}${this.rawValues_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ""}`;
+		const select = this.remap_();
+		return `${keyFor(this.effective_)}${select ? `:bands${select.join(",")}` : ""}${this.rawValues_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ""}`;
 	}
 	/** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
 	get autoRaw_() {
@@ -98,7 +110,59 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	}
 	/** How the image is corrected: decided by its band count, the same for every tile. Null before the COG is read. */
 	getColorMode() {
-		return this.getState() === "ready" ? colorModeFor(this.bandCount) : null;
+		return this.getState() === "ready" ? this.colorMode_() : null;
+	}
+	colorMode_() {
+		const select = this.remap_();
+		return select ? isGraySelection(select) ? "gray" : "rgb" : colorModeFor(this.bandCount);
+	}
+	/** Bands that hold values (the alpha band OpenLayers adds for nodata not counted); 0 before the COG is read. */
+	getValueBandCount() {
+		return this.getState() === "ready" ? this.bandCount - (this.hasAlpha ? 1 : 0) : 0;
+	}
+	/** The bands R, G and B show now (0-based), or null when tiles are drawn as read. */
+	getSelect() {
+		const select = this.remap_();
+		return select ? [...select] : null;
+	}
+	/**
+	* Shows other bands as R, G and B (see the `select` option); null draws the
+	* bands as read. Tiles are rebuilt from the raw cache, without reading the
+	* COG again. DRA statistics are taken again over the last DRA area, for the
+	* new bands; the promise resolves once they are.
+	*/
+	async setSelect(select) {
+		const next = select ? toRgb(select) : null;
+		if (this.getState() === "ready") this.checkSelect_(next);
+		this.select_ = next;
+		this.draKey_ = "";
+		if (this.autoRaw_) {
+			this.rawStretch_ = null;
+			this.rawStretchReady_ = null;
+		}
+		this.reload_();
+		const info = this.draInfo_;
+		if (!info || !this.rawLoader_ || this.getState() !== "ready" || !this.pipeline_.needsStats && !this.autoRaw_) return;
+		const request = ++this.draRequest_;
+		const stats = await this.collectStats_(info.extent, info.z);
+		if (request !== this.draRequest_) return;
+		this.draKey_ = `${info.z}:${info.extent.join(",")}`;
+		this.applyStats_(stats);
+	}
+	/** The selection tiles are rebuilt with; null when they are drawn as read. */
+	remap_() {
+		if (this.getValueBandCount() < 3) return null;
+		return this.select_ ?? (this.bandCount > 4 ? [
+			0,
+			1,
+			2
+		] : null);
+	}
+	checkSelect_(select) {
+		if (!select) return;
+		const n = this.getValueBandCount();
+		if (n < 3) throw new RangeError(`Band assignment needs an image with at least 3 bands; this one has ${n}.`);
+		if (select.some((b) => !Number.isInteger(b) || b < 0 || b >= n)) throw new RangeError(`Bands must be 0 to ${n - 1} (0-based), got ${JSON.stringify(select)}.`);
 	}
 	/** The correction as set, before `autoStretch` is fixed from statistics. */
 	getPipeline() {
@@ -206,12 +270,12 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			const rgba = this.tileRGBA_(t.raw, t.width, t.height, rawStretch);
 			if (!rgba) continue;
 			const h = histogram({
-				data: rgba.data,
+				data: rgba,
 				width: t.width,
 				height: t.height
 			}, {
 				rect: t.rect,
-				colorMode: colorModeFor(rgba.bands)
+				colorMode: this.colorMode_()
 			});
 			histograms.push(h);
 			pixels += h.count;
@@ -258,7 +322,17 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		if (!(raw instanceof Float32Array)) return null;
 		const bands = raw.length / (width * height);
 		const color = bands - (this.hasAlpha ? 1 : 0);
-		if (!Number.isInteger(bands) || color !== 1 && color !== 3) return null;
+		if (!Number.isInteger(bands)) return null;
+		const select = this.remap_();
+		if (select) return {
+			data: raw,
+			width,
+			height,
+			bands,
+			alpha: this.hasAlpha,
+			select
+		};
+		if (color !== 1 && color !== 3) return null;
 		return {
 			data: raw,
 			width,
@@ -268,25 +342,27 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		};
 	}
 	/**
-	* The tile's pixels as RGBA and its band count, or null for tiles the
-	* pipeline cannot take (multispectral). Raw tiles are stretched with `rawStretch`.
+	* The tile's pixels as RGBA (the selected bands), or null for tiles the
+	* pipeline cannot take (multispectral without a selection). Raw tiles are
+	* stretched with `rawStretch`.
 	*/
 	tileRGBA_(raw, width, height, rawStretch = this.rawStretch_) {
 		if (this.rawValues_) {
 			const r = this.raster_(raw, width, height);
 			if (!r || !rawStretch) return null;
-			return {
-				data: rasterToImageData(r, { stretch: rawStretch }).data,
-				bands: r.bands
-			};
+			return rasterToImageData(r, { stretch: rawStretch }).data;
 		}
 		if (!(raw instanceof Uint8Array) && !(raw instanceof Uint8ClampedArray)) return null;
 		const bands = raw.length / (width * height);
-		if (!Number.isInteger(bands) || bands < 1 || bands > 4) return null;
-		return {
-			data: toRGBA(raw, bands, width * height),
-			bands
-		};
+		if (!Number.isInteger(bands) || bands < 1) return null;
+		const select = this.remap_();
+		if (select) return selectRGBA(raw, bands, select, this.hasAlpha ? bands - 1 : -1, width * height);
+		if (bands > 4) return null;
+		return toRGBA(raw, bands, width * height);
+	}
+	/** RGBA pixels back in the tile layout OpenLayers expects (`bandCount` bands). */
+	toTile_(rgba, pixels) {
+		return this.remap_() ? toSelectedTile(rgba, this.bandCount, this.hasAlpha, pixels) : fromRGBA(rgba, this.bandCount, pixels);
 	}
 	/** The finest level that is no finer than the sample size, coarsened until the tile count fits. */
 	draZoom_(area) {
@@ -304,6 +380,12 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		};
 		while (z > grid.getMinZoom() && count(z) > this.draMaxTiles_) z--;
 		return z;
+	}
+	/** Re-resolves the pipeline and reloads every tile (from the raw cache), also when the layer corrects the map. */
+	reload_() {
+		this.effective_ = this.pipeline_.resolve(this.draStats_);
+		this.appliedKey_ = this.tileKey_();
+		this.setKey(this.appliedKey_);
 	}
 	/** Re-resolves the pipeline; tiles are re-corrected only if the result changed. */
 	refresh_() {
@@ -323,17 +405,23 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	/** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
 	setLoader(loader) {
 		this.rawLoader_ = loader;
+		if (this.select_) {
+			const n = this.bandCount - (this.hasAlpha ? 1 : 0);
+			if (n < 3 || this.select_.some((b) => b >= n)) {
+				warn(`select ${JSON.stringify(this.select_)} does not fit an image with ${n} value bands; the bands are drawn as read.`);
+				this.select_ = null;
+			}
+		}
 		super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
 	}
 	async loadEnhanced_(loader, z, x, y, options) {
 		const [raw] = await Promise.all([this.rawTile_(loader, z, x, y, options), this.rawReady_()]);
 		const p = this.effective_;
-		if (p.ops.length === 0 && !this.rawValues_ || !this.correctTiles_) return raw;
+		if (!(this.remap_() !== null) && (p.ops.length === 0 && !this.rawValues_ || !this.correctTiles_)) return raw;
 		const [width, height] = this.getTileSize(z);
-		const tile = this.tileRGBA_(raw, width, height);
-		if (!tile) return raw;
-		const { data: rgba, bands } = tile;
-		if (p.ops.length === 0) return fromRGBA(rgba, bands, width * height);
+		const rgba = this.tileRGBA_(raw, width, height);
+		if (!rgba) return raw;
+		if (p.ops.length === 0 || !this.correctTiles_) return this.toTile_(rgba, width * height);
 		const t0 = performance.now();
 		const margin = p.margin;
 		const input = margin > 0 ? {
@@ -346,13 +434,13 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			height
 		};
 		const result = await p.run(input, {
-			colorMode: colorModeFor(bands),
+			colorMode: this.colorMode_(),
 			worker: this.worker_,
 			signal: options.signal
 		});
 		this.stats.tiles++;
 		this.stats.ms += performance.now() - t0;
-		return fromRGBA(cropMargin(result.data, width, height, margin), bands, width * height);
+		return this.toTile_(cropMargin(result.data, width, height, margin), width * height);
 	}
 	/** The tile's pixels with `margin` pixels of its neighbour tiles around it; transparent where there are none. */
 	async withNeighbours_(loader, z, x, y, rgba, margin) {
@@ -374,7 +462,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 				crossOrigin: "anonymous"
 			}).then((raw) => {
 				const t = this.tileRGBA_(raw, width, height);
-				if (t) tiles.set(key, t.data);
+				if (t) tiles.set(key, t);
 			}, () => {}));
 		}
 		await Promise.all(reads);
@@ -426,7 +514,45 @@ function fromRGBA(rgba, bands, pixels) {
 	for (let p = 0, i = 0, o = 0; p < pixels; p++, i += 4, o += bands) for (let b = 0; b < bands; b++) out[o + b] = bands <= 2 && b === 1 ? rgba[i + 3] : rgba[i + b];
 	return out;
 }
+/** Three band indexes from a selection (one index means that band in all three). */
+function toRgb(select) {
+	return select.length === 1 ? [
+		select[0],
+		select[0],
+		select[0]
+	] : [
+		select[0],
+		select[1],
+		select[2]
+	];
+}
+/** RGBA from three bands of a tile; alpha from the alpha band (`alpha` index, -1 for none) or opaque. */
+function selectRGBA(src, bands, select, alpha, pixels) {
+	const out = new Uint8ClampedArray(pixels * 4);
+	const [r, g, b] = select;
+	for (let p = 0, i = 0, o = 0; p < pixels; p++, i += bands, o += 4) {
+		out[o] = src[i + r];
+		out[o + 1] = src[i + g];
+		out[o + 2] = src[i + b];
+		out[o + 3] = alpha >= 0 ? src[i + alpha] : 255;
+	}
+	return out;
+}
+/**
+* A tile of `bands` bands that OpenLayers draws as the RGBA pixels: R, G, B
+* in the first three bands, alpha in the fourth (its first texture), and
+* alpha again in the last band when that is the nodata band it discards on.
+*/
+function toSelectedTile(rgba, bands, hasAlpha, pixels) {
+	const out = new Uint8Array(pixels * bands);
+	const n = Math.min(bands, 4);
+	for (let p = 0, i = 0, o = 0; p < pixels; p++, i += 4, o += bands) {
+		for (let c = 0; c < n; c++) out[o + c] = rgba[i + c];
+		if (hasAlpha) out[o + bands - 1] = rgba[i + 3];
+	}
+	return out;
+}
 //#endregion
-export { EnhancedGeoTIFF as default, fromRGBA, toRGBA };
+export { EnhancedGeoTIFF as default, fromRGBA, selectRGBA, toRGBA, toSelectedTile };
 
 //# sourceMappingURL=enhanced-geotiff.js.map

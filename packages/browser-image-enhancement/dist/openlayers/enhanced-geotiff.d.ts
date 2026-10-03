@@ -1,6 +1,7 @@
 import { AutoStretchOptions, ColorMode } from "../types.js";
 import { Pipeline } from "../pipeline.js";
 import { RasterStretch, RasterStretchRange } from "../raster.js";
+import { BandSelection } from "../bands.js";
 import GeoTIFF, { Options } from "ol/source/GeoTIFF.js";
 import { Extent } from "ol/extent.js";
 import { Loader } from "ol/source/DataTile.js";
@@ -25,6 +26,14 @@ export interface EnhancedGeoTIFFOptions extends Options {
    * of the whole image and, after each `updateDra`, of the visible area.
    */
   rawStretch?: RasterStretch | AutoStretchOptions;
+  /**
+   * The bands (0-based, alpha not counted) that R, G and B show: `[3, 2, 1]`
+   * shows band 3 as red, 2 as green and 1 as blue; one index shows that band
+   * in gray. Not to be confused with `sources[].bands`, which picks (1-based)
+   * the bands that are read at all. Default: the bands as read (bands 0, 1, 2
+   * for images with more than 4 bands). Needs an image with at least 3 bands.
+   */
+  select?: BandSelection;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -85,6 +94,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** The raw stretch in use; null until the first statistics are read. */
   private rawStretch_;
   private rawStretchReady_;
+  /** The bands R, G and B show, as set; null: as read. */
+  private select_;
   /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats;
   constructor(options: EnhancedGeoTIFFOptions);
@@ -96,6 +107,21 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   correctsTiles(): boolean;
   /** How the image is corrected: decided by its band count, the same for every tile. Null before the COG is read. */
   getColorMode(): ColorMode | null;
+  private colorMode_;
+  /** Bands that hold values (the alpha band OpenLayers adds for nodata not counted); 0 before the COG is read. */
+  getValueBandCount(): number;
+  /** The bands R, G and B show now (0-based), or null when tiles are drawn as read. */
+  getSelect(): [number, number, number] | null;
+  /**
+   * Shows other bands as R, G and B (see the `select` option); null draws the
+   * bands as read. Tiles are rebuilt from the raw cache, without reading the
+   * COG again. DRA statistics are taken again over the last DRA area, for the
+   * new bands; the promise resolves once they are.
+   */
+  setSelect(select: BandSelection | null): Promise<void>;
+  /** The selection tiles are rebuilt with; null when they are drawn as read. */
+  private remap_;
+  private checkSelect_;
   /** The correction as set, before `autoStretch` is fixed from statistics. */
   getPipeline(): Pipeline;
   /**
@@ -122,12 +148,17 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** The raw tile as a {@link Raster} (normalize: false), or null when its band layout is not gray or RGB. */
   private raster_;
   /**
-   * The tile's pixels as RGBA and its band count, or null for tiles the
-   * pipeline cannot take (multispectral). Raw tiles are stretched with `rawStretch`.
+   * The tile's pixels as RGBA (the selected bands), or null for tiles the
+   * pipeline cannot take (multispectral without a selection). Raw tiles are
+   * stretched with `rawStretch`.
    */
   private tileRGBA_;
+  /** RGBA pixels back in the tile layout OpenLayers expects (`bandCount` bands). */
+  private toTile_;
   /** The finest level that is no finer than the sample size, coarsened until the tile count fits. */
   private draZoom_;
+  /** Re-resolves the pipeline and reloads every tile (from the raw cache), also when the layer corrects the map. */
+  private reload_;
   /** Re-resolves the pipeline; tiles are re-corrected only if the result changed. */
   private refresh_;
   /** Sets the tile count and time in {@link EnhancedGeoTIFF.stats} back to zero. */

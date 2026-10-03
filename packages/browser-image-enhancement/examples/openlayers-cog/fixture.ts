@@ -44,3 +44,39 @@ export function fixtureBlob(width = 768, height = 384, sixteenBit = false): Blob
   });
   return new Blob([buffer], { type: 'image/tiff' });
 }
+
+/**
+ * A 5-band 8-bit fixture, like multispectral imagery: band 1 a left-to-right
+ * ramp, band 2 a top-to-bottom ramp, bands 3, 4 and 5 flat at 40, 120 and
+ * 220, so any band assignment can be told apart by its pixel values.
+ */
+export function fixtureMultibandBlob(width = 768, height = 384): Blob {
+  const bands = 5;
+  const values = new Uint8Array(width * height * bands);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * bands;
+      values[i] = Math.round((x / (width - 1)) * 200);
+      values[i + 1] = Math.round((y / (height - 1)) * 200);
+      values[i + 2] = 40;
+      values[i + 3] = 120;
+      values[i + 4] = 220;
+    }
+  }
+  const [minX, minY, maxX, maxY] = FIXTURE_EXTENT;
+  const buffer = writeArrayBuffer(values, {
+    width,
+    height,
+    SamplesPerPixel: bands,
+    BitsPerSample: new Array(bands).fill(8),
+    SampleFormat: new Array(bands).fill(1),
+    PhotometricInterpretation: 1,
+    ExtraSamples: new Array(bands - 1).fill(0),
+    ModelPixelScale: [(maxX - minX) / width, (maxY - minY) / height, 0],
+    ModelTiepoint: [0, 0, 0, minX, maxY, 0],
+    GeographicTypeGeoKey: 4326,
+    GTModelTypeGeoKey: 2,
+    GTRasterTypeGeoKey: 1,
+  });
+  return new Blob([buffer], { type: 'image/tiff' });
+}

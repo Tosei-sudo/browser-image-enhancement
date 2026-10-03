@@ -59,6 +59,12 @@ export interface EnhanceControlOptions {
   dra?: boolean;
   /** DRA settings at the start. Default: off, percent clip 0.5 %, not linked. */
   draSettings?: Partial<EnhanceDra>;
+  /**
+   * Show the band assignment (default true): which band R, G and B show,
+   * for images with 3 bands or more (`EnhancedGeoTIFF.setSelect`). The same
+   * band in all three shows it in gray.
+   */
+  bands?: boolean;
   /** Show an opacity slider for `layer` (default true). */
   opacity?: boolean;
   /** Texts; missing keys come from {@link enhanceLabelsEn}. {@link enhanceLabelsJa} has Japanese. */
@@ -96,6 +102,7 @@ export default class EnhanceControl extends Control {
   private readonly enabled_;
   private readonly dra_;
   private readonly draDefaults_;
+  private readonly bands_;
   private pipeline_;
   private frame_;
   private mapKeys_;
@@ -122,6 +129,10 @@ export default class EnhanceControl extends Control {
   protected disposeInternal(): void;
   /** Gives a newly set source the current correction, and follows its color mode. */
   private bindSource_;
+  /** Band choices for the source's band count, showing the bands it draws now. */
+  private updateBands_;
+  /** Sends the chosen bands to the source. */
+  private applyBands_;
   private updateColorRows_;
   private setRow_;
   /** Slider moves are coalesced to one new pipeline per frame. */
