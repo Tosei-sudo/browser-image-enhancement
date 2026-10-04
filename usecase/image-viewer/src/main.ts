@@ -31,9 +31,9 @@ import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
 import { acceptFiles, openFiles } from './open-files.js';
 import { showInfo } from './info.js';
-import { AddServiceDialog, openRef, paramToRef, refToParam } from './add-service.js';
+import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
-import { loadConfig, lookupUrl, type ViewerConfig } from './config.js';
+import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
 import { Selection } from './selection.js';
 import { AttributeTable, type TableData } from './table.js';
@@ -272,24 +272,36 @@ map.on('moveend', () => {
   }
 });
 
-// `?url=<COG>` (repeatable) opens COGs at start, `?service=` service layers and `?base=` a base map,
-// so a view can be shared as a link.
+// The layers in config.json open first (bottom first), then the link's: `?url=<COG>` (repeatable)
+// opens COGs, `?service=` service layers and `?base=` a base map, so a view can be shared as a link.
 const start = new URLSearchParams(location.search);
 baseMap.set(start.get('base') ?? config.defaultBaseMap);
-for (const url of start.getAll('url')) {
-  status.textContent = `${url} を読み込んでいます…`;
-  void loader.loadUrl(url).catch(() => {});
-}
-void (async () => {
-  for (const ref of start.getAll('service').map(paramToRef)) {
-    if (!ref) continue;
-    say(`${ref.url} を読み込んでいます…`);
-    try {
-      addService(await openRef(ref, serviceContext()));
-    } catch (error) {
-      say(`${ref.url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+
+/** Opens one layer at start; failures are reported in the status line and the rest still open. */
+async function openAtStart(layer: LayerConfig): Promise<void> {
+  say(`${layer.url} を読み込んでいます…`);
+  try {
+    if (layer.type === 'cog') await loader.loadUrl(layer.url);
+    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], { loader, addLayer: addService, say });
+    else {
+      const { type: kind, ...ref } = layer;
+      addService(await openRef({ kind, ...ref }, serviceContext()));
     }
+  } catch (error) {
+    // The loader's onError has already said why a COG failed.
+    if (layer.type !== 'cog') say(`${layer.url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+void (async () => {
+  const opening: LayerConfig[] = [...config.layers];
+  for (const url of start.getAll('url')) opening.push({ type: 'cog', url });
+  // A shared link lists the service layers in config.json too: open those once.
+  const fromConfig = new Set(config.layers.filter((l) => l.type !== 'cog' && l.type !== 'file').map((l) => refKey({ ...l, kind: l.type })));
+  for (const ref of start.getAll('service').map(paramToRef)) {
+    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format });
+  }
+  for (const layer of opening) await openAtStart(layer);
 })();
 
 // For the browser test and the console.

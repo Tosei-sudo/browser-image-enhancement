@@ -18,6 +18,16 @@ export interface BaseMapConfig {
   maxZoom: number;
 }
 
+/**
+ * A layer opened at start: a COG by URL, a layer of a service (as in
+ * `?service=` links), or a file by URL (GeoJSON, a zipped Shapefile, a
+ * picture or GeoTIFF), read like a local file.
+ */
+export type LayerConfig =
+  | { type: 'cog'; url: string }
+  | { type: 'file'; url: string }
+  | { type: 'wms' | 'wmts' | 'wfs' | 'esri'; url: string; layer: string; matrixSet?: string; format?: string };
+
 export interface ViewerConfig {
   /** Base maps in the order of the switch (after "none"). */
   baseMaps: BaseMapConfig[];
@@ -32,6 +42,8 @@ export interface ViewerConfig {
   projectionLookup: string;
   /** Extra projection definitions registered at start, without a lookup: `{ "EPSG:6677": "+proj=tmerc …" }`. */
   projections: Record<string, string>;
+  /** Layers opened at start, bottom first. */
+  layers: LayerConfig[];
 }
 
 const gsi = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
@@ -53,14 +65,17 @@ export const defaultConfig: ViewerConfig = {
   defaultBaseMap: '',
   projectionLookup: 'https://spatialreference.org/ref/{authority}/{code}/ogcwkt/',
   projections: {},
+  layers: [],
 };
 
+/** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
+const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(https?:)?\/\/|^\.{0,2}\//.test(url);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function baseMapOf(value: unknown, problems: string[], index: number): BaseMapConfig | null {
   if (!isRecord(value)) return (problems.push(`baseMaps[${index}] がオブジェクトではありません`), null);
   const { id, label, url, attributions, maxZoom } = value;
-  if (typeof id !== 'string' || !id || typeof url !== 'string' || !/^(https?:)?\/\/|^\.{0,2}\//.test(url)) {
+  if (typeof id !== 'string' || !id || !isUrl(url)) {
     problems.push(`baseMaps[${index}] に id か url（http(s) か相対パス）がありません`);
     return null;
   }
@@ -79,7 +94,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections } };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -119,7 +134,31 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     } else problems.push('projections がオブジェクトではありません');
   }
 
+  if ('layers' in json) {
+    if (Array.isArray(json.layers)) config.layers = json.layers.map((l, i) => layerOf(l, problems, i)).filter((l): l is LayerConfig => l !== null);
+    else problems.push('layers が配列ではありません');
+  }
+
   return { config, problems };
+}
+
+function layerOf(value: unknown, problems: string[], index: number): LayerConfig | null {
+  if (!isRecord(value)) return (problems.push(`layers[${index}] がオブジェクトではありません`), null);
+  const { type, url, layer, matrixSet, format } = value;
+  if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
+  if (type === 'cog' || type === 'file') return { type, url };
+  if (type === 'wms' || type === 'wmts' || type === 'wfs' || type === 'esri') {
+    if (typeof layer !== 'string' || !layer) return (problems.push(`layers[${index}] に layer（レイヤー名）がありません`), null);
+    return {
+      type,
+      url,
+      layer,
+      ...(typeof matrixSet === 'string' && matrixSet ? { matrixSet } : {}),
+      ...(typeof format === 'string' && format ? { format } : {}),
+    };
+  }
+  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri のどれかにしてください`);
+  return null;
 }
 
 /** The lookup URL for a projection code such as `EPSG:6677`. */
@@ -146,4 +185,18 @@ export async function loadConfig(url = new URL('config.json', document.baseURI).
   const { config, problems } = parseConfig(json);
   for (const problem of problems) console.warn(`config.json: ${problem}`);
   return config;
+}
+
+/** A file by URL, named after the last part of its path, to open like a local file. */
+export async function fetchFile(url: string): Promise<File> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const path = new URL(url, document.baseURI).pathname;
+  let name = path.slice(path.lastIndexOf('/') + 1) || 'layer';
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    // keep it encoded
+  }
+  return new File([await response.blob()], name);
 }
