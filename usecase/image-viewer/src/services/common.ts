@@ -181,7 +181,7 @@ export function epsgCode(crs: string): number | null {
   return code === 900913 || code === 102100 || code === 102113 ? 3857 : code;
 }
 
-/** The projection for a CRS name, loading its definition from epsg.io when needed; null when unknown. */
+/** The projection for a CRS name, loading its definition from the registry in config.json when needed; null when unknown. */
 export async function projectionOf(crs: string): Promise<Projection | null> {
   const code = epsgCode(crs);
   if (code === null) return getProjection(crs);

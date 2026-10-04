@@ -1,0 +1,35 @@
+{
+  "baseMaps": [
+    {
+      "id": "gsi-std",
+      "label": "地理院 標準",
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",
+      "attributions": "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noopener\">地理院タイル</a>",
+      "maxZoom": 18
+    },
+    {
+      "id": "gsi-pale",
+      "label": "地理院 淡色",
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+      "attributions": "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noopener\">地理院タイル</a>",
+      "maxZoom": 18
+    },
+    {
+      "id": "gsi-photo",
+      "label": "地理院 写真",
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+      "attributions": "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noopener\">地理院タイル</a>",
+      "maxZoom": 18
+    },
+    {
+      "id": "osm",
+      "label": "OpenStreetMap",
+      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "attributions": "© <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors",
+      "maxZoom": 19
+    }
+  ],
+  "defaultBaseMap": "",
+  "projectionLookup": "https://spatialreference.org/ref/{authority}/{code}/ogcwkt/",
+  "projections": {}
+}
