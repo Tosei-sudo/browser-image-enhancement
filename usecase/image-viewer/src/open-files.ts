@@ -1,6 +1,6 @@
 /**
- * Files chosen or dropped together: Shapefiles and GeoJSON become read-only
- * vector layers with an attribute table, DTED files open as elevation data,
+ * Files chosen or dropped together: Shapefiles, GeoJSON and GeoPackages
+ * become vector layers with an attribute table (editable, see local-edit.ts), DTED files open as elevation data,
  * GeoTIFFs without overviews get them first (appended to the file, which
  * is read where it is), and other pictures open as they are. A GeoTIFF with
  * an RPC model (its own tag, or an .RPB / _RPC.TXT file chosen with it) is marked for orthorectification; without georeferencing
@@ -17,6 +17,8 @@ import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
 import { rpcGeo, tiffInfo } from './satellite.js';
 import type { GeometricMode } from './geometric.js';
 import { baseName } from './images.js';
+import { handleOf } from './recent-files.js';
+import { isEditable, localTarget } from './local-edit.js';
 
 export interface OpenFilesContext {
   loader: LoadImageControl;
@@ -60,9 +62,9 @@ async function openVectors(files: File[], { addLayer, say }: OpenFilesContext): 
   const names = files.map((f) => f.name).join('、');
   say(`${names} を読み込んでいます…`);
   try {
-    const read = await readVectorFiles(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))), projectionOf);
+    const read = await readVectorFiles(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()), handle: handleOf(f) }))), projectionOf);
     for (const file of read) addLayer(vectorFileLayer(file));
-    say(`${read.map((f) => f.title).join('、')} を開きました（読み取り専用）`);
+    say(`${read.map((f) => f.title).join('、')} を開きました（✎ で編集できます）`);
   } catch (error) {
     say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -86,26 +88,31 @@ async function openImage(file: File, { loader, say, geometry }: OpenFilesContext
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
 }
 
-/** A layer for the list, like a service's vector layer but read-only and without a link. */
+/** A layer for the list, like a service's vector layer but without a link; editable when it can be saved again. */
 export function vectorFileLayer(file: VectorFile): ServiceLayer {
   const truncated = file.features.length > MAX_FEATURES;
   const features = truncated ? file.features.slice(0, MAX_FEATURES) : file.features;
   const layer = vectorLayer(features, plainStyle(nextColor()));
   const source = layer.getSource()!;
   const extent = source.getExtent();
+  const editable = isEditable(file, truncated);
+  // Every attribute of a file can be changed, but the GeoPackage feature id.
+  const fields = editable ? file.fields.map((f) => (f.type === 'oid' ? f : { ...f, editable: true })) : file.fields;
   const info: Array<[string, string]> = [
-    ['種類', `${file.format}（読み取り専用）`],
+    ['種類', editable ? file.format : `${file.format}（読み取り専用）`],
     ['座標系', file.crs],
     ['地物数', `${file.features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
   ];
   if (file.encoding) info.push(['文字コード', file.encoding === 'shift_jis' ? 'Shift_JIS' : file.encoding.toUpperCase()]);
+  if (editable && file.format === 'Shapefile' && file.encoding !== 'utf-8') info.push(['保存', '属性は UTF-8（.cpg 付き）で書き込みます']);
   return {
     ref: null,
     badge: { Shapefile: 'SHP', GeoJSON: 'GeoJSON', GeoPackage: 'GPKG' }[file.format],
     title: file.title,
     layer,
     correction: null,
-    vector: { source, fields: file.fields, truncated },
+    vector: { source, fields, truncated, idField: file.gpkg?.idColumn },
+    ...(editable ? { editTarget: localTarget(file, source, fields) } : {}),
     extent: extent && !isEmpty(extent) ? extent : null,
     info,
   };

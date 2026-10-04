@@ -9,12 +9,26 @@ import { iter } from 'but-unzip';
 import { parseDbf, parseShp } from 'shpjs';
 import type { Field } from './services/index.js';
 import { fieldsOf } from './services/wms.js';
+import { register } from 'ol/proj/proj4.js';
+import proj4 from 'proj4';
 import { readGeoPackage, type GeoPackageTable } from './geopackage.js';
+import { epsgCode } from './services/common.js';
+import { wgs84, type TargetCrs } from './vector-write.js';
 
 /** A file by name, as bytes: chosen, dropped, or found in a .zip. */
 export interface NamedBytes {
   name: string;
   bytes: Uint8Array;
+  /** The handle it was read from (File System Access), so it can be written again. */
+  handle?: FileSystemFileHandle;
+}
+
+/** Where a layer was read from, to save it again. */
+export interface FileOrigin {
+  /** The file (GeoJSON, GeoPackage), or for a Shapefile its parts by extension (`.shp`…) as chosen. */
+  files: Record<string, NamedBytes>;
+  /** A Shapefile in a .zip: the .zip and everything in it. */
+  zip?: { file: NamedBytes; entries: NamedBytes[] };
 }
 
 /** One vector layer read from files. */
@@ -35,6 +49,10 @@ export interface VectorFile {
   geometryType?: 'Point' | 'LineString' | 'Polygon' | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon' | null;
   /** GeoPackage: the open database and the table. */
   gpkg?: GeoPackageTable;
+  /** The CRS to write the file again in: the one it was read in. */
+  writeCrs?: TargetCrs;
+  /** The files it was read from (set by {@link readVectorFiles}). */
+  origin?: FileOrigin;
 }
 
 /** The projection for a CRS name (it may load the definition), or null when unknown. */
@@ -76,31 +94,39 @@ export async function unzipFiles(zip: Uint8Array): Promise<NamedBytes[]> {
  * `roads.prj` and `roads.cpg`.
  */
 export async function readVectorFiles(files: NamedBytes[], projectionOf?: ProjectionLookup): Promise<VectorFile[]> {
-  const all: NamedBytes[] = [];
+  const all: Array<NamedBytes & { zip?: FileOrigin['zip'] }> = [];
   for (const f of files) {
-    if (extension(f.name) === '.zip') all.push(...(await unzipFiles(f.bytes)));
-    else all.push(f);
+    if (extension(f.name) === '.zip') {
+      const entries = await unzipFiles(f.bytes);
+      all.push(...entries.map((e) => ({ ...e, zip: { file: f, entries } })));
+    } else {
+      all.push(f);
+    }
   }
-  const byStem = new Map<string, Partial<Record<string, Uint8Array>>>();
+  const byStem = new Map<string, { parts: Record<string, NamedBytes>; zip?: FileOrigin['zip'] }>();
   const out: VectorFile[] = [];
   for (const f of all) {
     const ext = extension(f.name);
+    const origin: FileOrigin = { files: { [ext]: f }, zip: f.zip };
     if (ext === '.geojson' || ext === '.json') {
-      out.push(await readGeoJson(new TextDecoder().decode(f.bytes), stem(f.name), projectionOf));
+      out.push({ ...(await readGeoJson(new TextDecoder().decode(f.bytes), stem(f.name), projectionOf)), origin });
     } else if (ext === '.gpkg') {
-      out.push(...(await readGeoPackage(f.bytes, stem(f.name), projectionOf)));
-    } else if (['.shp', '.dbf', '.prj', '.cpg'].includes(ext)) {
+      out.push(...(await readGeoPackage(f.bytes, stem(f.name), projectionOf)).map((layer) => ({ ...layer, origin })));
+    } else if (['.shp', '.shx', '.dbf', '.prj', '.cpg'].includes(ext)) {
       const key = f.name.slice(0, -ext.length);
-      byStem.set(key, { ...byStem.get(key), [ext]: f.bytes });
+      const entry = byStem.get(key) ?? { parts: {}, zip: f.zip };
+      entry.parts[ext] = f;
+      byStem.set(key, entry);
     }
   }
-  for (const [key, parts] of byStem) {
+  for (const [key, { parts, zip }] of byStem) {
     if (!parts['.shp']) {
       if (parts['.dbf']) throw new Error(`${stem(key + '.x')}.shp がありません（.shp・.dbf・.prj を一緒に選んでください）`);
       continue;
     }
-    const decode = (b?: Uint8Array) => (b ? new TextDecoder().decode(b) : undefined);
-    out.push(readShapefile(stem(key + '.x'), { shp: parts['.shp'], dbf: parts['.dbf'], prj: decode(parts['.prj']), cpg: decode(parts['.cpg']) }));
+    const decode = (b?: NamedBytes) => (b ? new TextDecoder().decode(b.bytes) : undefined);
+    const file = readShapefile(stem(key + '.x'), { shp: parts['.shp'].bytes, dbf: parts['.dbf']?.bytes, prj: decode(parts['.prj']), cpg: decode(parts['.cpg']) });
+    out.push({ ...file, origin: { files: parts, zip } });
   }
   if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage のどれも見つかりませんでした');
   return out;
@@ -172,7 +198,9 @@ export function readShapefile(title: string, parts: { shp: Uint8Array; dbf?: Uin
     throw new Error(`${title}.prj（座標系）がありません。.shp と一緒に .prj も選んでください`);
   }
   const fields = fieldsOf(features).map((f) => (dates.has(f.name) ? { ...f, type: 'date' as const } : f));
-  return { title, format: 'Shapefile', features: toWebMercator(features), fields, crs, encoding };
+  const shapeType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true) % 10;
+  const geometryType = ({ 1: 'Point', 3: 'LineString', 5: 'Polygon', 8: 'MultiPoint' } as const)[shapeType as 1 | 3 | 5 | 8] ?? null;
+  return { title, format: 'Shapefile', features: toWebMercator(features), fields, crs, encoding, geometryType, writeCrs: parts.prj ? prjCrs(parts.prj, crs) : wgs84 };
 }
 
 /** Reads GeoJSON: WGS 84 (RFC 7946), or the CRS named by an older `crs` member. */
@@ -192,7 +220,22 @@ export async function readGeoJson(text: string, title: string, projectionOf?: Pr
     dataProjection = projection.getCode();
   }
   const features = format.readFeatures(json, { dataProjection, featureProjection: 'EPSG:3857' }) as Feature[];
-  return { title, format: 'GeoJSON', features, fields: fieldsOf(features), crs: named ?? 'WGS 84' };
+  const writeCrs = named ? { projection: dataProjection, name: named, wkt: null, epsg: epsgCode(named) } : wgs84;
+  return { title, format: 'GeoJSON', features, fields: fieldsOf(features), crs: named ?? 'WGS 84', projection: dataProjection, writeCrs };
+}
+
+let prjCount = 0;
+
+/** The CRS of a .prj, registered with OpenLayers so features can be written back in it. */
+function prjCrs(prj: string, name: string): TargetCrs {
+  const projection = `PRJ:${++prjCount}`;
+  try {
+    proj4.defs(projection, prj);
+    register(proj4);
+  } catch {
+    return wgs84;
+  }
+  return { projection, name, wkt: prj, epsg: null };
 }
 
 const format = new GeoJSON();

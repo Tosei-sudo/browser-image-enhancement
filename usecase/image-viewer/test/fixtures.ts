@@ -337,8 +337,8 @@ export function toBase64(bytes: Uint8Array): string {
  * index and its triggers): `rows` are [geometry blob, NAME, POP, DAY] of each feature.
  */
 export async function gpkg(table: string, srs: { id: number; organization: string; code: number; definition: string }, geometryType: string, rows: Array<[Uint8Array | null, string | null, number | null, string | null]>): Promise<Uint8Array> {
-  const { openDatabase } = await import('../src/sqlite.js');
-  const db = await openDatabase();
+  const { openGeoPackageDb } = await import('../src/geopackage.js');
+  const db = await openGeoPackageDb();
   db.exec(`PRAGMA application_id = 1196444487; PRAGMA user_version = 10400;
     CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, description TEXT);
     CREATE TABLE gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL, identifier TEXT UNIQUE, description TEXT DEFAULT '', last_change DATETIME, min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER);
@@ -346,15 +346,13 @@ export async function gpkg(table: string, srs: { id: number; organization: strin
     CREATE TABLE "${table}" (fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, geom ${geometryType}, NAME TEXT(20), POP INTEGER, DAY DATE, PIC BLOB);
     CREATE VIRTUAL TABLE "rtree_${table}_geom" USING rtree(id, minx, maxx, miny, maxy);
     CREATE TRIGGER "rtree_${table}_geom_insert" AFTER INSERT ON "${table}" WHEN (new.geom NOT NULL AND NOT ST_IsEmpty(NEW.geom))
-      BEGIN INSERT OR REPLACE INTO "rtree_${table}_geom" VALUES (NEW.fid, ST_MinX(NEW.geom), ST_MaxX(NEW.geom), ST_MinY(NEW.geom), ST_MaxY(NEW.geom)); END;`);
+      BEGIN INSERT OR REPLACE INTO "rtree_${table}_geom" VALUES (NEW.fid, ST_MinX(NEW.geom), ST_MaxX(NEW.geom), ST_MinY(NEW.geom), ST_MaxY(NEW.geom)); END;
+    CREATE TRIGGER "rtree_${table}_geom_delete" AFTER DELETE ON "${table}" WHEN old.geom NOT NULL
+      BEGIN DELETE FROM "rtree_${table}_geom" WHERE id = OLD.fid; END;`);
   db.run('INSERT INTO gpkg_spatial_ref_sys VALUES (?, ?, ?, ?, ?, NULL)', ['srs', srs.id, srs.organization, srs.code, srs.definition]);
   db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, srs_id) VALUES (?, 'features', ?, ?)`, [table, table, srs.id]);
   db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', ?, ?, 0, 0)`, [table, geometryType, srs.id]);
-  // The test database has no ST_ functions: the index is filled by hand.
-  db.exec(`DROP TRIGGER "rtree_${table}_geom_insert"`);
   for (const [geom, name, pop, day] of rows) db.run(`INSERT INTO "${table}" (geom, NAME, POP, DAY, PIC) VALUES (?, ?, ?, ?, x'0102')`, [geom, name, pop, day]);
-  db.exec(`CREATE TRIGGER "rtree_${table}_geom_insert" AFTER INSERT ON "${table}" WHEN (new.geom NOT NULL AND NOT ST_IsEmpty(NEW.geom))
-      BEGIN INSERT OR REPLACE INTO "rtree_${table}_geom" VALUES (NEW.fid, ST_MinX(NEW.geom), ST_MaxX(NEW.geom), ST_MinY(NEW.geom), ST_MaxY(NEW.geom)); END;`);
   const bytes = db.export();
   db.close();
   return bytes;

@@ -15,7 +15,7 @@ vi.mock('../src/services/esri.js', () => ({
   }),
 }));
 
-const { EditSession } = await import('../src/edit-session.js');
+const { EditSession, esriTarget } = await import('../src/edit-session.js');
 
 const name: Field = { name: 'NAME', alias: 'NAME', type: 'string', editable: true, nullable: true };
 const info = { url: 'x', name: 'x', geometryType: 'esriGeometryPoint', objectIdField: 'OBJECTID', canCreate: true, canUpdate: true, canDelete: true, template: {} };
@@ -28,7 +28,7 @@ describe('EditSession.save', () => {
   it('drops the undo steps of saved edits when others fail, so undo cannot silently change saved values', async () => {
     const a = feature(1, 'a');
     const b = feature(2, 'b');
-    const session = new EditSession(info, new VectorSource({ features: [a, b] }), [name]);
+    const session = new EditSession(esriTarget(info, [name]), new VectorSource({ features: [a, b] }), [name]);
     session.setAttribute(a, name, 'a2');
     session.setAttribute(b, name, 'b2');
     const outcome = await session.save();

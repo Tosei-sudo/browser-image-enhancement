@@ -68,7 +68,10 @@ describe('readGeoPackage', () => {
     const [file] = await readGeoPackage(bytes, 'sites');
     const { db } = file.gpkg!;
     db.run('INSERT INTO sites (geom, NAME) VALUES (?, ?)', [encodeGeometry(new Point([5, 6]), 4326), 'b']);
-    expect(rows(db, 'SELECT minx, maxy FROM rtree_sites_geom WHERE id = 2')).toEqual([{ minx: 5, maxy: 6 }]);
+    expect(rows(db, 'SELECT id, minx, maxy FROM rtree_sites_geom ORDER BY id')).toEqual([
+      { id: 1, minx: 1, maxy: 2 },
+      { id: 2, minx: 5, maxy: 6 },
+    ]);
   });
 
   it('says when the file is not a GeoPackage', async () => {

@@ -12,6 +12,7 @@ import proj4 from 'proj4';
 import type { Field } from './services/index.js';
 import { openDatabase, type Database, type SqlValue } from './sqlite.js';
 import type { ProjectionLookup, VectorFile } from './vector-files.js';
+import type { TargetCrs } from './vector-write.js';
 
 /** One feature table of an open GeoPackage. */
 export interface GeoPackageTable {
@@ -34,7 +35,7 @@ export function quote(name: string): string {
 export async function readGeoPackage(bytes: Uint8Array, title: string, projectionOf?: ProjectionLookup): Promise<VectorFile[]> {
   let db: Database;
   try {
-    db = await openDatabase(bytes);
+    db = await openGeoPackageDb(bytes);
   } catch {
     throw new Error(`${title} は GeoPackage として読めませんでした`);
   }
@@ -44,7 +45,6 @@ export async function readGeoPackage(bytes: Uint8Array, title: string, projectio
     db.close();
     throw new Error(`${title} は GeoPackage として読めませんでした`);
   }
-  addSpatialFunctions(db);
   const tables = rows(db, `SELECT c.table_name, c.identifier, g.column_name, g.geometry_type_name, g.srs_id
     FROM gpkg_contents c JOIN gpkg_geometry_columns g ON g.table_name = c.table_name
     WHERE c.data_type = 'features' ORDER BY c.table_name`);
@@ -59,7 +59,8 @@ export async function readGeoPackage(bytes: Uint8Array, title: string, projectio
     const srsId = Number(t.srs_id);
     const projection = await srsProjection(db, srsId, projectionOf);
     if (!projection) throw new Error(`${name} の座標系（srs_id ${srsId}）を読めませんでした`);
-    out.push(readTable(db, { table, geometryColumn: String(t.column_name), srsId }, name, String(t.geometry_type_name), projection));
+    const layer = readTable(db, { table, geometryColumn: String(t.column_name), srsId }, name, String(t.geometry_type_name), projection);
+    out.push({ ...layer, writeCrs: srsCrs(db, srsId, projection) });
   }
   return out;
 }
@@ -131,6 +132,14 @@ function dateValue(text: string): number | null {
 export function olGeometryType(name: string): VectorFile['geometryType'] {
   const types = { POINT: 'Point', LINESTRING: 'LineString', POLYGON: 'Polygon', MULTIPOINT: 'MultiPoint', MULTILINESTRING: 'MultiLineString', MULTIPOLYGON: 'MultiPolygon' } as const;
   return types[name.toUpperCase() as keyof typeof types] ?? null;
+}
+
+/** A CRS of the GeoPackage, to write features in. */
+function srsCrs(db: Database, srsId: number, projection: string): TargetCrs {
+  const [srs] = rows(db, 'SELECT organization, organization_coordsys_id, definition FROM gpkg_spatial_ref_sys WHERE srs_id = ?', [srsId]);
+  const epsg = srs && String(srs.organization).toUpperCase() === 'EPSG' ? Number(srs.organization_coordsys_id) : null;
+  const wkt = srs && srs.definition && srs.definition !== 'undefined' ? String(srs.definition) : null;
+  return { projection, name: srsName(db, srsId), wkt, epsg };
 }
 
 /** The name the GeoPackage gives a CRS, with its code. */
@@ -215,6 +224,13 @@ function envelopeOf(blob: unknown): [minX: number, maxX: number, minY: number, m
   }
   const e = decodeGeometry(blob)?.getExtent();
   return e && Number.isFinite(e[0]) ? [e[0], e[2], e[1], e[3]] : null;
+}
+
+/** Opens a GeoPackage (or a new, empty database) with the SQL functions its R-tree triggers call. */
+export async function openGeoPackageDb(bytes?: Uint8Array): Promise<Database> {
+  const db = await openDatabase(bytes);
+  addSpatialFunctions(db);
+  return db;
 }
 
 /**

@@ -1,6 +1,7 @@
 /**
- * The edit toolbar for an editable Esri layer, over the map: add features
- * (drawn as the layer's geometry type), reshape them (drag a vertex; drag a
+ * The edit toolbar for an editable layer (an Esri layer, or a GeoJSON,
+ * Shapefile or GeoPackage file), over the map: add features (drawn as the
+ * layer's geometry type, or a chosen one when the file allows any), reshape them (drag a vertex; drag a
  * selected feature to move it), delete the selected ones, undo, discard,
  * and save. Only the tools the layer allows are shown. Leaving with unsaved
  * edits asks first, and so does closing the page.
@@ -11,18 +12,34 @@ import type Geometry from 'ol/geom/Geometry.js';
 import Draw from 'ol/interaction/Draw.js';
 import Modify from 'ol/interaction/Modify.js';
 import Translate from 'ol/interaction/Translate.js';
-import type { Type as GeometryType } from 'ol/geom/Geometry.js';
-import { EditSession } from './edit-session.js';
+import MultiLineString from 'ol/geom/MultiLineString.js';
+import MultiPoint from 'ol/geom/MultiPoint.js';
+import MultiPolygon from 'ol/geom/MultiPolygon.js';
+import type LineString from 'ol/geom/LineString.js';
+import type Point from 'ol/geom/Point.js';
+import type Polygon from 'ol/geom/Polygon.js';
+import { EditSession, editTargetOf, type DrawableType } from './edit-session.js';
 import type { ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import type { AttributeTable } from './table.js';
 
-const drawTypes: Record<string, GeometryType> = {
-  esriGeometryPoint: 'Point',
-  esriGeometryMultipoint: 'MultiPoint',
-  esriGeometryPolyline: 'LineString',
-  esriGeometryPolygon: 'Polygon',
+/** What is drawn for each type: one point, line or polygon (multi types get it as their only part). */
+const drawnAs: Record<DrawableType, 'Point' | 'LineString' | 'Polygon'> = {
+  Point: 'Point',
+  MultiPoint: 'Point',
+  LineString: 'LineString',
+  MultiLineString: 'LineString',
+  Polygon: 'Polygon',
+  MultiPolygon: 'Polygon',
 };
+
+/** A drawn geometry as the layer's type. */
+function asLayerType(geometry: Geometry, type: DrawableType): Geometry {
+  if (type === 'MultiPoint' && geometry.getType() === 'Point') return new MultiPoint([(geometry as Point).getCoordinates()]);
+  if (type === 'MultiLineString' && geometry.getType() === 'LineString') return new MultiLineString([(geometry as LineString).getCoordinates()]);
+  if (type === 'MultiPolygon' && geometry.getType() === 'Polygon') return new MultiPolygon([(geometry as Polygon).getCoordinates()]);
+  return geometry;
+}
 
 type Tool = 'select' | 'add' | 'reshape';
 
@@ -36,6 +53,8 @@ export class Editor {
   private readonly bar_: HTMLElement;
   private readonly buttons_: Record<string, HTMLButtonElement> = {};
   private readonly title_: HTMLElement;
+  /** The geometry type to draw, for files that hold any. */
+  private readonly kind_: HTMLSelectElement;
   private saving_ = false;
 
   constructor(
@@ -62,6 +81,17 @@ export class Editor {
       this.bar_.append(b);
       this.buttons_[key] = b;
     };
+    this.kind_ = document.createElement('select');
+    this.kind_.className = 'edit-kind';
+    this.kind_.title = '追加する図形';
+    this.kind_.setAttribute('aria-label', '追加する図形');
+    for (const [value, text] of [
+      ['Point', '点'],
+      ['LineString', '線'],
+      ['Polygon', '面'],
+    ]) this.kind_.add(new Option(text, value));
+    this.kind_.addEventListener('change', () => this.tool_ === 'add' && this.setTool('add'));
+    this.bar_.append(this.kind_);
     button('add', '追加', () => this.setTool(this.tool_ === 'add' ? 'select' : 'add'), true);
     button('reshape', '形状編集', () => this.setTool(this.tool_ === 'reshape' ? 'select' : 'reshape'), true);
     button('delete', '削除', () => this.deleteSelected());
@@ -92,27 +122,29 @@ export class Editor {
     return this.tool_ === 'add';
   }
 
-  /** Starts editing an editable Esri layer (another layer's editing ends first). */
+  /** Starts editing an editable layer (another layer's editing ends first). */
   start(entry: ViewerService): boolean {
     if (this.entry_ === entry) return true;
+    const target = editTargetOf(entry.service);
+    const vector = entry.service.vector;
+    if (!target || !vector) return false;
     if (this.entry_ && !this.stop()) return false;
-    const { esri, vector } = entry.service;
-    if (!esri || !vector) return false;
     this.entry_ = entry;
-    this.session_ = new EditSession(esri, vector.source, vector.fields);
+    this.session_ = new EditSession(target, vector.source, vector.fields);
     this.session_.on('change', () => {
       this.update_();
       this.options.onChange?.();
     });
     this.title_.textContent = `編集中: ${entry.name}`;
-    this.buttons_.add.hidden = !esri.canCreate || !drawTypes[esri.geometryType];
-    this.buttons_.reshape.hidden = !esri.canUpdate;
-    this.buttons_.delete.hidden = !esri.canDelete;
+    this.buttons_.add.hidden = !target.canCreate;
+    this.kind_.hidden = !target.canCreate || target.geometryType !== null;
+    this.buttons_.reshape.hidden = !target.canUpdate;
+    this.buttons_.delete.hidden = !target.canDelete;
     this.bar_.hidden = false;
     entry.row.classList.add('editing');
     this.table.setSession(this.session_);
     this.setTool('select');
-    this.options.say(`${entry.name} を編集できます。変更は「保存」を押すまでサーバーに送られません`);
+    this.options.say(`${entry.name} を編集できます。変更は「保存」を押すまで${target.savedTo}に書き込まれません`);
     return true;
   }
 
@@ -138,14 +170,16 @@ export class Editor {
     this.tool_ = tool;
     const session = this.session_;
     if (session && tool === 'add') {
-      this.draw_ = new Draw({ type: drawTypes[session.info.geometryType] });
+      const type = session.target.geometryType ?? (this.kind_.value as DrawableType);
+      this.draw_ = new Draw({ type: drawnAs[type] });
       this.draw_.on('drawend', (e) => {
         const feature = e.feature as Feature;
+        feature.setGeometry(asLayerType(feature.getGeometry()!, type));
         session.add(feature);
         this.selection.set([feature]);
         this.table.setMode('selected');
         this.table.focusRow(feature);
-        this.options.say('地物を追加しました。属性テーブルで属性を入力し、「保存」で送信します');
+        this.options.say(`地物を追加しました。属性テーブルで属性を入力し、「保存」で${session.target.savedTo}に書き込みます`);
       });
       this.map.addInteraction(this.draw_);
     } else if (session && tool === 'reshape') {
@@ -178,10 +212,11 @@ export class Editor {
       this.options.say('削除する地物を地図か属性テーブルで選んでください');
       return false;
     }
-    if (!confirm(`${features.length} 件の地物を削除しますか？（「保存」を押すまでサーバーからは消えません）`)) return false;
+    const to = session.target.savedTo;
+    if (!confirm(`${features.length} 件の地物を削除しますか？（「保存」を押すまで${to}からは消えません）`)) return false;
     this.selection.remove(features);
     session.delete(features);
-    this.options.say(`${features.length} 件を削除しました。「保存」でサーバーに反映します（「元に戻す」で戻せます）`);
+    this.options.say(`${features.length} 件を削除しました。「保存」で${to}に反映します（「元に戻す」で戻せます）`);
     return true;
   }
 
@@ -200,10 +235,10 @@ export class Editor {
     this.update_();
     this.options.say('保存しています…');
     try {
-      const { saved, failed } = await session.save();
+      const { saved, failed, note } = await session.save();
       this.options.say(
         failed.length === 0
-          ? `${saved} 件の変更を保存しました`
+          ? `${saved} 件の変更を保存しました${note ? `（${note}）` : ''}`
           : `${saved} 件を保存し、${failed.length} 件は保存できませんでした（${failed[0].message}）。保存できなかった行は赤で示しています`,
       );
     } catch (error) {

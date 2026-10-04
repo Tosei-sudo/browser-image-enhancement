@@ -1,25 +1,124 @@
 /**
- * Unsaved edits of an Esri layer: features added, reshaped, moved, deleted
- * and attributes changed, each step undoable, until "save" sends them all
- * in one `applyEdits`. Features the server refuses stay unsaved, with the
- * server's reason.
+ * Unsaved edits of a vector layer: features added, reshaped, moved, deleted
+ * and attributes changed, each step undoable, until "save" hands them all
+ * to the layer's {@link EditTarget}: an Esri service (one `applyEdits`) or
+ * a local file (written again). Features the target refuses stay unsaved,
+ * with its reason.
  */
 import type Feature from 'ol/Feature.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import Observable from 'ol/Observable.js';
 import type VectorSource from 'ol/source/Vector.js';
 import { applyEdits, esriGeometry, queryIds, type EsriLayerInfo } from './services/esri.js';
-import type { Field } from './services/index.js';
+import type { Field, ServiceLayer } from './services/index.js';
 
 export interface SaveOutcome {
   saved: number;
   failed: Array<{ feature: Feature | null; message: string }>;
+  /** What the target says about where the edits went. */
+  note?: string;
+}
+
+/** Geometry types a layer can draw, as OpenLayers names them. */
+export type DrawableType = 'Point' | 'LineString' | 'Polygon' | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon';
+
+/** The unsaved edits handed to a target. */
+export interface Edits {
+  adds: Feature[];
+  /** Changed features (not added, not deleted): which attributes, and whether the geometry. */
+  updates: Array<{ feature: Feature; attributes: string[]; geometry: boolean }>;
+  deletes: Feature[];
+}
+
+/** Where the edits of a layer go, and what it allows. */
+export interface EditTarget {
+  canCreate: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+  /** The geometry type new features are drawn as; null when any (the toolbar asks). */
+  geometryType: DrawableType | null;
+  /** Attributes a new feature starts with. */
+  template: Record<string, unknown>;
+  /** What the "save" button says it does (status line). */
+  savedTo: string;
+  /** Saves the edits; returns why each refused feature was refused (none: all saved), and a note for the status line. */
+  save(edits: Edits): Promise<{ refused?: Map<Feature, string>; note?: string }>;
+}
+
+/** Where the edits of a layer go; null when it cannot be edited. */
+export function editTargetOf(service: ServiceLayer): EditTarget | null {
+  if (service.editTarget) return service.editTarget;
+  const { esri, vector } = service;
+  if (!esri || !vector || !(esri.canCreate || esri.canUpdate || esri.canDelete)) return null;
+  return esriTarget(esri, vector.fields);
+}
+
+const esriDrawTypes: Record<string, DrawableType> = {
+  esriGeometryPoint: 'Point',
+  esriGeometryMultipoint: 'MultiPoint',
+  esriGeometryPolyline: 'LineString',
+  esriGeometryPolygon: 'Polygon',
+};
+
+/** An editable Esri layer: the edits go to the server in one `applyEdits`, and what was saved is read back. */
+export function esriTarget(info: EsriLayerInfo, fields: Field[]): EditTarget {
+  const oid = info.objectIdField;
+  const editable = new Set(fields.filter((f) => f.editable).map((f) => f.name));
+  const attributesOf = (f: Feature, names: Iterable<string>) => Object.fromEntries([...names].filter((n) => editable.has(n)).map((n) => [n, f.get(n) ?? null]));
+  return {
+    canCreate: info.canCreate && !!esriDrawTypes[info.geometryType],
+    canUpdate: info.canUpdate,
+    canDelete: info.canDelete,
+    geometryType: esriDrawTypes[info.geometryType] ?? null,
+    template: Object.fromEntries(Object.entries(info.template).filter(([name]) => name !== oid)),
+    savedTo: 'サーバー',
+    async save({ adds, updates, deletes }) {
+      const result = await applyEdits(info, {
+        adds: adds.map((f) => ({ geometry: esriGeometry(f.getGeometry()!), attributes: attributesOf(f, Object.keys(f.getProperties())) })),
+        updates: updates.map(({ feature: f, attributes, geometry }) => ({
+          attributes: { [oid]: f.get(oid), ...attributesOf(f, attributes) },
+          ...(geometry ? { geometry: esriGeometry(f.getGeometry()!) } : {}),
+        })),
+        deletes: deletes.map((f) => Number(f.get(oid))),
+      });
+      const failed = new Map<Feature, string>();
+      const reread: Array<[Feature, number]> = [];
+      const check = (f: Feature, r: { success?: boolean; error?: { description: string } | null } | undefined) => {
+        if (!r?.success) failed.set(f, r?.error?.description ?? '理由不明');
+        return !!r?.success;
+      };
+      adds.forEach((f, i) => {
+        const r = result.addResults[i];
+        if (!check(f, r && r.objectId === undefined ? { ...r, success: false } : r)) return;
+        f.set(oid, r.objectId);
+        f.setId(r.objectId);
+        reread.push([f, r.objectId!]);
+      });
+      updates.forEach(({ feature: f }, i) => {
+        if (check(f, result.updateResults[i])) reread.push([f, Number(f.get(oid))]);
+      });
+      deletes.forEach((f, i) => check(f, result.deleteResults[i]));
+      // Values the server fills in (edit tracking, defaults).
+      if (reread.length) {
+        const fresh = await queryIds(info.url, oid, reread.map(([, id]) => id), info.token).catch(() => []);
+        const byId = new Map(fresh.map((f) => [f.getId(), f]));
+        for (const [f, id] of reread) {
+          const server = byId.get(id);
+          if (!server) continue;
+          const { [server.getGeometryName()]: geometry, ...attributes } = server.getProperties();
+          f.setProperties(attributes);
+          if (geometry) f.setGeometry(geometry as Geometry);
+        }
+      }
+      return { refused: failed };
+    },
+  };
 }
 
 /** Fires `change` after every edit, undo, discard and save. */
 export class EditSession extends Observable {
   private readonly added_ = new Set<Feature>();
-  private readonly deleted_ = new Map<Feature, number>();
+  private readonly deleted_ = new Set<Feature>();
   private readonly geometry_ = new Set<Feature>();
   private readonly attributes_ = new Map<Feature, Set<string>>();
   /**
@@ -31,7 +130,7 @@ export class EditSession extends Observable {
   private readonly errors_ = new Map<Feature, string>();
 
   constructor(
-    readonly info: EsriLayerInfo,
+    readonly target: EditTarget,
     readonly source: VectorSource<Feature>,
     readonly fields: Field[],
   ) {
@@ -65,12 +164,12 @@ export class EditSession extends Observable {
 
   /** Whether an attribute can be changed on this feature. */
   canEdit(feature: Feature, field: Field): boolean {
-    return field.editable && (this.added_.has(feature) ? this.info.canCreate : this.info.canUpdate);
+    return field.editable && (this.added_.has(feature) ? this.target.canCreate : this.target.canUpdate);
   }
 
   /** A new feature, drawn on the map: it gets the template's attributes. */
   add(feature: Feature): void {
-    for (const [name, value] of Object.entries(this.info.template)) if (name !== this.info.objectIdField) feature.set(name, value, true);
+    for (const [name, value] of Object.entries(this.target.template)) feature.set(name, value, true);
     this.source.addFeature(feature);
     this.added_.add(feature);
     this.push_(
@@ -97,7 +196,7 @@ export class EditSession extends Observable {
         this.added_.delete(feature);
         removed.push({ feature, added: true });
       } else {
-        this.deleted_.set(feature, Number(feature.get(this.info.objectIdField)));
+        this.deleted_.add(feature);
         removed.push({ feature, added: false });
       }
     }
@@ -185,73 +284,35 @@ export class EditSession extends Observable {
     this.changed();
   }
 
-  /** Sends every unsaved edit; succeeded ones are read back from the server (for values it fills in). */
+  /** Hands every unsaved edit to the target; what it saved can no longer be undone. */
   async save(): Promise<SaveOutcome> {
-    const oid = this.info.objectIdField;
-    const editable = new Set(this.fields.filter((f) => f.editable).map((f) => f.name));
     const adds = [...this.added_];
-    const updates = [...new Set([...this.geometry_, ...this.attributes_.keys()])].filter((f) => !this.added_.has(f) && !this.deleted_.has(f));
+    const updates = [...new Set([...this.geometry_, ...this.attributes_.keys()])]
+      .filter((f) => !this.added_.has(f) && !this.deleted_.has(f))
+      .map((feature) => ({ feature, attributes: [...(this.attributes_.get(feature) ?? [])], geometry: this.geometry_.has(feature) }));
     const deletes = [...this.deleted_];
     const outcome: SaveOutcome = { saved: 0, failed: [] };
     if (adds.length + updates.length + deletes.length === 0) return outcome;
 
-    const attributesOf = (f: Feature, names: Iterable<string>) => Object.fromEntries([...names].filter((n) => editable.has(n)).map((n) => [n, f.get(n) ?? null]));
-    const result = await applyEdits(this.info, {
-      adds: adds.map((f) => ({ geometry: esriGeometry(f.getGeometry()!), attributes: attributesOf(f, Object.keys(f.getProperties())) })),
-      updates: updates.map((f) => ({
-        attributes: { [oid]: f.get(oid), ...attributesOf(f, this.attributes_.get(f) ?? []) },
-        ...(this.geometry_.has(f) ? { geometry: esriGeometry(f.getGeometry()!) } : {}),
-      })),
-      deletes: deletes.map(([, id]) => id),
-    });
-
-    const reread: Array<[Feature, number]> = [];
-    const fail = (f: Feature, r: { error?: { description: string } | null } | undefined) => {
-      const message = r?.error?.description ?? '理由不明';
-      this.errors_.set(f, message);
-      outcome.failed.push({ feature: f, message });
-    };
-    adds.forEach((f, i) => {
-      const r = result.addResults[i];
-      if (!r?.success || r.objectId === undefined) return fail(f, r);
-      f.set(oid, r.objectId);
-      f.setId(r.objectId);
+    const { refused = new Map<Feature, string>(), note } = await this.target.save({ adds, updates, deletes });
+    outcome.note = note;
+    for (const f of [...adds, ...updates.map((u) => u.feature), ...deletes]) {
+      const message = refused.get(f);
+      if (message !== undefined) {
+        this.errors_.set(f, message);
+        outcome.failed.push({ feature: f, message });
+        continue;
+      }
       this.added_.delete(f);
-      this.forget_(f);
-      reread.push([f, r.objectId]);
-      outcome.saved++;
-    });
-    updates.forEach((f, i) => {
-      const r = result.updateResults[i];
-      if (!r?.success) return fail(f, r);
-      this.forget_(f);
-      reread.push([f, Number(f.get(oid))]);
-      outcome.saved++;
-    });
-    deletes.forEach(([f], i) => {
-      const r = result.deleteResults[i];
-      if (!r?.success) return fail(f, r);
       this.deleted_.delete(f);
       this.forget_(f);
       outcome.saved++;
-    });
-    // What was saved can no longer be undone (undoing it would only change the map, not the server);
+    }
+    // What was saved can no longer be undone (undoing it would only change the map, not what was saved);
     // the steps of failed edits keep their place.
     const failed = new Set(outcome.failed.map((f) => f.feature));
     for (const step of this.undo_) for (const feature of [...step.keys()]) if (!failed.has(feature)) step.delete(feature);
     for (let i = this.undo_.length - 1; i >= 0; i--) if (this.undo_[i].size === 0) this.undo_.splice(i, 1);
-
-    if (reread.length) {
-      const fresh = await queryIds(this.info.url, oid, reread.map(([, id]) => id), this.info.token).catch(() => []);
-      const byId = new Map(fresh.map((f) => [f.getId(), f]));
-      for (const [f, id] of reread) {
-        const server = byId.get(id);
-        if (!server) continue;
-        const { [server.getGeometryName()]: geometry, ...attributes } = server.getProperties();
-        f.setProperties(attributes);
-        if (geometry) f.setGeometry(geometry as Geometry);
-      }
-    }
     this.changed();
     return outcome;
   }
