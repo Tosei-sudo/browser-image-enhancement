@@ -3,13 +3,12 @@ name: Deploy image viewer
 # Deploys usecase/image-viewer to the VPS once CI passes on the default branch
 # (i.e. after a merge), or on demand from the Actions tab.
 #
-# Uploads over FTP with lftp (FTPS via AUTH TLS when the server offers it,
-# plain FTP otherwise). Repository secrets:
+# Uploads over SFTP (SSH, password login) with lftp. Repository secrets:
 #   VPS_HOST                       host name or IP of the server
-#   VPS_USER / VPS_USER_PASSWORD   FTP login
-#   IMAGE_VIEWER_DEPLOY_DIRECTORY  directory the site is served from, as the FTP
-#                                  user sees it (created if missing)
-#   VPS_PORT                       optional, FTP port (default 21)
+#   VPS_USER / VPS_USER_PASSWORD   SSH login
+#   IMAGE_VIEWER_DEPLOY_DIRECTORY  directory the site is served from (created if missing;
+#                                  a relative path is relative to the user's home)
+#   VPS_PORT                       optional, SSH port (default 22)
 #
 # public/config.json is only uploaded when the server has none, so edits made on
 # the server survive later deploys.
@@ -67,10 +66,8 @@ jobs:
           # 1st mirror: everything but config.json; --delete removes files of older builds
           # (the excluded config.json is left alone).
           # 2nd mirror: config.json only when the server has none yet.
-          # Self-signed certificates are common on VPS FTP servers, so the TLS certificate is not verified.
-          # ftp:ignore-pasv-address: servers behind NAT often answer PASV with a private address;
-          # the data connection then goes to the address the control connection uses.
-          # The FTP dialog goes to a log that is printed only on failure (lftp masks PASS).
+          # sftp:auto-confirm accepts the server's host key on first contact (each runner is fresh).
+          # The session log is printed only on failure; it never contains the password.
           log="$RUNNER_TEMP/lftp.log"
           if ! lftp -c "
             debug -o $log 5
@@ -78,15 +75,13 @@ jobs:
             set net:max-retries 2
             set net:timeout 20
             set net:reconnect-interval-base 5
-            set ftp:ssl-allow yes
-            set ssl:verify-certificate no
-            set ftp:ignore-pasv-address yes
-            open -p ${VPS_PORT:-21} -u \"$VPS_USER\" --env-password \"$VPS_HOST\"
+            set sftp:auto-confirm yes
+            open -p ${VPS_PORT:-22} -u \"$VPS_USER\" --env-password \"sftp://$VPS_HOST\"
             mkdir -p -f \"$dir\"
             mirror -R --delete --no-perms --verbose=1 --exclude-glob config.json usecase/image-viewer/dist/ \"$dir/\"
             mirror -R --only-missing --no-perms --verbose=1 --include-glob config.json usecase/image-viewer/dist/ \"$dir/\"
           "; then
-            echo "::group::FTP log (last 80 lines)"
+            echo "::group::SFTP log (last 80 lines)"
             tail -n 80 "$log"
             echo "::endgroup::"
             exit 1
