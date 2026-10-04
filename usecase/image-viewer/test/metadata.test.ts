@@ -3,8 +3,10 @@ import { fromArrayBuffer, globals, writeArrayBuffer, type GeoTIFFImage } from 'g
 import { imageToGeoTIFF } from 'browser-image-enhancement/openlayers';
 import { describeTiff, sectionsToJson, sectionsToText, type MetadataSection } from '../src/metadata.js';
 
-globals.fieldTagTypes[globals.tags.GDAL_METADATA] = 'ASCII';
-globals.fieldTagTypes[globals.tags.GDAL_NODATA] = 'ASCII';
+// geotiff.js reads GDAL's metadata tags but has no type to write them with.
+const tagTypes = globals.fieldTagTypes as Record<number, string>;
+tagTypes[globals.tags.GDAL_METADATA] = 'ASCII';
+tagTypes[globals.tags.GDAL_NODATA] = 'ASCII';
 
 async function imagesOf(bytes: ArrayBuffer): Promise<GeoTIFFImage[]> {
   const tiff = await fromArrayBuffer(bytes);
@@ -36,7 +38,7 @@ describe('describeTiff', () => {
       ProjectedCSTypeGeoKey: 32654,
       GTModelTypeGeoKey: 1,
       GTRasterTypeGeoKey: 1,
-    });
+    } as Parameters<typeof writeArrayBuffer>[1]);
     const sections = await describeTiff(await imagesOf(bytes), { name: 'scene.tif' });
 
     const summary = rows(sections, '概要');
