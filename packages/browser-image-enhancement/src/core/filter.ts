@@ -163,7 +163,7 @@ export function sharpenRows(
   fill: (y: number, out: readonly Float32Array[], o: number) => void,
   emit: (y: number, vals: readonly Float32Array[], o: number) => void,
 ): void {
-  const height = width > 0 ? (rgba.length >> 2) / width : 0;
+  const height = width > 0 ? (rgba.length >>> 2) / width : 0;
   const k = gaussian(stage.radius);
   const r = (k.length - 1) >> 1;
   const span = 2 * r + 1;

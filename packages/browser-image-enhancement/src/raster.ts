@@ -109,12 +109,13 @@ function layout(r: Raster): Layout {
   return { bands, picture, alpha, noData: r.noData ?? null };
 }
 
-/** Whether pixel `p` (index of its first value) is transparent or has no data in a picture band. */
+/** Whether pixel `p` (index of its first value) is transparent or has no data (or a non-finite value) in a picture band. */
 function hidden(data: ArrayLike<number>, p: number, l: Layout): boolean {
   if (l.alpha >= 0 && data[p + l.alpha] === 0) return true;
   for (const b of l.picture) {
     const v = data[p + b];
-    if (v !== v || v === l.noData) return true;
+    // NaN and ±Infinity count as no data: one infinite value would otherwise make the whole range infinite.
+    if (v - v !== 0 || v === l.noData) return true;
   }
   return false;
 }

@@ -155,6 +155,7 @@ var EnhanceControl = class extends Control {
 	frame_ = 0;
 	mapKeys_ = [];
 	sourceKeys_ = [];
+	layerKey_ = null;
 	constructor(options = {}) {
 		const element = document.createElement("div");
 		super({
@@ -305,7 +306,7 @@ var EnhanceControl = class extends Control {
 		this.panel_.append(adjustments);
 		this.pipeline_ = this.build_();
 		this.setCollapsed(options.collapsed ?? true);
-		if (this.layer_) this.layer_.on("change:source", () => this.bindSource_());
+		if (this.layer_) this.layerKey_ = this.layer_.on("change:source", () => this.bindSource_());
 		this.bindSource_();
 	}
 	/**
@@ -383,6 +384,7 @@ var EnhanceControl = class extends Control {
 		cancelAnimationFrame(this.frame_);
 		unByKey(this.mapKeys_);
 		unByKey(this.sourceKeys_);
+		if (this.layerKey_) unByKey(this.layerKey_);
 		super.disposeInternal();
 	}
 	/** Gives a newly set source the current correction, and follows its color mode. */

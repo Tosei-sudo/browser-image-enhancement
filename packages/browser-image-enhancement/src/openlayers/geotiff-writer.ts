@@ -83,6 +83,7 @@ export function imageToGeoTIFF(image: ImageDataLike, placement: GeoTIFFPlacement
     if (alpha) entries.push({ tag: 338, type: SHORT, values: [2] }); // unassociated alpha
     entries.push({ tag: 339, type: SHORT, values: new Array(bands).fill(1) }); // unsigned
     if (i === 0) {
+      if (!Number.isInteger(epsg) || epsg < 1 || epsg > 65535) throw new RangeError(`EPSG code ${epsg} cannot be written as a GeoTIFF key (1-65535).`);
       const geographic = epsg === 4326;
       entries.push(
         { tag: 33550, type: DOUBLE, values: [(maxX - minX) / width, (maxY - minY) / height, 0] },

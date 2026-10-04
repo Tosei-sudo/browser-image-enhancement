@@ -120,5 +120,5 @@ export function resize(image: ImageDataLike, width: number, height: number, opti
     throw new RangeError('`width` and `height` must be whole numbers of at least 1.');
   }
   const t = scaling(width / image.width, height / image.height);
-  return warpImageData(image, t, { resample: options.resample, extent: [0, 0, width, height], width, height, yUp: false }).image;
+  return warpImageData(image, t, { resample: options.resample, extent: [0, 0, width, height], width, height, yUp: false, edges: 'clamp' }).image;
 }

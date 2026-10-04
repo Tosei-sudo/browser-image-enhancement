@@ -126,6 +126,8 @@ class EditorImpl implements Editor {
   /** Scale of the image uploaded to the GPU (1 unless the GPU limits its size). */
   private gpuScale = 1;
   private stats: Histogram | null = null;
+  /** Counts setImage calls, so a slower earlier decode does not win. */
+  private imageGeneration = 0;
   private last: Pipeline | null = null;
   private generation = 0;
   private frame = 0;
@@ -152,8 +154,11 @@ class EditorImpl implements Editor {
 
   async setImage(input: ImageInput): Promise<void> {
     this.check();
+    // A slower decode of an earlier image must not replace a newer one.
+    const generation = ++this.imageGeneration;
     const decoded = await toImageData(input);
     this.check();
+    if (generation !== this.imageGeneration) return;
     this.image = decoded instanceof ImageData ? decoded : createImageData(decoded.data, decoded.width, decoded.height);
     this.stats = null;
     this.uploadToGpu();

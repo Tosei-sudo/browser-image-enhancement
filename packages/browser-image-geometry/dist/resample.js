@@ -77,9 +77,11 @@ function cubic(t) {
 * Renders output rows `[y0, y1)` of an image `width` pixels wide into `out`
 * (RGBA, `(y1 - y0) × width`). Interpolation is on premultiplied alpha, so
 * transparent pixels do not darken their neighbours; samples outside the
-* source are transparent and then composited over `background`.
+* source are transparent and then composited over `background`. With
+* `clampEdges`, taps beyond the window's edge read its edge pixels instead
+* (the window must then end where the source ends wherever samples get near it).
 */
-function renderRows(src, mapping, width, y0, y1, resample, background, out) {
+function renderRows(src, mapping, width, y0, y1, resample, background, out, clampEdges = false) {
 	const map = rowMapper(mapping);
 	const pos = new Float64Array(width * 2);
 	const { data, width: sw, height: sh, x0: ox, y0: oy } = src;
@@ -101,8 +103,12 @@ function renderRows(src, mapping, width, y0, y1, resample, background, out) {
 			let a = 0;
 			if (Number.isFinite(sx) && Number.isFinite(sy)) {
 				if (resample === "nearest") {
-					const i = Math.floor(sx);
-					const j = Math.floor(sy);
+					let i = Math.floor(sx);
+					let j = Math.floor(sy);
+					if (clampEdges) {
+						i = Math.min(Math.max(i, 0), sw - 1);
+						j = Math.min(Math.max(j, 0), sh - 1);
+					}
 					if (i >= 0 && j >= 0 && i < sw && j < sh) {
 						const s = (j * sw + i) * 4;
 						a = data[s + 3] / 255;
@@ -141,10 +147,12 @@ function renderRows(src, mapping, width, y0, y1, resample, background, out) {
 							wy[t] = cubic(fy - (t - 1));
 						}
 						for (let tj = 0; tj < taps; tj++) {
-							const j = iy + first + tj;
+							let j = iy + first + tj;
+							if (clampEdges) j = Math.min(Math.max(j, 0), sh - 1);
 							if (j < 0 || j >= sh || wy[tj] === 0) continue;
 							for (let ti = 0; ti < taps; ti++) {
-								const i = ix + first + ti;
+								let i = ix + first + ti;
+								if (clampEdges) i = Math.min(Math.max(i, 0), sw - 1);
 								if (i < 0 || i >= sw || wx[ti] === 0) continue;
 								const s = (j * sw + i) * 4;
 								const w = wx[ti] * wy[tj] * data[s + 3] / 255;

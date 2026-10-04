@@ -1,4 +1,4 @@
-import { createImageData } from "../workers/src/image.js";
+import { assertImageData, createImageData } from "../workers/src/image.js";
 import { COLOR_ONLY_OPS, isIdentity, kernelRadius, normalizeOp } from "../ops/index.js";
 import { forGray, resolveMode } from "../core/process.js";
 import { countPixels, needsStats, resolveOps } from "../core/histogram.js";
@@ -76,12 +76,14 @@ var Renderer = class {
 	*/
 	targets = /* @__PURE__ */ new Map();
 	params = /* @__PURE__ */ new Float32Array(8);
+	vao;
 	constructor(gl, canvas) {
 		this.gl = gl;
 		this.canvas = canvas;
 		this.maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
 		this.vertex = this.shader(gl.VERTEX_SHADER, VERTEX);
-		gl.bindVertexArray(gl.createVertexArray());
+		this.vao = gl.createVertexArray();
+		gl.bindVertexArray(this.vao);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
 		this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
@@ -90,6 +92,7 @@ var Renderer = class {
 	}
 	setImage(image, options = {}) {
 		const pixels = "data" in image ? image : null;
+		if (pixels) assertImageData(pixels);
 		const [width, height] = pixels ? [pixels.width, pixels.height] : sourceSize(image);
 		if (width > this.maxSize || height > this.maxSize) throw new RangeError(`${width}x${height} is larger than this GPU accepts (${this.maxSize} pixels per side).`);
 		const gl = this.gl;
@@ -190,6 +193,7 @@ var Renderer = class {
 		for (const p of this.programs.values()) gl.deleteProgram(p);
 		this.programs.clear();
 		gl.deleteShader(this.vertex);
+		gl.deleteVertexArray(this.vao);
 		this.source = null;
 		this.image = null;
 	}

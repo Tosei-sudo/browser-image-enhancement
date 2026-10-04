@@ -28,6 +28,13 @@ export interface OutputOptions {
   tolerance?: number;
   /** Overrides the transform's `yUp`: true puts the largest y at the top of the output. */
   yUp?: boolean;
+  /**
+   * What sampling reads beyond the source's outer pixel centers. `transparent`
+   * (default) fades the edge out, which keeps the outline of a warped image
+   * smooth; `clamp` repeats the edge pixels, for outputs that lie wholly on
+   * the source (a resize), so opaque images stay opaque up to their border.
+   */
+  edges?: 'transparent' | 'clamp';
 }
 /** Where a warped image sits in output coordinates. */
 export interface WarpInfo {

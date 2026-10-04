@@ -302,3 +302,22 @@ describe('monochrome handling', () => {
     expect(Array.from(extractGray(img.data))).toEqual([77, 0]);
   });
 });
+
+describe('decreasing steps (inverting curve or levels)', () => {
+  const inverting = [
+    [{ op: 'saturation', amount: 0.3 }, { op: 'curve', points: [[0, 1], [1, 0]] }],
+    [{ op: 'saturation', amount: 0.3 }, { op: 'levels', outBlack: 1, outWhite: 0 }],
+    [{ op: 'curve', points: [[0, 1], [1, 0]] }, { op: 'sharpen', amount: 1 }, { op: 'curve', points: [[0, 1], [1, 0]] }],
+  ];
+  for (const ops of inverting as Array<Array<{ op: string }>>) {
+    it(`fold to the same result as step by step: ${ops.map((o) => o.op).join(', ')}`, () => {
+      const img = noiseImage(16, 16);
+      const go = (mode: ResolvedMode, fuse: boolean) => {
+        const out = new Uint8ClampedArray(img.data.length);
+        processPixels(img.data, out, compile((ops as unknown[]).map(normalizeOp), mode, { fuse }), img.width);
+        return out;
+      };
+      for (const mode of ['rgb', 'gray'] as const) expect(maxDiff(go(mode, true), go(mode, false))).toBeLessThanOrEqual(1);
+    });
+  }
+});

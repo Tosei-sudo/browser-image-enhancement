@@ -140,7 +140,7 @@ function accumulate(out, src, at, kk, width) {
 * Rows that are fully opaque skip the weight sums, whose values are then known.
 */
 function sharpenRows(rgba, width, channels, stage, fill, emit) {
-	const height = width > 0 ? (rgba.length >> 2) / width : 0;
+	const height = width > 0 ? (rgba.length >>> 2) / width : 0;
 	const k = gaussian(stage.radius);
 	const r = k.length - 1 >> 1;
 	const span = 2 * r + 1;

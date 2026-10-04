@@ -254,7 +254,7 @@ export class AttributeTable {
   /** Copies the rows of `features` (visible columns, with a header) as tab-separated text, for a spreadsheet. */
   async copyRows(features: Feature[]): Promise<void> {
     const fields = this.visibleFields_();
-    const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
+    const clean = (s: string) => defuse(s.replace(/[\t\r\n]+/g, ' '));
     const text = [fields.map((f) => clean(f.alias)), ...features.map((r) => fields.map((f) => clean(display(f, r.get(f.name)))))].map((l) => l.join('\t')).join('\n');
     try {
       await navigator.clipboard.writeText(text);
@@ -339,7 +339,10 @@ export class AttributeTable {
     const data = this.data_;
     if (!data) return;
     const fields = this.visibleFields_();
-    const quote = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+    const quote = (text: string) => {
+      const s = defuse(text);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
     const lines = [fields.map((f) => quote(f.alias)), ...this.rows_.map((r) => fields.map((f) => quote(display(f, r.get(f.name)))))];
     const blob = new Blob(['\uFEFF', lines.map((l) => l.join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a');
@@ -365,7 +368,8 @@ export class AttributeTable {
     if (this.frame_) return;
     this.frame_ = requestAnimationFrame(() => {
       this.frame_ = 0;
-      this.rebuild_();
+      // A cell being typed in stays (its row is redrawn once the rows shown change).
+      this.rebuild_(!this.typing_());
     });
   }
 
@@ -417,8 +421,14 @@ export class AttributeTable {
     this.search_.disabled = !this.data_;
   }
 
-  /** Filters and sorts the rows again, then draws them. */
-  private rebuild_(): void {
+  /** Whether an input or select in the rows has the focus. */
+  private typing_(): boolean {
+    const active = document.activeElement;
+    return !!active && this.table_.tBodies[0].contains(active) && active.matches('input:not([type="checkbox"]), select');
+  }
+
+  /** Filters and sorts the rows again, then draws them (`force`: even when the same rows are in view). */
+  private rebuild_(force = true): void {
     const data = this.data_;
     let rows: Feature[] = [];
     if (data) {
@@ -436,7 +446,7 @@ export class AttributeTable {
     }
     this.rows_ = rows;
     this.updateCount_();
-    this.renderRows_(true);
+    this.renderRows_(force);
   }
 
   private updateCount_(): void {
@@ -613,6 +623,16 @@ export function display(field: Field, value: unknown): string {
   if (field.type === 'date' && typeof value === 'number') return new Date(value).toLocaleString('ja-JP');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+/**
+ * Text a spreadsheet would read as a formula (`=`, `+`, `-`, `@`, or a tab or
+ * carriage return first) gets a leading `'`, so attribute values from a
+ * service or a file cannot run as formulas when the CSV or the copied rows
+ * are opened. Plain numbers (`-12.5`) stay as they are.
+ */
+export function defuse(text: string): string {
+  return /^[=+\-@\t\r]/.test(text) && !/^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(text) ? `'${text}` : text;
 }
 
 function compare(a: unknown, b: unknown, field?: Field): number {

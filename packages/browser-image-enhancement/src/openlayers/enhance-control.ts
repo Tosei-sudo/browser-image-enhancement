@@ -216,6 +216,7 @@ export default class EnhanceControl extends Control {
   private frame_ = 0;
   private mapKeys_: EventsKey[] = [];
   private sourceKeys_: EventsKey[] = [];
+  private layerKey_: EventsKey | null = null;
 
   constructor(options: EnhanceControlOptions = {}) {
     const element = document.createElement('div');
@@ -344,7 +345,7 @@ export default class EnhanceControl extends Control {
     this.pipeline_ = this.build_();
     this.setCollapsed(options.collapsed ?? true);
     if (this.layer_) {
-      this.layer_.on('change:source', () => this.bindSource_());
+      this.layerKey_ = this.layer_.on('change:source', () => this.bindSource_());
     }
     this.bindSource_();
   }
@@ -436,6 +437,7 @@ export default class EnhanceControl extends Control {
     cancelAnimationFrame(this.frame_);
     unByKey(this.mapKeys_);
     unByKey(this.sourceKeys_);
+    if (this.layerKey_) unByKey(this.layerKey_);
     super.disposeInternal();
   }
 
