@@ -183,7 +183,7 @@ test('the band selects assign bands of a multiband image to R, G and B', async (
   /** The first pixel of tile 0/0/0 as the layer gets it: the bands OpenLayers draws. */
   const pixel = () =>
     page.evaluate(async () => {
-      const source = window.controlsExample.enhance.getSource()!;
+      const source = window.controlsExample.enhance.getSource() as import('../../src/openlayers/enhanced-geotiff.js').default;
       const z = source.getTileGrid()!.getMinZoom();
       const tile = source.getTile(z, 0, 0, 1, source.getProjection()!)!;
       tile.load();

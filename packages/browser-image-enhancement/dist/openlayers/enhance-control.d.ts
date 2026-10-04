@@ -1,9 +1,13 @@
 import { Pipeline } from "../pipeline.js";
 import EnhancedGeoTIFF from "./enhanced-geotiff.js";
+import TileCorrection from "./tile-correction.js";
 import Control from "ol/control/Control.js";
 import OlMap from "ol/Map.js";
 import Layer from "ol/layer/Layer.js";
 //#region src/openlayers/enhance-control.d.ts
+/** Steps a slider can set: those with number parameters. */
+/** What an {@link EnhanceControl} corrects: a GeoTIFF source, or the correction of a layer of picture tiles. */
+export type EnhanceTarget = EnhancedGeoTIFF | TileCorrection;
 /** Steps a slider can set: those with number parameters. */
 export type SliderOp = 'brightness' | 'contrast' | 'exposure' | 'gamma' | 'saturation' | 'temperature' | 'levels' | 'sharpen';
 /** One slider of an {@link EnhanceControl}. Ranges not given come from `opInfo`. */
@@ -51,8 +55,8 @@ export interface EnhanceControlOptions {
    * the pipeline the source was created with.
    */
   layer?: Layer;
-  /** The source to correct, when there is no `layer`. */
-  source?: EnhancedGeoTIFF;
+  /** The source (or {@link TileCorrection}) to correct, when there is no `layer`. */
+  source?: EnhanceTarget;
   /** The sliders, in order. Default {@link defaultEnhanceSliders}. */
   sliders?: readonly EnhanceSlider[];
   /** Show the DRA settings (default true). */
@@ -108,10 +112,13 @@ export default class EnhanceControl extends Control {
   private mapKeys_;
   private sourceKeys_;
   constructor(options?: EnhanceControlOptions);
-  /** The source being corrected: `source`, or the layer's source when it is an {@link EnhancedGeoTIFF}. */
-  getSource(): EnhancedGeoTIFF | null;
+  /**
+   * What is being corrected: `source`, or the layer's source when it is an
+   * {@link EnhancedGeoTIFF}, or else the layer's {@link TileCorrection}.
+   */
+  getSource(): EnhanceTarget | null;
   /** Corrects `source` instead (only when the control was not given a `layer`). */
-  setSource(source: EnhancedGeoTIFF | null): void;
+  setSource(source: EnhanceTarget | null): void;
   /** The correction the sliders set now. */
   getPipeline(): Pipeline;
   /**

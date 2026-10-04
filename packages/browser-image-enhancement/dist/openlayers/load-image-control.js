@@ -5,8 +5,8 @@ import { addControlStyles, iconButton } from "./control-styles.js";
 import { imageToGeoTIFF } from "./geotiff-writer.js";
 import { getCenter, getHeight, getWidth } from "ol/extent.js";
 import { transformExtent } from "ol/proj.js";
-import Control from "ol/control/Control.js";
 import { unByKey } from "ol/Observable.js";
+import Control from "ol/control/Control.js";
 import BaseEvent from "ol/events/Event.js";
 //#region src/openlayers/load-image-control.ts
 /**

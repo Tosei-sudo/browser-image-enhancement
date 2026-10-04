@@ -1,1 +1,1 @@
-{"version":3,"file":"gpu-layer.d.ts","names":[],"sources":["../../src/openlayers/gpu-layer.ts"],"mappings":";;;;iBAqBiB,qCAAqC;;EAEpD;;;;;;;qBAQmB,8BAA8B;mBAChC;UACT;;EAER;EAEY,YAAA,UAAS;;EAYrB;;EAKA,mBAAmB;EAIV,OAAO,YAAY,mBAAmB,QAAQ,cAAc;YAoBlD"}
+{"version":3,"file":"gpu-layer.d.ts","names":[],"sources":["../../src/openlayers/gpu-layer.ts"],"mappings":";;;;;iBA6BiB,qCAAqC;;EAEpD;;;;;;EAMA,aAAa;;;;;;;;qBASM,8BAA8B;mBAChC;UACT;mBACS;mBACA;;UAET;;EAER;EAEY,YAAA,UAAS;;EAerB;;EAKA,iBAAiB;;EAKjB,mBAAmB;EAIV,OAAO,YAAY,mBAAmB,QAAQ,cAAc;;UAwB7D;YAmBW"}

@@ -379,6 +379,20 @@ slider.oninput = () => source.setPipeline(current());
 - `select: [3, 2, 1]` で R・G・B に表示するバンドを選べます（0 から数えます。`sources[].bands` は読み込むバンドを 1 から数えて選ぶ別の設定です）。あとから `setSelect()` で変えると、キャッシュしたタイルから作り直すので COG は読み直しません。5 バンド以上の画像は、指定がなければバンド 0, 1, 2 を表示します
 - `normalize: false` にすると、16bit や float の COG を元の値のまま読み、元の値の統計で 0〜255 に引き伸ばしてから補正します。統計は最初は画像全体、`updateDra(map)` のあとは表示範囲から取ります。範囲を固定するときは `rawStretch: { black, white }`、自動ストレッチの設定を変えるときは `rawStretch: { lowPercent: 2, highPercent: 2 }` のように渡します（このモードではタイルごとに補正するので `correctTiles: false` は使えません）
 
+WMS・WMTS・XYZ など普通の画像のタイルも、`ol/source/ImageTile`（`crossOrigin: 'anonymous'`）と `TileCorrection` で同じように GPU 補正できます。補正と DRA の統計は `TileCorrection` が持ち、DRA は描いた地図から統計を取ります。
+
+```ts
+import ImageTile from 'ol/source/ImageTile.js';
+import { GpuCorrectedTileLayer, TileCorrection } from 'browser-image-enhancement/openlayers';
+
+const correction = new TileCorrection();
+const layer = new GpuCorrectedTileLayer({ source: new ImageTile({ url, crossOrigin: 'anonymous' }), correction });
+correction.setPipeline(pipeline().exposure(0.5));
+enhance.setSource(correction);                    // EnhanceControl で操作するとき
+```
+
+サーバーが CORS を許可していない画像は WebGL で読めないため、この方法では補正できません。
+
 動く例と詳しい仕組みは [examples/openlayers-cog](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/examples/openlayers-cog) にあります。
 
 ### 地図に載せる UI（コントロール）

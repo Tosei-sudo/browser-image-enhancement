@@ -1,0 +1,377 @@
+/**
+ * Esri feature services (ArcGIS REST: FeatureServer, and the feature layers
+ * of a MapServer, read only): the service's layers, every feature of a layer
+ * (paged by object id, up to {@link MAX_FEATURES}), the service's own
+ * symbols (simple, unique value and class breaks renderers), and `applyEdits`
+ * for editable layers. A token, when given, goes with every request.
+ */
+import type Feature from 'ol/Feature.js';
+import EsriJSON from 'ol/format/EsriJSON.js';
+import type Geometry from 'ol/geom/Geometry.js';
+import { transformExtent } from 'ol/proj.js';
+import type { FeatureLike } from 'ol/Feature.js';
+import { Circle, Fill, Icon, RegularShape, Stroke, Style } from 'ol/style.js';
+import type ImageStyle from 'ol/style/Image.js';
+import type { Extent } from 'ol/extent.js';
+import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer } from './common.js';
+import { vectorLayer } from './vector.js';
+
+/** What the viewer keeps of an Esri layer's description. */
+export interface EsriLayerInfo {
+  /** The layer's URL (`…/FeatureServer/0`). */
+  url: string;
+  name: string;
+  /** `esriGeometryPoint`, `esriGeometryMultipoint`, `esriGeometryPolyline` or `esriGeometryPolygon`. */
+  geometryType: string;
+  objectIdField: string;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+  /** Attributes a new feature starts with (from the layer's first template). */
+  template: Record<string, unknown>;
+  token?: string;
+}
+
+interface EsriField {
+  name: string;
+  type: string;
+  alias?: string;
+  length?: number;
+  editable?: boolean;
+  nullable?: boolean;
+  domain?: { type: string; codedValues?: Array<{ name: string; code: string | number }>; range?: [number, number] } | null;
+}
+
+interface EsriLayerJson {
+  id: number;
+  name: string;
+  type?: string;
+  geometryType?: string;
+  objectIdField?: string;
+  fields?: EsriField[];
+  capabilities?: string;
+  maxRecordCount?: number;
+  extent?: { xmin: number; ymin: number; xmax: number; ymax: number; spatialReference?: { wkid?: number; latestWkid?: number } };
+  drawingInfo?: { renderer?: EsriRenderer };
+  editFieldsInfo?: Record<string, string> | null;
+  templates?: Array<{ prototype?: { attributes?: Record<string, unknown> } }>;
+  types?: Array<{ templates?: Array<{ prototype?: { attributes?: Record<string, unknown> } }> }>;
+}
+
+/** Whether `url` looks like an ArcGIS REST service or layer. */
+export function isEsriUrl(url: string): boolean {
+  return /\/(FeatureServer|MapServer)(\/\d+)?\/?(\?.*)?$/i.test(url);
+}
+
+/** GET (or POST, with `body`) to the REST API as JSON; an `error` member becomes a ServiceError. */
+export async function esriJson<T>(url: string, params: Record<string, string>, token?: string, post = false): Promise<T> {
+  const all = new URLSearchParams({ ...params, f: 'json', ...(token ? { token } : {}) });
+  const response = post
+    ? await request(url, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
+    : await request(`${url}?${all}`);
+  const json = (await response.json().catch(() => null)) as (T & { error?: { code: number; message: string; details?: string[] } }) | null;
+  if (!json) throw new ServiceError('応答が JSON ではありません');
+  if (json.error) {
+    const { code, message, details } = json.error;
+    if (code === 499 || code === 498 || code === 403) throw new ServiceError(token ? `トークンが無効か、権限がありません（${message}）` : 'このサービスにはトークンが必要です');
+    throw new ServiceError(`サービスがエラーを返しました: ${[message, ...(details ?? [])].join(' ')}`);
+  }
+  return json;
+}
+
+/** Reads an Esri service (`…/FeatureServer`) or one of its layers (`…/FeatureServer/0`). */
+export async function readEsri(input: string, token?: string): Promise<ServiceCatalog> {
+  const clean = input.replace(/\?.*$/, '').replace(/\/+$/, '');
+  const m = /^(.*\/(?:FeatureServer|MapServer))(?:\/(\d+))?$/i.exec(clean);
+  if (!m) throw new ServiceError('FeatureServer または MapServer の URL を入力してください');
+  const [, serviceUrl, layerId] = m;
+  const service = await esriJson<{ layers?: Array<{ id: number; name: string; geometryType?: string; type?: string }>; serviceDescription?: string; documentInfo?: { Title?: string } }>(
+    serviceUrl,
+    {},
+    token,
+  );
+  const layers = (service.layers ?? []).filter((l) => (l.type ?? 'Feature Layer') === 'Feature Layer' && (layerId === undefined || String(l.id) === layerId));
+  if (layers.length === 0) throw new ServiceError('フィーチャーレイヤーがありません');
+  const choices: LayerChoice[] = layers.map((l) => ({ name: String(l.id), title: l.name, abstract: geometryNames[l.geometryType ?? ''] }));
+  return {
+    kind: 'esri',
+    url: serviceUrl,
+    title: service.documentInfo?.Title || serviceUrl.split('/').slice(-2, -1)[0] || serviceUrl,
+    choices,
+    open: (choice, context) => openLayer(`${serviceUrl}/${choice.name}`, /MapServer$/i.test(serviceUrl), context.token),
+  };
+}
+
+const geometryNames: Record<string, string> = {
+  esriGeometryPoint: 'ポイント',
+  esriGeometryMultipoint: 'マルチポイント',
+  esriGeometryPolyline: 'ライン',
+  esriGeometryPolygon: 'ポリゴン',
+};
+
+async function openLayer(url: string, mapServer: boolean, token?: string): Promise<ServiceLayer> {
+  const json = await esriJson<EsriLayerJson>(url, {}, token);
+  const caps = new Set((json.capabilities ?? '').split(',').map((c) => c.trim().toLowerCase()));
+  const editing = !mapServer && (caps.has('editing') || caps.has('create') || caps.has('update') || caps.has('delete'));
+  const info: EsriLayerInfo = {
+    url,
+    name: json.name,
+    geometryType: json.geometryType ?? '',
+    objectIdField: json.objectIdField ?? json.fields?.find((f) => f.type === 'esriFieldTypeOID')?.name ?? 'OBJECTID',
+    canCreate: editing && caps.has('create'),
+    canUpdate: editing && caps.has('update'),
+    canDelete: editing && caps.has('delete'),
+    template: json.templates?.[0]?.prototype?.attributes ?? json.types?.[0]?.templates?.[0]?.prototype?.attributes ?? {},
+    token,
+  };
+  // Editing (Create, Update or Delete) given without the finer capabilities means all three.
+  if (editing && !info.canCreate && !info.canUpdate && !info.canDelete) info.canCreate = info.canUpdate = info.canDelete = true;
+
+  const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
+  const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
+  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token);
+  const layer = vectorLayer(features, rendererStyle(json.drawingInfo?.renderer, url));
+  const extent = json.extent ? await extentOf(json.extent) : null;
+
+  return {
+    ref: { kind: 'esri', url, layer: String(json.id) },
+    title: json.name,
+    layer,
+    correction: null,
+    vector: { source: layer.getSource()!, fields, idField: info.objectIdField, truncated },
+    esri: info,
+    extent,
+    info: [
+      ['種類', mapServer ? 'Esri マップサービス（フィーチャーレイヤー）' : 'Esri フィーチャーサービス'],
+      ['URL', url],
+      ['ジオメトリ', geometryNames[info.geometryType] ?? info.geometryType],
+      ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
+      ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
+    ],
+  };
+}
+
+function toField(f: EsriField, editableLayer: boolean, managed: Set<string>): Field | null {
+  const types: Record<string, Field['type']> = {
+    esriFieldTypeOID: 'oid',
+    esriFieldTypeString: 'string',
+    esriFieldTypeSmallInteger: 'integer',
+    esriFieldTypeInteger: 'integer',
+    esriFieldTypeBigInteger: 'integer',
+    esriFieldTypeSingle: 'double',
+    esriFieldTypeDouble: 'double',
+    esriFieldTypeDate: 'date',
+    esriFieldTypeDateOnly: 'string',
+    esriFieldTypeTimeOnly: 'string',
+    esriFieldTypeGlobalID: 'other',
+    esriFieldTypeGUID: 'other',
+  };
+  const type = types[f.type];
+  if (!type) return null; // geometry, blob, raster, XML
+  return {
+    name: f.name,
+    alias: f.alias || f.name,
+    type,
+    editable: editableLayer && f.editable !== false && type !== 'oid' && type !== 'other' && !managed.has(f.name),
+    nullable: f.nullable !== false,
+    length: f.length,
+    codes: f.domain?.type === 'codedValue' ? f.domain.codedValues : undefined,
+    range: f.domain?.type === 'range' ? f.domain.range : undefined,
+  };
+}
+
+const format = new EsriJSON();
+const WEB_MERCATOR = { wkid: 102100, latestWkid: 3857 };
+
+/** Every feature of the layer (up to MAX_FEATURES): the object ids first, then the features in batches. */
+export async function queryAll(url: string, oid: string, maxRecords: number, token?: string): Promise<{ features: Feature[]; truncated: boolean }> {
+  const ids = await esriJson<{ objectIds?: number[] | null }>(`${url}/query`, { where: '1=1', returnIdsOnly: 'true' }, token, true);
+  const all = (ids.objectIds ?? []).sort((a, b) => a - b);
+  const truncated = all.length > MAX_FEATURES;
+  const wanted = all.slice(0, MAX_FEATURES);
+  const batch = Math.max(1, Math.min(maxRecords, 1000));
+  const parts: Array<Promise<Feature[]>> = [];
+  for (let i = 0; i < wanted.length; i += batch) parts.push(queryIds(url, oid, wanted.slice(i, i + batch), token));
+  // A few requests at a time.
+  const features: Feature[] = [];
+  for (let i = 0; i < parts.length; i += 4) for (const p of await Promise.all(parts.slice(i, i + 4))) features.push(...p);
+  return { features, truncated };
+}
+
+/** The features with these object ids, in Web Mercator, each with its object id as feature id. */
+export async function queryIds(url: string, oid: string, ids: number[], token?: string): Promise<Feature[]> {
+  if (ids.length === 0) return [];
+  const json = await esriJson<object>(
+    `${url}/query`,
+    { objectIds: ids.join(','), outFields: '*', returnGeometry: 'true', outSR: JSON.stringify(WEB_MERCATOR) },
+    token,
+    true,
+  );
+  const features = format.readFeatures(json, { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' }) as Feature[];
+  for (const f of features) f.setId(f.get(oid));
+  return features;
+}
+
+/** A geometry as Esri JSON in Web Mercator (outer rings clockwise, as the REST API expects). */
+export function esriGeometry(geometry: Geometry): object {
+  return { ...format.writeGeometryObject(geometry, { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' }), spatialReference: WEB_MERCATOR };
+}
+
+export interface EditResult {
+  objectId?: number;
+  success: boolean;
+  error?: { code: number; description: string } | null;
+}
+
+/** Sends adds, updates and deletes in one `applyEdits`; each feature succeeds or fails on its own. */
+export async function applyEdits(
+  info: EsriLayerInfo,
+  edits: { adds: object[]; updates: object[]; deletes: number[] },
+): Promise<{ addResults: EditResult[]; updateResults: EditResult[]; deleteResults: EditResult[] }> {
+  const params: Record<string, string> = { rollbackOnFailure: 'false' };
+  if (edits.adds.length) params.adds = JSON.stringify(edits.adds);
+  if (edits.updates.length) params.updates = JSON.stringify(edits.updates);
+  if (edits.deletes.length) params.deletes = edits.deletes.join(',');
+  const result = await esriJson<{ addResults?: EditResult[]; updateResults?: EditResult[]; deleteResults?: EditResult[] }>(
+    `${info.url}/applyEdits`,
+    params,
+    info.token,
+    true,
+  );
+  return { addResults: result.addResults ?? [], updateResults: result.updateResults ?? [], deleteResults: result.deleteResults ?? [] };
+}
+
+async function extentOf(e: NonNullable<EsriLayerJson['extent']>): Promise<Extent | null> {
+  if (![e.xmin, e.ymin, e.xmax, e.ymax].every(Number.isFinite)) return null;
+  const wkid = e.spatialReference?.latestWkid ?? e.spatialReference?.wkid ?? 4326;
+  const projection = await projectionOf(`EPSG:${wkid}`);
+  if (!projection) return null;
+  return transformExtent([e.xmin, e.ymin, e.xmax, e.ymax], projection, 'EPSG:3857');
+}
+
+// ---- Symbols ----
+
+interface EsriSymbol {
+  type: string;
+  style?: string;
+  color?: number[] | null;
+  size?: number;
+  width?: number;
+  height?: number;
+  angle?: number;
+  xoffset?: number;
+  yoffset?: number;
+  outline?: { color?: number[] | null; width?: number; style?: string } | null;
+  url?: string;
+  imageData?: string;
+  contentType?: string;
+}
+
+interface EsriRenderer {
+  type: string;
+  symbol?: EsriSymbol;
+  field1?: string;
+  field2?: string;
+  field3?: string;
+  fieldDelimiter?: string;
+  uniqueValueInfos?: Array<{ value: string; symbol: EsriSymbol }>;
+  field?: string;
+  minValue?: number;
+  classBreakInfos?: Array<{ classMinValue?: number; classMaxValue: number; symbol: EsriSymbol }>;
+  defaultSymbol?: EsriSymbol | null;
+}
+
+/** Points to pixels. */
+const px = (pt = 0) => (pt * 4) / 3;
+
+function rgba(color: number[] | null | undefined): string {
+  if (!color) return 'rgba(0,0,0,0)';
+  const [r, g, b, a = 255] = color;
+  return `rgba(${r},${g},${b},${a / 255})`;
+}
+
+const dashes: Record<string, number[]> = {
+  esriSLSDash: [8, 4],
+  esriSLSDot: [2, 4],
+  esriSLSDashDot: [8, 4, 2, 4],
+  esriSLSDashDotDot: [8, 4, 2, 4, 2, 4],
+  esriSLSShortDash: [4, 3],
+  esriSLSLongDash: [12, 4],
+};
+
+function stroke(s: { color?: number[] | null; width?: number; style?: string } | null | undefined): Stroke | undefined {
+  if (!s || s.style === 'esriSLSNull' || !s.color) return undefined;
+  return new Stroke({ color: rgba(s.color), width: Math.max(px(s.width ?? 1), 0.5), lineDash: dashes[s.style ?? ''] });
+}
+
+/** One Esri symbol as an OpenLayers style; unknown kinds become a gray default. */
+export function symbolStyle(sym: EsriSymbol | null | undefined, baseUrl: string): Style {
+  if (!sym) return new Style();
+  switch (sym.type) {
+    case 'esriSMS':
+      return new Style({ image: markerImage(sym) });
+    case 'esriPMS': {
+      const src = sym.imageData ? `data:${sym.contentType ?? 'image/png'};base64,${sym.imageData}` : sym.url ? new URL(sym.url, `${baseUrl}/`).href : undefined;
+      if (!src) break;
+      return new Style({
+        image: new Icon({ src, width: px(sym.width ?? 16), height: px(sym.height ?? 16), rotation: ((sym.angle ?? 0) * Math.PI) / 180, displacement: [px(sym.xoffset), px(sym.yoffset)] }),
+      });
+    }
+    case 'esriSLS':
+      return new Style({ stroke: stroke(sym) });
+    case 'esriSFS':
+      return new Style({ fill: sym.style === 'esriSFSNull' || !sym.color ? undefined : new Fill({ color: rgba(sym.color) }), stroke: stroke(sym.outline) });
+    case 'esriPFS':
+      return new Style({ fill: new Fill({ color: 'rgba(128,128,128,0.3)' }), stroke: stroke(sym.outline) });
+  }
+  return new Style({ stroke: new Stroke({ color: '#666', width: 1.5 }), fill: new Fill({ color: 'rgba(128,128,128,0.3)' }), image: new Circle({ radius: 5, fill: new Fill({ color: '#666' }) }) });
+}
+
+function markerImage(sym: EsriSymbol): ImageStyle {
+  const radius = px(sym.size ?? 8) / 2;
+  const fill = sym.color ? new Fill({ color: rgba(sym.color) }) : undefined;
+  const line = stroke(sym.outline);
+  const rotation = ((sym.angle ?? 0) * Math.PI) / 180;
+  const displacement = [px(sym.xoffset), px(sym.yoffset)];
+  switch (sym.style) {
+    case 'esriSMSSquare':
+      return new RegularShape({ points: 4, radius: radius * Math.SQRT2, angle: Math.PI / 4, fill, stroke: line, rotation, displacement });
+    case 'esriSMSDiamond':
+      return new RegularShape({ points: 4, radius, fill, stroke: line, rotation, displacement });
+    case 'esriSMSTriangle':
+      return new RegularShape({ points: 3, radius, fill, stroke: line, rotation, displacement });
+    case 'esriSMSCross':
+      return new RegularShape({ points: 4, radius, radius2: 0, stroke: line ?? new Stroke({ color: rgba(sym.color), width: 2 }), rotation, displacement });
+    case 'esriSMSX':
+      return new RegularShape({ points: 4, radius, radius2: 0, angle: Math.PI / 4, stroke: line ?? new Stroke({ color: rgba(sym.color), width: 2 }), rotation, displacement });
+    default:
+      return new Circle({ radius, fill, stroke: line, displacement });
+  }
+}
+
+/** The layer's renderer as a style function (simple, unique value, class breaks). */
+export function rendererStyle(renderer: EsriRenderer | undefined, baseUrl: string): (feature: FeatureLike) => Style | undefined {
+  if (!renderer) {
+    const plain = symbolStyle({ type: '' }, baseUrl);
+    return () => plain;
+  }
+  const fallback = renderer.defaultSymbol ? symbolStyle(renderer.defaultSymbol, baseUrl) : undefined;
+  if (renderer.type === 'uniqueValue' && renderer.field1) {
+    const fields = [renderer.field1, renderer.field2, renderer.field3].filter((f): f is string => !!f);
+    const delimiter = renderer.fieldDelimiter ?? ',';
+    const styles = new Map((renderer.uniqueValueInfos ?? []).map((u) => [String(u.value), symbolStyle(u.symbol, baseUrl)]));
+    return (f) => styles.get(fields.map((name) => String(f.get(name) ?? '<Null>')).join(delimiter)) ?? fallback;
+  }
+  if (renderer.type === 'classBreaks' && renderer.field) {
+    const field = renderer.field;
+    const breaks = [...(renderer.classBreakInfos ?? [])].sort((a, b) => a.classMaxValue - b.classMaxValue).map((b) => ({ max: b.classMaxValue, style: symbolStyle(b.symbol, baseUrl) }));
+    const min = renderer.minValue ?? -Infinity;
+    return (f) => {
+      const v = Number(f.get(field));
+      if (!Number.isFinite(v) || v < min) return fallback;
+      return breaks.find((b) => v <= b.max)?.style ?? fallback;
+    };
+  }
+  const style = symbolStyle(renderer.symbol, baseUrl);
+  return () => style;
+}

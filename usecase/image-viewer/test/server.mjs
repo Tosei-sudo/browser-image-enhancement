@@ -1,11 +1,12 @@
-// Static server for the browser test: serves the built site (dist/) and a
+// Static server for the browser test: serves the built site (dist/), a
 // small georeferenced GeoTIFF at /fixture.tif with range requests, the way a
-// COG is served from object storage.
+// COG is served from object storage, and stand-in services under /svc/.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeArrayBuffer } from 'geotiff';
+import { serveService } from './services.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.tif': 'image/tiff' };
@@ -44,6 +45,7 @@ const tif = fixture();
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = normalize(decodeURIComponent(url.pathname));
+  if (await serveService(req, res, url, `http://localhost:${port}`)) return;
   const headers = { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
   if (path === '/fixture.tif') {
     const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');

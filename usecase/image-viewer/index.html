@@ -11,6 +11,8 @@
       <header class="bar">
         <h1>画像ビューア</h1>
         <div id="open" class="open"></div>
+        <button type="button" id="add-service" class="bar-button">サービスを追加</button>
+        <div id="basemap"></div>
         <div class="point-tools">
           <button type="button" id="add-point" aria-pressed="false">ポイント追加</button>
           <button type="button" id="save-points">GeoJSON 保存</button>
@@ -18,10 +20,10 @@
       </header>
       <aside class="side">
         <section aria-labelledby="images-title">
-          <h2 id="images-title">画像</h2>
+          <h2 id="images-title">レイヤー</h2>
           <ol id="images" class="images"></ol>
           <p id="empty" class="empty">
-            左上のボタンでローカルの画像・GeoTIFF を選ぶか、COG の URL を入力してください。表示エリアへのドラッグ＆ドロップでも開けます。
+            左上のボタンでローカルの画像・GeoTIFF を選ぶか、COG の URL を入力してください。表示エリアへのドラッグ＆ドロップでも開けます。「サービスを追加」で WMS・WMTS・WFS・Esri フィーチャーサービスのレイヤーも重ねられます。
           </p>
         </section>
         <section aria-labelledby="points-title">
@@ -34,6 +36,7 @@
         </section>
       </aside>
       <main id="map" class="map"></main>
+      <section id="table" class="table" aria-label="属性テーブル"></section>
       <p id="status" class="status" role="status"></p>
     </div>
     <script type="module" src="./src/main.ts"></script>
