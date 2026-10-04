@@ -31,7 +31,8 @@ async function addService(page: Page, url: string, options: { kind?: string; tok
 }
 
 const rows = (page: Page) => page.locator('.attributes tbody tr[data-index]');
-const cellTexts = (page: Page, column: number) => rows(page).locator(`td:nth-child(${column})`).allTextContents();
+// Column 1 is the first field (after the check box).
+const cellTexts = (page: Page, column: number) => rows(page).locator(`td:nth-child(${column + 1})`).allTextContents();
 
 /** The pixel of a map coordinate (EPSG:3857), on the page. */
 async function pixelOf(page: Page, lon: number, lat: number) {
@@ -122,7 +123,7 @@ test('WFS: every feature in the table, all or only the selected ones, sorted, se
   await addService(page, `${base}/svc/wfs`);
   await expect(page.locator('#images .name')).toHaveText(['WFS駅']);
   await expect(page.locator('.table-count')).toContainText('全 3 件・選択 0 件');
-  await expect(page.locator('.attributes th')).toHaveText(['name', 'passengers']);
+  await expect(page.locator('.attributes th:not(.check)')).toHaveText(['name', 'passengers']);
   expect(await cellTexts(page, 1)).toEqual(['東京', '新宿', '品川']);
 
   // Lat / lon from the server ended up in the right place.
@@ -177,7 +178,7 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
   await expect(page.locator('#images .name')).toHaveText(['Esri公園']);
   // Read in batches of maxRecordCount (2): all 5 arrive.
   await expect(page.locator('.table-count')).toContainText('全 5 件');
-  await expect(page.locator('.attributes th')).toHaveText(['OBJECTID', '名称', '種別', '面積', '編集者']);
+  await expect(page.locator('.attributes th:not(.check)')).toHaveText(['OBJECTID', '名称', '種別', '面積', '編集者']);
   expect(await cellTexts(page, 3)).toEqual(['公園', '公園', '公園', '広場', '公園']); // coded values by name
   await expect(page.locator('#info')).toContainText('追加・更新・削除');
 
@@ -185,8 +186,8 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
   await page.locator('#images li').getByRole('button', { name: '編集' }).click();
   await expect(page.getByRole('toolbar', { name: '編集' })).toBeVisible();
   const first = rows(page).first();
-  await expect(first.locator('td').nth(0).locator('input')).toHaveCount(0);
-  await expect(first.locator('td').nth(4).locator('input')).toHaveCount(0);
+  await expect(first.locator('td:not(.check)').nth(0).locator('input')).toHaveCount(0);
+  await expect(first.locator('td:not(.check)').nth(4).locator('input')).toHaveCount(0);
 
   // Change a name, then undo and change it again.
   const name = first.getByRole('textbox', { name: '名称' });
@@ -205,7 +206,7 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
   await expect(rows(page).first().locator('td.dirty')).toHaveCount(2);
 
   // Delete the 4th feature (selected in the table).
-  await rows(page).nth(3).locator('td').first().click();
+  await rows(page).nth(3).locator('td:not(.check)').first().click();
   await page.getByRole('button', { name: '削除' }).click();
   await expect(rows(page)).toHaveCount(4);
 
@@ -231,7 +232,7 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
   expect(state[4].geometry.x).toBeCloseTo((139.74 * 20037508.342789244) / 180, -2);
   // Read back from the server: the editor field the server filled in.
   await page.getByRole('button', { name: '全件' }).click();
-  expect(await rows(page).first().locator('td').nth(4).textContent()).toBe('server');
+  expect(await rows(page).first().locator('td:not(.check)').nth(4).textContent()).toBe('server');
 
   // A feature the server refuses stays unsaved, marked, with the reason.
   await rows(page).nth(1).getByRole('textbox', { name: '名称' }).fill('NG');
@@ -244,7 +245,124 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
   // Ending the edit discards it (after asking).
   await page.getByRole('button', { name: '編集終了' }).click();
   await expect(page.getByRole('toolbar', { name: '編集' })).toBeHidden();
-  await expect(rows(page).nth(1).locator('td').nth(1)).toHaveText('上野恩賜公園');
+  await expect(rows(page).nth(1).locator('td:not(.check)').nth(1)).toHaveText('上野恩賜公園');
+  expect(errors).toEqual([]);
+});
+
+test('table: several features selected with Ctrl, Shift, check boxes, Ctrl+A and a box on the map; the row menu', async ({ page, context }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await addService(page, `${base}/svc/wfs`);
+  await expect(rows(page)).toHaveCount(3);
+  const count = page.locator('.table-count');
+
+  // Click, Ctrl click (adds, then takes out), Shift click (the rows in between).
+  await rows(page).nth(0).click();
+  await rows(page).nth(2).click({ modifiers: ['ControlOrMeta'] });
+  await expect(count).toContainText('選択 2 件');
+  await rows(page).nth(2).click({ modifiers: ['ControlOrMeta'] });
+  await expect(count).toContainText('選択 1 件');
+  // From the last row clicked (the third) up to the first.
+  await rows(page).nth(0).click({ modifiers: ['Shift'] });
+  await expect(count).toContainText('選択 3 件');
+  await rows(page).nth(1).click();
+  await expect(count).toContainText('選択 1 件');
+  await expect(rows(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+
+  // Check boxes add and take out; the header one checks every row shown.
+  await rows(page).nth(0).getByRole('checkbox', { name: '選択' }).check();
+  await expect(count).toContainText('選択 2 件');
+  const all = page.getByRole('checkbox', { name: '表示中の行をすべて選択' });
+  expect(await all.evaluate((b: HTMLInputElement) => b.indeterminate)).toBe(true);
+  await all.check();
+  await expect(count).toContainText('選択 3 件');
+  await expect(rows(page).getByRole('checkbox', { name: '選択' })).toHaveCount(3);
+  for (const box of await rows(page).getByRole('checkbox', { name: '選択' }).all()) await expect(box).toBeChecked();
+  await all.uncheck();
+  await expect(count).toContainText('選択 0 件');
+
+  // Keys: Ctrl+A selects the rows shown (only the search hits), Escape clears.
+  await page.getByRole('searchbox', { name: '属性を検索' }).fill('川');
+  await page.locator('.table-scroll').focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect(count).toContainText('選択 1 件');
+  await page.getByRole('searchbox', { name: '属性を検索' }).fill('');
+  await page.locator('.table-scroll').focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect(count).toContainText('選択 3 件');
+  await page.keyboard.press('Escape');
+  await expect(count).toContainText('選択 0 件');
+
+  // Ctrl + drag on the map: the features in the box (Tokyo and Shinjuku, not Shinagawa) join the selection.
+  await settle(page);
+  const shinjuku = await pixelOf(page, 139.7006, 35.6896);
+  const tokyo = await pixelOf(page, 139.7671, 35.6812);
+  await page.keyboard.down('ControlOrMeta');
+  await page.mouse.move(shinjuku.x - 10, Math.min(shinjuku.y, tokyo.y) - 10);
+  await page.mouse.down();
+  await page.mouse.move((shinjuku.x + tokyo.x) / 2, tokyo.y, { steps: 4 });
+  await page.mouse.move(tokyo.x + 10, Math.max(shinjuku.y, tokyo.y) + 10, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('ControlOrMeta');
+  await expect(count).toContainText('選択 2 件');
+  await page.getByRole('button', { name: '選択中のみ' }).click();
+  expect((await cellTexts(page, 1)).sort()).toEqual(['新宿', '東京']);
+  await page.getByRole('button', { name: '全件' }).click();
+
+  // Right click on a selected row: the menu works on the whole selection; WFS cannot delete.
+  const menu = page.getByRole('menu', { name: '選択した地物' });
+  await rows(page).filter({ hasText: '新宿' }).click({ button: 'right' });
+  await expect(menu.getByRole('menuitem')).toHaveText(['選択中の 2 件にズーム', '選択中の 2 件の行をコピー', '選択を解除']);
+  await menu.getByRole('menuitem', { name: '選択中の 2 件の行をコピー' }).click();
+  await expect(menu).toBeHidden();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied.split('\n')).toEqual(['name\tpassengers', '東京\t462589', '新宿\t650602']);
+
+  // On a row not selected: that row alone becomes the selection, and the menu zooms to it.
+  await rows(page).filter({ hasText: '品川' }).click({ button: 'right' });
+  await expect(count).toContainText('選択 1 件');
+  const before = await page.evaluate(() => window.viewer.map.getView().getZoom());
+  await menu.getByRole('menuitem', { name: '地物にズーム' }).click();
+  await settle(page);
+  const view = await page.evaluate(() => ({ zoom: window.viewer.map.getView().getZoom()!, center: window.viewer.map.getView().getCenter()! }));
+  expect(view.zoom).toBeGreaterThan(before!);
+  expect(view.center[0]).toBeCloseTo((139.7387 * 20037508.342789244) / 180, -1);
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
+test('Esri: the row menu deletes the selected features, starting editing; saved with the others', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const asked: string[] = [];
+  page.on('dialog', (d) => {
+    asked.push(d.message());
+    void d.accept();
+  });
+  await open(page);
+  await addService(page, `${base}/svc/arcgis/rest/services/Test/FeatureServer`);
+  await expect(page.locator('.table-count')).toContainText('全 5 件');
+  await rows(page).nth(1).click();
+  await rows(page).nth(2).click({ modifiers: ['ControlOrMeta'] });
+  await rows(page).nth(2).click({ button: 'right' });
+  const menu = page.getByRole('menu', { name: '選択した地物' });
+  await menu.getByRole('menuitem', { name: '選択中の 2 件を削除…' }).click();
+  expect(asked).toEqual(['2 件の地物を削除しますか？（「保存」を押すまでサーバーからは消えません）']);
+  await expect(page.getByRole('toolbar', { name: '編集' })).toBeVisible();
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.locator('.table-count')).toContainText('選択 0 件');
+  await page.getByRole('button', { name: '保存 (2)' }).click();
+  await expect(page.locator('#status')).toContainText('2 件の変更を保存しました');
+  const state = (await (await page.request.get(`${base}/svc/state`)).json()) as Array<{ attributes: Record<string, unknown> }>;
+  expect(state.map((f) => f.attributes.NAME)).toEqual(['日比谷公園', '駅前広場', '代々木公園']);
+
+  // The Delete key does the same while the table has focus.
+  await rows(page).nth(0).locator('td.check input').check();
+  await page.keyboard.press('Delete');
+  await expect(rows(page)).toHaveCount(2);
+  await expect(page.getByRole('button', { name: '保存 (1)' })).toBeEnabled();
   expect(errors).toEqual([]);
 });
 
