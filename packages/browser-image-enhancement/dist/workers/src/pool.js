@@ -18,15 +18,18 @@ var WorkerPool = class {
 	slots = [];
 	starting = null;
 	failed = false;
+	/** Set by {@link terminate}: workers still starting are stopped as soon as they are up. */
+	terminated = false;
 	capacity;
 	/**
 	* @param defaultCreate Used when `config.createWorker` is not set and `Worker` exists.
 	*/
 	constructor(config = {}, defaultCreate) {
-		this.maxWorkers = Math.max(1, Math.floor(config.maxWorkers ?? defaultMaxWorkers()));
+		const valid = (v) => v !== void 0 && Number.isFinite(v) && v > 0 ? v : void 0;
+		this.maxWorkers = Math.max(1, Math.floor(valid(config.maxWorkers) ?? defaultMaxWorkers()));
 		this.capacity = this.maxWorkers;
-		this.minStripPixels = Math.max(1, config.minStripPixels ?? 1 << 18);
-		this.startupTimeout = config.startupTimeout ?? 1e4;
+		this.minStripPixels = Math.max(1, valid(config.minStripPixels) ?? 1 << 18);
+		this.startupTimeout = valid(config.startupTimeout) ?? 1e4;
 		this.create = config.createWorker ?? (typeof Worker !== "undefined" && defaultCreate ? defaultCreate : noWorkers);
 	}
 	/** False once workers have failed to start; the pool then stays on the main thread. */
@@ -42,20 +45,26 @@ var WorkerPool = class {
 	* Rejects with WorkerUnavailableError if none can run.
 	*/
 	async acquire(count) {
-		const want = Math.min(Math.max(1, Math.floor(count)), this.capacity);
+		const want = Math.min(Math.max(1, Math.floor(count) || 1), this.capacity);
 		while (this.starting) await this.starting;
+		if (this.terminated) throw new WorkerUnavailableError("Worker pool was terminated.");
 		if (this.failed) throw new WorkerUnavailableError("Web Workers could not be started.");
 		if (this.slots.length < want) {
 			this.starting = this.startWorkers(want - this.slots.length).finally(() => {
 				this.starting = null;
 			});
 			await this.starting;
+			if (this.terminated) throw new WorkerUnavailableError("Worker pool was terminated.");
 			if (this.failed) throw new WorkerUnavailableError("Web Workers could not be started.");
 		}
 		return [...this.slots].sort((a, b) => a.load - b.load).slice(0, want);
 	}
 	async startWorkers(n) {
-		const ok = (await Promise.all(Array.from({ length: n }, () => this.startOne()))).filter((s) => s !== null);
+		const ok = (await Promise.all(Array.from({ length: n }, () => this.startOne()))).filter((s) => s !== null && !s.dead);
+		if (this.terminated) {
+			for (const slot of ok) this.kill(slot, new WorkerUnavailableError("Worker pool was terminated."));
+			return;
+		}
 		this.slots.push(...ok);
 		if (this.slots.length === 0) this.failed = true;
 		else if (ok.length < n) this.capacity = this.slots.length;
@@ -139,6 +148,7 @@ var WorkerPool = class {
 	}
 	/** Stops every worker. Pending requests reject. */
 	terminate() {
+		this.terminated = true;
 		for (const slot of [...this.slots]) this.kill(slot, new WorkerUnavailableError("Worker pool was terminated."));
 	}
 };

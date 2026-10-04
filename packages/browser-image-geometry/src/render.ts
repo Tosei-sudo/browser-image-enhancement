@@ -16,6 +16,7 @@ export function renderPlan(image: ImageDataLike, plan: Plan): ImageData {
     plan.resample,
     plan.background,
     out,
+    plan.clampEdges,
   );
   return createImageData(out, plan.width, plan.height);
 }

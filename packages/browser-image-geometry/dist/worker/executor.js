@@ -87,7 +87,8 @@ async function runInWorkers(pool, slots, image, plan, signal) {
 			y1,
 			mapping: plan.mapping,
 			resample: plan.resample,
-			background: plan.background
+			background: plan.background,
+			clampEdges: plan.clampEdges
 		};
 		const reply = pool.request(slots[i], message, window ? [window.buffer] : []);
 		reply.catch(() => {});

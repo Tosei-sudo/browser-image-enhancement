@@ -100,7 +100,8 @@ function resize(image, width, height, options = {}) {
 		],
 		width,
 		height,
-		yUp: false
+		yUp: false,
+		edges: "clamp"
 	}).image;
 }
 //#endregion

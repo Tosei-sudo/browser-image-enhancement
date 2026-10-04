@@ -6,6 +6,8 @@ import { KERNEL_MARGIN, halve, rowMapper } from "./resample.js";
 * output pixel uses, how far to shrink the source first, and which part of the
 * source each strip of the output reads.
 */
+/** The most pixels an output may have (16384 × 16384, the usual canvas limit). */
+const MAX_OUTPUT_PIXELS = 2 ** 28;
 const EDGE_SAMPLES = 64;
 /** Pixels are counted as whole when within this of an integer, so exact sizes are not rounded up by float error. */
 const SNAP = 1e-6;
@@ -51,6 +53,22 @@ function autoExtent(width, height, fwd) {
 		maxY
 	];
 }
+/**
+* A homography divides by `w = h6·x + h7·y + h8`, which is linear, so its sign
+* over the image is decided by the four corners. A sign change (or w near 0)
+* means the horizon crosses the image: part of it goes to infinity and no
+* automatic extent makes sense.
+*/
+function checkHorizon(width, height, m) {
+	const w = [
+		[0, 0],
+		[width, 0],
+		[0, height],
+		[width, height]
+	].map(([x, y]) => m[6] * x + m[7] * y + m[8]);
+	const scale = Math.max(...w.map(Math.abs));
+	if (!(scale > 0) || !(w.every((v) => v > 1e-9 * scale) || w.every((v) => v < -1e-9 * scale))) throw new RangeError("The transform sends part of the image to infinity (a projective horizon inside the image?). Pass `extent`.");
+}
 /** Output area per source pixel near the image center, as a square pixel size. */
 function autoPixelSize(width, height, fwd) {
 	const cx = width / 2;
@@ -69,6 +87,7 @@ function pixelsAcross(span, size) {
 /** The output grid: size and output pixel → output coordinate affine. */
 function outputGrid(srcWidth, srcHeight, transform, options) {
 	const fwd = forwardFunction(transform, options.coordinateTransform);
+	if (!options.extent && transform.type === "projective") checkHorizon(srcWidth, srcHeight, transform.matrix);
 	const [minX, minY, maxX, maxY] = options.extent ?? autoExtent(srcWidth, srcHeight, fwd);
 	if (![
 		minX,
@@ -93,6 +112,8 @@ function outputGrid(srcWidth, srcHeight, transform, options) {
 	} else sizeX = sizeY = autoPixelSize(srcWidth, srcHeight, fwd);
 	const width = options.width !== void 0 ? Math.round(options.width) : pixelsAcross(spanX, sizeX);
 	const height = options.height !== void 0 ? Math.round(options.height) : pixelsAcross(spanY, sizeY);
+	if (width < 1 || height < 1) throw new RangeError("`width` and `height` must round to at least 1 pixel.");
+	if (width * height > MAX_OUTPUT_PIXELS) throw new RangeError(`The output would be ${width} × ${height} pixels, more than ${MAX_OUTPUT_PIXELS} in all. Pass a larger \`pixelSize\`, a smaller \`extent\`, or \`width\` / \`height\` (or check the control points).`);
 	const yUp = options.yUp ?? !!transform.yUp;
 	return {
 		width,
@@ -115,7 +136,11 @@ function outputGrid(srcWidth, srcHeight, transform, options) {
 		yUp
 	};
 }
-/** Source pixels per output pixel near the output center (geometric mean of both directions). */
+/**
+* Source pixels per output pixel near the output center, in the direction
+* shrunk least: halving goes by this, so an axis that is not shrunk keeps its
+* detail (halving both axes for a one-sided shrink would blur the other).
+*/
 function sourceScale(mapping, width, height) {
 	const map = rowMapper(mapping);
 	const y = Math.floor(height / 2);
@@ -133,8 +158,8 @@ function sourceScale(mapping, width, height) {
 	const ay = (row[x1 * 2 + 1] - row[x * 2 + 1]) / dx;
 	const bx = (below[x * 2] - row[x * 2]) / dy;
 	const by = (below[x * 2 + 1] - row[x * 2 + 1]) / dy;
-	const det = Math.abs(ax * by - ay * bx);
-	return Number.isFinite(det) ? Math.sqrt(det) : 1;
+	const scale = Math.min(Math.hypot(ax, ay), Math.hypot(bx, by));
+	return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 function buildGrid(width, height, matrix, inverse, ct, firstStep, tolerance) {
 	const toSource = pointFunction(inverse);
@@ -192,9 +217,11 @@ function planWarp(srcWidth, srcHeight, transform, options = {}) {
 		0,
 		0
 	];
-	if (!Array.isArray(background) || background.length !== 4 || !background.every((v) => Number.isFinite(v))) throw new TypeError("`background` must be [r, g, b, a] with values 0-255.");
+	if (!Array.isArray(background) || background.length !== 4 || !background.every((v) => Number.isFinite(v) && v >= 0 && v <= 255)) throw new TypeError("`background` must be [r, g, b, a] with values 0-255.");
 	checkPositive(options.gridStep, "`gridStep`");
 	checkPositive(options.tolerance, "`tolerance`");
+	const edges = options.edges ?? "transparent";
+	if (edges !== "transparent" && edges !== "clamp") throw new TypeError(`Unknown edges: ${String(edges)}`);
 	const { width, height, matrix, yUp } = outputGrid(srcWidth, srcHeight, transform, options);
 	const inverse = invertTransform(transform);
 	let mapping = options.coordinateTransform ? buildGrid(width, height, matrix, inverse, options.coordinateTransform, options.gridStep ?? 32, options.tolerance ?? .125) : {
@@ -240,7 +267,8 @@ function planWarp(srcWidth, srcHeight, transform, options = {}) {
 		background,
 		levels,
 		geoTransform,
-		extent
+		extent,
+		clampEdges: edges === "clamp"
 	};
 }
 /** Halves the source `levels` times. */
@@ -298,6 +326,6 @@ function sourceBounds(mapping, width, y0, y1, srcWidth, srcHeight, resample) {
 	] : null;
 }
 //#endregion
-export { planWarp, shrink, sourceBounds };
+export { MAX_OUTPUT_PIXELS, planWarp, shrink, sourceBounds };
 
 //# sourceMappingURL=plan.js.map

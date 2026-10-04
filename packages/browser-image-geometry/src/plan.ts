@@ -35,7 +35,17 @@ export interface OutputOptions {
   tolerance?: number;
   /** Overrides the transform's `yUp`: true puts the largest y at the top of the output. */
   yUp?: boolean;
+  /**
+   * What sampling reads beyond the source's outer pixel centers. `transparent`
+   * (default) fades the edge out, which keeps the outline of a warped image
+   * smooth; `clamp` repeats the edge pixels, for outputs that lie wholly on
+   * the source (a resize), so opaque images stay opaque up to their border.
+   */
+  edges?: 'transparent' | 'clamp';
 }
+
+/** The most pixels an output may have (16384 × 16384, the usual canvas limit). */
+export const MAX_OUTPUT_PIXELS = 2 ** 28;
 
 /** Where a warped image sits in output coordinates. */
 export interface WarpInfo {
@@ -53,6 +63,8 @@ export interface Plan extends WarpInfo {
   background: RGBA;
   /** Times to halve the source before sampling. */
   levels: number;
+  /** Repeat the edge pixels instead of fading out beyond them. */
+  clampEdges: boolean;
 }
 
 type XY = [number, number];
@@ -103,6 +115,25 @@ function autoExtent(width: number, height: number, fwd: (x: number, y: number) =
   return [minX, minY, maxX, maxY];
 }
 
+/**
+ * A homography divides by `w = h6·x + h7·y + h8`, which is linear, so its sign
+ * over the image is decided by the four corners. A sign change (or w near 0)
+ * means the horizon crosses the image: part of it goes to infinity and no
+ * automatic extent makes sense.
+ */
+function checkHorizon(width: number, height: number, m: readonly number[]): void {
+  const w = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ].map(([x, y]) => m[6] * x + m[7] * y + m[8]);
+  const scale = Math.max(...w.map(Math.abs));
+  if (!(scale > 0) || !(w.every((v) => v > 1e-9 * scale) || w.every((v) => v < -1e-9 * scale))) {
+    throw new RangeError('The transform sends part of the image to infinity (a projective horizon inside the image?). Pass `extent`.');
+  }
+}
+
 /** Output area per source pixel near the image center, as a square pixel size. */
 function autoPixelSize(width: number, height: number, fwd: (x: number, y: number) => XY): number {
   const cx = width / 2;
@@ -128,6 +159,7 @@ function outputGrid(
   options: OutputOptions,
 ): { width: number; height: number; matrix: AffineMatrix; yUp: boolean } {
   const fwd = forwardFunction(transform, options.coordinateTransform);
+  if (!options.extent && transform.type === 'projective') checkHorizon(srcWidth, srcHeight, transform.matrix);
   const extent = options.extent ?? autoExtent(srcWidth, srcHeight, fwd);
   const [minX, minY, maxX, maxY] = extent;
   if (![minX, minY, maxX, maxY].every(Number.isFinite) || !(maxX > minX) || !(maxY > minY)) {
@@ -152,12 +184,22 @@ function outputGrid(
   }
   const width = options.width !== undefined ? Math.round(options.width) : pixelsAcross(spanX, sizeX);
   const height = options.height !== undefined ? Math.round(options.height) : pixelsAcross(spanY, sizeY);
+  if (width < 1 || height < 1) throw new RangeError('`width` and `height` must round to at least 1 pixel.');
+  if (width * height > MAX_OUTPUT_PIXELS) {
+    throw new RangeError(
+      `The output would be ${width} × ${height} pixels, more than ${MAX_OUTPUT_PIXELS} in all. Pass a larger \`pixelSize\`, a smaller \`extent\`, or \`width\` / \`height\` (or check the control points).`,
+    );
+  }
   const yUp = options.yUp ?? !!transform.yUp;
   const matrix: AffineMatrix = yUp ? [sizeX, 0, minX, 0, -sizeY, maxY] : [sizeX, 0, minX, 0, sizeY, minY];
   return { width, height, matrix, yUp };
 }
 
-/** Source pixels per output pixel near the output center (geometric mean of both directions). */
+/**
+ * Source pixels per output pixel near the output center, in the direction
+ * shrunk least: halving goes by this, so an axis that is not shrunk keeps its
+ * detail (halving both axes for a one-sided shrink would blur the other).
+ */
 function sourceScale(mapping: Mapping, width: number, height: number): number {
   const map = rowMapper(mapping);
   const y = Math.floor(height / 2);
@@ -175,8 +217,8 @@ function sourceScale(mapping: Mapping, width: number, height: number): number {
   const ay = (row[x1 * 2 + 1] - row[x * 2 + 1]) / dx;
   const bx = (below[x * 2] - row[x * 2]) / dy;
   const by = (below[x * 2 + 1] - row[x * 2 + 1]) / dy;
-  const det = Math.abs(ax * by - ay * bx);
-  return Number.isFinite(det) ? Math.sqrt(det) : 1;
+  const scale = Math.min(Math.hypot(ax, ay), Math.hypot(bx, by));
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
 function buildGrid(
@@ -237,11 +279,13 @@ export function planWarp(srcWidth: number, srcHeight: number, transform: Transfo
   const resample = options.resample ?? 'bilinear';
   if (!(resample in KERNEL_MARGIN)) throw new TypeError(`Unknown resample: ${String(resample)}`);
   const background = options.background ?? [0, 0, 0, 0];
-  if (!Array.isArray(background) || background.length !== 4 || !background.every((v) => Number.isFinite(v))) {
+  if (!Array.isArray(background) || background.length !== 4 || !background.every((v) => Number.isFinite(v) && v >= 0 && v <= 255)) {
     throw new TypeError('`background` must be [r, g, b, a] with values 0-255.');
   }
   checkPositive(options.gridStep, '`gridStep`');
   checkPositive(options.tolerance, '`tolerance`');
+  const edges = options.edges ?? 'transparent';
+  if (edges !== 'transparent' && edges !== 'clamp') throw new TypeError(`Unknown edges: ${String(edges)}`);
 
   const { width, height, matrix, yUp } = outputGrid(srcWidth, srcHeight, transform, options);
   const inverse = invertTransform(transform);
@@ -262,7 +306,7 @@ export function planWarp(srcWidth: number, srcHeight: number, transform: Transfo
   const extent: [number, number, number, number] = yUp
     ? [x0, y0 + sy * height, x0 + sx * width, y0]
     : [x0, y0, x0 + sx * width, y0 + sy * height];
-  return { width, height, mapping, resample, background, levels, geoTransform, extent };
+  return { width, height, mapping, resample, background, levels, geoTransform, extent, clampEdges: edges === 'clamp' };
 }
 
 /** Halves the source `levels` times. */
