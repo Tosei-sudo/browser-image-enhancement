@@ -87,6 +87,13 @@ export interface LoadImageControlOptions {
    * (for example call `loadFile` for each image and read other files itself).
    */
   onFiles?: (files: File[]) => void;
+  /**
+   * Called instead of the file chooser when the open button is pressed, for
+   * choosing files another way (for example `showOpenFilePicker`, to keep the
+   * file handles). Call {@link LoadImageControl.openChooser} to fall back to
+   * the chooser, and `loadFile` or your `onFiles` with the files chosen.
+   */
+  onOpen?: () => void;
   /** Called after an image is loaded (also fired as a `load` event). */
   onLoad?: (loaded: LoadedImage) => void;
   /** Called when an image cannot be loaded (also fired as an `error` event). */
@@ -110,6 +117,8 @@ export default class LoadImageControl extends Control {
   private undrop_;
   private busy_;
   constructor(options?: LoadImageControlOptions);
+  /** Opens the browser's file chooser, as the open button does without `onOpen`. */
+  openChooser(): void;
   /** Whether a load is in progress. */
   isLoading(): boolean;
   /**

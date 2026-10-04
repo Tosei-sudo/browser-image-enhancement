@@ -1,9 +1,9 @@
 /**
  * Files chosen or dropped together: Shapefiles and GeoJSON become read-only
  * vector layers with an attribute table, DTED files open as elevation data,
- * GeoTIFFs without overviews get them first, and other pictures open as they
- * are. A GeoTIFF with an RPC model (its own tag, or an .RPB / _RPC.TXT file
- * chosen with it) is marked for orthorectification; without georeferencing
+ * GeoTIFFs without overviews get them first (appended to the file, which
+ * is read where it is), and other pictures open as they are. A GeoTIFF with
+ * an RPC model (its own tag, or an .RPB / _RPC.TXT file chosen with it) is marked for orthorectification; without georeferencing
  * it is placed where the model puts it.
  */
 import { isEmpty } from 'ol/extent.js';
@@ -79,7 +79,8 @@ async function openImage(file: File, { loader, say, geometry }: OpenFilesContext
     // A satellite image without georeferencing goes where its RPC model puts it.
     const geo = rpc && info && !info.georeferenced ? rpcGeo(rpc, info.width, info.height) : undefined;
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
-    blob = (await withOverviews(file, { geo }).catch(() => null)) ?? file;
+    const onProgress = (done: number) => say(`${file.name} の概観を作っています… ${Math.floor(done * 100)}%`);
+    blob = (await withOverviews(file, { geo, onProgress }).catch(() => null)) ?? file;
   }
   const source = await loader.loadFile(blob, file.name).catch(() => null); // the loader's onError tells the user
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
