@@ -1,0 +1,73 @@
+name: Deploy image viewer
+
+# Deploys usecase/image-viewer to the VPS once CI passes on the default branch
+# (i.e. after a merge), or on demand from the Actions tab.
+#
+# Repository secrets:
+#   VPS_HOST                       host name or IP of the server
+#   VPS_USER / VPS_USER_PASSWORD   SSH login (password authentication)
+#   IMAGE_VIEWER_DEPLOY_DIRECTORY  directory the site is served from (created if missing)
+#   VPS_PORT                       optional, SSH port (default 22)
+#
+# The server needs rsync installed. public/config.json is only copied when the
+# server has none, so edits made on the server survive later deploys.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [claude/project-thread-ro9smf]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-image-viewer
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # A workflow_run only deploys a push to the default branch whose CI passed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Builds the libraries first, then the viewer (workspace order).
+      - run: npm run build
+      - name: Install sshpass
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+      - name: Upload to the VPS
+        env:
+          SSHPASS: ${{ secrets.VPS_USER_PASSWORD }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          DEPLOY_DIR: ${{ secrets.IMAGE_VIEWER_DEPLOY_DIRECTORY }}
+        run: |
+          set -eu
+          for name in VPS_HOST VPS_USER SSHPASS DEPLOY_DIR; do
+            if [ -z "${!name}" ]; then echo "::error::Secret for $name is not set."; exit 1; fi
+          done
+          dir="${DEPLOY_DIR%/}"
+          # sshpass -e reads the password from $SSHPASS, so it never shows on a command line.
+          ssh_cmd="ssh -p ${VPS_PORT:-22} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -o PubkeyAuthentication=no"
+          remote="$VPS_USER@$VPS_HOST"
+          sshpass -e $ssh_cmd "$remote" "mkdir -p '$dir'"
+          # Everything except config.json; --delete removes files of older builds
+          # (excluded config.json is left alone).
+          sshpass -e rsync -rltz --delete --exclude=/config.json -e "$ssh_cmd" \
+            usecase/image-viewer/dist/ "$remote:$dir/"
+          # config.json only when the server has none yet.
+          sshpass -e rsync -rltz --ignore-existing -e "$ssh_cmd" \
+            usecase/image-viewer/dist/config.json "$remote:$dir/config.json"
+          echo "Deployed $(git rev-parse --short HEAD)."
