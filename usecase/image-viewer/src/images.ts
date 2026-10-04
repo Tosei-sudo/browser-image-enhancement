@@ -103,6 +103,22 @@ export class ImageList {
     return entry;
   }
 
+  /** Marks an image's row with a short badge (such as `DEM`), or removes it with null. */
+  setBadge(image: ViewerImage, text: string | null): void {
+    const name = image.row.querySelector<HTMLButtonElement>('.name')!;
+    let badge = name.querySelector<HTMLSpanElement>('.badge');
+    if (text === null) {
+      badge?.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'badge';
+      name.prepend(badge);
+    }
+    badge.textContent = text;
+  }
+
   select(image: ViewerLayer | null): void {
     if (image === this.selected_) return;
     this.selected_ = image;

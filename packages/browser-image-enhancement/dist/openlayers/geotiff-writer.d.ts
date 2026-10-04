@@ -65,6 +65,12 @@ export interface GeoTIFFRaster {
  * looks jagged when zoomed out. Overviews average 2×2 pixels per band,
  * leaving out no-data and NaN.
  *
+ * With `statistics: true` each band's lowest and highest value (no-data and
+ * NaN left out) are written as GDAL metadata (`STATISTICS_MINIMUM` /
+ * `STATISTICS_MAXIMUM`). OpenLayers then maps that range to 0-255 instead of
+ * the whole range of the sample type, so 16-bit and float data (elevations,
+ * 11-bit satellite images) are not crushed into a few gray levels.
+ *
  * @example
  * ```ts
  * const image = await (await fromBlob(file)).getImage();
@@ -79,6 +85,7 @@ export interface GeoTIFFRaster {
  */
 export declare function rasterToGeoTIFF(raster: GeoTIFFRaster, options?: {
   tileSize?: number;
+  statistics?: boolean;
 }): Blob;
 //#endregion
 //# sourceMappingURL=geotiff-writer.d.ts.map

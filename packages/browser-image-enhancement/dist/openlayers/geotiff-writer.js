@@ -169,6 +169,12 @@ function imageToGeoTIFF(image, placement) {
 * looks jagged when zoomed out. Overviews average 2×2 pixels per band,
 * leaving out no-data and NaN.
 *
+* With `statistics: true` each band's lowest and highest value (no-data and
+* NaN left out) are written as GDAL metadata (`STATISTICS_MINIMUM` /
+* `STATISTICS_MAXIMUM`). OpenLayers then maps that range to 0-255 instead of
+* the whole range of the sample type, so 16-bit and float data (elevations,
+* 11-bit satellite images) are not crushed into a few gray levels.
+*
 * @example
 * ```ts
 * const image = await (await fromBlob(file)).getImage();
@@ -189,6 +195,7 @@ function rasterToGeoTIFF(raster, options = {}) {
 	if (tileSize % 16 !== 0 || tileSize <= 0) throw new RangeError("tileSize must be a positive multiple of 16.");
 	const { bits, format } = sampleType(data);
 	const noData = raster.noData ?? null;
+	const metadata = options.statistics ? gdalStatistics(data, bands, noData) : null;
 	const levels = [{
 		width,
 		height,
@@ -305,6 +312,11 @@ function rasterToGeoTIFF(raster, options = {}) {
 				values: ascii(g.geoAsciiParams)
 			});
 		}
+		if (metadata) entries.push({
+			tag: 42112,
+			type: ASCII,
+			values: ascii(metadata)
+		});
 		if (noData !== null) entries.push({
 			tag: 42113,
 			type: ASCII,
@@ -316,6 +328,19 @@ function rasterToGeoTIFF(raster, options = {}) {
 			tiles
 		};
 	}));
+}
+/** GDAL metadata XML with each band's lowest and highest value, or null when every sample is no-data. */
+function gdalStatistics(data, bands, noData) {
+	const min = new Array(bands).fill(Infinity);
+	const max = new Array(bands).fill(-Infinity);
+	for (let i = 0; i < data.length; i += bands) for (let b = 0; b < bands; b++) {
+		const v = data[i + b];
+		if (v !== v || v === noData) continue;
+		if (v < min[b]) min[b] = v;
+		if (v > max[b]) max[b] = v;
+	}
+	if (!(min[0] <= max[0])) return null;
+	return `<GDALMetadata>${min.flatMap((_, b) => min[b] <= max[b] ? [`<Item name="STATISTICS_MINIMUM" sample="${b}">${min[b]}</Item>`, `<Item name="STATISTICS_MAXIMUM" sample="${b}">${max[b]}</Item>`] : []).join("")}</GDALMetadata>`;
 }
 function ascii(text) {
 	const codes = Array.from(text, (c) => c.charCodeAt(0) & 127);

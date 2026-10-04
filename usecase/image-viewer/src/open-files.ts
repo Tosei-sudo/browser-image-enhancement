@@ -1,7 +1,10 @@
 /**
  * Files chosen or dropped together: Shapefiles and GeoJSON become read-only
- * vector layers with an attribute table, GeoTIFFs without overviews get them
- * first, and other pictures open as they are.
+ * vector layers with an attribute table, DTED files open as elevation data,
+ * GeoTIFFs without overviews get them first, and other pictures open as they
+ * are. A GeoTIFF with an RPC model (its own tag, or an .RPB / _RPC.TXT file
+ * chosen with it) is marked for orthorectification; without georeferencing
+ * it is placed where the model puts it.
  */
 import { isEmpty } from 'ol/extent.js';
 import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
@@ -9,21 +12,48 @@ import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './serv
 import { plainStyle, vectorLayer } from './services/vector.js';
 import { isVectorName, readVectorFiles, type VectorFile } from './vector-files.js';
 import { isTiff, withOverviews } from './overviews.js';
+import { isDtedName } from './dted.js';
+import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
+import { rpcGeo, tiffInfo } from './satellite.js';
+import type { GeometricMode } from './geometric.js';
+import { baseName } from './images.js';
 
 export interface OpenFilesContext {
   loader: LoadImageControl;
   /** Adds a vector layer to the list. */
   addLayer: (layer: ServiceLayer) => void;
   say: (message: string) => void;
+  /** Takes DTED files and satellite images. */
+  geometry: GeometricMode;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles and GeoJSON. */
-export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json';
+/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, DTED and RPC files. */
+export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
   if (vectors.length) await openVectors(vectors, context);
-  for (const file of files.filter((f) => !isVectorName(f.name))) await openImage(file, context);
+  for (const file of files.filter((f) => isDtedName(f.name))) await context.geometry.openDem(file);
+  const rpcs = await readRpcFiles(files.filter((f) => isRpcName(f.name)), context);
+  const images = files.filter((f) => !isVectorName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !/\.txt$/i.test(f.name));
+  for (const file of images) {
+    // An RPC file goes with the image of the same name, or with the only image.
+    const rpc = rpcs.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && rpcs.size === 1 ? [...rpcs.values()][0] : null);
+    await openImage(file, context, rpc);
+  }
+}
+
+/** The RPC models of side files, by the image name they belong to. */
+async function readRpcFiles(files: File[], { say }: OpenFilesContext): Promise<Map<string, Rpc>> {
+  const models = new Map<string, Rpc>();
+  for (const file of files) {
+    try {
+      models.set(rpcBaseName(file.name), parseRpcText(await file.text()));
+    } catch (error) {
+      say(`${file.name} を読めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return models;
 }
 
 async function openVectors(files: File[], { addLayer, say }: OpenFilesContext): Promise<void> {
@@ -39,14 +69,20 @@ async function openVectors(files: File[], { addLayer, say }: OpenFilesContext): 
 }
 
 /** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first. */
-async function openImage(file: File, { loader, say }: OpenFilesContext): Promise<void> {
+async function openImage(file: File, { loader, say, geometry }: OpenFilesContext, sideRpc: Rpc | null = null): Promise<void> {
   let blob: Blob = file;
+  let rpc: Rpc | null = null;
   if (await isTiff(file)) {
     say(`${file.name} を読み込んでいます…`);
+    const info = await tiffInfo(file).catch(() => null);
+    rpc = sideRpc ?? info?.rpc ?? null;
+    // A satellite image without georeferencing goes where its RPC model puts it.
+    const geo = rpc && info && !info.georeferenced ? rpcGeo(rpc, info.width, info.height) : undefined;
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
-    blob = (await withOverviews(file).catch(() => null)) ?? file;
+    blob = (await withOverviews(file, { geo }).catch(() => null)) ?? file;
   }
-  await loader.loadFile(blob, file.name).catch(() => {}); // the loader's onError tells the user
+  const source = await loader.loadFile(blob, file.name).catch(() => null); // the loader's onError tells the user
+  if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
 }
 
 /** A layer for the list, like a service's vector layer but read-only and without a link. */

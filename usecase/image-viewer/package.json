@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "browser-image-enhancement": "0.1.0",
+    "browser-image-geometry": "0.1.0",
     "but-unzip": "^0.1.10",
     "geotiff": "^3.1.0-beta.0",
     "mgrs": "^2.2.0",

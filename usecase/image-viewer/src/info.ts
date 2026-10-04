@@ -5,7 +5,7 @@ import type { ViewerLayer } from './images.js';
 let shown: ViewerLayer | null = null;
 
 /** Fills `element` with the facts of `image` (cleared for none). */
-export async function showInfo(element: HTMLDListElement, image: ViewerLayer | null): Promise<void> {
+export async function showInfo(element: HTMLDListElement, image: ViewerLayer | null, extra: Array<[string, string]> = []): Promise<void> {
   shown = image;
   element.replaceChildren();
   if (!image) return;
@@ -40,7 +40,7 @@ export async function showInfo(element: HTMLDListElement, image: ViewerLayer | n
     if (extent) rows.push(['範囲', extent.map(formatNumber).join(', ')]);
   }
 
-  fill(element, rows);
+  fill(element, [...rows, ...extra]);
 }
 
 function fill(element: HTMLDListElement, rows: Array<[string, string]>): void {

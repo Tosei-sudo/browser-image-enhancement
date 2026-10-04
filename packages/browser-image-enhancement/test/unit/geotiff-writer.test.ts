@@ -102,4 +102,13 @@ describe('rasterToGeoTIFF', () => {
     expect(Array.from((await image.readRasters({ interleave: true })) as unknown as Float32Array)).toEqual(Array.from(data));
     expect(() => rasterToGeoTIFF({ width: 20, height: 10, bands: 2, data, geo: {} })).toThrow(RangeError);
   });
+
+  it('writes each band\'s range as GDAL statistics when asked', async () => {
+    const data = new Int16Array([-5, 100, 1200, -32767, 40, 7]);
+    const plain = (await read(rasterToGeoTIFF({ width: 3, height: 1, bands: 2, data, noData: -32767, geo: {} })))[0];
+    expect(await plain.getGDALMetadata(0)).toBeNull();
+    const images = await read(rasterToGeoTIFF({ width: 3, height: 1, bands: 2, data, noData: -32767, geo: {} }, { statistics: true }));
+    expect(await images[0].getGDALMetadata(0)).toEqual({ STATISTICS_MINIMUM: '-5', STATISTICS_MAXIMUM: '1200' });
+    expect(await images[0].getGDALMetadata(1)).toEqual({ STATISTICS_MINIMUM: '7', STATISTICS_MAXIMUM: '100' });
+  });
 });
