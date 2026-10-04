@@ -63,7 +63,10 @@ export interface ServiceRef {
 
 /** A layer of a service, added to the viewer. */
 export interface ServiceLayer {
-  ref: ServiceRef;
+  /** How to open it again; null for a layer read from a local file. */
+  ref: ServiceRef | null;
+  /** Badge in the layer list, for local files (`SHP`, `GeoJSON`); services show their kind. */
+  badge?: string;
   title: string;
   layer: BaseLayer;
   /** The correction of picture layers that can be corrected on the GPU. */

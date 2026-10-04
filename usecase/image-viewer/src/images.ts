@@ -167,7 +167,7 @@ export class ImageList {
   private buildRow_(image: ViewerLayer): void {
     const { row, layer } = image;
     row.className = 'image';
-    if (image.type === 'service') row.dataset.kind = image.service.ref.kind;
+    if (image.type === 'service') row.dataset.kind = image.service.ref?.kind ?? 'file';
 
     const visible = document.createElement('input');
     visible.type = 'checkbox';
@@ -180,12 +180,13 @@ export class ImageList {
     name.type = 'button';
     name.className = 'name';
     name.textContent = image.type === 'image' ? shortName(image.name) : image.name;
-    name.title = image.type === 'image' ? image.name : `${serviceNames[image.service.ref.kind]}: ${image.service.ref.url}`;
+    const ref = image.type === 'service' ? image.service.ref : null;
+    name.title = image.type === 'image' ? image.name : ref ? `${serviceNames[ref.kind]}: ${ref.url}` : `${image.name}（読み取り専用）`;
     name.addEventListener('click', () => this.select(image));
     if (image.type === 'service') {
       const badge = document.createElement('span');
       badge.className = 'badge';
-      badge.textContent = image.service.ref.kind === 'esri' ? 'Esri' : image.service.ref.kind.toUpperCase();
+      badge.textContent = image.service.badge ?? (ref?.kind === 'esri' ? 'Esri' : (ref?.kind.toUpperCase() ?? ''));
       name.prepend(badge);
     }
 

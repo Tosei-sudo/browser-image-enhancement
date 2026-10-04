@@ -59,4 +59,19 @@ describe('TileCorrection.updateDra', () => {
     await c.updateDra(m as never);
     expect(changes).toBe(1);
   });
+
+  it('keeps its statistics while locked, and follows the view again once unlocked', async () => {
+    const c = new TileCorrection({ pipeline: pipeline().autoStretch() });
+    const m = map();
+    await c.updateDra(m as never);
+    c.setStats(histogram(image), { extent: [0, 0, 1, 1], z: 0, tiles: 0, pixels: 2 });
+    c.setDraLocked(true);
+    expect(c.isDraLocked()).toBe(true);
+    const moved = { ...m, getView: () => ({ getCenter: () => [5, 5], getResolution: () => 2, getRotation: () => 0 }) };
+    await c.updateDra(moved as never);
+    expect(c.wantsStats()).toBe(false);
+    c.setDraLocked(false);
+    await c.updateDra(moved as never);
+    expect(c.wantsStats()).toBe(true);
+  });
 });

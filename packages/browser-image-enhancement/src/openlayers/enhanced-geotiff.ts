@@ -134,6 +134,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draStats_: Histogram | null = null;
   private draInfo_: DraInfo | null = null;
   private draKey_ = '';
+  private draLocked_ = false;
   private draRequest_ = 0;
   /** The key tiles were last corrected (or drawn) for. */
   private appliedKey_ = '';
@@ -270,14 +271,34 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     return this.draInfo_;
   }
 
+  /** Whether the DRA range is locked (see {@link EnhancedGeoTIFF.setDraLocked}). */
+  isDraLocked(): boolean {
+    return this.draLocked_;
+  }
+
+  /**
+   * Locks the DRA range: `updateDra` keeps the statistics it has (of the area
+   * shown when they were taken) instead of following the view, so panning and
+   * zooming no longer change the colors. DRA settings still apply to the kept
+   * statistics. Unlocking lets the next `updateDra` take the view again.
+   */
+  setDraLocked(locked: boolean): void {
+    if (locked === this.draLocked_) return;
+    this.draLocked_ = locked;
+    if (!locked) this.draKey_ = '';
+    this.changed();
+  }
+
   /**
    * Collects the statistics of the area `map` shows and fixes the pipeline's
    * `autoStretch` steps from them. Call it on the map's `moveend`. Does nothing
-   * when the pipeline has no `autoStretch` or the visible area has not changed.
-   * Tiles are re-corrected only when the resulting range changes.
+   * when the pipeline has no `autoStretch`, the visible area has not changed,
+   * or the range is locked ({@link EnhancedGeoTIFF.setDraLocked}) and already
+   * has statistics. Tiles are re-corrected only when the resulting range changes.
    */
   async updateDra(map: OlMap): Promise<void> {
     if (!this.pipeline_.needsStats && !this.autoRaw_) return;
+    if (this.draLocked_ && this.draInfo_) return;
     const request = ++this.draRequest_;
     const grid = this.getTileGrid();
     const projection = this.getProjection();

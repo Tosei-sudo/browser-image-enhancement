@@ -105,6 +105,12 @@ export interface LoadImageControlOptions {
   className?: string;
   /** Put the control in this element instead of the map's overlay container. */
   target?: HTMLElement | string;
+  /**
+   * Takes the files chosen or dropped instead of the control: the chooser
+   * then accepts several files at once, and the handler decides what to open
+   * (for example call `loadFile` for each image and read other files itself).
+   */
+  onFiles?: (files: File[]) => void;
   /** Called after an image is loaded (also fired as a `load` event). */
   onLoad?: (loaded: LoadedImage) => void;
   /** Called when an image cannot be loaded (also fired as an `error` event). */
@@ -141,10 +147,11 @@ export default class LoadImageControl extends Control {
     this.file_.type = 'file';
     this.file_.accept = options.accept ?? '.tif,.tiff,image/*';
     this.file_.hidden = true;
+    this.file_.multiple = !!options.onFiles;
     this.file_.addEventListener('change', () => {
-      const file = this.file_.files?.[0];
+      const files = Array.from(this.file_.files ?? []);
       this.file_.value = '';
-      if (file) void this.loadFile(file).catch(() => {});
+      this.takeFiles_(files);
     });
     const open = iconButton(t.open, FOLDER_ICON);
     open.addEventListener('click', () => this.file_.click());
@@ -218,10 +225,10 @@ export default class LoadImageControl extends Control {
     const leave = () => viewport.classList.remove('ol-load-image-drop');
     const drop = (e: DragEvent) => {
       leave();
-      const file = e.dataTransfer?.files?.[0];
-      if (!file) return;
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (!files.length) return;
       e.preventDefault();
-      void this.loadFile(file).catch(() => {});
+      this.takeFiles_(files);
     };
     const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void) => {
       viewport.addEventListener(type, fn);
@@ -231,6 +238,15 @@ export default class LoadImageControl extends Control {
     on('dragover', over);
     on('dragleave', leave);
     on('drop', drop);
+  }
+
+  /** Chosen or dropped files: to `onFiles`, else the first one is opened. */
+  private takeFiles_(files: File[]): void {
+    if (this.options_.onFiles) {
+      if (files.length) this.options_.onFiles(files);
+    } else if (files[0]) {
+      void this.loadFile(files[0]).catch(() => {});
+    }
   }
 
   protected override disposeInternal(): void {

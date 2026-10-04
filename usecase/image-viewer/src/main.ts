@@ -4,7 +4,8 @@
  * browser-image-enhancement (on the GPU where WebGL2 is available). Layers of
  * WMS, WMTS, WFS and Esri feature services can be added too: picture layers
  * are corrected like the images, vector layers show their attributes in a
- * table, and editable Esri layers can be edited.
+ * table, and editable Esri layers can be edited. Shapefiles and GeoJSON open
+ * read-only as vector layers with the same table.
  */
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
@@ -20,10 +21,14 @@ import {
   type LoadedImage,
 } from 'browser-image-enhancement/openlayers';
 import type Feature from 'ol/Feature.js';
+import type Point from 'ol/geom/Point.js';
+import DragBox from 'ol/interaction/DragBox.js';
+import { platformModifierKeyOnly } from 'ol/events/condition.js';
 import { ImageList, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
+import { acceptFiles, openFiles } from './open-files.js';
 import { showInfo } from './info.js';
 import { AddServiceDialog, openRef, paramToRef, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
@@ -79,6 +84,14 @@ function showTable(layer: ViewerLayer | null): void {
       features: () => vector.source.getFeatures(),
       note: vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : undefined,
       watch: [vector.source, ...(editor.session() ? [editor.session()!] : [])],
+      // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
+      onDelete: service.esri?.canDelete
+        ? (features) => {
+            if (!editor.start(layer)) return;
+            showTable(layer);
+            editor.deleteFeatures(features);
+          }
+        : undefined,
     });
   } else if (layer?.type === 'service' && service?.featureInfo) {
     table.show(featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示します');
@@ -151,9 +164,34 @@ map.on('singleclick', (e) => {
   }
 });
 
+// Ctrl (⌘ on a Mac) + drag: add the features in the box to the selection.
+const boxSelect = new DragBox({ condition: platformModifierKeyOnly, className: 'ol-dragbox select-box' });
+boxSelect.on('boxend', () => {
+  const layer = images.selectedLayer();
+  const vector = layer?.type === 'service' ? layer.service.vector : null;
+  if (!vector) {
+    say('範囲で選ぶには、WFS・Esri のレイヤーを選んでください');
+    return;
+  }
+  const box = boxSelect.getGeometry();
+  const extent = box.getExtent();
+  const found: Feature[] = [];
+  vector.source.forEachFeatureIntersectingExtent(extent, (f) => {
+    // The box turns with the view: keep what really meets it.
+    const g = f.getGeometry();
+    if (!g) return;
+    const inside = g.getType() === 'Point' ? box.intersectsCoordinate((g as Point).getCoordinates()) : box.intersectsExtent(g.getExtent()) && g.intersectsExtent(extent);
+    if (inside) found.push(f as Feature);
+  });
+  selection.add(found);
+  if (found[0]) table.scrollTo(found[0]);
+  say(found.length ? `${found.length} 件を選択に加えました（選択 ${selection.list().length} 件）` : '範囲内に地物はありません');
+});
+map.addInteraction(boxSelect);
+
 const serviceContext = (): OpenContext => ({ gpu: onGpu, say });
 
-/** Adds a layer of a service and zooms to it. */
+/** Adds a layer of a service (or a vector file) and zooms to it. */
 function addService(service: ServiceLayer): void {
   const entry = images.addService(service);
   void images.zoomTo(entry);
@@ -166,7 +204,7 @@ const addDialog = new AddServiceDialog(document.getElementById('add-service') as
 function updateLink(): void {
   const params = new URLSearchParams(location.search);
   params.delete('service');
-  for (const l of [...images.layers()].reverse()) if (l.type === 'service') params.append('service', refToParam(l.service.ref));
+  for (const l of [...images.layers()].reverse()) if (l.type === 'service' && l.service.ref) params.append('service', refToParam(l.service.ref));
   params.delete('base');
   if (baseMap.get()) params.set('base', baseMap.get());
   const query = params.toString();
@@ -180,6 +218,9 @@ const loader = new LoadImageControl({
   sourceOptions: { loadMissingProjection: true, correctTiles: !onGpu },
   // An ordinary picture goes at the origin, one unit per pixel, wherever the view is.
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
+  // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
+  accept: acceptFiles,
+  onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say }),
   onLoad: (loaded: LoadedImage) => {
     images.add(loaded);
     status.textContent = `${loaded.name} を開きました`;
@@ -232,6 +273,7 @@ declare global {
       selection: Selection;
       table: AttributeTable;
       editor: Editor;
+      boxSelect: DragBox;
       baseMap: BaseMapSwitch;
       addDialog: AddServiceDialog;
       coordinateMenu: CoordinateMenu;
@@ -239,4 +281,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, baseMap, addDialog, coordinateMenu, jump };
+window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, addDialog, coordinateMenu, jump };

@@ -81,6 +81,12 @@ export interface LoadImageControlOptions {
   className?: string;
   /** Put the control in this element instead of the map's overlay container. */
   target?: HTMLElement | string;
+  /**
+   * Takes the files chosen or dropped instead of the control: the chooser
+   * then accepts several files at once, and the handler decides what to open
+   * (for example call `loadFile` for each image and read other files itself).
+   */
+  onFiles?: (files: File[]) => void;
   /** Called after an image is loaded (also fired as a `load` event). */
   onLoad?: (loaded: LoadedImage) => void;
   /** Called when an image cannot be loaded (also fired as an `error` event). */
@@ -114,6 +120,8 @@ export default class LoadImageControl extends Control {
   /** Loads a COG (or any GeoTIFF the server allows range requests on) from `url`. */
   loadUrl(url: string): Promise<EnhancedGeoTIFF>;
   setMap(map: OlMap | null): void;
+  /** Chosen or dropped files: to `onFiles`, else the first one is opened. */
+  private takeFiles_;
   protected disposeInternal(): void;
   private track_;
   private show_;

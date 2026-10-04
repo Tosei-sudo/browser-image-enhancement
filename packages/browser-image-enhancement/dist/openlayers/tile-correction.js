@@ -20,6 +20,7 @@ var TileCorrection = class extends Observable {
 	info_ = null;
 	wanted_ = false;
 	viewKey_ = "";
+	locked_ = false;
 	constructor(options = {}) {
 		super();
 		this.pipeline_ = options.pipeline ?? pipeline();
@@ -65,14 +66,31 @@ var TileCorrection = class extends Observable {
 	getDraInfo() {
 		return this.info_;
 	}
+	/** Whether the DRA range is locked (see {@link TileCorrection.setDraLocked}). */
+	isDraLocked() {
+		return this.locked_;
+	}
+	/**
+	* Locks the DRA range: `updateDra` keeps the statistics it has instead of
+	* following the view. DRA settings still apply to the kept statistics.
+	* Unlocking lets the next `updateDra` take the view again.
+	*/
+	setDraLocked(locked) {
+		if (locked === this.locked_) return;
+		this.locked_ = locked;
+		if (!locked) this.viewKey_ = "";
+		this.changed();
+	}
 	/**
 	* Asks the layer for new DRA statistics of what `map` shows: they are taken
 	* from the next frame it draws, and again once the visible tiles have
 	* loaded. Call it on the map's `moveend`. Does nothing when the pipeline has
-	* no `autoStretch` or the view has not changed.
+	* no `autoStretch`, the view has not changed, or the range is locked
+	* ({@link TileCorrection.setDraLocked}) and already has statistics.
 	*/
 	async updateDra(map) {
 		if (!this.pipeline_.needsStats) return;
+		if (this.locked_ && this.stats_) return;
 		const view = map.getView();
 		const key = `${view.getCenter()?.join(",")}:${view.getResolution()}:${view.getRotation()}:${map.getSize()?.join(",")}`;
 		if (key === this.viewKey_ && (this.stats_ || this.wanted_)) return;

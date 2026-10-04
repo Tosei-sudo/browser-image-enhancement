@@ -28,6 +28,7 @@ const enhanceLabelsEn = {
 	"dra.standardDeviation": "Std. deviation (±2σ)",
 	"dra.clip": "Clip (%)",
 	"dra.linked": "Link RGB",
+	"dra.locked": "Lock range",
 	adjustments: "Adjustments",
 	bands: "Bands",
 	"bands.r": "Red",
@@ -61,6 +62,7 @@ const enhanceLabelsJa = {
 	"dra.standardDeviation": "標準偏差（±2σ）",
 	"dra.clip": "クリップ (%)",
 	"dra.linked": "RGB 連動",
+	"dra.locked": "範囲を固定",
 	adjustments: "補正",
 	bands: "バンド割当",
 	"bands.r": "R（赤）",
@@ -217,19 +219,29 @@ var EnhanceControl = class extends Control {
 			method.value = d.method;
 			const clip = sliderRow(t("dra.clip"), 0, 5, .05, d.clip, 2);
 			const linked = checkbox(d.linked);
-			set.append(plainRow(t("dra.enabled"), enabled), plainRow(t("dra.method"), method), clip.row, plainRow(t("dra.linked"), linked));
+			const locked = checkbox(false);
+			locked.dataset.dra = "locked";
+			set.append(plainRow(t("dra.enabled"), enabled), plainRow(t("dra.method"), method), clip.row, plainRow(t("dra.linked"), linked), plainRow(t("dra.locked"), locked));
 			this.panel_.append(set);
 			this.dra_ = {
 				enabled,
 				method,
 				clip: clip.input,
-				linked
+				linked,
+				locked
 			};
 			for (const el of [
 				enabled,
 				method,
 				linked
 			]) el.addEventListener("change", () => this.schedule_());
+			locked.addEventListener("change", () => {
+				const source = this.getSource();
+				if (!source) return;
+				source.setDraLocked(locked.checked);
+				const map = this.getMap();
+				if (!locked.checked && map) source.updateDra(map);
+			});
 			clip.input.addEventListener("input", () => {
 				clip.output.value = Number(clip.input.value).toFixed(2);
 				this.schedule_();
@@ -380,6 +392,7 @@ var EnhanceControl = class extends Control {
 		const source = this.getSource();
 		this.updateColorRows_();
 		this.updateBands_();
+		if (this.dra_) this.dra_.locked.checked = source?.isDraLocked() ?? false;
 		if (!source) return;
 		this.apply_(source);
 		this.sourceKeys_.push(listen(source, "change", () => {

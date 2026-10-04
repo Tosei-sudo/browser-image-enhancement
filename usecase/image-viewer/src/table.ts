@@ -3,15 +3,21 @@
  * layer, all of them or only the selected ones. Columns sort, a search box
  * filters, columns can be hidden, and the rows shown can be saved as CSV.
  * Only the rows in view are drawn, so tens of thousands of features stay
- * fast. Clicking a row selects its feature on the map (Ctrl / Shift add to
- * the selection), double-clicking zooms to it. While an Esri layer is being
- * edited, its editable cells are inputs and unsaved values are marked.
+ * fast. Clicking a row selects its feature on the map; Ctrl adds to the
+ * selection or takes out, Shift selects the rows in between, and the check
+ * boxes do the same (the one in the header: every row shown). Double-clicking
+ * zooms to the feature, and right-clicking opens a menu that zooms to the
+ * selected features, copies their rows and, for a layer that allows it,
+ * deletes them. While an Esri layer is being edited, its editable cells are
+ * inputs and unsaved values are marked.
  */
 import type Feature from 'ol/Feature.js';
 import type OlMap from 'ol/Map.js';
 import { unByKey } from 'ol/Observable.js';
 import { listen, type EventsKey } from 'ol/events.js';
 import type Target from 'ol/events/Target.js';
+import { createEmpty, extend } from 'ol/extent.js';
+import { ContextMenu, type MenuItem } from './context-menu.js';
 import type { EditSession } from './edit-session.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
@@ -28,6 +34,8 @@ export interface TableData {
   note?: string;
   /** Things that change the features (a vector source, an edit session): the table redraws on their events. */
   watch?: Target[];
+  /** Deletes features (asking first); only for layers that allow deleting. */
+  onDelete?: (features: Feature[]) => void;
 }
 
 export type TableMode = 'all' | 'selected';
@@ -43,6 +51,10 @@ export class AttributeTable {
   private session_: EditSession | null = null;
   private keys_: EventsKey[] = [];
   private frame_ = 0;
+  /** The row a Shift click selects from. */
+  private anchor_: Feature | null = null;
+  private readonly menu_ = new ContextMenu('選択した地物');
+  private readonly all_: HTMLInputElement;
 
   private readonly title_: HTMLElement;
   private readonly count_: HTMLElement;
@@ -120,6 +132,17 @@ export class AttributeTable {
     this.empty_.className = 'table-empty';
     this.scroller_.append(this.table_, this.empty_);
     this.scroller_.addEventListener('scroll', () => this.renderRows_());
+    this.scroller_.tabIndex = 0;
+    this.scroller_.setAttribute('aria-label', '属性テーブルの行');
+    this.scroller_.addEventListener('keydown', (e) => this.keydown_(e));
+
+    this.all_ = document.createElement('input');
+    this.all_.type = 'checkbox';
+    this.all_.setAttribute('aria-label', '表示中の行をすべて選択');
+    this.all_.addEventListener('change', () => {
+      if (this.all_.checked) this.selection.add(this.rows_);
+      else this.selection.remove(this.rows_);
+    });
 
     // Drag the top edge to change the height.
     const handle = document.createElement('div');
@@ -148,9 +171,14 @@ export class AttributeTable {
   show(data: TableData | null, message = ''): void {
     unByKey(this.keys_);
     this.keys_ = [];
+    // The same layer again (its editing started or ended): keep the sorting.
+    if (data?.title !== this.data_?.title || data?.fields !== this.data_?.fields) {
+      this.sort_ = null;
+      this.anchor_ = null;
+    }
     this.data_ = data;
     this.message_ = message;
-    this.sort_ = null;
+    this.menu_.close();
     this.title_.textContent = data ? `属性テーブル: ${data.title}` : '属性テーブル';
     for (const w of data?.watch ?? []) {
       for (const type of ['change', 'addfeature', 'removefeature', 'changefeature', 'clear']) {
@@ -211,6 +239,101 @@ export class AttributeTable {
     requestAnimationFrame(() => this.table_.querySelector<HTMLElement>(`tr[data-index="${i}"] :is(input, select)`)?.focus());
   }
 
+  /** Zooms the map to `features`. */
+  zoomTo(features: Feature[]): void {
+    const extent = createEmpty();
+    for (const f of features) {
+      const e = f.getGeometry()?.getExtent();
+      if (e) extend(extent, e);
+    }
+    if (!Number.isFinite(extent[0])) return;
+    // A single point has an empty extent: fit still centers it, at zoom 18.
+    this.map.getView().fit(extent, { padding: [60, 60, 60, 60], maxZoom: 18, duration: 250 });
+  }
+
+  /** Copies the rows of `features` (visible columns, with a header) as tab-separated text, for a spreadsheet. */
+  async copyRows(features: Feature[]): Promise<void> {
+    const fields = this.visibleFields_();
+    const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
+    const text = [fields.map((f) => clean(f.alias)), ...features.map((r) => fields.map((f) => clean(display(f, r.get(f.name)))))].map((l) => l.join('\t')).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.append(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      if (!ok) {
+        this.options.say('コピーできませんでした');
+        return;
+      }
+    }
+    this.options.say(`${features.length} 行をコピーしました（タブ区切り）`);
+  }
+
+  /** Opens the row menu for `feature` at the page point (`x`, `y`); a row not selected becomes the selection first. */
+  openMenu(feature: Feature, x: number, y: number): void {
+    if (!this.selection.has(feature)) {
+      this.selection.set([feature]);
+      this.anchor_ = feature;
+    }
+    const features = this.selectedRows_();
+    const n = features.length;
+    const several = n > 1 ? `選択中の ${n.toLocaleString()} 件` : '';
+    const items: MenuItem[] = [
+      { label: several ? `${several}にズーム` : '地物にズーム', run: () => this.zoomTo(features) },
+      { label: several ? `${several}の行をコピー` : '行をコピー', run: () => void this.copyRows(features) },
+      { label: '選択を解除', run: () => this.selection.clear() },
+    ];
+    const remove = this.data_?.onDelete;
+    if (remove) items.push({ label: several ? `${several}を削除…` : '削除…', danger: true, run: () => remove(features) });
+    this.menu_.open(items, x, y);
+  }
+
+  /** The selected features of this table, in row order (those filtered out by the search included, at the end). */
+  private selectedRows_(): Feature[] {
+    const shown = this.rows_.filter((f) => this.selection.has(f));
+    const seen = new Set(shown);
+    const all = new Set(this.data_?.features() ?? []);
+    return [...shown, ...this.selection.list().filter((f) => !seen.has(f) && all.has(f))];
+  }
+
+  /** A click on a row (or its check box): plain selects it, Ctrl adds or takes out, Shift selects from the last clicked row. */
+  private pick_(feature: Feature, e: MouseEvent, checkbox = false): void {
+    const add = e.ctrlKey || e.metaKey || checkbox;
+    const from = this.anchor_ ? this.rows_.indexOf(this.anchor_) : -1;
+    const to = this.rows_.indexOf(feature);
+    if (e.shiftKey && from >= 0 && to >= 0) {
+      const range = this.rows_.slice(Math.min(from, to), Math.max(from, to) + 1);
+      if (add) this.selection.add(range);
+      else this.selection.set(range);
+      return; // the anchor stays, so the range can be changed
+    }
+    if (add) this.selection.toggle(feature);
+    else this.selection.set([feature]);
+    this.anchor_ = feature;
+  }
+
+  /** Keys on the table: Ctrl+A selects the rows shown, Escape clears, Delete deletes, the menu key opens the menu. */
+  private keydown_(e: KeyboardEvent): void {
+    if ((e.target as HTMLElement).closest('input:not([type="checkbox"]), select') || !this.data_) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') this.selection.add(this.rows_);
+    else if (e.key === 'Escape' && !this.menu_.isOpen()) this.selection.clear();
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && this.data_.onDelete && this.selectedRows_().length) this.data_.onDelete(this.selectedRows_());
+    else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      const feature = this.selectedRows_()[0];
+      if (!feature) return;
+      this.scrollTo(feature);
+      const box = (this.table_.querySelector(`tr[data-index="${this.rows_.indexOf(feature)}"]`) ?? this.scroller_).getBoundingClientRect();
+      this.openMenu(feature, box.left + 24, box.bottom);
+    } else return;
+    e.preventDefault();
+  }
+
   /** Saves the rows shown (filtered, sorted, visible columns) as CSV. */
   downloadCsv(): void {
     const data = this.data_;
@@ -266,6 +389,11 @@ export class AttributeTable {
       list.append(label);
     }
     const tr = document.createElement('tr');
+    const check = document.createElement('th');
+    check.className = 'check';
+    check.scope = 'col';
+    check.append(this.all_);
+    tr.append(check);
     for (const field of this.visibleFields_()) {
       const th = document.createElement('th');
       th.scope = 'col';
@@ -368,7 +496,14 @@ export class AttributeTable {
       const selected = !!f && this.selection.has(f);
       tr.classList.toggle('selected', selected);
       tr.setAttribute('aria-selected', String(selected));
+      const box = tr.querySelector<HTMLInputElement>('td.check input');
+      if (box) box.checked = selected;
     }
+    let count = 0;
+    for (const f of this.rows_) if (this.selection.has(f)) count++;
+    this.all_.checked = count > 0 && count === this.rows_.length;
+    this.all_.indeterminate = count > 0 && count < this.rows_.length;
+    this.all_.disabled = this.rows_.length === 0;
   }
 
   private row_(feature: Feature, index: number, fields: Field[]): HTMLTableRowElement {
@@ -381,16 +516,32 @@ export class AttributeTable {
       tr.classList.add('failed');
       tr.title = `保存できませんでした: ${error}`;
     }
+    tr.addEventListener('mousedown', (e) => {
+      // Shift click selects rows, not text.
+      if (e.shiftKey && !(e.target as HTMLElement).closest('input, select')) e.preventDefault();
+    });
     tr.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('input, select')) return;
-      if (e.ctrlKey || e.metaKey || e.shiftKey) this.selection.toggle(feature);
-      else this.selection.set([feature]);
+      this.pick_(feature, e);
     });
     tr.addEventListener('dblclick', (e) => {
       if ((e.target as HTMLElement).closest('input, select')) return;
-      const extent = feature.getGeometry()?.getExtent();
-      if (extent) this.map.getView().fit(extent, { padding: [60, 60, 60, 60], maxZoom: 18, duration: 250 });
+      this.zoomTo([feature]);
     });
+    tr.addEventListener('contextmenu', (e) => {
+      // Inputs keep the browser's own menu (paste and so on).
+      if ((e.target as HTMLElement).closest('input:not([type="checkbox"]), select')) return;
+      e.preventDefault();
+      this.openMenu(feature, e.clientX, e.clientY);
+    });
+    const check = document.createElement('td');
+    check.className = 'check';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.setAttribute('aria-label', '選択');
+    box.addEventListener('click', (e) => this.pick_(feature, e, true));
+    check.append(box);
+    tr.append(check);
     for (const field of fields) {
       const td = document.createElement('td');
       const value = feature.get(field.name);
