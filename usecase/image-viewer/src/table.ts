@@ -19,6 +19,7 @@ import type Target from 'ol/events/Target.js';
 import { createEmpty, extend } from 'ol/extent.js';
 import { ContextMenu, type MenuItem } from './context-menu.js';
 import type { EditSession } from './edit-session.js';
+import { makeResizer } from './resize.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
 
@@ -147,14 +148,17 @@ export class AttributeTable {
     // Drag the top edge to change the height.
     const handle = document.createElement('div');
     handle.className = 'table-resize';
-    handle.setAttribute('aria-hidden', 'true');
-    handle.addEventListener('pointerdown', (e) => {
-      const start = e.clientY;
-      const height = this.scroller_.getBoundingClientRect().height;
-      handle.setPointerCapture(e.pointerId);
-      const move = (m: PointerEvent) => element.style.setProperty('--table-height', `${Math.max(80, height + start - m.clientY)}px`);
-      handle.addEventListener('pointermove', move);
-      handle.addEventListener('pointerup', () => handle.removeEventListener('pointermove', move), { once: true });
+    makeResizer({
+      handle,
+      target: element,
+      property: '--table-height',
+      axis: 'y',
+      size: () => this.scroller_.getBoundingClientRect().height,
+      min: () => 80,
+      max: () => Math.max(80, window.innerHeight - 200),
+      key: 'image-viewer.table-height',
+      label: '属性テーブルの高さ',
+      onResize: () => map.updateSize(),
     });
 
     element.append(handle, bar, this.scroller_);

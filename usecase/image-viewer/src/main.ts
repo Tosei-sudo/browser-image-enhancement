@@ -43,6 +43,7 @@ import { Editor } from './editor.js';
 import { ExportDialog } from './export-dialog.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
+import { makeResizer } from './resize.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
@@ -82,6 +83,21 @@ const mapElement = document.getElementById('map')!;
 const map = new Map({
   target: mapElement,
   view: new View({ center: [0, 0], zoom: 2 }),
+});
+
+// Drag the right edge of the layer panel to change its width.
+const side = document.querySelector<HTMLElement>('.side')!;
+makeResizer({
+  handle: document.getElementById('side-resize')!,
+  target: document.querySelector<HTMLElement>('.app')!,
+  property: '--side-width',
+  axis: 'x',
+  size: () => side.getBoundingClientRect().width,
+  min: () => 160,
+  max: () => Math.max(160, window.innerWidth * 0.6),
+  key: 'image-viewer.side-width',
+  label: 'レイヤーパネルの幅',
+  onResize: () => map.updateSize(),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
