@@ -47,6 +47,27 @@ describe('parseConfig', () => {
   });
 });
 
+describe('layers', () => {
+  it('keeps COGs, files and service layers, and drops what cannot be opened', () => {
+    const { config, problems } = parseConfig({
+      layers: [
+        { type: 'cog', url: 'https://example.com/a.tif' },
+        { type: 'file', url: './data/b.geojson' },
+        { type: 'wmts', url: 'https://example.com/wmts', layer: 'photo', matrixSet: 'GoogleMapsCompatible', format: '' },
+        { type: 'esri', url: 'https://example.com/FeatureServer' },
+        { type: 'xyz', url: 'https://example.com/{z}/{x}/{y}.png' },
+        { type: 'cog', url: 'file:///c.tif' },
+      ],
+    });
+    expect(config.layers).toEqual([
+      { type: 'cog', url: 'https://example.com/a.tif' },
+      { type: 'file', url: './data/b.geojson' },
+      { type: 'wmts', url: 'https://example.com/wmts', layer: 'photo', matrixSet: 'GoogleMapsCompatible' },
+    ]);
+    expect(problems).toHaveLength(3);
+  });
+});
+
 describe('lookupUrl', () => {
   it('fills the authority and the code', () => {
     expect(lookupUrl(defaultConfig.projectionLookup, 'EPSG:6677')).toBe('https://spatialreference.org/ref/epsg/6677/ogcwkt/');

@@ -167,6 +167,11 @@ export function refToParam(ref: ServiceRef): string {
   return JSON.stringify(ref);
 }
 
+/** The same key for refs to the same layer, whatever their optional fields. */
+export function refKey(ref: ServiceRef): string {
+  return JSON.stringify([ref.kind, ref.url, ref.layer, ref.matrixSet ?? null, ref.format ?? null]);
+}
+
 export function paramToRef(param: string): ServiceRef | null {
   try {
     const ref = JSON.parse(param) as ServiceRef;

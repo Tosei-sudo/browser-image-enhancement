@@ -31,5 +31,6 @@
   ],
   "defaultBaseMap": "",
   "projectionLookup": "https://spatialreference.org/ref/{authority}/{code}/ogcwkt/",
-  "projections": {}
+  "projections": {},
+  "layers": []
 }
