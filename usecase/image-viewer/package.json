@@ -17,11 +17,16 @@
     "browser-image-enhancement": "0.1.0",
     "browser-image-geometry": "0.1.0",
     "but-unzip": "^0.1.10",
+    "d3-delaunay": "^6.0.4",
     "geographiclib-geodesic": "^2.2.0",
     "geotiff": "^3.1.0-beta.0",
+    "jsts": "^2.12.1",
     "mgrs": "^2.2.0",
     "ol": "^10.10.0",
     "proj4": "^2.22.0",
     "shpjs": "^6.2.0"
+  },
+  "devDependencies": {
+    "@types/d3-delaunay": "^6.0.4"
   }
 }

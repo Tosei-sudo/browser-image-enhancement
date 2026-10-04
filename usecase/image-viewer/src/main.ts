@@ -46,6 +46,9 @@ import { Selection } from './selection.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
+import { ProcessingDialog } from './processing-dialog.js';
+import { browserStore, recordOf, tempLayer } from './temp-layers.js';
+import { registerJapaneseCrs } from './processing/reproject.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -62,6 +65,8 @@ for (const [code, definition] of Object.entries(config.projections)) {
     console.warn(`config.json: projections の「${code}」を登録できませんでした`, error);
   }
 }
+// Japanese CRSs (JGD2011 / JGD2000 / Tokyo, plane rectangular and UTM) for projecting vectors without a lookup.
+registerJapaneseCrs();
 register(proj4);
 // Other projections are looked up in the configured registry (none when it is '').
 setProjectionCodeLookup(async (code) => {
@@ -247,6 +252,20 @@ function addService(service: ServiceLayer): void {
   say(`${service.title} を追加しました`);
 }
 
+// Processing tools (buffers, lines from points, centroids, Voronoi / Thiessen, reprojection): results are
+// temporary layers, kept in the browser until they are closed.
+const tempStore = browserStore();
+const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  say,
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    addService(tempLayer(record, tempStore));
+  },
+});
+
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
 
 /** Keeps `?service=` (and `?base=`) in the address, so the view can be shared as a link. */
@@ -411,6 +430,10 @@ void (async () => {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format });
   }
   for (const layer of opening) await openAtStart(layer);
+  // The temporary layers of earlier visits, on top.
+  const kept = await tempStore.list().catch(() => []);
+  for (const record of kept) images.addService(tempLayer(record, tempStore));
+  if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
 })();
 
 // For the browser test and the console.
@@ -436,7 +459,8 @@ declare global {
       jump: JumpTo;
       geometry: GeometricMode;
       recent: RecentMenu | null;
+      processing: ProcessingDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };

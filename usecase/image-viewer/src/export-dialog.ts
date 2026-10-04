@@ -84,6 +84,8 @@ export class ExportDialog {
     const own = entry.service.fileCrs;
     this.choices_ = [wgs84, webMercator, ...(own && own.projection !== wgs84.projection && own.projection !== webMercator.projection ? [own] : [])];
     this.crs_.replaceChildren(...this.choices_.map((c, i) => new Option(c === own ? `元の座標系: ${c.name}` : c.name, String(i))));
+    const first = this.choices_.findIndex((c) => c.projection === entry.service.exportCrs?.projection);
+    this.crs_.value = String(Math.max(0, first));
     const selected = this.selectedOf_(entry).length;
     this.selected_.checked = selected > 0;
     this.selected_.disabled = selected === 0;

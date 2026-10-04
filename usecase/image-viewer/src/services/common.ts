@@ -81,6 +81,10 @@ export interface ServiceLayer {
   editTarget?: EditTarget;
   /** The CRS of the file a layer was read from, offered when exporting. */
   fileCrs?: TargetCrs;
+  /** The CRS chosen first when exporting (WGS 84 when absent). */
+  exportCrs?: TargetCrs;
+  /** Asked before the layer is closed (a temporary layer is forgotten when closed). */
+  closeWarning?: string;
   /** Area covered, in the view projection, when known. */
   extent: Extent | null;
   /** Lines for the information panel. */

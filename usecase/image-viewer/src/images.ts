@@ -257,7 +257,10 @@ export class ImageList {
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));
     button('up', '↑', '上へ', () => this.move(image, 1));
     button('down', '↓', '下へ', () => this.move(image, -1));
-    button('remove', '×', '閉じる', () => this.remove(image));
+    button('remove', '×', '閉じる', () => {
+      const warning = image.type === 'service' ? image.service.closeWarning : undefined;
+      if (!warning || confirm(warning)) this.remove(image);
+    });
 
     const opacity = document.createElement('label');
     opacity.className = 'opacity';
