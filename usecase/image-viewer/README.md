@@ -99,9 +99,9 @@ npm run test:browser
 
 ## デプロイ（VPS）
 
-`.github/workflows/deploy-image-viewer.yml` が、既定ブランチへの push（マージ）で CI が通ったあと、`dist/` を VPS へ rsync over SSH（パスワード認証）で転送します。Actions タブから手動実行（workflow_dispatch）もできます。
+`.github/workflows/deploy-image-viewer.yml` が、既定ブランチへの push（マージ）で CI が通ったあと、`dist/` を VPS へ FTP（lftp。サーバーが対応していれば TLS で暗号化）で転送します。Actions タブから手動実行（workflow_dispatch）もできます。
 
-リポジトリシークレット: `VPS_HOST`、`VPS_USER`、`VPS_USER_PASSWORD`、`IMAGE_VIEWER_DEPLOY_DIRECTORY`（無ければ作成）、任意で `VPS_PORT`（既定 22）。サーバーに `rsync` が必要です。
+リポジトリシークレット: `VPS_HOST`、`VPS_USER`、`VPS_USER_PASSWORD`、`IMAGE_VIEWER_DEPLOY_DIRECTORY`（FTP ユーザーから見たパス。無ければ作成）、任意で `VPS_PORT`（既定 21）。
 
 - `config.json` はサーバーに無いときだけ置きます。サーバー上で編集した設定はデプロイで上書きされません（初期値に戻したいときはサーバー上のファイルを消して再デプロイ）。
 - それ以外のファイルは置き換え、古いビルドの不要ファイルは削除します。

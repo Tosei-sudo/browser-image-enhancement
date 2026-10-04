@@ -3,14 +3,16 @@ name: Deploy image viewer
 # Deploys usecase/image-viewer to the VPS once CI passes on the default branch
 # (i.e. after a merge), or on demand from the Actions tab.
 #
-# Repository secrets:
+# Uploads over FTP with lftp (FTPS via AUTH TLS when the server offers it,
+# plain FTP otherwise). Repository secrets:
 #   VPS_HOST                       host name or IP of the server
-#   VPS_USER / VPS_USER_PASSWORD   SSH login (password authentication)
-#   IMAGE_VIEWER_DEPLOY_DIRECTORY  directory the site is served from (created if missing)
-#   VPS_PORT                       optional, SSH port (default 22)
+#   VPS_USER / VPS_USER_PASSWORD   FTP login
+#   IMAGE_VIEWER_DEPLOY_DIRECTORY  directory the site is served from, as the FTP
+#                                  user sees it (created if missing)
+#   VPS_PORT                       optional, FTP port (default 21)
 #
-# The server needs rsync installed. public/config.json is only copied when the
-# server has none, so edits made on the server survive later deploys.
+# public/config.json is only uploaded when the server has none, so edits made on
+# the server survive later deploys.
 on:
   workflow_run:
     workflows: [CI]
@@ -44,30 +46,35 @@ jobs:
       - run: npm ci
       # Builds the libraries first, then the viewer (workspace order).
       - run: npm run build
-      - name: Install sshpass
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
       - name: Upload to the VPS
         env:
-          SSHPASS: ${{ secrets.VPS_USER_PASSWORD }}
+          # lftp --env-password reads it from here, so it never shows on a command line or in the log.
+          LFTP_PASSWORD: ${{ secrets.VPS_USER_PASSWORD }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           DEPLOY_DIR: ${{ secrets.IMAGE_VIEWER_DEPLOY_DIRECTORY }}
         run: |
           set -eu
-          for name in VPS_HOST VPS_USER SSHPASS DEPLOY_DIR; do
+          for name in VPS_HOST VPS_USER LFTP_PASSWORD DEPLOY_DIR; do
             if [ -z "${!name}" ]; then echo "::error::Secret for $name is not set."; exit 1; fi
           done
           dir="${DEPLOY_DIR%/}"
-          # sshpass -e reads the password from $SSHPASS, so it never shows on a command line.
-          ssh_cmd="ssh -p ${VPS_PORT:-22} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -o PubkeyAuthentication=no"
-          remote="$VPS_USER@$VPS_HOST"
-          sshpass -e $ssh_cmd "$remote" "mkdir -p '$dir'"
-          # Everything except config.json; --delete removes files of older builds
-          # (excluded config.json is left alone).
-          sshpass -e rsync -rltz --delete --exclude=/config.json -e "$ssh_cmd" \
-            usecase/image-viewer/dist/ "$remote:$dir/"
-          # config.json only when the server has none yet.
-          sshpass -e rsync -rltz --ignore-existing -e "$ssh_cmd" \
-            usecase/image-viewer/dist/config.json "$remote:$dir/config.json"
+          # 1st mirror: everything but config.json; --delete removes files of older builds
+          # (the excluded config.json is left alone).
+          # 2nd mirror: config.json only when the server has none yet.
+          # Self-signed certificates are common on VPS FTP servers, so the TLS certificate is not verified.
+          lftp -c "
+            set cmd:fail-exit yes
+            set net:max-retries 2
+            set net:timeout 30
+            set ftp:ssl-allow yes
+            set ssl:verify-certificate no
+            open -p ${VPS_PORT:-21} -u \"$VPS_USER\" --env-password \"$VPS_HOST\"
+            mkdir -p -f \"$dir\"
+            mirror -R --delete --no-perms --verbose=1 --exclude-glob config.json usecase/image-viewer/dist/ \"$dir/\"
+            mirror -R --only-missing --no-perms --verbose=1 --include-glob config.json usecase/image-viewer/dist/ \"$dir/\"
+          "
           echo "Deployed $(git rev-parse --short HEAD)."
