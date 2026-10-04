@@ -44,6 +44,32 @@ describe('parseCoordinate', () => {
     near(parseCoordinate(`33°27'S 70°36'W`), [-70.6, -33.45]);
   });
 
+  it.each([
+    ['北緯35度40分52.32秒 東経139度46分1.56秒'],
+    ['北緯35.6812度、東経139.7671度'],
+    ['３５．６８１２，１３９．７６７１'],
+    ['35d40m52.32s N 139d46m1.56s E'],
+    ['35D40M52.32SN, 139D46M1.56SE'],
+    ['354052.32N 1394601.56E'],
+    ['354052.32 1394601.56'],
+    ['35°40′52.32″N139°46′01.56″E'],
+    ['lat 35.6812 lon 139.7671'],
+    ['Lng: 139.7671, Lat: 35.6812'],
+    ['緯度 35.6812 経度 139.7671'],
+    ['(35.6812, 139.7671)'],
+    ['35.6812; 139.7671'],
+    ['35.6812 / 139.7671'],
+    ['139.7671, 35.6812'],
+    ['POINT(139.7671 35.6812)'],
+    ['35°40.872 139°46.026'],
+  ])('more notations: %s', (text) => near(parseCoordinate(text), TOKYO));
+
+  it('southern and western hemispheres in Japanese and with odd minus signs', () => {
+    near(parseCoordinate('南緯33度27分 西経70度36分'), [-70.6, -33.45]);
+    near(parseCoordinate('−33.45, −70.6'), [-70.6, -33.45]);
+    near(parseCoordinate('lat -33.45 lon -70.6'), [-70.6, -33.45]);
+  });
+
   it('negative decimals', () => near(parseCoordinate('-33.45, -70.6'), [-70.6, -33.45]));
 
   it('MGRS at any precision', () => {
@@ -59,7 +85,7 @@ describe('parseCoordinate', () => {
     near(parseCoordinate(`${zone}, ${e}, ${n}`), TOKYO);
   });
 
-  it.each([[''], ['hello'], ['95, 10'], ['10, 200'], ['54SUE884'], ['35.6'], ['61N 500000 4000000']])('rejects %s', (text) =>
+  it.each([[''], ['hello'], ['95, 100'], ['354099N 1394601E'], ['10, 200'], ['54SUE884'], ['35.6'], ['61N 500000 4000000']])('rejects %s', (text) =>
     expect(parseCoordinate(text)).toBeNull(),
   );
 });
