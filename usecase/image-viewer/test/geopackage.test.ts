@@ -5,6 +5,7 @@ import { fromLonLat } from 'ol/proj.js';
 import { gpkg } from './fixtures.js';
 import { decodeGeometry, encodeGeometry, readGeoPackage, rows } from '../src/geopackage.js';
 import { readVectorFiles } from '../src/vector-files.js';
+import { writeShapefile } from '../src/vector-write.js';
 
 const wgs84 = { id: 4326, organization: 'EPSG', code: 4326, definition: 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]' };
 // JGD2011 / Japan Plane Rectangular CS IX: not built into OpenLayers, read from the file's WKT.
@@ -61,6 +62,17 @@ describe('readGeoPackage', () => {
     const [ex, ey] = fromLonLat([139 + 50 / 60, 36]);
     expect(x).toBeCloseTo(ex, 0);
     expect(y).toBeCloseTo(ey, 0);
+  });
+
+  it('writes back in its own CRS (export in 元の座標系)', async () => {
+    const bytes = await gpkg('plane', plane9, 'POINT', [[encodeGeometry(new Point([1000, 2000]), 6677), 'p', 1, null]]);
+    const [file] = await readGeoPackage(bytes, 'plane');
+    expect(file.writeCrs).toMatchObject({ projection: 'EPSG:6677', epsg: 6677, wkt: plane9.definition });
+    const files = writeShapefile('plane', file.features, file.fields, file.writeCrs);
+    expect(new TextDecoder().decode(files.find((f) => f.name === 'plane.prj')!.bytes)).toBe(plane9.definition);
+    const view = new DataView(files[0].bytes.buffer);
+    expect(view.getFloat64(100 + 12, true)).toBeCloseTo(1000, 3);
+    expect(view.getFloat64(100 + 20, true)).toBeCloseTo(2000, 3);
   });
 
   it('keeps the spatial index right when a feature is added (the R-tree triggers call ST_ functions)', async () => {

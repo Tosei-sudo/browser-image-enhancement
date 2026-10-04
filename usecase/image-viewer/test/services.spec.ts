@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Download, type Page } from '@playwright/test';
+import { readVectorFiles } from '../src/vector-files.js';
 
 /*
  * Service layers, against the stand-in services of test/services.mjs: WMS
@@ -423,4 +424,62 @@ test('Esri: a feature moved on the map is saved with its new geometry', async ({
   const moved = state.find((f) => f.attributes.NAME === '新宿御苑')!;
   expect(moved.geometry.x).toBeGreaterThan((139.7101 * 20037508.342789244) / 180 + 1);
   expect(moved.attributes.EDITOR).toBe('server');
+});
+
+/** Exports the selected layer through its dialog; returns the downloaded file. */
+async function exportLayer(page: Page, format: string, options: { crs?: string; selectedOnly?: boolean } = {}): Promise<{ name: string; bytes: Uint8Array }> {
+  await page.locator('#images li').first().getByRole('button', { name: /書き出し/ }).click();
+  const dialog = page.getByRole('dialog', { name: '書き出し' });
+  await dialog.getByRole('combobox', { name: '形式' }).selectOption(format);
+  if (options.crs) await dialog.getByRole('combobox', { name: '座標系' }).selectOption({ label: options.crs });
+  await dialog.getByRole('checkbox').setChecked(!!options.selectedOnly);
+  const download = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '書き出す' }).click();
+  const file: Download = await download;
+  const chunks: Buffer[] = [];
+  for await (const chunk of await file.createReadStream()) chunks.push(chunk as Buffer);
+  // Headless Chromium drops non-ASCII download names: the status line says the name.
+  await expect(page.locator('#status')).toContainText('に書き出しました');
+  const name = /を (.+) に書き出しました/.exec((await page.locator('#status').textContent()) ?? '')![1];
+  return { name, bytes: new Uint8Array(Buffer.concat(chunks)) };
+}
+
+test('vector layers of services export to GeoJSON, Shapefile and GeoPackage', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await addService(page, `${base}/svc/wfs`);
+  await expect(rows(page)).toHaveCount(3);
+
+  const geojson = await exportLayer(page, 'geojson');
+  expect(geojson.name).toMatch(/\.geojson$/);
+  const json = JSON.parse(new TextDecoder().decode(geojson.bytes));
+  expect(json.features.map((f: { properties: { name: string } }) => f.properties.name)).toEqual(['東京', '新宿', '品川']);
+  expect(json.features[0].geometry.coordinates[0]).toBeGreaterThan(139);
+
+  const shapefile = await exportLayer(page, 'shapefile');
+  expect(shapefile.name).toMatch(/\.zip$/);
+  const [shp] = await readVectorFiles([{ name: shapefile.name, bytes: shapefile.bytes }]);
+  expect(shp.features.map((f) => [f.get('name'), f.get('passengers')])).toEqual([
+    ['東京', 462589],
+    ['新宿', 650602],
+    ['品川', 271340],
+  ]);
+
+  // Only the selected feature, in Web Mercator.
+  await rows(page).filter({ hasText: '東京' }).locator('td:not(.check)').first().click();
+  const gpkg = await exportLayer(page, 'geopackage', { crs: 'Web メルカトル（EPSG:3857）', selectedOnly: true });
+  expect(gpkg.name).toMatch(/\.gpkg$/);
+  const [table] = await readVectorFiles([{ name: gpkg.name, bytes: gpkg.bytes }]);
+  expect(table.crs).toContain('EPSG:3857');
+  expect(table.features.map((f) => f.get('name'))).toEqual(['東京']);
+
+  // Esri layers too.
+  await addService(page, `${base}/svc/arcgis/rest/services/Test/FeatureServer`);
+  await expect(page.locator('.table-count')).toContainText('全 5 件');
+  const esri = await exportLayer(page, 'shapefile');
+  const [parks] = await readVectorFiles([{ name: esri.name, bytes: esri.bytes }]);
+  expect(parks.features).toHaveLength(5);
+  expect(parks.features[0].get('NAME')).toBe('日比谷公園');
+  expect(errors).toEqual([]);
 });

@@ -38,6 +38,7 @@ import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add
 import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
+import { ExportDialog } from './export-dialog.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { AttributeTable, type TableData } from './table.js';
@@ -150,7 +151,9 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onEdit: (layer) => {
     if (editor.start(layer)) showTable(layer);
   },
+  onExport: (layer) => exporter.open(layer),
 });
+const exporter = new ExportDialog(selection, { say });
 
 const points = new PointTool(map, images, {
   list: document.getElementById('points') as HTMLOListElement,
@@ -386,6 +389,7 @@ declare global {
       selection: Selection;
       table: AttributeTable;
       editor: Editor;
+      exporter: ExportDialog;
       boxSelect: DragBox;
       baseMap: BaseMapSwitch;
       config: ViewerConfig;
@@ -397,4 +401,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent };

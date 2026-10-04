@@ -48,6 +48,8 @@ export interface ImageListOptions {
   onChange: (layers: readonly ViewerLayer[]) => void;
   /** Called by the edit button of an editable layer (Esri, or a file). */
   onEdit?: (layer: ViewerService) => void;
+  /** Called by the export button of a vector layer. */
+  onExport?: (layer: ViewerService) => void;
 }
 
 export class ImageList {
@@ -223,6 +225,12 @@ export class ImageList {
       button('edit', '✎', '編集', () => {
         this.select(image);
         this.options.onEdit!(image);
+      });
+    }
+    if (image.type === 'service' && image.service.vector && this.options.onExport) {
+      button('export', '⇩', '書き出し（GeoJSON・Shapefile・GeoPackage）', () => {
+        this.select(image);
+        this.options.onExport!(image);
       });
     }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));

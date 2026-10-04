@@ -113,6 +113,7 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
     correction: null,
     vector: { source, fields, truncated, idField: file.gpkg?.idColumn },
     ...(editable ? { editTarget: localTarget(file, source, fields) } : {}),
+    fileCrs: file.writeCrs,
     extent: extent && !isEmpty(extent) ? extent : null,
     info,
   };
