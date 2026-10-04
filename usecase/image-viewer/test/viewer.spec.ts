@@ -244,3 +244,8 @@ test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page 
   await go('ここはどこ');
   await expect(page.locator('#status')).toContainText('座標として読めませんでした');
 });
+
+test('shows the version and build at the bottom of the side panel', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('#build')).toHaveText(/^v\d+\.\d+\.\d+( · ビルド #\d+)? · [0-9a-f]{7,} · \d{4}-\d\d-\d\d \d\d:\d\d$/);
+});

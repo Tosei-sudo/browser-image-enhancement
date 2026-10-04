@@ -28,6 +28,7 @@ import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } fro
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
+import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
 import { acceptFiles, openFiles, type OpenFilesContext } from './open-files.js';
 import { rsetOf, RsetIndicator, RsetProgress, rsetText } from './rset.js';
@@ -69,6 +70,7 @@ setProjectionCodeLookup(async (code) => {
 });
 
 const status = document.getElementById('status')!;
+showBuildInfo(document.getElementById('build')!);
 const info = document.getElementById('info') as HTMLDListElement;
 const empty = document.getElementById('empty')!;
 const mapElement = document.getElementById('map')!;
