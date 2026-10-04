@@ -69,6 +69,10 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
   expect(await names(page)).toEqual(['fixture.tif', 'photo.png']); // newest on top
   await expect(page.locator('#info')).toContainText('EPSG:4326');
   await expect(page.locator('#info')).toContainText('512 × 256 px');
+  // A COG opened by URL is used as it is: this one has no RSET.
+  await expect(page.locator('#images li').first().locator('.tag')).toHaveText('RSETなし');
+  await expect(page.locator('#info')).toContainText('なし（縮小表示でも生画素を読みます）');
+  await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
 
   // The panel corrects the selected image only, and shows each image's own correction.
   await slide(page, '露出 (EV)', '1');
@@ -239,4 +243,9 @@ test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page 
   await expectAt(139.7671, 35.6812);
   await go('ここはどこ');
   await expect(page.locator('#status')).toContainText('座標として読めませんでした');
+});
+
+test('shows the version and build at the bottom of the side panel', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('#build')).toHaveText(/^v\d+\.\d+\.\d+( · ビルド #\d+)? · [0-9a-f]{7,} · \d{4}-\d\d-\d\d \d\d:\d\d$/);
 });

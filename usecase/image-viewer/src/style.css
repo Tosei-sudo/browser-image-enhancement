@@ -128,10 +128,15 @@ body {
 
 .side {
   grid-area: side;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 8px 12px;
   border-right: 1px solid var(--line);
   font-size: 13px;
+}
+.side > * {
+  flex-shrink: 0;
 }
 .side h2 {
   margin: 8px 0 6px;
@@ -282,6 +287,24 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+/* Version and build of the site, kept at the bottom of the side panel. */
+.build {
+  position: sticky;
+  bottom: -8px;
+  margin: auto -12px -8px;
+  padding: 4px 12px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.build:empty {
+  display: none;
+}
+
 .status:empty {
   display: none;
 }
@@ -811,4 +834,73 @@ body {
 }
 .shifting {
   cursor: move;
+}
+
+/* RSET (overviews): the tag in the list, what the view is drawn from, and the ones being made. */
+.image .tag {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.image .tag.rset-generated {
+  background: #2563eb22;
+  color: #2563eb;
+}
+.image .tag.rset-file {
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.image .tag.rset-none {
+  background: #f59e0b22;
+  color: #b45309;
+}
+.rset-shown {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #2563ebdd;
+  color: #fff;
+  font-size: 12px;
+  /* A label only: clicks go through to the map (adding points, measuring). */
+  pointer-events: none;
+}
+.rset-shown.raw {
+  background: #15803ddd;
+}
+.rset-shown[hidden],
+.rset-progress[hidden] {
+  display: none;
+}
+.rset-progress {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 3;
+  display: grid;
+  gap: 6px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 120px);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px #0003;
+  font-size: 12px;
+}
+.rset-job {
+  display: grid;
+  grid-template-columns: auto 12em 3em;
+  align-items: center;
+  gap: 8px;
+}
+.rset-job progress {
+  width: 100%;
+}
+.rset-percent {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

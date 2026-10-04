@@ -63,6 +63,11 @@ export class ImageList {
     private readonly options: ImageListOptions,
   ) {}
 
+  /** The open image showing `source`. */
+  find(source: EnhancedGeoTIFF): ViewerImage | undefined {
+    return this.list().find((i) => i.source === source);
+  }
+
   /** The open images, top first. */
   list(): readonly ViewerImage[] {
     return this.images_.filter((l): l is ViewerImage => l.type === 'image');
@@ -104,6 +109,22 @@ export class ImageList {
     this.restack_();
     this.select(entry);
     return entry;
+  }
+
+  /** Shows a tag on an image's row, after its opacity (with a tooltip and an extra class), or removes it with null. */
+  setTag(image: ViewerImage, tag: { text: string; title: string; className?: string } | null): void {
+    let el = image.row.querySelector<HTMLSpanElement>('.tag');
+    if (!tag) {
+      el?.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement('span');
+      image.row.querySelector('.opacity')!.append(el);
+    }
+    el.className = `tag${tag.className ? ` ${tag.className}` : ''}`;
+    el.textContent = tag.text;
+    el.title = tag.title;
   }
 
   /** Marks an image's row with a short badge (such as `DEM`), or removes it with null. */
