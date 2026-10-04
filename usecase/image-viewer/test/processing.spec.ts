@@ -131,3 +131,34 @@ test('processing results are temporary layers, kept over a reload, exported, and
   await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('C');
   expect(errors).toEqual([]);
 });
+
+test('a CSV opens as a table, and points are made from its X / Y columns', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await choose(page, 'stations.csv', '﻿名前,経度,緯度,乗降客数\n東京,139.767125,35.681236,"462,589"\n大阪,135.4959,34.7024,\n不明,,,0\n');
+  await expect(page.locator('#status')).toContainText('stations.csv を開きました（3 行');
+  await expect(layerRows(page).first()).toContainText('CSV');
+  // A table only: no export, its rows in the attribute table.
+  await expect(layerRows(page).first().getByRole('button', { name: /書き出し/ })).toHaveCount(0);
+  await expect(page.locator('.attributes tbody tr[data-index]')).toHaveCount(3);
+  await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('東京');
+
+  // With the CSV selected, the dialog opens on the XY tool with the columns guessed.
+  await page.getByRole('button', { name: 'プロセッシング' }).click();
+  await expect(dialog(page).getByLabel('処理')).toHaveValue('xy');
+  await expect(dialog(page).getByLabel('X（経度・東西）の列')).toHaveValue('経度');
+  await expect(dialog(page).getByLabel('Y（緯度・南北）の列')).toHaveValue('緯度');
+  await dialog(page).getByRole('button', { name: '実行' }).click();
+  await expect(page.locator('#status')).toContainText('stations_ポイント を作成しました（2 件');
+  await expect(page.locator('#status')).toContainText('数値でない行 1 件');
+  const points = await page.evaluate(() => {
+    const layer = window.viewer.images.selectedLayer();
+    return layer?.type === 'service' ? layer.service.vector!.source.getFeatures().map((f) => [f.get('名前'), f.get('乗降客数'), f.getGeometry()?.getType()]) : null;
+  });
+  expect(points).toEqual([
+    ['東京', '462,589', 'Point'],
+    ['大阪', null, 'Point'],
+  ]);
+  expect(errors).toEqual([]);
+});

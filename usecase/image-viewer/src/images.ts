@@ -248,7 +248,7 @@ export class ImageList {
         this.options.onEdit!(image);
       });
     }
-    if (image.type === 'service' && image.service.vector && this.options.onExport) {
+    if (image.type === 'service' && image.service.vector && !image.service.tableOnly && this.options.onExport) {
       button('export', '⇩', '書き出し（GeoJSON・Shapefile・GeoPackage）', () => {
         this.select(image);
         this.options.onExport!(image);

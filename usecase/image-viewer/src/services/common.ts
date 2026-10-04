@@ -83,6 +83,8 @@ export interface ServiceLayer {
   fileCrs?: TargetCrs;
   /** The CRS chosen first when exporting (WGS 84 when absent). */
   exportCrs?: TargetCrs;
+  /** A table without geometry (CSV): its rows are shown in the table, not exported as a vector layer. */
+  tableOnly?: boolean;
   /** Asked before the layer is closed (a temporary layer is forgotten when closed). */
   closeWarning?: string;
   /** Area covered, in the view projection, when known. */

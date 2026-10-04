@@ -14,9 +14,10 @@ import { centroids } from './processing/centroid.js';
 import { voronoi } from './processing/voronoi.js';
 import { crsPresets, reproject, targetCrs } from './processing/reproject.js';
 import { formatLength } from './geodesic.js';
+import { xyToPoints } from './processing/xy-to-points.js';
 
 /** The kinds of geometry a tool takes. */
-type Kind = 'point' | 'line' | 'polygon';
+type Kind = 'point' | 'line' | 'polygon' | 'table';
 
 interface Tool {
   id: string;
@@ -38,6 +39,23 @@ function fieldSelect(name: string, label: string, fields: Field[], none: string)
 }
 
 const marginSetting = '<label>範囲の余白（%）<input name="margin" type="number" min="0" max="1000" step="1" value="10" aria-label="範囲の余白" /></label>';
+
+/** The CRS choice of the reprojection and XY tools. */
+function crsSetting(label: string, hint: string): string {
+  return `
+      <label class="wide">${label}<select name="preset" aria-label="${label}">${crsPresets
+        .map((p) => `<option value="${escape(p.code)}">${escape(p.name)}</option>`)
+        .join('')}<option value="">その他（EPSG コードを入力）</option></select></label>
+      <label class="wide">EPSG コード<input name="code" type="text" placeholder="例: 6677" aria-label="EPSG コード" /></label>
+      <p class="wide processing-hint">${hint}</p>`;
+}
+
+/** The CRS chosen in {@link crsSetting}. */
+async function chosenCrs(form: FormData) {
+  const code = ((form.get('preset') as string) || (form.get('code') as string) || '').trim();
+  if (!code) throw new Error('EPSG コードを入れてください');
+  return targetCrs(code);
+}
 
 export const tools: Tool[] = [
   {
@@ -123,17 +141,35 @@ export const tools: Tool[] = [
     id: 'reproject',
     label: 'ベクター投影変換',
     takes: ['point', 'line', 'polygon'],
-    settings: () => `
-      <label class="wide">変換先の座標系<select name="preset" aria-label="変換先の座標系">${crsPresets
-        .map((p) => `<option value="${escape(p.code)}">${escape(p.name)}</option>`)
-        .join('')}<option value="">その他（EPSG コードを入力）</option></select></label>
-      <label class="wide">EPSG コード<input name="code" type="text" placeholder="例: 6677" aria-label="EPSG コード" /></label>
-      <p class="wide processing-hint">結果のレイヤーはこの座標系で書き出されます（地図には重ねて表示します）。</p>`,
+    settings: () => crsSetting('変換先の座標系', '結果のレイヤーはこの座標系で書き出されます（地図には重ねて表示します）。'),
     run: async (input, form) => {
-      const code = ((form.get('preset') as string) || (form.get('code') as string) || '').trim();
-      if (!code) throw new Error('EPSG コードを入れてください');
-      const crs = await targetCrs(code);
+      const crs = await chosenCrs(form);
       return { result: reproject(input, crs), made: `投影変換 → ${crs.name}（${input.title}）` };
+    },
+  },
+  {
+    id: 'xy',
+    label: 'XY 座標からポイントを作成',
+    takes: ['table', 'point', 'line', 'polygon'],
+    settings: (fields) => {
+      // Guess the columns by their names: x / lon / lng / 経度, y / lat / 緯度.
+      const pick = (pattern: RegExp) => fields.find((f) => pattern.test(f.name))?.name ?? '';
+      const select = (name: string, label: string, chosen: string) =>
+        `<label>${label}<select name="${name}" aria-label="${label}">${fields
+          .filter((f) => f.type !== 'other')
+          .map((f) => `<option value="${escape(f.name)}"${f.name === chosen ? ' selected' : ''}>${escape(f.name)}</option>`)
+          .join('')}</select></label>`;
+      return `
+      ${select('x', 'X（経度・東西）の列', pick(/^(x|lon|lng|long|longitude|経度|東経|x座標|easting)$/i))}
+      ${select('y', 'Y（緯度・南北）の列', pick(/^(y|lat|latitude|緯度|北緯|y座標|northing)$/i))}
+      ${crsSetting('値の座標系', 'X は経度または東向き（平面直角座標系の Y）、Y は緯度または北向き（平面直角座標系の X）です。結果はこの座標系で書き出されます。')}`;
+    },
+    run: async (input, form) => {
+      const crs = await chosenCrs(form);
+      const xField = form.get('x') as string;
+      const yField = form.get('y') as string;
+      if (!xField || !yField) throw new Error('X と Y の列を選んでください');
+      return { result: xyToPoints(input, { xField, yField, crs }), made: `XY 座標からポイント（${xField}・${yField}、${crs.name}）（${input.title}）` };
     },
   },
 ];
@@ -146,7 +182,8 @@ function kindsOf(entry: ViewerService): Set<Kind> {
     if (type === 'Point' || type === 'MultiPoint') kinds.add('point');
     else if (type === 'LineString' || type === 'MultiLineString') kinds.add('line');
     else if (type === 'Polygon' || type === 'MultiPolygon') kinds.add('polygon');
-    if (kinds.size === 3) break;
+    else if (!type) kinds.add('table');
+    if (kinds.size === 4) break;
   }
   return kinds;
 }
@@ -209,11 +246,12 @@ export class ProcessingDialog {
 
   /** Opens the dialog, with the selected vector layer as the input when it is one. */
   open(tool?: string): void {
-    if (tool) this.tool_.value = tool;
+    const selectedLayer = this.options.selected();
+    // A table (CSV) has nothing to process but its coordinates.
+    if (tool || (selectedLayer?.type === 'service' && selectedLayer.service.tableOnly)) this.tool_.value = tool ?? 'xy';
     this.note_.textContent = '';
     this.update_();
-    const selected = this.options.selected();
-    const index = this.layers_.findIndex((l) => l === selected);
+    const index = this.layers_.findIndex((l) => l === selectedLayer);
     if (index >= 0 && [...this.input_.options].some((o) => o.value === String(index))) {
       this.input_.value = String(index);
       this.update_(false);
