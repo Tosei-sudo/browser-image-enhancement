@@ -26,6 +26,7 @@ import DragBox from 'ol/interaction/DragBox.js';
 import { platformModifierKeyOnly } from 'ol/events/condition.js';
 import { ImageList, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
+import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
 import { acceptFiles, openFiles } from './open-files.js';
@@ -150,6 +151,18 @@ const points = new PointTool(map, images, {
   say,
 });
 
+// Geodesic distance and area (in pixels on an ordinary picture). One click tool at a time.
+const measure = new MeasureTool(map, images, {
+  distance: document.getElementById('measure-distance') as HTMLButtonElement,
+  area: document.getElementById('measure-area') as HTMLButtonElement,
+  clear: document.getElementById('measure-clear') as HTMLButtonElement,
+  say,
+  onStart: () => points.setAdding(false),
+});
+document.getElementById('add-point')!.addEventListener('click', () => {
+  if (points.isAdding()) measure.setMode(null);
+});
+
 // Right click: copy the coordinates of the point.
 const coordinateMenu = new CoordinateMenu(map, images, { say });
 // The header field: go to typed coordinates.
@@ -159,7 +172,7 @@ const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement,
 // or asks a WMS layer what is there.
 map.on('singleclick', (e) => {
   const layer = images.selectedLayer();
-  if (points.isAdding() || editor.isDrawing() || layer?.type !== 'service') return;
+  if (points.isAdding() || measure.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
   const service = layer.service;
   if (service.vector) {
     const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f as Feature, { layerFilter: (l) => l === service.layer, hitTolerance: 4 });
@@ -286,6 +299,7 @@ declare global {
       map: Map;
       images: ImageList;
       points: PointTool;
+      measure: MeasureTool;
       loader: LoadImageControl;
       enhance: EnhanceControl;
       onGpu: boolean;
@@ -301,4 +315,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump };

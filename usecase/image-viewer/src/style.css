@@ -78,11 +78,15 @@ body {
   background: var(--bg);
 }
 
+.measure-tools,
 .point-tools {
   display: flex;
   gap: 6px;
+}
+.measure-tools {
   margin-left: auto;
 }
+.measure-tools button,
 .point-tools button {
   padding: 4px 10px;
   border: 1px solid var(--line);
@@ -92,16 +96,19 @@ body {
   font: 13px system-ui, sans-serif;
   cursor: pointer;
 }
+.measure-tools button[aria-pressed='true'],
 .point-tools button[aria-pressed='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
 }
+.measure-tools button:disabled,
 .point-tools button:disabled {
   opacity: 0.4;
   cursor: default;
 }
-.adding-points {
+.adding-points,
+.measuring {
   cursor: crosshair;
 }
 

@@ -17,6 +17,11 @@
           <input type="text" name="coordinate" placeholder="緯度経度・MGRS・UTM" aria-label="座標へ移動" autocomplete="off" />
           <button type="submit" class="bar-button">移動</button>
         </form>
+        <div class="measure-tools" role="group" aria-label="計測">
+          <button type="button" id="measure-distance" aria-pressed="false" title="測地線（WGS 84 楕円体）で距離を測ります">距離を測る</button>
+          <button type="button" id="measure-area" aria-pressed="false" title="WGS 84 楕円体上の面積を測ります">面積を測る</button>
+          <button type="button" id="measure-clear">計測を消去</button>
+        </div>
         <div class="point-tools">
           <button type="button" id="add-point" aria-pressed="false">ポイント追加</button>
           <button type="button" id="save-points">GeoJSON 保存</button>
