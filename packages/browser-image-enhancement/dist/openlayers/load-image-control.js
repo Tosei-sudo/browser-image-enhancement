@@ -83,7 +83,7 @@ var LoadImageControl = class extends Control {
 			this.takeFiles_(files);
 		});
 		const open = iconButton(t.open, FOLDER_ICON);
-		open.addEventListener("click", () => this.file_.click());
+		open.addEventListener("click", () => options.onOpen ? options.onOpen() : this.openChooser());
 		element.append(open, this.file_);
 		if (options.url !== false) {
 			const toggle = iconButton(t.url, LINK_ICON);
@@ -111,6 +111,10 @@ var LoadImageControl = class extends Control {
 			});
 			element.append(toggle, form);
 		}
+	}
+	/** Opens the browser's file chooser, as the open button does without `onOpen`. */
+	openChooser() {
+		this.file_.click();
 	}
 	/** Whether a load is in progress. */
 	isLoading() {

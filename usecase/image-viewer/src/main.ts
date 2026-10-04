@@ -30,6 +30,7 @@ import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
 import { acceptFiles, openFiles } from './open-files.js';
+import { hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
 import { tiffInfo } from './satellite.js';
 import { showInfo } from './info.js';
@@ -259,6 +260,8 @@ const loader = new LoadImageControl({
   // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
   accept: acceptFiles,
   onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say, geometry }),
+  // With the File System Access API the files are chosen as handles, remembered for 「最近」.
+  onOpen: hasFileAccess() ? () => void pickAndOpen() : undefined,
   onLoad: (loaded: LoadedImage) => {
     images.add(loaded);
     status.textContent = `${loaded.name} を開きました`;
@@ -274,6 +277,31 @@ const loader = new LoadImageControl({
   },
 });
 map.addControl(loader);
+
+// Files opened through the File System Access API open again from 「最近」 after a reload.
+const recent = hasFileAccess()
+  ? new RecentMenu(new RecentFiles(), { open: (files) => void openFiles(files, { loader, addLayer: addService, say, geometry }), say })
+  : null;
+if (recent) {
+  document.getElementById('open')!.append(recent.button);
+  onDroppedHandles(map.getViewport(), (handles) => void recent.remember(handles));
+}
+
+/** Chooses files with the File System Access picker, remembers them and opens them. */
+async function pickAndOpen(): Promise<void> {
+  let handles: FileSystemFileHandle[];
+  try {
+    handles = await pickFiles(acceptFiles);
+  } catch {
+    // Not allowed here (a cross-origin frame, a policy): the ordinary chooser still works.
+    loader.openChooser();
+    return;
+  }
+  if (!handles.length) return;
+  const files = await Promise.all(handles.map((h) => h.getFile()));
+  void recent?.remember(handles);
+  await openFiles(files, { loader, addLayer: addService, say, geometry });
+}
 
 // Geometric correction: DTED elevation data, orthorectification of RPC images, moving the result by hand.
 const geometry = new GeometricMode(map, images, loader, document.getElementById('geometry')!, {
@@ -364,7 +392,8 @@ declare global {
       coordinateMenu: CoordinateMenu;
       jump: JumpTo;
       geometry: GeometricMode;
+      recent: RecentMenu | null;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent };

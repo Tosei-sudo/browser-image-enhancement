@@ -45,7 +45,21 @@ body {
   font-size: 16px;
 }
 
-/* The open control lives in the header instead of over the map. */
+/* The open control lives in the header instead of over the map, with 「最近」 after it. */
+.open {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.recent-button {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
 .open .ol-load-image {
   position: static;
   display: flex;
