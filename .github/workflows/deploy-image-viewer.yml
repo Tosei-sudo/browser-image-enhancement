@@ -62,6 +62,8 @@ jobs:
             if [ -z "${!name}" ]; then echo "::error::Secret for $name is not set."; exit 1; fi
           done
           dir="${DEPLOY_DIR%/}"
+          # lftp prints the resolved address in its log; keep it out of the job output too.
+          for ip in $(getent ahosts "$VPS_HOST" | awk '{print $1}' | sort -u); do echo "::add-mask::$ip"; done
           # 1st mirror: everything but config.json; --delete removes files of older builds
           # (the excluded config.json is left alone).
           # 2nd mirror: config.json only when the server has none yet.
