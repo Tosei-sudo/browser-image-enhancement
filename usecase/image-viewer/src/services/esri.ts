@@ -63,10 +63,13 @@ export function isEsriUrl(url: string): boolean {
   return /\/(FeatureServer|MapServer)(\/\d+)?\/?(\?.*)?$/i.test(url);
 }
 
-/** GET (or POST, with `body`) to the REST API as JSON; an `error` member becomes a ServiceError. */
+/**
+ * GET (or POST, with `post`) to the REST API as JSON; an `error` member becomes a ServiceError.
+ * A request with a token is always a POST, so the token stays out of URLs (server and proxy logs, history).
+ */
 export async function esriJson<T>(url: string, params: Record<string, string>, token?: string, post = false): Promise<T> {
   const all = new URLSearchParams({ ...params, f: 'json', ...(token ? { token } : {}) });
-  const response = post
+  const response = post || token
     ? await request(url, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
     : await request(`${url}?${all}`);
   const json = (await response.json().catch(() => null)) as (T & { error?: { code: number; message: string; details?: string[] } }) | null;

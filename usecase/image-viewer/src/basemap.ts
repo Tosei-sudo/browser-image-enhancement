@@ -46,7 +46,7 @@ export class BaseMapSwitch {
       this.layer_.dispose();
       this.layer_ = null;
     }
-    const base = baseMaps[key];
+    const base = Object.hasOwn(baseMaps, key) ? baseMaps[key] : undefined;
     this.select.value = base ? key : '';
     this.map.getTargetElement()?.classList.toggle('has-basemap', !!base);
     if (!base) return;
