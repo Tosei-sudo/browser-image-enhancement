@@ -34,6 +34,9 @@ export async function showInfo(element: HTMLDListElement, image: ViewerLayer | n
   const bands = image.source.getValueBandCount();
   const mode = image.source.getColorMode();
   rows.push(['バンド数', `${bands}${mode === 'gray' ? '（グレー表示）' : ''}`]);
+  const names = await image.source.getBandNames().catch(() => []);
+  if (shown !== image) return;
+  if (names.some((n) => n)) rows.push(['バンド名', names.map((n, i) => n ?? `バンド ${i + 1}`).join(', ')]);
   if (image.kind === 'geotiff') {
     rows.push(['座標系', code]);
     if (finest) rows.push(['解像度', `${formatNumber(finest)} ${projection?.getUnits() === 'degrees' ? '度' : 'm'}/px`]);

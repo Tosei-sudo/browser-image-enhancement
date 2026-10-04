@@ -42,6 +42,8 @@ export default class TileCorrection extends Observable {
   correctsTiles(): boolean;
   /** Always 0: picture tiles have no bands to assign. */
   getValueBandCount(): number;
+  /** Always empty: picture tiles have no bands to name. */
+  getBandNames(): Promise<Array<string | null>>;
   /** Always null: picture tiles have no bands to assign. */
   getSelect(): [number, number, number] | null;
   /** Does nothing: picture tiles have no bands to assign. */

@@ -52,6 +52,10 @@ var TileCorrection = class extends Observable {
 	getValueBandCount() {
 		return 0;
 	}
+	/** Always empty: picture tiles have no bands to name. */
+	async getBandNames() {
+		return [];
+	}
 	/** Always null: picture tiles have no bands to assign. */
 	getSelect() {
 		return null;

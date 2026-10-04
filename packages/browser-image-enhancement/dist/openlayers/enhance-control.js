@@ -35,6 +35,7 @@ const enhanceLabelsEn = {
 	"bands.g": "Green",
 	"bands.b": "Blue",
 	"bands.band": "Band {n}",
+	"bands.named": "Band {n} ({name})",
 	opacity: "Opacity",
 	exposure: "Exposure (EV)",
 	brightness: "Brightness",
@@ -69,6 +70,7 @@ const enhanceLabelsJa = {
 	"bands.g": "G（緑）",
 	"bands.b": "B（青）",
 	"bands.band": "バンド {n}",
+	"bands.named": "バンド {n} ({name})",
 	opacity: "不透明度",
 	exposure: "露出 (EV)",
 	brightness: "明るさ",
@@ -419,9 +421,18 @@ var EnhanceControl = class extends Control {
 			2
 		];
 		b.selects.forEach((select, c) => {
-			if (select.options.length !== n) select.replaceChildren(...Array.from({ length: n }, (_, i) => new Option(this.labels_["bands.band"].replace("{n}", String(i + 1)), String(i))));
+			if (select.options.length !== n) select.replaceChildren(...Array.from({ length: n }, (_, i) => new Option(this.bandLabel_(i, null), String(i))));
 			select.value = String(current[c]);
 		});
+		source.getBandNames().then((names) => {
+			if (this.getSource() !== source) return;
+			for (const select of b.selects) for (const option of select.options) option.text = this.bandLabel_(Number(option.value), names[Number(option.value)] ?? null);
+		});
+	}
+	/** "Band 4" or, with a name, "Band 4 (NIR)". */
+	bandLabel_(band, name) {
+		const n = String(band + 1);
+		return name ? this.labels_["bands.named"].replace("{n}", n).replace("{name}", () => name) : this.labels_["bands.band"].replace("{n}", n);
 	}
 	/** Sends the chosen bands to the source. */
 	applyBands_() {

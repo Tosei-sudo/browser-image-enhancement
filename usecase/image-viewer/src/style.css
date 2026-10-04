@@ -951,3 +951,38 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Metadata dialog of a GeoTIFF (in the add-a-service dialog's style). */
+.metadata-open {
+  margin-top: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.metadata-dialog {
+  width: min(52rem, calc(100% - 32px));
+}
+.metadata-body {
+  max-height: 65vh;
+  margin-top: 10px;
+  overflow: auto;
+}
+.metadata-body details + details {
+  margin-top: 8px;
+}
+.metadata-body summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+.metadata-list {
+  margin: 6px 0 0 14px;
+  font-size: 12px;
+}
+.metadata-list dd {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

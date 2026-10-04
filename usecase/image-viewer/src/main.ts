@@ -41,6 +41,7 @@ import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
 import { ExportDialog } from './export-dialog.js';
+import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
@@ -80,6 +81,7 @@ setProjectionCodeLookup(async (code) => {
 const status = document.getElementById('status')!;
 showBuildInfo(document.getElementById('build')!);
 const info = document.getElementById('info') as HTMLDListElement;
+const metadataButton = document.getElementById('metadata-open') as HTMLButtonElement;
 const empty = document.getElementById('empty')!;
 const mapElement = document.getElementById('map')!;
 
@@ -163,6 +165,8 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     selection.clear();
     showTable(layer);
     void showInfo(info, layer, layerInfo(layer));
+    // Our own TIFFs of plain pictures have nothing to tell: only GeoTIFFs get the dialog.
+    metadataButton.hidden = layer?.type !== 'image' || layer.kind !== 'geotiff';
     rsetShown.setLayer(layer);
     geometry?.setShifting(false);
   },
@@ -182,6 +186,11 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onExport: (layer) => exporter.open(layer),
 });
 const exporter = new ExportDialog(selection, { say });
+const metadata = new MetadataDialog({ say });
+metadataButton.addEventListener('click', () => {
+  const layer = images.selectedLayer();
+  if (layer?.type === 'image') void metadata.open(layer);
+});
 
 const points = new PointTool(map, images, {
   list: document.getElementById('points') as HTMLOListElement,
@@ -467,6 +476,7 @@ declare global {
       table: AttributeTable;
       editor: Editor;
       exporter: ExportDialog;
+      metadata: MetadataDialog;
       boxSelect: DragBox;
       baseMap: BaseMapSwitch;
       config: ViewerConfig;
@@ -479,4 +489,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };
