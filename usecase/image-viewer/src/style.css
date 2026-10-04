@@ -941,3 +941,13 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* Processing dialog (in the add-a-service dialog's style). */
+.processing-settings {
+  grid-template-columns: 1fr 1fr;
+}
+.processing-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}

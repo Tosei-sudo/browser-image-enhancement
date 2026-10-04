@@ -11,7 +11,11 @@ import { isEmpty } from 'ol/extent.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './services/index.js';
 import { plainStyle, vectorLayer } from './services/vector.js';
-import { isVectorName, readVectorFiles, type VectorFile } from './vector-files.js';
+import { isVectorName, readVectorFiles, stem, type VectorFile } from './vector-files.js';
+import { isCsvName, readCsv } from './csv.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import type Feature from 'ol/Feature.js';
 import { isTiff, madeOverviews, withOverviews } from './overviews.js';
 import { isDtedName } from './dted.js';
 import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
@@ -35,15 +39,16 @@ export interface OpenFilesContext {
   onRsetMade?: (source: EnhancedGeoTIFF) => void;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, GeoPackages, DTED and RPC files. */
-export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.gpkg,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
+/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, GeoPackages, CSV, DTED and RPC files. */
+export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
   if (vectors.length) await openVectors(vectors, context);
+  for (const file of files.filter((f) => isCsvName(f.name))) await openCsv(file, context);
   for (const file of files.filter((f) => isDtedName(f.name))) await context.geometry.openDem(file);
   const rpcs = await readRpcFiles(files.filter((f) => isRpcName(f.name)), context);
-  const images = files.filter((f) => !isVectorName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !/\.txt$/i.test(f.name));
+  const images = files.filter((f) => !isVectorName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !/\.txt$/i.test(f.name));
   for (const file of images) {
     // An RPC file goes with the image of the same name, or with the only image.
     const rpc = rpcs.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && rpcs.size === 1 ? [...rpcs.values()][0] : null);
@@ -74,6 +79,39 @@ async function openVectors(files: File[], { addLayer, say }: OpenFilesContext): 
   } catch (error) {
     say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** Opens a CSV as a table without geometry (points come from it with 「XY 座標からポイントを作成」). */
+async function openCsv(file: File, { addLayer, say }: OpenFilesContext): Promise<void> {
+  try {
+    const csv = readCsv(new Uint8Array(await file.arrayBuffer()), stem(file.name));
+    addLayer(csvLayer(csv));
+    say(`${file.name} を開きました（${csv.features.length.toLocaleString()} 行。「プロセッシング」の「XY 座標からポイントを作成」で地図に置けます）`);
+  } catch (error) {
+    say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** A table layer for the list: nothing on the map, its rows in the attribute table. */
+export function csvLayer(csv: ReturnType<typeof readCsv>): ServiceLayer {
+  const source = new VectorSource<Feature>({ features: csv.features });
+  return {
+    ref: null,
+    badge: 'CSV',
+    title: csv.title,
+    layer: new VectorLayer({ source }),
+    correction: null,
+    vector: { source, fields: csv.fields, truncated: false },
+    tableOnly: true,
+    extent: null,
+    info: [
+      ['種類', 'CSV（表のみ・読み取り専用）'],
+      ['行数', csv.features.length.toLocaleString()],
+      ['列数', csv.fields.length.toLocaleString()],
+      ['文字コード', csv.encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-8'],
+      ['区切り', { '\t': 'タブ', ',': 'カンマ', ';': 'セミコロン' }[csv.delimiter] ?? csv.delimiter],
+    ],
+  };
 }
 
 /** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first. */
