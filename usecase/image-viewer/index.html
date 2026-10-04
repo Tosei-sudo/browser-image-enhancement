@@ -13,6 +13,10 @@
         <div id="open" class="open"></div>
         <button type="button" id="add-service" class="bar-button">サービスを追加</button>
         <div id="basemap"></div>
+        <form id="jump" class="jump" role="search">
+          <input type="text" name="coordinate" placeholder="緯度経度・MGRS・UTM" aria-label="座標へ移動" autocomplete="off" />
+          <button type="submit" class="bar-button">移動</button>
+        </form>
         <div class="point-tools">
           <button type="button" id="add-point" aria-pressed="false">ポイント追加</button>
           <button type="button" id="save-points">GeoJSON 保存</button>

@@ -232,7 +232,7 @@ export class PointTool {
 }
 
 /** Pixel coordinates (x right, y down from the top-left) of `at` on an image. */
-async function pixelOf(image: ViewerImage, at: Coordinate, projection: import('ol/proj/Projection.js').default): Promise<[number, number]> {
+export async function pixelOf(image: ViewerImage, at: Coordinate, projection: import('ol/proj/Projection.js').default): Promise<[number, number]> {
   const view = await image.source.getView();
   const own = view.projection ?? 'EPSG:3857';
   const [x, y] = transform(at, projection, own);
