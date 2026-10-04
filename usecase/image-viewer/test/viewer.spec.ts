@@ -69,6 +69,10 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
   expect(await names(page)).toEqual(['fixture.tif', 'photo.png']); // newest on top
   await expect(page.locator('#info')).toContainText('EPSG:4326');
   await expect(page.locator('#info')).toContainText('512 × 256 px');
+  // A COG opened by URL is used as it is: this one has no RSET.
+  await expect(page.locator('#images li').first().locator('.tag')).toHaveText('RSETなし');
+  await expect(page.locator('#info')).toContainText('なし（縮小表示でも生画素を読みます）');
+  await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
 
   // The panel corrects the selected image only, and shows each image's own correction.
   await slide(page, '露出 (EV)', '1');

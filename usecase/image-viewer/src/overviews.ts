@@ -115,7 +115,22 @@ export async function withOverviews(file: Blob, options: OverviewOptions = {}): 
     const statistics = gdalStatistics(first.min, first.max);
     if (statistics) replace.push({ tag: 42112, type: ASCII, values: ascii(statistics) });
   }
-  return compose(file, layout, replace, ifds);
+  const blob = compose(file, layout, replace, ifds);
+  made.set(blob, { levels: levels.length, factor: f });
+  return blob;
+}
+
+/** The overviews {@link withOverviews} made: how many levels, and the reduction of the finest (2 = half size). */
+export interface MadeOverviews {
+  levels: number;
+  factor: number;
+}
+
+const made = new WeakMap<Blob, MadeOverviews>();
+
+/** What {@link withOverviews} appended to `blob`, if it made it. */
+export function madeOverviews(blob: Blob): MadeOverviews | undefined {
+  return made.get(blob);
 }
 
 /** Whether `file` starts like a TIFF or BigTIFF. */

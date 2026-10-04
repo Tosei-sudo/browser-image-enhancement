@@ -36,6 +36,14 @@ test('a GeoTIFF without overviews gets them, so it is not sampled sparsely when 
   await expect(page.locator('#info')).toContainText('1,100 × 700 px');
   const levels = await page.evaluate(() => window.viewer.images.list()[0].source.getTileGrid()!.getResolutions().length);
   expect(levels).toBeGreaterThan(1);
+  // The list and the panel say the viewer made its RSET; the progress panel is gone.
+  await expect(page.locator('#images .tag')).toHaveText('RSET生成');
+  await expect(page.locator('#info')).toContainText('生成済み（このビューアーで作成）・1/2〜1/8、3 レベル');
+  await expect(page.locator('.rset-progress')).toBeHidden();
+  // Fitted to the view the image is drawn from an RSET level; zoomed in, from its raw pixels.
+  await expect(page.locator('.rset-shown')).toHaveText(/表示: RSET 1\/\d+/);
+  await page.evaluate(() => window.viewer.map.getView().setZoom(window.viewer.map.getView().getZoom()! + 3));
+  await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
   expect(errors).toEqual([]);
 });
 
