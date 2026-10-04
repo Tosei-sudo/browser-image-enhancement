@@ -117,6 +117,25 @@ test('processing results are temporary layers, kept over a reload, exported, and
   // Closing one forgets it.
   await layerRows(page).first().getByRole('button', { name: '閉じる' }).click();
   await expect(layerRows(page)).toHaveCount(4);
+  // The record is deleted in the background: wait for it before reloading.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<number>((resolve, reject) => {
+            const request = indexedDB.open('image-viewer-temp');
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+              const count = request.result.transaction('layers').objectStore('layers').count();
+              count.onsuccess = () => {
+                resolve(count.result);
+                request.result.close();
+              };
+            };
+          }),
+      ),
+    )
+    .toBe(4);
   await open(page);
   await expect(page.locator('#status')).toContainText('一時レイヤー 4 件を復元しました');
 
