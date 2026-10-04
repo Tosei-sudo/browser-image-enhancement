@@ -17,13 +17,21 @@
  * same raw cache) and cropped back: tile edges match the whole image exactly.
  *
  * With `normalize: false` the source reads the raw values (16-bit, float)
- * and stretches them to 0-255 itself, from statistics of the raw values:
- * those of the whole image until the first `updateDra`, then those of the
- * visible area. Tiles are then corrected as usual.
+ * and stretches them to 0-255 itself, from statistics of the raw values,
+ * band by band, like QGIS does. Squeezing 16-bit values into 0-255 first
+ * (what `normalize: true` does, over the whole 0-65535 range) leaves imagery
+ * that uses a small part of that range with a few dozen levels, which no
+ * later stretch can bring back. Without `autoStretch` in the pipeline the
+ * stretch is `rawStretch`, from statistics of the whole image. With
+ * `autoStretch`, its options (method, clip, linked) stretch the raw values
+ * instead of the 8-bit ones, from statistics of the visible area after each
+ * `updateDra`. `normalize: 'auto'` reads 8-bit images normalized and others
+ * raw. Tiles are then corrected as usual.
  *
- * With `correctTiles: false` tiles are left as read and only the pipeline is
- * kept (DRA included): `GpuCorrectedTileLayer` then corrects the drawn map on
- * the GPU, so a new pipeline needs no tile to be reloaded.
+ * With `correctTiles: false` tiles are left as read (raw values stretched to
+ * 0-255) and only the pipeline is kept (DRA included): `GpuCorrectedTileLayer`
+ * then corrects the drawn map on the GPU, so a new pipeline needs no tile to
+ * be reloaded (only a new raw stretch does).
  *
  * Band assignment: `select` (or `setSelect`) picks the bands R, G and B show,
  * for example `[3, 2, 1]` for a false-color composite of a 4-band image.
@@ -54,7 +62,14 @@ import { warn } from '../warn.js';
 import { cropMargin, withMargin } from './margin.js';
 
 /** Options for {@link EnhancedGeoTIFF}: those of `ol/source/GeoTIFF`, plus the correction. */
-export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
+export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'> {
+  /**
+   * `true` (default): OpenLayers scales values to 0-255 over the data type's
+   * range (or the `min`/`max` given). `false`: raw values are stretched here,
+   * from their own statistics (see `rawStretch`). `'auto'`: 8-bit images as
+   * with `true`, deeper ones (16-bit, float) as with `false`.
+   */
+  normalize?: boolean | 'auto';
   /** Correction to apply. Default: an empty pipeline (no change). */
   pipeline?: Pipeline;
   /** Run corrections in Web Workers (default true). */
@@ -68,8 +83,9 @@ export interface EnhancedGeoTIFFOptions extends GeoTIFFOptions {
   /**
    * With `normalize: false`: how raw values become 0-255 before the
    * pipeline. A fixed {@link RasterStretch}, or automatic stretch options
-   * (default `{}`: percentClip, 0.5 % at each end) applied to the statistics
-   * of the whole image and, after each `updateDra`, of the visible area.
+   * (default `{}`: percentClip, 0.5 % at each end, band by band) applied to
+   * the statistics of the whole image. When the pipeline has `autoStretch`,
+   * its options are used instead, on the visible area (see `updateDra`).
    */
   rawStretch?: RasterStretch | AutoStretchOptions;
   /**
@@ -138,23 +154,28 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draRequest_ = 0;
   /** The key tiles were last corrected (or drawn) for. */
   private appliedKey_ = '';
-  /** True with `normalize: false`: tiles hold raw values that are stretched here. */
-  private readonly rawValues_: boolean;
+  /** The part of `appliedKey_` that changes the tiles as read (see `contentKey_`). */
+  private appliedContent_ = '';
+  /** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
+  private rawValues_: boolean;
+  private readonly autoNormalize_: boolean;
   private readonly rawStretchOption_: RasterStretch | AutoStretchOptions;
   /** The raw stretch in use; null until the first statistics are read. */
   private rawStretch_: RasterStretch | null = null;
   private rawStretchReady_: Promise<void> | null = null;
+  /** Raw-value histograms: of the whole image, and of the last DRA area. */
+  private wholeRaw_: RasterHistogram | null = null;
+  private viewRaw_: RasterHistogram | null = null;
   /** The bands R, G and B show, as set; null: as read. */
   private select_: readonly [number, number, number] | null;
   /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats = { tiles: 0, ms: 0, reads: 0 };
 
   constructor(options: EnhancedGeoTIFFOptions) {
-    if (options.normalize === false && options.correctTiles === false) {
-      throw new TypeError('EnhancedGeoTIFF with normalize: false corrects tiles itself; it cannot be used with correctTiles: false.');
-    }
-    super(options);
-    this.rawValues_ = options.normalize === false;
+    // 'auto' reads raw values until the COG says it is 8-bit (see setLoader).
+    super({ ...options, normalize: options.normalize === undefined || options.normalize === true });
+    this.autoNormalize_ = options.normalize === 'auto';
+    this.rawValues_ = options.normalize === false || this.autoNormalize_;
     this.rawStretchOption_ = options.rawStretch ?? {};
     if ('black' in this.rawStretchOption_ && 'white' in this.rawStretchOption_) this.rawStretch_ = this.rawStretchOption_;
     this.select_ = options.select ? toRgb(options.select) : null;
@@ -166,18 +187,49 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.draMaxTiles_ = options.draMaxTiles ?? 64;
     this.effective_ = this.pipeline_.resolve(null);
     this.appliedKey_ = this.tileKey_();
+    this.appliedContent_ = this.contentKey_();
     if (this.correctTiles_) this.setKey(this.appliedKey_);
   }
 
   /** The tile key: changes whenever tiles must be corrected again. */
   private tileKey_(): string {
+    return `${keyFor(this.effective_)}${this.contentKey_()}`;
+  }
+
+  /** The part of the tile key that changes the tiles as read (bands, raw stretch), before the pipeline. */
+  private contentKey_(): string {
     const select = this.remap_();
-    return `${keyFor(this.effective_)}${select ? `:bands${select.join(',')}` : ''}${this.rawValues_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ''}`;
+    return `${select ? `:bands${select.join(',')}` : ''}${this.rawValues_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ''}`;
   }
 
   /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
   private get autoRaw_(): boolean {
     return this.rawValues_ && !('black' in this.rawStretchOption_ && 'white' in this.rawStretchOption_);
+  }
+
+  /** The pipeline's `autoStretch` options, when it has one. */
+  private autoStretch_(): AutoStretchOptions | null {
+    const step = this.pipeline_.get('autoStretch');
+    return step ? { method: step.method, lowPercent: step.lowPercent, highPercent: step.highPercent, stdDevs: step.stdDevs, linked: step.linked } : null;
+  }
+
+  /** How the raw stretch is computed now: the pipeline's `autoStretch` options, else `rawStretch`. */
+  private rawOptions_(): AutoStretchOptions {
+    return this.autoStretch_() ?? (this.rawStretchOption_ as AutoStretchOptions);
+  }
+
+  /**
+   * The pipeline with `autoStretch` fixed from the 8-bit statistics, or
+   * removed when it already stretched the raw values.
+   */
+  private resolved_(): Pipeline {
+    return this.pipeline_.resolve(this.autoRaw_ ? null : this.draStats_);
+  }
+
+  /** The raw stretch from the kept histograms: the visible area's with `autoStretch`, else the whole image's. */
+  private rawFromStats_(): RasterStretch | null {
+    const hist = (this.autoStretch_() && this.viewRaw_) || this.wholeRaw_;
+    return hist ? computeRasterStretch(hist, this.rawOptions_()) : null;
   }
 
   /** Whether tiles are corrected as they load (false: the layer corrects the drawn map). */
@@ -221,10 +273,12 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     if (this.autoRaw_) {
       this.rawStretch_ = null;
       this.rawStretchReady_ = null;
+      this.wholeRaw_ = null;
+      this.viewRaw_ = null;
     }
     this.reload_();
     const info = this.draInfo_;
-    if (!info || !this.rawLoader_ || this.getState() !== 'ready' || (!this.pipeline_.needsStats && !this.autoRaw_)) return;
+    if (!info || !this.rawLoader_ || this.getState() !== 'ready' || !this.pipeline_.needsStats) return;
     const request = ++this.draRequest_;
     const stats = await this.collectStats_(info.extent, info.z);
     if (request !== this.draRequest_) return;
@@ -297,7 +351,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
    * has statistics. Tiles are re-corrected only when the resulting range changes.
    */
   async updateDra(map: OlMap): Promise<void> {
-    if (!this.pipeline_.needsStats && !this.autoRaw_) return;
+    if (!this.pipeline_.needsStats) return;
     if (this.draLocked_ && this.draInfo_) return;
     const request = ++this.draRequest_;
     const grid = this.getTileGrid();
@@ -312,7 +366,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 
     const z = this.draZoom_(area);
     const key = `${z}:${area.join(',')}`;
-    if (key === this.draKey_ && (this.draStats_ || !this.pipeline_.needsStats)) return;
+    if (key === this.draKey_ && this.draStats_) return;
 
     const stats = await this.collectStats_(area, z);
     if (request !== this.draRequest_) return; // a newer view superseded this one
@@ -321,7 +375,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   }
 
   /** Statistics of `area` read at level `z`: the raw stretch (normalize: false) and the 8-bit histogram. */
-  private async collectStats_(area: Extent, z: number): Promise<{ info: DraInfo; rawStretch: RasterStretch | null; histogram: Histogram }> {
+  private async collectStats_(area: Extent, z: number): Promise<CollectedStats> {
     const loader = this.rawLoader_!;
     const grid = this.getTileGrid()!;
     const parts: Array<Promise<{ raw: Data; rect: Rect; width: number; height: number } | null>> = [];
@@ -347,6 +401,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 
     let rawStretch = this.rawStretch_;
     let rawInfo: DraInfo['rawStretch'];
+    let rawHistogram: RasterHistogram | null = null;
     if (this.autoRaw_) {
       // One range for every tile, so their histograms can be added.
       const rasters = tiles.flatMap((t) => {
@@ -360,8 +415,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
         if (range) [lo, hi] = [Math.min(lo, range[0]), Math.max(hi, range[1])];
       }
       if (lo <= hi) {
-        const merged: RasterHistogram = mergeRasterHistograms(rasters.map(({ r, rect }) => rasterHistogram(r, { range: [lo, hi], rect })));
-        rawInfo = computeRasterStretch(merged, this.rawStretchOption_ as AutoStretchOptions);
+        rawHistogram = mergeRasterHistograms(rasters.map(({ r, rect }) => rasterHistogram(r, { range: [lo, hi], rect })));
+        rawInfo = computeRasterStretch(rawHistogram, this.rawOptions_());
         rawStretch = rawInfo;
       }
     }
@@ -378,14 +433,15 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     return {
       info: { extent: area, z, tiles: histograms.length, pixels, ...(rawInfo ? { rawStretch: rawInfo } : {}) },
       rawStretch,
+      rawHistogram,
       histogram: mergeHistograms(histograms),
     };
   }
 
-  private applyStats_(stats: { info: DraInfo; rawStretch: RasterStretch | null; histogram: Histogram }): void {
+  private applyStats_(stats: CollectedStats): void {
     this.draStats_ = stats.histogram;
     this.draInfo_ = stats.info;
-    if (this.autoRaw_ && stats.rawStretch) this.rawStretch_ = stats.rawStretch;
+    if (this.autoRaw_ && stats.rawHistogram) this.viewRaw_ = stats.rawHistogram;
     this.refresh_();
   }
 
@@ -397,13 +453,15 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
       const area = grid.getExtent();
       const stats = await this.collectStats_(area, this.draZoom_(area));
       // updateDra may have set a stretch for the visible area in the meantime; keep that one.
+      this.wholeRaw_ ??= stats.rawHistogram;
       if (!this.rawStretch_) {
         this.rawStretch_ = stats.rawStretch ?? { black: 0, white: 1 };
         this.draInfo_ ??= stats.info;
         this.draStats_ ??= stats.histogram;
         // The tiles waiting for this read the new stretch and pipeline when they continue; no reload needed.
-        this.effective_ = this.pipeline_.resolve(this.draStats_);
+        this.effective_ = this.resolved_();
         this.appliedKey_ = this.tileKey_();
+        this.appliedContent_ = this.contentKey_();
       }
     })();
     return this.rawStretchReady_;
@@ -413,11 +471,10 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private raster_(raw: Data, width: number, height: number): Raster | null {
     if (!(raw instanceof Float32Array)) return null;
     const bands = raw.length / (width * height);
-    const color = bands - (this.hasAlpha ? 1 : 0);
-    if (!Number.isInteger(bands)) return null;
+    if (!Number.isInteger(bands) || bands < 1) return null;
     const select = this.remap_();
     if (select) return { data: raw, width, height, bands, alpha: this.hasAlpha, select };
-    if (color !== 1 && color !== 3) return null;
+    // Two value bands show the first in gray, four the first three.
     return { data: raw, width, height, bands, alpha: this.hasAlpha };
   }
 
@@ -468,20 +525,25 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 
   /** Re-resolves the pipeline and reloads every tile (from the raw cache), also when the layer corrects the map. */
   private reload_(): void {
-    this.effective_ = this.pipeline_.resolve(this.draStats_);
+    this.effective_ = this.resolved_();
     this.appliedKey_ = this.tileKey_();
+    this.appliedContent_ = this.contentKey_();
     this.setKey(this.appliedKey_);
   }
 
-  /** Re-resolves the pipeline; tiles are re-corrected only if the result changed. */
+  /** Re-resolves the pipeline (and the raw stretch); tiles are re-corrected only if the result changed. */
   private refresh_(): void {
-    const next = this.pipeline_.resolve(this.draStats_);
-    this.effective_ = next;
+    this.effective_ = this.resolved_();
+    if (this.autoRaw_) this.rawStretch_ = this.rawFromStats_() ?? this.rawStretch_;
     const key = this.tileKey_();
     if (key === this.appliedKey_) return;
     this.appliedKey_ = key;
-    // Reload the tiles with the new correction, or only redraw them when the layer corrects the map.
-    if (this.correctTiles_) this.setKey(key);
+    const content = this.contentKey_();
+    const reread = content !== this.appliedContent_;
+    this.appliedContent_ = content;
+    // Reload the tiles with the new correction, or only redraw them when the layer corrects the map
+    // (unless the tiles themselves change: a new raw stretch or band selection).
+    if (this.correctTiles_ || reread) this.setKey(key);
     else this.changed();
   }
 
@@ -494,6 +556,13 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
   protected override setLoader(loader: Loader): void {
     this.rawLoader_ = loader;
+    if (this.autoNormalize_ && isEightBit(this)) {
+      // An 8-bit image: let OpenLayers scale it as usual (it reads `normalize_` for every tile).
+      this.rawValues_ = false;
+      (this as unknown as { normalize_: boolean }).normalize_ = true;
+      this.appliedKey_ = this.tileKey_();
+      this.appliedContent_ = this.contentKey_();
+    }
     // The band count is known now (OpenLayers sets the source ready right after this).
     if (this.select_) {
       const n = this.bandCount - (this.hasAlpha ? 1 : 0);
@@ -509,7 +578,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     const [raw] = await Promise.all([this.rawTile_(loader, z, x, y, options), this.rawReady_()]);
     const p = this.effective_;
     const remap = this.remap_() !== null;
-    if (!remap && ((p.ops.length === 0 && !this.rawValues_) || !this.correctTiles_)) return raw;
+    if (!remap && !this.rawValues_ && (p.ops.length === 0 || !this.correctTiles_)) return raw;
 
     const [width, height] = this.getTileSize(z);
     const rgba = this.tileRGBA_(raw, width, height);
@@ -593,6 +662,44 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 }
 
 const neverAborted = new AbortController().signal;
+
+interface CollectedStats {
+  info: DraInfo;
+  /** The raw stretch the 8-bit histogram was taken with (normalize: false). */
+  rawStretch: RasterStretch | null;
+  /** Raw-value histogram, when the raw stretch is computed from statistics. */
+  rawHistogram: RasterHistogram | null;
+  histogram: Histogram;
+}
+
+/** The parts of geotiff.js images that tell the sample type. */
+interface SampleInfo {
+  getSamplesPerPixel(): number;
+  getBitsPerSample(sample?: number): number;
+  getSampleFormat(sample?: number): number;
+}
+
+/**
+ * True when every image the source reads holds unsigned 8-bit samples. Reads
+ * the images OpenLayers opened (`sourceImagery_`, set before the loader);
+ * false when they cannot be read, so the values are stretched here.
+ */
+function isEightBit(source: GeoTIFF): boolean {
+  const imagery = (source as unknown as { sourceImagery_?: SampleInfo[][] }).sourceImagery_;
+  if (!Array.isArray(imagery) || imagery.length === 0) return false;
+  try {
+    return imagery.every((levels) => {
+      const image = levels?.[0];
+      if (!image) return false;
+      for (let s = 0; s < image.getSamplesPerPixel(); s++) {
+        if (image.getBitsPerSample(s) !== 8 || (image.getSampleFormat(s) ?? 1) !== 1) return false;
+      }
+      return true;
+    });
+  } catch {
+    return false;
+  }
+}
 
 const keyFor = (p: Pipeline) => `enhanced:${JSON.stringify(p.ops satisfies readonly OpSpec[])}`;
 

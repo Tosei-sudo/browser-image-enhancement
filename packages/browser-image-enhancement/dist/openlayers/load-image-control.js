@@ -207,6 +207,11 @@ var LoadImageControl = class extends Control {
 		const source = new EnhancedGeoTIFF({
 			pipeline: previous instanceof EnhancedGeoTIFF ? previous.getPipeline() : void 0,
 			correctTiles: !onGpu,
+			normalize: "auto",
+			rawStretch: {
+				lowPercent: 2,
+				highPercent: 2
+			},
 			...this.options_.sourceOptions,
 			sources: [from]
 		});

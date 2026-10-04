@@ -81,7 +81,10 @@ export interface LoadImageControlOptions {
    * Options for the new {@link EnhancedGeoTIFF}. By default the pipeline of the
    * layer's previous source is kept, and tiles are left as read when the layer
    * is a {@link GpuCorrectedTileLayer} with WebGL2 (the layer corrects them),
-   * else corrected in workers.
+   * else corrected in workers. Images deeper than 8 bits (16-bit, float) are
+   * read raw (`normalize: 'auto'`) and stretched band by band from their own
+   * values, cutting 2 % at each end like QGIS's default
+   * (`rawStretch: { lowPercent: 2, highPercent: 2 }`).
    */
   sourceOptions?: Omit<EnhancedGeoTIFFOptions, 'sources'>;
   /** Zoom the map to the loaded image (default true). */
@@ -292,6 +295,8 @@ export default class LoadImageControl extends Control {
     const source = new EnhancedGeoTIFF({
       pipeline: previous instanceof EnhancedGeoTIFF ? previous.getPipeline() : undefined,
       correctTiles: !onGpu,
+      normalize: 'auto',
+      rawStretch: { lowPercent: 2, highPercent: 2 },
       ...this.options_.sourceOptions,
       sources: [from],
     });

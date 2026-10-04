@@ -104,8 +104,9 @@ function load() {
     pipeline: current(),
     // 16-bit fixture: raw values, stretched by the source from their own statistics.
     normalize: !useFixture16,
-    // GPU: tiles stay as read and the layer corrects the map. Without WebGL2, tiles are corrected in Workers.
-    correctTiles: useFixture16 || !onGpu(),
+    // GPU: tiles stay as read (raw values stretched to 0-255) and the layer corrects the map.
+    // Without WebGL2, tiles are corrected in Workers.
+    correctTiles: !onGpu(),
     worker: engine.value !== 'main',
     loadMissingProjection: true,
   });

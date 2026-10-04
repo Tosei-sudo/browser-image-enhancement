@@ -337,6 +337,46 @@ function range(a: number, b: number): number[] {
   return Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
 }
 
+test('16-bit raw values on the GPU: tiles hold the raw stretch, DRA stretches the raw values', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page, '16');
+  const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+  const gpu = await page.evaluate(() => window.example.layer.hasGpu());
+  expect(await page.evaluate(() => window.example.source.correctsTiles())).toBe(!gpu);
+
+  // Without DRA: the whole image's statistics, band by band.
+  const whole = await page.evaluate(() => window.example.source.getDraInfo()!.rawStretch!);
+  expect(whole.black[0]).toBeGreaterThanOrEqual(3000);
+  expect(whole.white[0]).toBeLessThanOrEqual(7480);
+  const left = await sample(page, w * 0.3, h * 0.5);
+  const right = await sample(page, w * 0.7, h * 0.5);
+  expect(right[0] - left[0]).toBeGreaterThan(60);
+
+  // DRA on: its options stretch the raw values, and the 8-bit pipeline has no autoStretch left.
+  await page.evaluate(async () => {
+    const { source, map } = window.example;
+    source.setPipeline(source.getPipeline().autoStretch({ lowPercent: 20, highPercent: 20 }));
+    await source.updateDra(map);
+  });
+  await settle(page);
+  const dra = await page.evaluate(() => window.example.source.getDraInfo()!.rawStretch!);
+  expect(dra.black[0]).toBeGreaterThan(whole.black[0]);
+  expect(dra.white[0]).toBeLessThan(whole.white[0]);
+  expect(await page.evaluate(() => window.example.source.getEffectivePipeline().get('autoStretch'))).toBeUndefined();
+  const contrasty = await sample(page, w * 0.7, h * 0.5);
+  expect(contrasty[0]).toBeGreaterThan(right[0]);
+
+  // DRA off again: back to the whole image's stretch.
+  await page.evaluate(() => {
+    const { source } = window.example;
+    source.setPipeline(source.getPipeline().remove('autoStretch'));
+  });
+  await settle(page);
+  expect(await sample(page, w * 0.7, h * 0.5)).toEqual(right);
+  expect(errors).toEqual([]);
+});
+
 test('16-bit raw values (normalize: false) are stretched from their own statistics, then corrected', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

@@ -8,7 +8,14 @@ import { Loader } from "ol/source/DataTile.js";
 import OlMap from "ol/Map.js";
 //#region src/openlayers/enhanced-geotiff.d.ts
 /** Options for {@link EnhancedGeoTIFF}: those of `ol/source/GeoTIFF`, plus the correction. */
-export interface EnhancedGeoTIFFOptions extends Options {
+export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
+  /**
+   * `true` (default): OpenLayers scales values to 0-255 over the data type's
+   * range (or the `min`/`max` given). `false`: raw values are stretched here,
+   * from their own statistics (see `rawStretch`). `'auto'`: 8-bit images as
+   * with `true`, deeper ones (16-bit, float) as with `false`.
+   */
+  normalize?: boolean | 'auto';
   /** Correction to apply. Default: an empty pipeline (no change). */
   pipeline?: Pipeline;
   /** Run corrections in Web Workers (default true). */
@@ -22,8 +29,9 @@ export interface EnhancedGeoTIFFOptions extends Options {
   /**
    * With `normalize: false`: how raw values become 0-255 before the
    * pipeline. A fixed {@link RasterStretch}, or automatic stretch options
-   * (default `{}`: percentClip, 0.5 % at each end) applied to the statistics
-   * of the whole image and, after each `updateDra`, of the visible area.
+   * (default `{}`: percentClip, 0.5 % at each end, band by band) applied to
+   * the statistics of the whole image. When the pipeline has `autoStretch`,
+   * its options are used instead, on the visible area (see `updateDra`).
    */
   rawStretch?: RasterStretch | AutoStretchOptions;
   /**
@@ -89,12 +97,18 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draRequest_;
   /** The key tiles were last corrected (or drawn) for. */
   private appliedKey_;
-  /** True with `normalize: false`: tiles hold raw values that are stretched here. */
-  private readonly rawValues_;
+  /** The part of `appliedKey_` that changes the tiles as read (see `contentKey_`). */
+  private appliedContent_;
+  /** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
+  private rawValues_;
+  private readonly autoNormalize_;
   private readonly rawStretchOption_;
   /** The raw stretch in use; null until the first statistics are read. */
   private rawStretch_;
   private rawStretchReady_;
+  /** Raw-value histograms: of the whole image, and of the last DRA area. */
+  private wholeRaw_;
+  private viewRaw_;
   /** The bands R, G and B show, as set; null: as read. */
   private select_;
   /** How many tiles were read and corrected, and the time it took. */
@@ -102,8 +116,21 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   constructor(options: EnhancedGeoTIFFOptions);
   /** The tile key: changes whenever tiles must be corrected again. */
   private tileKey_;
+  /** The part of the tile key that changes the tiles as read (bands, raw stretch), before the pipeline. */
+  private contentKey_;
   /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
   private get autoRaw_();
+  /** The pipeline's `autoStretch` options, when it has one. */
+  private autoStretch_;
+  /** How the raw stretch is computed now: the pipeline's `autoStretch` options, else `rawStretch`. */
+  private rawOptions_;
+  /**
+   * The pipeline with `autoStretch` fixed from the 8-bit statistics, or
+   * removed when it already stretched the raw values.
+   */
+  private resolved_;
+  /** The raw stretch from the kept histograms: the visible area's with `autoStretch`, else the whole image's. */
+  private rawFromStats_;
   /** Whether tiles are corrected as they load (false: the layer corrects the drawn map). */
   correctsTiles(): boolean;
   /** How the image is corrected: decided by its band count, the same for every tile. Null before the COG is read. */
@@ -170,7 +197,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draZoom_;
   /** Re-resolves the pipeline and reloads every tile (from the raw cache), also when the layer corrects the map. */
   private reload_;
-  /** Re-resolves the pipeline; tiles are re-corrected only if the result changed. */
+  /** Re-resolves the pipeline (and the raw stretch); tiles are re-corrected only if the result changed. */
   private refresh_;
   /** Sets the tile count and time in {@link EnhancedGeoTIFF.stats} back to zero. */
   resetStats(): void;
