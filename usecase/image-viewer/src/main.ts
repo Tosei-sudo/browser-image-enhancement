@@ -4,8 +4,8 @@
  * browser-image-enhancement (on the GPU where WebGL2 is available). Layers of
  * WMS, WMTS, WFS and Esri feature services can be added too: picture layers
  * are corrected like the images, vector layers show their attributes in a
- * table, and editable Esri layers can be edited. Shapefiles and GeoJSON open
- * read-only as vector layers with the same table.
+ * table, and editable Esri layers can be edited. Shapefiles, GeoJSON and
+ * GeoPackages open as vector layers with the same table, and can be edited too.
  */
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
@@ -32,7 +32,7 @@ import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
 import { acceptFiles, openFiles, type OpenFilesContext } from './open-files.js';
 import { rsetOf, RsetIndicator, RsetProgress, rsetText } from './rset.js';
-import { hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
+import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
 import { tiffInfo } from './satellite.js';
 import { showInfo } from './info.js';
@@ -40,6 +40,8 @@ import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add
 import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
+import { ExportDialog } from './export-dialog.js';
+import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
@@ -114,7 +116,7 @@ function showTable(layer: ViewerLayer | null): void {
       note: vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : undefined,
       watch: [vector.source, ...(editor.session() ? [editor.session()!] : [])],
       // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
-      onDelete: service.esri?.canDelete
+      onDelete: editTargetOf(service)?.canDelete
         ? (features) => {
             if (!editor.start(layer)) return;
             showTable(layer);
@@ -125,7 +127,7 @@ function showTable(layer: ViewerLayer | null): void {
   } else if (layer?.type === 'service' && service?.featureInfo) {
     table.show(featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示します');
   } else {
-    table.show(null, layer?.type === 'service' ? 'このレイヤーには属性がありません' : 'WFS・Esri のレイヤーを選ぶと属性を表示します');
+    table.show(null, layer?.type === 'service' ? 'このレイヤーには属性がありません' : 'WFS・Esri・ファイルのベクターレイヤーを選ぶと属性を表示します');
   }
 }
 
@@ -156,7 +158,9 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onEdit: (layer) => {
     if (editor.start(layer)) showTable(layer);
   },
+  onExport: (layer) => exporter.open(layer),
 });
+const exporter = new ExportDialog(selection, { say });
 
 const points = new PointTool(map, images, {
   list: document.getElementById('points') as HTMLOListElement,
@@ -215,7 +219,7 @@ boxSelect.on('boxend', () => {
   const layer = images.selectedLayer();
   const vector = layer?.type === 'service' ? layer.service.vector : null;
   if (!vector) {
-    say('範囲で選ぶには、WFS・Esri のレイヤーを選んでください');
+    say('範囲で選ぶには、ベクターレイヤーを選んでください');
     return;
   }
   const box = boxSelect.getGeometry();
@@ -264,7 +268,7 @@ const loader = new LoadImageControl({
   sourceOptions: { loadMissingProjection: true, correctTiles: !onGpu },
   // An ordinary picture goes at the origin, one unit per pixel, wherever the view is.
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
-  // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
+  // Several files at once: Shapefiles, GeoJSON and GeoPackages as vector layers, GeoTIFFs get overviews.
   accept: acceptFiles,
   onFiles: (files) => void openFiles(files, fileContext()),
   // With the File System Access API the files are chosen as handles, remembered for 「最近」.
@@ -305,7 +309,7 @@ async function pickAndOpen(): Promise<void> {
     return;
   }
   if (!handles.length) return;
-  const files = await Promise.all(handles.map((h) => h.getFile()));
+  const files = await Promise.all(handles.map(fileOf));
   void recent?.remember(handles);
   await openFiles(files, fileContext());
 }
@@ -423,6 +427,7 @@ declare global {
       selection: Selection;
       table: AttributeTable;
       editor: Editor;
+      exporter: ExportDialog;
       boxSelect: DragBox;
       baseMap: BaseMapSwitch;
       config: ViewerConfig;
@@ -434,4 +439,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent };

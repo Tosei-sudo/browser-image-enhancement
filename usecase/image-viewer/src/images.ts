@@ -10,6 +10,7 @@ import type BaseLayer from 'ol/layer/Base.js';
 import { transformExtent } from 'ol/proj.js';
 import { GpuCorrectedTileLayer, type EnhancedGeoTIFF, type LoadedImage } from 'browser-image-enhancement/openlayers';
 import { serviceNames, type ServiceLayer } from './services/index.js';
+import { editTargetOf } from './edit-session.js';
 
 /** One open image. */
 export interface ViewerImage {
@@ -45,8 +46,10 @@ export interface ImageListOptions {
   onRemove?: (layer: ViewerLayer) => void;
   /** Called when layers are added, removed or reordered. */
   onChange: (layers: readonly ViewerLayer[]) => void;
-  /** Called by the edit button of an editable Esri layer. */
+  /** Called by the edit button of an editable layer (Esri, or a file). */
   onEdit?: (layer: ViewerService) => void;
+  /** Called by the export button of a vector layer. */
+  onExport?: (layer: ViewerService) => void;
 }
 
 export class ImageList {
@@ -218,7 +221,7 @@ export class ImageList {
     name.className = 'name';
     name.textContent = image.type === 'image' ? shortName(image.name) : image.name;
     const ref = image.type === 'service' ? image.service.ref : null;
-    name.title = image.type === 'image' ? image.name : ref ? `${serviceNames[ref.kind]}: ${ref.url}` : `${image.name}（読み取り専用）`;
+    name.title = image.type === 'image' ? image.name : ref ? `${serviceNames[ref.kind]}: ${ref.url}` : image.service.editTarget ? image.name : `${image.name}（読み取り専用）`;
     name.addEventListener('click', () => this.select(image));
     if (image.type === 'service') {
       const badge = document.createElement('span');
@@ -239,11 +242,16 @@ export class ImageList {
       b.addEventListener('click', run);
       tools.append(b);
     };
-    const esri = image.type === 'service' ? image.service.esri : undefined;
-    if (image.type === 'service' && esri && (esri.canCreate || esri.canUpdate || esri.canDelete) && this.options.onEdit) {
+    if (image.type === 'service' && editTargetOf(image.service) && this.options.onEdit) {
       button('edit', '✎', '編集', () => {
         this.select(image);
         this.options.onEdit!(image);
+      });
+    }
+    if (image.type === 'service' && image.service.vector && this.options.onExport) {
+      button('export', '⇩', '書き出し（GeoJSON・Shapefile・GeoPackage）', () => {
+        this.select(image);
+        this.options.onExport!(image);
       });
     }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));

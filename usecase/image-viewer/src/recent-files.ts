@@ -138,6 +138,21 @@ async function sameFiles(a: FileSystemFileHandle[], b: FileSystemFileHandle[]): 
   return true;
 }
 
+/** The handle each file was read from (picked or reopened), so edits can be written back to it. */
+const handles = new WeakMap<File, FileSystemFileHandle>();
+
+/** The file of a handle, remembered as read from it. */
+export async function fileOf(handle: FileSystemFileHandle): Promise<File> {
+  const file = await handle.getFile();
+  handles.set(file, handle);
+  return file;
+}
+
+/** The handle `file` was read from, if any. */
+export function handleOf(file: File): FileSystemFileHandle | undefined {
+  return handles.get(file);
+}
+
 /**
  * The files of an entry, after asking to read them again where the browser
  * no longer allows it (it asks once per file, on this click). Files that are
@@ -151,7 +166,7 @@ export async function readEntry(entry: RecentEntry): Promise<{ files: File[]; mi
       let state = (await handle.queryPermission?.({ mode: 'read' })) ?? 'granted';
       if (state !== 'granted') state = (await handle.requestPermission?.({ mode: 'read' })) ?? 'denied';
       if (state !== 'granted') throw new Error('not allowed');
-      files.push(await handle.getFile());
+      files.push(await fileOf(handle));
     } catch {
       missing.push(handle.name);
     }

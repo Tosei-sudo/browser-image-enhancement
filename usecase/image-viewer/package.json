@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.53.4-build2",
     "browser-image-enhancement": "0.1.0",
     "browser-image-geometry": "0.1.0",
     "but-unzip": "^0.1.10",

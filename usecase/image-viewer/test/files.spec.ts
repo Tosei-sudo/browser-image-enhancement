@@ -1,10 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ascii, dbf, plainGeoTiff, shp, tokyoSjis } from './fixtures.js';
+import Point from 'ol/geom/Point.js';
+import { ascii, dbf, gpkg, plainGeoTiff, shp, tokyoSjis } from './fixtures.js';
+import { encodeGeometry } from '../src/geopackage.js';
 
 /*
  * Files beyond pictures and COGs: GeoTIFFs without overviews (rewritten with
- * them), Shapefiles and GeoJSON (read-only vector layers with the attribute
- * table), and the DRA lock of each image.
+ * them), Shapefiles, GeoJSON and GeoPackages (vector layers with the attribute
+ * table; editing them is in vector-edit.spec.ts), and the DRA lock of each image.
  */
 
 async function open(page: Page, query = '') {
@@ -47,7 +49,7 @@ test('a GeoTIFF without overviews gets them, so it is not sampled sparsely when 
   expect(errors).toEqual([]);
 });
 
-test('Shapefiles and GeoJSON open read-only, with their attributes in the table', async ({ page }) => {
+test('Shapefiles and GeoJSON open with their attributes in the table, editable', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
@@ -57,14 +59,14 @@ test('Shapefiles and GeoJSON open read-only, with their attributes in the table'
     { name: 'sites.shp', bytes: shp([[139.7, 35.7], [135.5, 34.7]]) },
     { name: 'sites.dbf', bytes: dbf([{ name: 'NAME', length: 10 }, { name: 'POP', type: 'N', length: 8 }], [[tokyoSjis, ascii('100')], [ascii('Osaka'), ascii('20')]]) },
   ]);
-  await expect(page.locator('#status')).toContainText('sites を開きました（読み取り専用）');
+  await expect(page.locator('#status')).toContainText('sites を開きました（✎ で編集できます）');
   expect(await names(page)).toEqual(['SHPsites']);
-  await expect(page.locator('#info')).toContainText('Shapefile（読み取り専用）');
+  await expect(page.locator('#info')).toContainText('Shapefile');
   await expect(page.locator('#info')).toContainText('Shift_JIS');
   await expect(page.locator('.table-count')).toContainText('全 2 件');
   await expect(rows(page).first()).toContainText('東京');
-  // No edit button: the layer is read-only.
-  await expect(page.locator('#images li').first().locator('[data-action=edit]')).toHaveCount(0);
+  // An edit button: files can be edited and saved again.
+  await expect(page.locator('#images li').first().locator('[data-action=edit]')).toHaveCount(1);
   // The view went to the features (Japan).
   await expect.poll(() => page.evaluate(() => window.viewer.map.getView().getCenter()![0])).toBeGreaterThan(14_000_000);
 
@@ -74,7 +76,7 @@ test('Shapefiles and GeoJSON open read-only, with their attributes in the table'
     features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: [[139, 35], [140, 36]] }, properties: { route: '国道1号', lanes: 4 } }],
   });
   await choose(page, [{ name: 'roads.geojson', bytes: geojson, type: 'application/geo+json' }]);
-  await expect(page.locator('#status')).toContainText('roads を開きました（読み取り専用）');
+  await expect(page.locator('#status')).toContainText('roads を開きました');
   expect(await names(page)).toEqual(['GeoJSONroads', 'SHPsites']);
   await expect(page.locator('.table-count')).toContainText('全 1 件');
   await expect(rows(page).first()).toContainText('国道1号');
@@ -99,6 +101,25 @@ test('Shapefiles and GeoJSON open read-only, with their attributes in the table'
   // A .dbf without its .shp says what is missing.
   await choose(page, [{ name: 'lonely.dbf', bytes: dbf([{ name: 'ID', length: 4 }], []) }]);
   await expect(page.locator('#status')).toContainText('lonely.shp がありません');
+  expect(errors).toEqual([]);
+});
+
+test('a GeoPackage opens with its features and attributes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  const wgs84 = { id: 4326, organization: 'EPSG', code: 4326, definition: 'undefined' };
+  const bytes = await gpkg('stations', wgs84, 'POINT', [
+    [encodeGeometry(new Point([139.7, 35.7]), 4326), '東京', 100, '2024-05-01'],
+    [encodeGeometry(new Point([135.5, 34.7]), 4326), '大阪', 20, null],
+  ]);
+  await choose(page, [{ name: 'stations.gpkg', bytes }]);
+  await expect(page.locator('#status')).toContainText('stations を開きました');
+  expect(await names(page)).toEqual(['GPKGstations']);
+  await expect(page.locator('#info')).toContainText('GeoPackage');
+  await expect(page.locator('.table-count')).toContainText('全 2 件');
+  await expect(rows(page).first()).toContainText('東京');
+  await expect.poll(() => page.evaluate(() => window.viewer.map.getView().getCenter()![0])).toBeGreaterThan(14_000_000);
   expect(errors).toEqual([]);
 });
 

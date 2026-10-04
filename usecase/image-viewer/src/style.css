@@ -585,6 +585,17 @@ body {
   display: none;
 }
 
+/* Export dialog (in the add-a-service dialog's style). */
+.service-form label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+}
+.export-note {
+  max-width: 36rem;
+}
+
 /* Add-a-service dialog. */
 .add-service {
   width: min(40rem, calc(100% - 32px));

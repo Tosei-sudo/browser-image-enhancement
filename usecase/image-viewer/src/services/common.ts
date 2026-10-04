@@ -13,6 +13,8 @@ import type Projection from 'ol/proj/Projection.js';
 import { fromEPSGCode } from 'ol/proj/proj4.js';
 import type { TileCorrection } from 'browser-image-enhancement/openlayers';
 import type { EsriLayerInfo } from './esri.js';
+import type { EditTarget } from '../edit-session.js';
+import type { TargetCrs } from '../vector-write.js';
 
 /** The kinds of service the viewer reads. */
 export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri';
@@ -75,6 +77,10 @@ export interface ServiceLayer {
   vector: VectorData | null;
   /** Esri layer description, for Esri layers. */
   esri?: EsriLayerInfo;
+  /** Where edits go, for an editable layer read from a file (Esri layers edit through `esri`). */
+  editTarget?: EditTarget;
+  /** The CRS of the file a layer was read from, offered when exporting. */
+  fileCrs?: TargetCrs;
   /** Area covered, in the view projection, when known. */
   extent: Extent | null;
   /** Lines for the information panel. */
