@@ -10,7 +10,7 @@
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
 import View from 'ol/View.js';
-import { register } from 'ol/proj/proj4.js';
+import { register, setProjectionCodeLookup } from 'ol/proj/proj4.js';
 import proj4 from 'proj4';
 import {
   EnhanceControl,
@@ -32,6 +32,7 @@ import { acceptFiles, openFiles } from './open-files.js';
 import { showInfo } from './info.js';
 import { AddServiceDialog, openRef, paramToRef, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
+import { loadConfig, lookupUrl, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
 import { Selection } from './selection.js';
 import { AttributeTable, type TableData } from './table.js';
@@ -42,7 +43,24 @@ for (let zone = 1; zone <= 60; zone++) {
   proj4.defs(`EPSG:${32600 + zone}`, `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`);
   proj4.defs(`EPSG:${32700 + zone}`, `+proj=utm +zone=${zone} +south +datum=WGS84 +units=m +no_defs`);
 }
+
+// Site settings (base maps, projection registry…) from config.json, so they change without a rebuild.
+const config = await loadConfig();
+for (const [code, definition] of Object.entries(config.projections)) {
+  try {
+    proj4.defs(code, definition);
+  } catch (error) {
+    console.warn(`config.json: projections の「${code}」を登録できませんでした`, error);
+  }
+}
 register(proj4);
+// Other projections are looked up in the configured registry (none when it is '').
+setProjectionCodeLookup(async (code) => {
+  if (!config.projectionLookup) throw new Error(`${code} の定義がありません（projectionLookup が未設定です）`);
+  const response = await fetch(lookupUrl(config.projectionLookup, code));
+  if (!response.ok) throw new Error(`${code} の定義を取得できませんでした: HTTP ${response.status}`);
+  return response.text();
+});
 
 const status = document.getElementById('status')!;
 const info = document.getElementById('info') as HTMLDListElement;
@@ -68,7 +86,7 @@ const say = (message: string) => (status.textContent = message);
 const selection = new Selection(map);
 const table = new AttributeTable(document.getElementById('table')!, map, selection, { say });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
-const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map);
+const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps);
 
 /** Features found by the last WMS GetFeatureInfo, per layer. */
 const featureInfo = new WeakMap<ViewerService, TableData>();
@@ -206,7 +224,8 @@ function updateLink(): void {
   params.delete('service');
   for (const l of [...images.layers()].reverse()) if (l.type === 'service' && l.service.ref) params.append('service', refToParam(l.service.ref));
   params.delete('base');
-  if (baseMap.get()) params.set('base', baseMap.get());
+  // Only when it differs from config.json's default (`?base=` alone means none).
+  if (baseMap.get() !== config.defaultBaseMap) params.set('base', baseMap.get());
   const query = params.toString();
   history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
 }
@@ -243,7 +262,7 @@ map.on('moveend', () => {
 // `?url=<COG>` (repeatable) opens COGs at start, `?service=` service layers and `?base=` a base map,
 // so a view can be shared as a link.
 const start = new URLSearchParams(location.search);
-baseMap.set(start.get('base') ?? '');
+baseMap.set(start.get('base') ?? config.defaultBaseMap);
 for (const url of start.getAll('url')) {
   status.textContent = `${url} を読み込んでいます…`;
   void loader.loadUrl(url).catch(() => {});
@@ -275,10 +294,11 @@ declare global {
       editor: Editor;
       boxSelect: DragBox;
       baseMap: BaseMapSwitch;
+      config: ViewerConfig;
       addDialog: AddServiceDialog;
       coordinateMenu: CoordinateMenu;
       jump: JumpTo;
     };
   }
 }
-window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, addDialog, coordinateMenu, jump };
+window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump };
