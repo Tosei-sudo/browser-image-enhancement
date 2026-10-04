@@ -749,3 +749,41 @@ body {
   border: 2px solid #00b7ff;
   background: #00b7ff22;
 }
+
+.geometry p {
+  margin: 0 0 6px;
+}
+.geometry-dems {
+  color: var(--muted);
+}
+.geometry-shift {
+  font-variant-numeric: tabular-nums;
+}
+.geometry-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.geometry-row button,
+.geometry-row select {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.geometry-row button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.geometry-row button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.shifting {
+  cursor: move;
+}

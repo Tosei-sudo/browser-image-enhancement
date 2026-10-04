@@ -180,3 +180,154 @@ export function zip(files: Array<{ name: string; bytes: Uint8Array }>): Uint8Arr
   }
   return out;
 }
+
+/**
+ * A DTED file of one cell: `elevation(lon, lat)` at each post (rounded, any
+ * value below -32766 written as a void). `spacing` is in arc seconds.
+ */
+export function dted(options: {
+  west: number;
+  south: number;
+  spacing: [lon: number, lat: number];
+  level?: string;
+  elevation: (lon: number, lat: number) => number;
+  /** Degrees covered; default 1. */
+  size?: number;
+}): Uint8Array<ArrayBuffer> {
+  const size = options.size ?? 1;
+  const width = Math.round((size * 3600) / options.spacing[0]) + 1;
+  const height = Math.round((size * 3600) / options.spacing[1]) + 1;
+  const recordLength = 12 + 2 * height;
+  const bytes = new Uint8Array(3428 + width * recordLength);
+  const put = (at: number, text: string) => {
+    for (let i = 0; i < text.length; i++) bytes[at + i] = text.charCodeAt(i);
+  };
+  bytes.fill(0x20, 0, 3428);
+  const dms = (value: number, digits: number, pos: string, neg: string) => {
+    const a = Math.abs(value);
+    const d = Math.floor(a);
+    const m = Math.floor((a - d) * 60);
+    const s = Math.round((a - d - m / 60) * 3600);
+    return `${String(d).padStart(digits, '0')}${String(m).padStart(2, '0')}${String(s).padStart(2, '0')}${value < 0 ? neg : pos}`;
+  };
+  put(0, 'UHL1');
+  put(4, dms(options.west, 3, 'E', 'W'));
+  put(12, dms(options.south, 3, 'N', 'S'));
+  put(20, String(options.spacing[0] * 10).padStart(4, '0'));
+  put(24, String(options.spacing[1] * 10).padStart(4, '0'));
+  put(28, '0030');
+  put(32, 'U  ');
+  put(47, String(width).padStart(4, '0'));
+  put(51, String(height).padStart(4, '0'));
+  put(80, 'DSIU');
+  if (options.level) put(80 + 59, options.level);
+  put(728, 'ACC');
+  const v = new DataView(bytes.buffer);
+  for (let x = 0; x < width; x++) {
+    const at = 3428 + x * recordLength;
+    bytes[at] = 0xaa;
+    v.setUint16(at + 4, x);
+    for (let y = 0; y < height; y++) {
+      const e = Math.round(options.elevation(options.west + (x * options.spacing[0]) / 3600, options.south + (y * options.spacing[1]) / 3600));
+      v.setUint16(at + 8 + 2 * y, e < -32766 ? 0xffff : e < 0 ? 0x8000 | -e : e);
+    }
+  }
+  return bytes;
+}
+
+/**
+ * A simple RPC model of a 1000 × 1000 image of 0.1° around `lon`, `lat`:
+ * sample grows east, line grows south, and higher ground leans north
+ * (0.2 lines per normalized height unit) and east (0.1 samples), as seen
+ * from an off-nadir satellite.
+ */
+export function rpcModel(lon: number, lat: number) {
+  const zero = () => new Array<number>(20).fill(0);
+  const lineNum = zero();
+  lineNum[2] = -1;
+  lineNum[3] = -0.2;
+  const sampNum = zero();
+  sampNum[1] = 1;
+  sampNum[3] = 0.1;
+  const den = zero();
+  den[0] = 1;
+  return {
+    lineOff: 499.5,
+    sampOff: 499.5,
+    latOff: lat,
+    lonOff: lon,
+    heightOff: 500,
+    lineScale: 500,
+    sampScale: 500,
+    latScale: 0.05,
+    lonScale: 0.05,
+    heightScale: 500,
+    lineNum,
+    lineDen: [...den],
+    sampNum,
+    sampDen: [...den],
+  };
+}
+
+/**
+ * A level-1 satellite image: one band of 16-bit values from `value(x, y)` in
+ * one strip, with no georeferencing, and the RPC model in the
+ * RPCCoefficientTag (50844) when given.
+ */
+export function satelliteTiff(width: number, height: number, value: (x: number, y: number) => number, rpc?: ReturnType<typeof rpcModel>): Uint8Array<ArrayBuffer> {
+  const pixels = width * height * 2;
+  const entries: Array<[tag: number, type: number, values: number[]]> = [
+    [256, 4, [width]],
+    [257, 4, [height]],
+    [258, 3, [16]],
+    [259, 3, [1]],
+    [262, 3, [1]],
+    [273, 4, [0]], // strip offset, set below
+    [277, 3, [1]],
+    [278, 4, [height]],
+    [279, 4, [pixels]],
+    [284, 3, [1]],
+  ];
+  if (rpc) {
+    entries.push([50844, 12, [1, 0.5, rpc.lineOff, rpc.sampOff, rpc.latOff, rpc.lonOff, rpc.heightOff, rpc.lineScale, rpc.sampScale, rpc.latScale, rpc.lonScale, rpc.heightScale, ...rpc.lineNum, ...rpc.lineDen, ...rpc.sampNum, ...rpc.sampDen]]);
+  }
+  const size = (type: number) => (type === 3 ? 2 : type === 4 ? 4 : 8);
+  const ifdLength = 2 + entries.length * 12 + 4;
+  let extra = 8 + ifdLength;
+  const placed = entries.map(([tag, type, values]) => {
+    const bytes = values.length * size(type);
+    const at = bytes > 4 ? extra : -1;
+    if (bytes > 4) extra += bytes + (bytes % 2);
+    return { tag, type, values, at };
+  });
+  const dataAt = extra;
+  placed.find((e) => e.tag === 273)!.values = [dataAt];
+  const out = new Uint8Array(dataAt + pixels);
+  const v = new DataView(out.buffer);
+  out.set([0x49, 0x49, 42, 0]);
+  v.setUint32(4, 8, true);
+  v.setUint16(8, entries.length, true);
+  const write = (at: number, type: number, values: number[]) =>
+    values.forEach((x, i) => (type === 3 ? v.setUint16(at + i * 2, x, true) : type === 4 ? v.setUint32(at + i * 4, x, true) : v.setFloat64(at + i * 8, x, true)));
+  placed.forEach(({ tag, type, values, at }, i) => {
+    const e = 10 + i * 12;
+    v.setUint16(e, tag, true);
+    v.setUint16(e + 2, type, true);
+    v.setUint32(e + 4, values.length, true);
+    if (at >= 0) {
+      v.setUint32(e + 8, at, true);
+      write(at, type, values);
+    } else {
+      write(e + 8, type, values);
+    }
+  });
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) v.setUint16(dataAt + (y * width + x) * 2, value(x, y), true);
+  return out;
+}
+
+/** Base64 of `bytes`, for handing files to the page. */
+export function toBase64(bytes: Uint8Array): string {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}

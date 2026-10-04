@@ -154,6 +154,12 @@ export interface GeoTIFFRaster {
  * looks jagged when zoomed out. Overviews average 2×2 pixels per band,
  * leaving out no-data and NaN.
  *
+ * With `statistics: true` each band's lowest and highest value (no-data and
+ * NaN left out) are written as GDAL metadata (`STATISTICS_MINIMUM` /
+ * `STATISTICS_MAXIMUM`). OpenLayers then maps that range to 0-255 instead of
+ * the whole range of the sample type, so 16-bit and float data (elevations,
+ * 11-bit satellite images) are not crushed into a few gray levels.
+ *
  * @example
  * ```ts
  * const image = await (await fromBlob(file)).getImage();
@@ -166,7 +172,7 @@ export interface GeoTIFFRaster {
  * });
  * ```
  */
-export function rasterToGeoTIFF(raster: GeoTIFFRaster, options: { tileSize?: number } = {}): Blob {
+export function rasterToGeoTIFF(raster: GeoTIFFRaster, options: { tileSize?: number; statistics?: boolean } = {}): Blob {
   const { width, height, bands, data } = raster;
   if (!(width > 0 && height > 0 && bands > 0)) throw new RangeError('The raster is empty.');
   if (data.length !== width * height * bands) throw new RangeError('data must hold width × height × bands samples.');
@@ -174,6 +180,7 @@ export function rasterToGeoTIFF(raster: GeoTIFFRaster, options: { tileSize?: num
   if (tileSize % 16 !== 0 || tileSize <= 0) throw new RangeError('tileSize must be a positive multiple of 16.');
   const { bits, format } = sampleType(data);
   const noData = raster.noData ?? null;
+  const metadata = options.statistics ? gdalStatistics(data, bands, noData) : null;
 
   const levels: Array<{ width: number; height: number; data: GeoTIFFSamples }> = [{ width, height, data }];
   while (Math.max(levels[levels.length - 1].width, levels[levels.length - 1].height) > tileSize) {
@@ -212,12 +219,34 @@ export function rasterToGeoTIFF(raster: GeoTIFFRaster, options: { tileSize?: num
       if (g.geoDoubleParams) entries.push({ tag: 34736, type: DOUBLE, values: [...g.geoDoubleParams] });
       if (g.geoAsciiParams) entries.push({ tag: 34737, type: ASCII, values: ascii(g.geoAsciiParams) });
     }
+    if (metadata) entries.push({ tag: 42112, type: ASCII, values: ascii(metadata) }); // GDAL_METADATA
     if (noData !== null) entries.push({ tag: 42113, type: ASCII, values: ascii(String(noData)) }); // GDAL_NODATA
     // TIFF wants the tags in ascending order.
     entries.sort((a, b) => a.tag - b.tag);
     return { entries, tiles };
   });
   return serialize(ifds);
+}
+
+/** GDAL metadata XML with each band's lowest and highest value, or null when every sample is no-data. */
+function gdalStatistics(data: GeoTIFFSamples, bands: number, noData: number | null): string | null {
+  const min = new Array<number>(bands).fill(Infinity);
+  const max = new Array<number>(bands).fill(-Infinity);
+  for (let i = 0; i < data.length; i += bands) {
+    for (let b = 0; b < bands; b++) {
+      const v = data[i + b];
+      if (v !== v || v === noData) continue;
+      if (v < min[b]) min[b] = v;
+      if (v > max[b]) max[b] = v;
+    }
+  }
+  if (!(min[0] <= max[0])) return null;
+  const items = min.flatMap((_, b) =>
+    min[b] <= max[b]
+      ? [`<Item name="STATISTICS_MINIMUM" sample="${b}">${min[b]}</Item>`, `<Item name="STATISTICS_MAXIMUM" sample="${b}">${max[b]}</Item>`]
+      : [],
+  );
+  return `<GDALMetadata>${items.join('')}</GDALMetadata>`;
 }
 
 function ascii(text: string): number[] {

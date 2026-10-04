@@ -97,6 +97,23 @@ resize(imageData, 640, 480, { resample: 'bicubic' });
 
 任意の変換を同期で掛けるときは `warpImageData(imageData, transform, options)` を使います（戻り値は `warp` と同じ形で、`image` は `ImageData`）。
 
+### 16bit・浮動小数・多バンドのラスタ（同期）
+
+衛星画像や標高データのように 8bit RGBA ではないデータは `warpRaster` で変形します。値の型とバンド数はそのまま保たれ（16bit の 4 バンドなら 16bit の 4 バンド）、no-data の画素は補間に使わず、入力の外側は no-data になります（no-data がなければ整数は 0、浮動小数は NaN）。オプションは `warp` と同じです（`background` を除く）。
+
+```ts
+import { warpRaster } from 'browser-image-geometry';
+
+const { raster, geoTransform, extent } = warpRaster(
+  { width, height, bands: 4, data: uint16Array, noData: 0 }, // 画素ごとにバンドが並ぶ（interleave）
+  fit.transform,
+  { resample: 'bilinear', coordinateTransform: proj4('EPSG:4326', 'EPSG:3857') },
+);
+raster.data; // Uint16Array
+```
+
+`coordinateTransform` には任意の関数を渡せるので、RPC と DEM による正射投影もこれで書けます（画像ビューアのユースケースの `usecase/image-viewer/src/ortho.ts`）。
+
 ## 変換
 
 変換はただのオブジェクトなので、JSON で保存したり Worker に送ったりできます。

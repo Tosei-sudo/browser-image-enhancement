@@ -40,3 +40,4 @@ export type {
 export { warp, type AsyncWarpResult, type OutputKind, type WarpOptions, type WarpOutput } from './warp.js';
 export { configureWorkers, terminateWorkers, type WorkerConfig, type WorkerLike } from './worker/pool.js';
 export type { ImageDataLike, ImageInput } from '@browser-image/workers';
+export { halveRaster, warpRaster, type Raster, type RasterSamples, type RasterWarpOptions, type RasterWarpResult } from './raster.js';

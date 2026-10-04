@@ -5,7 +5,7 @@
  * overviews (`rasterToGeoTIFF`) makes it look like a COG at every zoom.
  */
 import { fromArrayBuffer, fromBlob } from 'geotiff';
-import { rasterToGeoTIFF, type GeoTIFFSamples } from 'browser-image-enhancement/openlayers';
+import { rasterToGeoTIFF, type GeoTIFFRaster, type GeoTIFFSamples } from 'browser-image-enhancement/openlayers';
 
 /** Images up to this size are shown well without overviews. */
 const SMALL = 512;
@@ -16,16 +16,22 @@ export const MAX_OVERVIEW_SAMPLES = 150_000_000;
  * A copy of the GeoTIFF `file` with overviews, or null when it needs none
  * (it has overviews already, or is small) or cannot be rewritten (too large,
  * a palette or odd bit depth): then open the file as it is.
+ *
+ * With `geo`, the copy gets that georeferencing instead of the file's own and
+ * is made whatever the file's size and overviews, with each band's range as
+ * statistics so its 11 to 16-bit values are not crushed into a few gray
+ * levels (for a satellite image placed by its RPC model, see `rpcGeo`).
  */
-export async function withOverviews(file: Blob): Promise<Blob | null> {
+export async function withOverviews(file: Blob, options: { geo?: GeoTIFFRaster['geo'] } = {}): Promise<Blob | null> {
   // Only the header is read until the pixels are needed (whole files where there is no FileReader).
   const tiff = typeof FileReader === 'undefined' ? await fromArrayBuffer(await file.arrayBuffer()) : await fromBlob(file);
-  if ((await tiff.getImageCount()) > 1) return null;
+  const forced = !!options.geo;
+  if (!forced && (await tiff.getImageCount()) > 1) return null;
   const image = await tiff.getImage();
   const width = image.getWidth();
   const height = image.getHeight();
   const bands = image.getSamplesPerPixel();
-  if (Math.max(width, height) <= SMALL || width * height * bands > MAX_OVERVIEW_SAMPLES) return null;
+  if (width * height * bands > MAX_OVERVIEW_SAMPLES || (!forced && Math.max(width, height) <= SMALL)) return null;
   const bits = image.getBitsPerSample();
   if (![8, 16, 32, 64].includes(bits)) return null;
 
@@ -47,7 +53,7 @@ export async function withOverviews(file: Blob): Promise<Blob | null> {
     noData: image.getGDALNoData(),
     photometric,
     extraSamples: numbers(await tag(338)),
-    geo: {
+    geo: options.geo ?? {
       modelPixelScale: numbers(await tag(33550)),
       modelTiepoint: numbers(await tag(33922)),
       modelTransformation: numbers(await tag(34264)),
@@ -55,7 +61,7 @@ export async function withOverviews(file: Blob): Promise<Blob | null> {
       geoDoubleParams: numbers(await tag(34736)),
       geoAsciiParams: typeof ascii === 'string' ? ascii : undefined,
     },
-  });
+  }, { statistics: forced });
 }
 
 /** Whether `file` starts like a TIFF or BigTIFF. */

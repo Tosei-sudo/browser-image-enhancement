@@ -30,6 +30,8 @@ import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
 import { acceptFiles, openFiles } from './open-files.js';
+import { GeometricMode } from './geometric.js';
+import { tiffInfo } from './satellite.js';
 import { showInfo } from './info.js';
 import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
@@ -38,6 +40,7 @@ import { Editor } from './editor.js';
 import { Selection } from './selection.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
+import { elevationRange } from './dem.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -129,11 +132,14 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     mapElement.querySelector('.ol-enhance')?.classList.toggle('inactive', !target);
     selection.clear();
     showTable(layer);
-    void showInfo(info, layer);
+    void showInfo(info, layer, geometryInfo(layer));
+    geometry?.setShifting(false);
   },
   onRemove: (layer) => {
-    if (layer.type === 'image') points.removeImage(layer);
-    else if (editor.editing() === layer) editor.stop();
+    if (layer.type === 'image') {
+      points.removeImage(layer);
+      geometry.remove(layer);
+    } else if (editor.editing() === layer) editor.stop();
   },
   onChange: (list) => {
     empty.hidden = list.length > 0;
@@ -252,16 +258,49 @@ const loader = new LoadImageControl({
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
   // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
   accept: acceptFiles,
-  onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say }),
+  onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say, geometry }),
   onLoad: (loaded: LoadedImage) => {
     images.add(loaded);
     status.textContent = `${loaded.name} を開きました`;
+    // A COG opened by URL may be a satellite image with an RPC model.
+    if (/^https?:/i.test(loaded.name)) {
+      void tiffInfo(loaded.name)
+        .then((found) => found.rpc && geometry.setSatellite(loaded.source, { rpc: found.rpc, from: loaded.name }))
+        .catch(() => {});
+    }
   },
   onError: (error, name) => {
     status.textContent = `${name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`;
   },
 });
 map.addControl(loader);
+
+// Geometric correction: DTED elevation data, orthorectification of RPC images, moving the result by hand.
+const geometry = new GeometricMode(map, images, loader, document.getElementById('geometry')!, {
+  say,
+  onChange: (image) => {
+    if (images.selectedLayer() === image) void showInfo(info, image, geometryInfo(image));
+  },
+  onPipeline: (p) => enhance.setPipeline(p),
+});
+
+/** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */
+function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
+  if (layer?.type !== 'image' || !geometry) return [];
+  const dem = geometry.demOf(layer);
+  if (dem) {
+    const range = elevationRange(dem);
+    const rows: Array<[string, string]> = [['標高データ', `${dem.level}（${(dem.spacing[1] * 3600).toFixed(0)}″ 間隔）`]];
+    if (range) rows.push(['標高', `${range[0]}〜${range[1]} m`]);
+    if (dem.verticalAccuracy !== null) rows.push(['垂直精度', `${dem.verticalAccuracy} m`]);
+    return rows;
+  }
+  const satellite = geometry.satelliteOf(layer);
+  if (satellite) return [['センサーモデル', 'RPC']];
+  const ortho = geometry.orthoOf(layer);
+  if (ortho) return [['オルソ補正', `${ortho.sourceName} から`]];
+  return [];
+}
 
 // DRA follows the view for every image; the panel already does it for the selected one.
 map.on('moveend', () => {
@@ -282,7 +321,7 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   say(`${layer.url} を読み込んでいます…`);
   try {
     if (layer.type === 'cog') await loader.loadUrl(layer.url);
-    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], { loader, addLayer: addService, say });
+    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], { loader, addLayer: addService, say, geometry });
     else {
       const { type: kind, ...ref } = layer;
       addService(await openRef({ kind, ...ref }, serviceContext()));
@@ -324,7 +363,8 @@ declare global {
       addDialog: AddServiceDialog;
       coordinateMenu: CoordinateMenu;
       jump: JumpTo;
+      geometry: GeometricMode;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry };
