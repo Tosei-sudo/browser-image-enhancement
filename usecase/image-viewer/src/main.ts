@@ -4,7 +4,8 @@
  * browser-image-enhancement (on the GPU where WebGL2 is available). Layers of
  * WMS, WMTS, WFS and Esri feature services can be added too: picture layers
  * are corrected like the images, vector layers show their attributes in a
- * table, and editable Esri layers can be edited.
+ * table, and editable Esri layers can be edited. Shapefiles and GeoJSON open
+ * read-only as vector layers with the same table.
  */
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
@@ -24,6 +25,7 @@ import { ImageList, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
+import { acceptFiles, openFiles } from './open-files.js';
 import { showInfo } from './info.js';
 import { AddServiceDialog, openRef, paramToRef, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
@@ -153,7 +155,7 @@ map.on('singleclick', (e) => {
 
 const serviceContext = (): OpenContext => ({ gpu: onGpu, say });
 
-/** Adds a layer of a service and zooms to it. */
+/** Adds a layer of a service (or a vector file) and zooms to it. */
 function addService(service: ServiceLayer): void {
   const entry = images.addService(service);
   void images.zoomTo(entry);
@@ -166,7 +168,7 @@ const addDialog = new AddServiceDialog(document.getElementById('add-service') as
 function updateLink(): void {
   const params = new URLSearchParams(location.search);
   params.delete('service');
-  for (const l of [...images.layers()].reverse()) if (l.type === 'service') params.append('service', refToParam(l.service.ref));
+  for (const l of [...images.layers()].reverse()) if (l.type === 'service' && l.service.ref) params.append('service', refToParam(l.service.ref));
   params.delete('base');
   if (baseMap.get()) params.set('base', baseMap.get());
   const query = params.toString();
@@ -180,6 +182,9 @@ const loader = new LoadImageControl({
   sourceOptions: { loadMissingProjection: true, correctTiles: !onGpu },
   // An ordinary picture goes at the origin, one unit per pixel, wherever the view is.
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
+  // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
+  accept: acceptFiles,
+  onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say }),
   onLoad: (loaded: LoadedImage) => {
     images.add(loaded);
     status.textContent = `${loaded.name} を開きました`;

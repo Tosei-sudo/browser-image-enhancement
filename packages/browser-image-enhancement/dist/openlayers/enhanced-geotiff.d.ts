@@ -85,6 +85,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private draStats_;
   private draInfo_;
   private draKey_;
+  private draLocked_;
   private draRequest_;
   /** The key tiles were last corrected (or drawn) for. */
   private appliedKey_;
@@ -133,11 +134,21 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   getEffectivePipeline(): Pipeline;
   /** What the current DRA statistics were taken from; null before the first `updateDra`. */
   getDraInfo(): DraInfo | null;
+  /** Whether the DRA range is locked (see {@link EnhancedGeoTIFF.setDraLocked}). */
+  isDraLocked(): boolean;
+  /**
+   * Locks the DRA range: `updateDra` keeps the statistics it has (of the area
+   * shown when they were taken) instead of following the view, so panning and
+   * zooming no longer change the colors. DRA settings still apply to the kept
+   * statistics. Unlocking lets the next `updateDra` take the view again.
+   */
+  setDraLocked(locked: boolean): void;
   /**
    * Collects the statistics of the area `map` shows and fixes the pipeline's
    * `autoStretch` steps from them. Call it on the map's `moveend`. Does nothing
-   * when the pipeline has no `autoStretch` or the visible area has not changed.
-   * Tiles are re-corrected only when the resulting range changes.
+   * when the pipeline has no `autoStretch`, the visible area has not changed,
+   * or the range is locked ({@link EnhancedGeoTIFF.setDraLocked}) and already
+   * has statistics. Tiles are re-corrected only when the resulting range changes.
    */
   updateDra(map: OlMap): Promise<void>;
   /** Statistics of `area` read at level `z`: the raw stretch (normalize: false) and the 8-bit histogram. */

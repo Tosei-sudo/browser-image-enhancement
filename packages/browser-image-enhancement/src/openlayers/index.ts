@@ -51,4 +51,4 @@ export {
   type LoadImageControlOptions,
   type LoadImageLabels,
 } from './load-image-control.js';
-export { imageToGeoTIFF, type GeoTIFFPlacement } from './geotiff-writer.js';
+export { imageToGeoTIFF, rasterToGeoTIFF, type GeoTIFFPlacement, type GeoTIFFRaster, type GeoTIFFSamples } from './geotiff-writer.js';

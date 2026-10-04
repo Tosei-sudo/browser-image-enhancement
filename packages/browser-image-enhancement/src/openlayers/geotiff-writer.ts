@@ -20,10 +20,11 @@ export interface GeoTIFFPlacement {
   tileSize?: number;
 }
 
+const ASCII = 2;
 const SHORT = 3;
 const LONG = 4;
 const DOUBLE = 12;
-const TYPE_SIZE: Record<number, number> = { [SHORT]: 2, [LONG]: 4, [DOUBLE]: 8 };
+const TYPE_SIZE: Record<number, number> = { [ASCII]: 1, [SHORT]: 2, [LONG]: 4, [DOUBLE]: 8 };
 
 interface Entry {
   tag: number;
@@ -101,7 +102,187 @@ export function imageToGeoTIFF(image: ImageDataLike, placement: GeoTIFFPlacement
     return { entries, tiles };
   });
 
-  // Layout: header, then each IFD with its out-of-line values, then the tiles.
+  return serialize(ifds);
+}
+
+/** Pixel values {@link rasterToGeoTIFF} can write. */
+export type GeoTIFFSamples = Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array | Float64Array;
+
+/** A raster for {@link rasterToGeoTIFF}: any number of bands of one sample type, and its georeferencing. */
+export interface GeoTIFFRaster {
+  width: number;
+  height: number;
+  /** Samples per pixel. */
+  bands: number;
+  /** The samples, pixel-interleaved: `bands` values for each pixel, row by row. */
+  data: GeoTIFFSamples;
+  /** The value of pixels with no data; left out of the overview averages. */
+  noData?: number | null;
+  /** PhotometricInterpretation (1 = gray, 2 = RGB). Default: 2 for 3 or more bands, else 1. */
+  photometric?: number;
+  /** ExtraSamples, one per band beyond the color ones (2 = unassociated alpha). */
+  extraSamples?: readonly number[];
+  /**
+   * Georeferencing tags, copied as they are from the original file:
+   * ModelPixelScale, ModelTiepoint or ModelTransformation, and the GeoKey
+   * directory with its double and ASCII parameters.
+   */
+  geo: {
+    modelPixelScale?: readonly number[];
+    modelTiepoint?: readonly number[];
+    modelTransformation?: readonly number[];
+    geoKeyDirectory?: readonly number[];
+    geoDoubleParams?: readonly number[];
+    geoAsciiParams?: string;
+  };
+}
+
+/**
+ * A raster as a tiled GeoTIFF with overviews, keeping its sample type, band
+ * count, no-data value and georeferencing. Use it to give a GeoTIFF that has
+ * no overviews (a plain, non-cloud-optimized one) the levels OpenLayers reads
+ * when zoomed out: without them every view is drawn from the full image and
+ * looks jagged when zoomed out. Overviews average 2×2 pixels per band,
+ * leaving out no-data and NaN.
+ *
+ * @example
+ * ```ts
+ * const image = await (await fromBlob(file)).getImage();
+ * const data = (await image.readRasters({ interleave: true })) as Uint16Array;
+ * const fd = image.fileDirectory;
+ * const blob = rasterToGeoTIFF({
+ *   width: image.getWidth(), height: image.getHeight(), bands: image.getSamplesPerPixel(), data,
+ *   noData: image.getGDALNoData(),
+ *   geo: { modelPixelScale: fd.ModelPixelScale, modelTiepoint: fd.ModelTiepoint, geoKeyDirectory: fd.GeoKeyDirectory },
+ * });
+ * ```
+ */
+export function rasterToGeoTIFF(raster: GeoTIFFRaster, options: { tileSize?: number } = {}): Blob {
+  const { width, height, bands, data } = raster;
+  if (!(width > 0 && height > 0 && bands > 0)) throw new RangeError('The raster is empty.');
+  if (data.length !== width * height * bands) throw new RangeError('data must hold width × height × bands samples.');
+  const tileSize = options.tileSize ?? 256;
+  if (tileSize % 16 !== 0 || tileSize <= 0) throw new RangeError('tileSize must be a positive multiple of 16.');
+  const { bits, format } = sampleType(data);
+  const noData = raster.noData ?? null;
+
+  const levels: Array<{ width: number; height: number; data: GeoTIFFSamples }> = [{ width, height, data }];
+  while (Math.max(levels[levels.length - 1].width, levels[levels.length - 1].height) > tileSize) {
+    levels.push(halveRaster(levels[levels.length - 1], bands, noData));
+  }
+
+  const ifds = levels.map((level, i) => {
+    const across = Math.ceil(level.width / tileSize);
+    const down = Math.ceil(level.height / tileSize);
+    const tiles: Uint8Array[] = [];
+    for (let ty = 0; ty < down; ty++) {
+      for (let tx = 0; tx < across; tx++) tiles.push(rasterTile(level, tx * tileSize, ty * tileSize, tileSize, bands, noData));
+    }
+    const entries: Entry[] = [
+      { tag: 254, type: LONG, values: [i === 0 ? 0 : 1] },
+      { tag: 256, type: LONG, values: [level.width] },
+      { tag: 257, type: LONG, values: [level.height] },
+      { tag: 258, type: SHORT, values: new Array(bands).fill(bits) },
+      { tag: 259, type: SHORT, values: [1] },
+      { tag: 262, type: SHORT, values: [raster.photometric ?? (bands >= 3 ? 2 : 1)] },
+      { tag: 277, type: SHORT, values: [bands] },
+      { tag: 284, type: SHORT, values: [1] },
+      { tag: 322, type: LONG, values: [tileSize] },
+      { tag: 323, type: LONG, values: [tileSize] },
+      { tag: 324, type: LONG, values: new Array(tiles.length).fill(0) },
+      { tag: 325, type: LONG, values: tiles.map((t) => t.length) },
+    ];
+    if (raster.extraSamples?.length) entries.push({ tag: 338, type: SHORT, values: [...raster.extraSamples] });
+    entries.push({ tag: 339, type: SHORT, values: new Array(bands).fill(format) });
+    if (i === 0) {
+      const g = raster.geo;
+      if (g.modelPixelScale) entries.push({ tag: 33550, type: DOUBLE, values: [...g.modelPixelScale] });
+      if (g.modelTiepoint) entries.push({ tag: 33922, type: DOUBLE, values: [...g.modelTiepoint] });
+      if (g.modelTransformation) entries.push({ tag: 34264, type: DOUBLE, values: [...g.modelTransformation] });
+      if (g.geoKeyDirectory) entries.push({ tag: 34735, type: SHORT, values: [...g.geoKeyDirectory] });
+      if (g.geoDoubleParams) entries.push({ tag: 34736, type: DOUBLE, values: [...g.geoDoubleParams] });
+      if (g.geoAsciiParams) entries.push({ tag: 34737, type: ASCII, values: ascii(g.geoAsciiParams) });
+    }
+    if (noData !== null) entries.push({ tag: 42113, type: ASCII, values: ascii(String(noData)) }); // GDAL_NODATA
+    // TIFF wants the tags in ascending order.
+    entries.sort((a, b) => a.tag - b.tag);
+    return { entries, tiles };
+  });
+  return serialize(ifds);
+}
+
+function ascii(text: string): number[] {
+  const codes = Array.from(text, (c) => c.charCodeAt(0) & 0x7f);
+  if (codes[codes.length - 1] !== 0) codes.push(0);
+  return codes;
+}
+
+function sampleType(data: GeoTIFFSamples): { bits: number; format: number } {
+  const bits = data.BYTES_PER_ELEMENT * 8;
+  if (data instanceof Float32Array || data instanceof Float64Array) return { bits, format: 3 };
+  if (data instanceof Int8Array || data instanceof Int16Array || data instanceof Int32Array) return { bits, format: 2 };
+  return { bits, format: 1 };
+}
+
+/** One tile of a raster, as little-endian bytes; no-data (or zero) past the raster's edge. */
+function rasterTile(level: { width: number; height: number; data: GeoTIFFSamples }, x0: number, y0: number, size: number, bands: number, noData: number | null): Uint8Array {
+  const Type = level.data.constructor as new (n: number) => GeoTIFFSamples;
+  const out = new Type(size * size * bands);
+  if (noData !== null && noData !== 0) out.fill(noData);
+  const w = Math.min(size, level.width - x0);
+  const h = Math.min(size, level.height - y0);
+  for (let y = 0; y < h; y++) {
+    const from = ((y0 + y) * level.width + x0) * bands;
+    out.set(level.data.subarray(from, from + w * bands), y * size * bands);
+  }
+  return littleEndian(out);
+}
+
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+function littleEndian(a: GeoTIFFSamples): Uint8Array {
+  const bytes = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+  if (LITTLE_ENDIAN || a.BYTES_PER_ELEMENT === 1) return bytes;
+  const out = new Uint8Array(bytes.length);
+  const n = a.BYTES_PER_ELEMENT;
+  for (let i = 0; i < bytes.length; i += n) for (let k = 0; k < n; k++) out[i + k] = bytes[i + n - 1 - k];
+  return out;
+}
+
+/** The raster at half the size (rounded up), each sample the mean of up to 2×2, without no-data and NaN. */
+function halveRaster(level: { width: number; height: number; data: GeoTIFFSamples }, bands: number, noData: number | null): { width: number; height: number; data: GeoTIFFSamples } {
+  const { width, height, data } = level;
+  const w = Math.ceil(width / 2);
+  const h = Math.ceil(height / 2);
+  const Type = data.constructor as new (n: number) => GeoTIFFSamples;
+  const out = new Type(w * h * bands);
+  const float = data instanceof Float32Array || data instanceof Float64Array;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      for (let b = 0; b < bands; b++) {
+        let sum = 0;
+        let n = 0;
+        for (let dy = 0; dy < 2; dy++) {
+          const sy = 2 * y + dy;
+          if (sy >= height) continue;
+          for (let dx = 0; dx < 2; dx++) {
+            const sx = 2 * x + dx;
+            if (sx >= width) continue;
+            const v = data[(sy * width + sx) * bands + b];
+            if (v !== v || v === noData) continue;
+            sum += v;
+            n++;
+          }
+        }
+        out[(y * w + x) * bands + b] = n === 0 ? (noData ?? (float ? NaN : 0)) : float ? sum / n : Math.round(sum / n);
+      }
+    }
+  }
+  return { width: w, height: h, data: out };
+}
+
+/** The TIFF file: header, then each IFD with its out-of-line values, then the tiles. */
+function serialize(ifds: Array<{ entries: Entry[]; tiles: Uint8Array[] }>): Blob {
   const ifdSize = (entries: Entry[]) => 2 + entries.length * 12 + 4 + outOfLineSize(entries);
   let offset = 8;
   const ifdOffsets = ifds.map(({ entries }) => {
@@ -162,7 +343,8 @@ function outOfLineSize(entries: Entry[]): number {
 function writeValues(view: DataView, at: number, e: Entry): void {
   const step = TYPE_SIZE[e.type];
   e.values.forEach((v, k) => {
-    if (e.type === SHORT) view.setUint16(at + k * step, v, true);
+    if (e.type === ASCII) view.setUint8(at + k, v);
+    else if (e.type === SHORT) view.setUint16(at + k * step, v, true);
     else if (e.type === LONG) view.setUint32(at + k * step, v, true);
     else view.setFloat64(at + k * step, v, true);
   });

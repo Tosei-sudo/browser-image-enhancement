@@ -47,19 +47,16 @@ createServer(async (req, res) => {
   const path = normalize(decodeURIComponent(url.pathname));
   if (await serveService(req, res, url, `http://localhost:${port}`)) return;
   const headers = { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
-  if (path === '/fixture.tif') {
-    const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
-    if (!range) return res.writeHead(200, { ...headers, 'accept-ranges': 'bytes' }).end(tif);
-    const start = Number(range[1]);
-    const end = Math.min(range[2] ? Number(range[2]) : tif.length - 1, tif.length - 1);
-    return res
-      .writeHead(206, { ...headers, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${tif.length}` })
-      .end(tif.subarray(start, end + 1));
-  }
+  let body;
   try {
-    const body = await readFile(join(root, path === '/' ? 'index.html' : path));
-    res.writeHead(200, headers).end(body);
+    body = path === '/fixture.tif' ? tif : await readFile(join(root, path === '/' ? 'index.html' : path));
   } catch {
-    res.writeHead(404).end('not found');
+    return res.writeHead(404).end('not found');
   }
+  // Range requests, as object storage answers them (geotiff.js reads COGs in ranges).
+  const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
+  if (!range) return res.writeHead(200, { ...headers, 'accept-ranges': 'bytes' }).end(body);
+  const start = Number(range[1]);
+  const end = Math.min(range[2] ? Number(range[2]) : body.length - 1, body.length - 1);
+  res.writeHead(206, { ...headers, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${body.length}` }).end(body.subarray(start, end + 1));
 }).listen(port, () => console.log(`serving ${root} on http://localhost:${port}`));

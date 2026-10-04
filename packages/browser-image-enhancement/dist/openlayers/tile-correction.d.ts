@@ -28,6 +28,7 @@ export default class TileCorrection extends Observable {
   private info_;
   private wanted_;
   private viewKey_;
+  private locked_;
   constructor(options?: TileCorrectionOptions);
   /** The correction as set, before `autoStretch` is fixed from statistics. */
   getPipeline(): Pipeline;
@@ -49,11 +50,20 @@ export default class TileCorrection extends Observable {
   getState(): 'ready';
   /** What the current DRA statistics were taken from; null before the first statistics. */
   getDraInfo(): DraInfo | null;
+  /** Whether the DRA range is locked (see {@link TileCorrection.setDraLocked}). */
+  isDraLocked(): boolean;
+  /**
+   * Locks the DRA range: `updateDra` keeps the statistics it has instead of
+   * following the view. DRA settings still apply to the kept statistics.
+   * Unlocking lets the next `updateDra` take the view again.
+   */
+  setDraLocked(locked: boolean): void;
   /**
    * Asks the layer for new DRA statistics of what `map` shows: they are taken
    * from the next frame it draws, and again once the visible tiles have
    * loaded. Call it on the map's `moveend`. Does nothing when the pipeline has
-   * no `autoStretch` or the view has not changed.
+   * no `autoStretch`, the view has not changed, or the range is locked
+   * ({@link TileCorrection.setDraLocked}) and already has statistics.
    */
   updateDra(map: OlMap): Promise<void>;
   /** Whether the layer should take statistics from the frame it draws next. */

@@ -76,10 +76,11 @@ var LoadImageControl = class extends Control {
 		this.file_.type = "file";
 		this.file_.accept = options.accept ?? ".tif,.tiff,image/*";
 		this.file_.hidden = true;
+		this.file_.multiple = !!options.onFiles;
 		this.file_.addEventListener("change", () => {
-			const file = this.file_.files?.[0];
+			const files = Array.from(this.file_.files ?? []);
 			this.file_.value = "";
-			if (file) this.loadFile(file).catch(() => {});
+			this.takeFiles_(files);
 		});
 		const open = iconButton(t.open, FOLDER_ICON);
 		open.addEventListener("click", () => this.file_.click());
@@ -153,10 +154,10 @@ var LoadImageControl = class extends Control {
 		const leave = () => viewport.classList.remove("ol-load-image-drop");
 		const drop = (e) => {
 			leave();
-			const file = e.dataTransfer?.files?.[0];
-			if (!file) return;
+			const files = Array.from(e.dataTransfer?.files ?? []);
+			if (!files.length) return;
 			e.preventDefault();
-			this.loadFile(file).catch(() => {});
+			this.takeFiles_(files);
 		};
 		const on = (type, fn) => {
 			viewport.addEventListener(type, fn);
@@ -166,6 +167,12 @@ var LoadImageControl = class extends Control {
 		on("dragover", over);
 		on("dragleave", leave);
 		on("drop", drop);
+	}
+	/** Chosen or dropped files: to `onFiles`, else the first one is opened. */
+	takeFiles_(files) {
+		if (this.options_.onFiles) {
+			if (files.length) this.options_.onFiles(files);
+		} else if (files[0]) this.loadFile(files[0]).catch(() => {});
 	}
 	disposeInternal() {
 		this.undrop_.forEach((off) => off());

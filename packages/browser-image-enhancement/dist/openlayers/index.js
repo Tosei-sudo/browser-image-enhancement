@@ -3,6 +3,6 @@ import EnhancedGeoTIFF from "./enhanced-geotiff.js";
 import TileCorrection from "./tile-correction.js";
 import GpuCorrectedTileLayer from "./gpu-layer.js";
 import EnhanceControl, { defaultEnhanceSliders, enhanceLabelsEn, enhanceLabelsJa } from "./enhance-control.js";
-import { imageToGeoTIFF } from "./geotiff-writer.js";
+import { imageToGeoTIFF, rasterToGeoTIFF } from "./geotiff-writer.js";
 import LoadImageControl, { LoadImageEvent, loadImageLabelsEn, loadImageLabelsJa, placeOverView } from "./load-image-control.js";
-export { EnhanceControl, EnhancedGeoTIFF, GpuCorrectedTileLayer, LoadImageControl, LoadImageEvent, TileCorrection, cropMargin, defaultEnhanceSliders, enhanceLabelsEn, enhanceLabelsJa, imageToGeoTIFF, loadImageLabelsEn, loadImageLabelsJa, placeOverView, withMargin };
+export { EnhanceControl, EnhancedGeoTIFF, GpuCorrectedTileLayer, LoadImageControl, LoadImageEvent, TileCorrection, cropMargin, defaultEnhanceSliders, enhanceLabelsEn, enhanceLabelsJa, imageToGeoTIFF, loadImageLabelsEn, loadImageLabelsJa, placeOverView, rasterToGeoTIFF, withMargin };
