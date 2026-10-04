@@ -368,7 +368,8 @@ export class AttributeTable {
     if (this.frame_) return;
     this.frame_ = requestAnimationFrame(() => {
       this.frame_ = 0;
-      this.rebuild_();
+      // A cell being typed in stays (its row is redrawn once the rows shown change).
+      this.rebuild_(!this.typing_());
     });
   }
 
@@ -420,8 +421,14 @@ export class AttributeTable {
     this.search_.disabled = !this.data_;
   }
 
-  /** Filters and sorts the rows again, then draws them. */
-  private rebuild_(): void {
+  /** Whether an input or select in the rows has the focus. */
+  private typing_(): boolean {
+    const active = document.activeElement;
+    return !!active && this.table_.tBodies[0].contains(active) && active.matches('input:not([type="checkbox"]), select');
+  }
+
+  /** Filters and sorts the rows again, then draws them (`force`: even when the same rows are in view). */
+  private rebuild_(force = true): void {
     const data = this.data_;
     let rows: Feature[] = [];
     if (data) {
@@ -439,7 +446,7 @@ export class AttributeTable {
     }
     this.rows_ = rows;
     this.updateCount_();
-    this.renderRows_(true);
+    this.renderRows_(force);
   }
 
   private updateCount_(): void {
