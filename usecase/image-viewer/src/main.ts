@@ -4,8 +4,8 @@
  * browser-image-enhancement (on the GPU where WebGL2 is available). Layers of
  * WMS, WMTS, WFS and Esri feature services can be added too: picture layers
  * are corrected like the images, vector layers show their attributes in a
- * table, and editable Esri layers can be edited. Shapefiles and GeoJSON open
- * read-only as vector layers with the same table.
+ * table, and editable Esri layers can be edited. Shapefiles, GeoJSON and
+ * GeoPackages open read-only as vector layers with the same table.
  */
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
@@ -257,7 +257,7 @@ const loader = new LoadImageControl({
   sourceOptions: { loadMissingProjection: true, correctTiles: !onGpu },
   // An ordinary picture goes at the origin, one unit per pixel, wherever the view is.
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
-  // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
+  // Several files at once: Shapefiles, GeoJSON and GeoPackages as vector layers, GeoTIFFs get overviews.
   accept: acceptFiles,
   onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say, geometry }),
   // With the File System Access API the files are chosen as handles, remembered for 「最近」.

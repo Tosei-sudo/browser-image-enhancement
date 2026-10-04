@@ -27,8 +27,8 @@ export interface OpenFilesContext {
   geometry: GeometricMode;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, DTED and RPC files. */
-export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
+/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, GeoPackages, DTED and RPC files. */
+export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.gpkg,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
@@ -101,7 +101,7 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
   if (file.encoding) info.push(['文字コード', file.encoding === 'shift_jis' ? 'Shift_JIS' : file.encoding.toUpperCase()]);
   return {
     ref: null,
-    badge: file.format === 'Shapefile' ? 'SHP' : 'GeoJSON',
+    badge: { Shapefile: 'SHP', GeoJSON: 'GeoJSON', GeoPackage: 'GPKG' }[file.format],
     title: file.title,
     layer,
     correction: null,

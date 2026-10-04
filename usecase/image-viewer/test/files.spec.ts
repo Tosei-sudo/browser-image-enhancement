@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ascii, dbf, plainGeoTiff, shp, tokyoSjis } from './fixtures.js';
+import Point from 'ol/geom/Point.js';
+import { ascii, dbf, gpkg, plainGeoTiff, shp, tokyoSjis } from './fixtures.js';
+import { encodeGeometry } from '../src/geopackage.js';
 
 /*
  * Files beyond pictures and COGs: GeoTIFFs without overviews (rewritten with
@@ -91,6 +93,25 @@ test('Shapefiles and GeoJSON open read-only, with their attributes in the table'
   // A .dbf without its .shp says what is missing.
   await choose(page, [{ name: 'lonely.dbf', bytes: dbf([{ name: 'ID', length: 4 }], []) }]);
   await expect(page.locator('#status')).toContainText('lonely.shp がありません');
+  expect(errors).toEqual([]);
+});
+
+test('a GeoPackage opens with its features and attributes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  const wgs84 = { id: 4326, organization: 'EPSG', code: 4326, definition: 'undefined' };
+  const bytes = await gpkg('stations', wgs84, 'POINT', [
+    [encodeGeometry(new Point([139.7, 35.7]), 4326), '東京', 100, '2024-05-01'],
+    [encodeGeometry(new Point([135.5, 34.7]), 4326), '大阪', 20, null],
+  ]);
+  await choose(page, [{ name: 'stations.gpkg', bytes }]);
+  await expect(page.locator('#status')).toContainText('stations を開きました');
+  expect(await names(page)).toEqual(['GPKGstations']);
+  await expect(page.locator('#info')).toContainText('GeoPackage');
+  await expect(page.locator('.table-count')).toContainText('全 2 件');
+  await expect(rows(page).first()).toContainText('東京');
+  await expect.poll(() => page.evaluate(() => window.viewer.map.getView().getCenter()![0])).toBeGreaterThan(14_000_000);
   expect(errors).toEqual([]);
 });
 

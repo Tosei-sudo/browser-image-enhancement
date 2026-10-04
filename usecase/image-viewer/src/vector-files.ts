@@ -1,7 +1,7 @@
 /**
  * Reading vector files: Shapefiles (a .zip, or the .shp with its .dbf, .prj
- * and .cpg chosen together) and GeoJSON, as OpenLayers features in the map's
- * projection with their attributes. Read-only: nothing is written back.
+ * and .cpg chosen together), GeoJSON and GeoPackages, as OpenLayers features
+ * in the map's projection with their attributes.
  */
 import type Feature from 'ol/Feature.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -9,6 +9,7 @@ import { iter } from 'but-unzip';
 import { parseDbf, parseShp } from 'shpjs';
 import type { Field } from './services/index.js';
 import { fieldsOf } from './services/wms.js';
+import { readGeoPackage, type GeoPackageTable } from './geopackage.js';
 
 /** A file by name, as bytes: chosen, dropped, or found in a .zip. */
 export interface NamedBytes {
@@ -20,7 +21,7 @@ export interface NamedBytes {
 export interface VectorFile {
   /** File name without its extension. */
   title: string;
-  format: 'Shapefile' | 'GeoJSON';
+  format: 'Shapefile' | 'GeoJSON' | 'GeoPackage';
   /** Features in `EPSG:3857`. */
   features: Feature[];
   fields: Field[];
@@ -28,13 +29,19 @@ export interface VectorFile {
   crs: string;
   /** Shapefile: how the attributes' text was decoded. */
   encoding?: string;
+  /** OpenLayers projection code of the file's coordinates, when it has one. */
+  projection?: string;
+  /** The one geometry type the file holds (Shapefile, GeoPackage table); null or absent when any. */
+  geometryType?: 'Point' | 'LineString' | 'Polygon' | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon' | null;
+  /** GeoPackage: the open database and the table. */
+  gpkg?: GeoPackageTable;
 }
 
 /** The projection for a CRS name (it may load the definition), or null when unknown. */
 export type ProjectionLookup = (crs: string) => Promise<{ getCode(): string } | null>;
 
 /** What the viewer reads as vectors, by extension. */
-export const vectorExtensions = ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.geojson', '.json'];
+export const vectorExtensions = ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.geojson', '.json', '.gpkg'];
 
 export function isVectorName(name: string): boolean {
   const lower = name.toLowerCase();
@@ -64,7 +71,7 @@ export async function unzipFiles(zip: Uint8Array): Promise<NamedBytes[]> {
 }
 
 /**
- * Reads every Shapefile and GeoJSON among `files` (a .zip is opened first).
+ * Reads every Shapefile, GeoJSON and GeoPackage among `files` (a .zip is opened first).
  * Files of one Shapefile are matched by name: `roads.shp` with `roads.dbf`,
  * `roads.prj` and `roads.cpg`.
  */
@@ -80,6 +87,8 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
     const ext = extension(f.name);
     if (ext === '.geojson' || ext === '.json') {
       out.push(await readGeoJson(new TextDecoder().decode(f.bytes), stem(f.name), projectionOf));
+    } else if (ext === '.gpkg') {
+      out.push(...(await readGeoPackage(f.bytes, stem(f.name), projectionOf)));
     } else if (['.shp', '.dbf', '.prj', '.cpg'].includes(ext)) {
       const key = f.name.slice(0, -ext.length);
       byStem.set(key, { ...byStem.get(key), [ext]: f.bytes });
@@ -93,7 +102,7 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
     const decode = (b?: Uint8Array) => (b ? new TextDecoder().decode(b) : undefined);
     out.push(readShapefile(stem(key + '.x'), { shp: parts['.shp'], dbf: parts['.dbf'], prj: decode(parts['.prj']), cpg: decode(parts['.cpg']) }));
   }
-  if (!out.length) throw new Error('Shapefile（.shp）も GeoJSON も見つかりませんでした');
+  if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage のどれも見つかりませんでした');
   return out;
 }
 
