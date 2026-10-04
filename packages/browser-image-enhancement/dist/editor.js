@@ -36,6 +36,8 @@ var EditorImpl = class {
 	/** Scale of the image uploaded to the GPU (1 unless the GPU limits its size). */
 	gpuScale = 1;
 	stats = null;
+	/** Counts setImage calls, so a slower earlier decode does not win. */
+	imageGeneration = 0;
 	last = null;
 	generation = 0;
 	frame = 0;
@@ -67,8 +69,10 @@ var EditorImpl = class {
 	}
 	async setImage(input) {
 		this.check();
+		const generation = ++this.imageGeneration;
 		const decoded = await toImageData(input);
 		this.check();
+		if (generation !== this.imageGeneration) return;
 		this.image = decoded instanceof ImageData ? decoded : createImageData(decoded.data, decoded.width, decoded.height);
 		this.stats = null;
 		this.uploadToGpu();

@@ -335,7 +335,13 @@ function toStage(op) {
 			].map(curveFunction);
 			return {
 				kind: "channel",
-				fn: (v, c) => srgbToLinear(own[c](all(linearToSrgb(v))))
+				fn: (v, c) => srgbToLinear(own[c](all(linearToSrgb(v)))),
+				falls: [
+					op.points,
+					op.red,
+					op.green,
+					op.blue
+				].some((points) => points.some((p, i) => i > 0 && p[1] < points[i - 1][1]))
 			};
 		}
 		case "levels": {
@@ -345,6 +351,7 @@ function toStage(op) {
 			const e = 1 / op.gamma;
 			return {
 				kind: "channel",
+				falls: outRange < 0,
 				fn: (v) => {
 					let x = (linearToSrgb(v) - inBlack) / inRange;
 					x = x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(x, e);

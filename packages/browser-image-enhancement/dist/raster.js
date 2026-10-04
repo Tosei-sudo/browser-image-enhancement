@@ -28,12 +28,12 @@ function layout(r) {
 		noData: r.noData ?? null
 	};
 }
-/** Whether pixel `p` (index of its first value) is transparent or has no data in a picture band. */
+/** Whether pixel `p` (index of its first value) is transparent or has no data (or a non-finite value) in a picture band. */
 function hidden(data, p, l) {
 	if (l.alpha >= 0 && data[p + l.alpha] === 0) return true;
 	for (const b of l.picture) {
 		const v = data[p + b];
-		if (v !== v || v === l.noData) return true;
+		if (v - v !== 0 || v === l.noData) return true;
 	}
 	return false;
 }

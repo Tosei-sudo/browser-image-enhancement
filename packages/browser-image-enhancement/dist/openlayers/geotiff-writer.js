@@ -112,6 +112,7 @@ function imageToGeoTIFF(image, placement) {
 			values: new Array(bands).fill(1)
 		});
 		if (i === 0) {
+			if (!Number.isInteger(epsg) || epsg < 1 || epsg > 65535) throw new RangeError(`EPSG code ${epsg} cannot be written as a GeoTIFF key (1-65535).`);
 			const geographic = epsg === 4326;
 			entries.push({
 				tag: 33550,

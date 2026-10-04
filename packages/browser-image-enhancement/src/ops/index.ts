@@ -25,8 +25,13 @@ import { numberParam } from './info.js';
 /** A per-channel transform. `c` is 0, 1, 2 for R, G, B (or 0 for a gray channel). */
 export type ChannelFn = (v: number, c: number) => number;
 
-/** A step computed from each pixel alone. `channel` steps act on each channel independently; `saturation` mixes channels. */
-export type PixelStage = { kind: 'channel'; fn: ChannelFn } | { kind: 'saturation'; factor: number };
+/**
+ * A step computed from each pixel alone. `channel` steps act on each channel
+ * independently; `saturation` mixes channels. `falls` marks a channel step
+ * that can decrease (an inverting curve or levels), which must not be folded
+ * into the rounding (see core/quantizer.ts, which needs non-decreasing steps).
+ */
+export type PixelStage = { kind: 'channel'; fn: ChannelFn; falls?: boolean } | { kind: 'saturation'; factor: number };
 
 /** A step that reads neighbouring pixels (see core/filter.ts). */
 export type SpatialStage = { kind: 'sharpen' } & Required<SharpenOptions>;
@@ -329,7 +334,8 @@ export function toStage(op: OpSpec): Stage {
       // On sRGB-encoded values: the curve for all channels, then the channel's own.
       const all = curveFunction(op.points);
       const own = [op.red, op.green, op.blue].map(curveFunction);
-      return { kind: 'channel', fn: (v, c) => srgbToLinear(own[c](all(linearToSrgb(v)))) };
+      const falls = [op.points, op.red, op.green, op.blue].some((points) => points.some((p, i) => i > 0 && p[1] < points[i - 1][1]));
+      return { kind: 'channel', fn: (v, c) => srgbToLinear(own[c](all(linearToSrgb(v)))), falls };
     }
     case 'levels': {
       // Levels act on sRGB-encoded values, as on a histogram, but without 8-bit rounding.
@@ -339,6 +345,7 @@ export function toStage(op: OpSpec): Stage {
       const e = 1 / op.gamma;
       return {
         kind: 'channel',
+        falls: outRange < 0,
         fn: (v) => {
           let x = (linearToSrgb(v) - inBlack) / inRange;
           x = x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(x, e);

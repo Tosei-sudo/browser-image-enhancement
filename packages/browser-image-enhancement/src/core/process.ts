@@ -35,6 +35,8 @@ export interface Program {
   readonly lut8: readonly Uint8Array[] | null;
   /** Gray mode only: every step folded into rounding, for colored pixels' luminance. */
   readonly grayFromColor: Quantizer | null;
+  /** Gray mode: steps colored pixels run before `grayFromColor` (empty when they are folded into it). */
+  readonly grayColorSteps: readonly PixelStage[];
   /**
    * Set when the chain has steps that read neighbouring pixels. The fields
    * above then describe only the steps before the first of them (`tail` and
@@ -91,10 +93,15 @@ export function forGray(op: OpSpec): OpSpec {
   return { op: 'stretch', black: [b, b, b], white: [w, w, w] };
 }
 
+/** Whether a step can fold into a Quantizer (per channel and non-decreasing). */
+function foldable(stage: PixelStage): boolean {
+  return stage.kind === 'channel' && !stage.falls;
+}
+
 /** Splits per-pixel steps into the middle and the trailing per-channel run (all middle without folding). */
 function splitTail(stages: readonly PixelStage[], fuse: boolean): [PixelStage[], ChannelStage[]] {
   let start = stages.length;
-  if (fuse) while (start > 0 && stages[start - 1].kind === 'channel') start--;
+  if (fuse) while (start > 0 && foldable(stages[start - 1])) start--;
   return [stages.slice(0, start), stages.slice(start) as ChannelStage[]];
 }
 
@@ -115,7 +122,7 @@ export function compile(ops: readonly OpSpec[], mode: ResolvedMode, options: Com
   let tailStart = all.length;
   if (fuse) {
     while (lead < all.length && all[lead].kind === 'channel') lead++;
-    while (tailStart > lead && all[tailStart - 1].kind === 'channel') tailStart--;
+    while (tailStart > lead && foldable(all[tailStart - 1])) tailStart--;
   }
   if (cut >= 0) tailStart = all.length; // the trailing run is not the end of the chain
   const leading = all.slice(0, lead) as ChannelStage[];
@@ -141,6 +148,7 @@ export function compile(ops: readonly OpSpec[], mode: ResolvedMode, options: Com
       tail: [],
       lut8: null,
       grayFromColor: null,
+      grayColorSteps: [],
       spatial: compileSpatial(stages.slice(cut), lutLinear, leading, middle.length === 0 && fuse, fuse),
     };
   }
@@ -155,10 +163,13 @@ export function compile(ops: readonly OpSpec[], mode: ResolvedMode, options: Com
   }
 
   let grayFromColor: Quantizer | null = null;
+  let grayColorSteps: readonly PixelStage[] = [];
   if (mode === 'gray') {
-    grayFromColor = fuse ? new Quantizer(chain(all as ChannelStage[], 0)) : new Quantizer();
+    const fold = fuse && all.every(foldable);
+    grayFromColor = fold ? new Quantizer(chain(all as ChannelStage[], 0)) : new Quantizer();
+    grayColorSteps = fold ? [] : all;
   }
-  return { mode, lutLinear, middle, tail, lut8, grayFromColor, spatial: null };
+  return { mode, lutLinear, middle, tail, lut8, grayFromColor, grayColorSteps, spatial: null };
 }
 
 /** `rest` starts with a spatial step. */
@@ -223,7 +234,7 @@ function applyChannel(stages: readonly PixelStage[], v: number): number {
 export function processPixels(src: Uint8ClampedArray, dst: Uint8ClampedArray, program: Program, width?: number): void {
   if (src.length !== dst.length) throw new RangeError('src and dst must have the same length');
   if (program.spatial) {
-    const pixels = src.length >> 2;
+    const pixels = src.length >>> 2;
     if (width === undefined || !(width > 0) || pixels % width !== 0) {
       throw new RangeError(`A program with sharpen needs the image width (got ${String(width)} for ${pixels} pixels).`);
     }
@@ -293,7 +304,7 @@ function runStages(stages: readonly PixelStage[], v: Float64Array): void {
 }
 
 function processSpatial(src: Uint8ClampedArray, dst: Uint8ClampedArray, p: Program, sp: SpatialProgram, width: number): void {
-  const n = src.length >> 2;
+  const n = src.length >>> 2;
   const channels = p.mode === 'rgb' ? 3 : 1;
   if (sp.stream) {
     // One spatial step: stream rows through it, never holding the whole image in float.
@@ -414,7 +425,7 @@ function processGray(src: Uint8ClampedArray, dst: Uint8ClampedArray, p: Program)
   const middle = p.middle;
   const fromColor = p.grayFromColor as Quantizer;
   // Without folding, colored pixels run every step; with folding they are all inside `fromColor`.
-  const colorSteps = q ? [] : middle;
+  const colorSteps = p.grayColorSteps;
   for (let i = 0; i < n; i += 4) {
     const r = src[i];
     const g = src[i + 1];
@@ -439,7 +450,7 @@ function processGray(src: Uint8ClampedArray, dst: Uint8ClampedArray, p: Program)
  * their value; colored pixels use Rec. 709 luminance computed in linear light.
  */
 export function extractGray(data: Uint8ClampedArray): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(data.length >> 2);
+  const out = new Uint8ClampedArray(data.length >>> 2);
   for (let i = 0, j = 0; i < data.length; i += 4, j++) {
     const r = data[i];
     const g = data[i + 1];

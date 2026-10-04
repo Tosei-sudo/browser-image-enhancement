@@ -291,8 +291,10 @@ export default class LoadImageControl extends Control {
       throw error instanceof Error ? error : new Error(String(error));
     }
     if (layer) {
+      // Read the source again: another load may have replaced it while this one was reading.
+      const current = layer.getSource();
       layer.setSource(source);
-      if (previous && previous !== source) previous.dispose();
+      if (current && current !== source) current.dispose();
     }
     const map = this.getMap();
     if (map && this.options_.fit !== false && view.extent) {
@@ -357,7 +359,11 @@ export function placeOverView(size: { width: number; height: number }, map: OlMa
 function epsgCode(code: string): number | null {
   if (code === 'CRS:84') return 4326;
   const m = /^(?:EPSG:|urn:ogc:def:crs:EPSG:[^:]*:|http:\/\/www\.opengis\.net\/def\/crs\/EPSG\/0\/)(\d+)$/.exec(code);
-  return m ? Number(m[1]) : null;
+  if (!m) return null;
+  const n = Number(m[1]);
+  // OpenLayers' aliases of Web Mercator; GeoTIFF keys are 16-bit, so larger codes cannot be written.
+  if (n === 900913 || n === 102100 || n === 102113) return 3857;
+  return n <= 65535 ? n : null;
 }
 
 /** TIFF magic number: "II*\0" or "MM\0*" (BigTIFF has 43 in place of 42). */
