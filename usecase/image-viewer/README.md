@@ -61,9 +61,21 @@ COG は、サーバーが CORS と Range リクエストを許可している必
   // 起動時に登録する座標系（ネットワークなしで使えます）
   "projections": {
     "EPSG:6677": "+proj=tmerc +lat_0=36 +lon_0=139.833333333333 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
-  }
+  },
+  // 起動時に読み込むレイヤー。上に書いたものが下（一覧の下）になります
+  "layers": [
+    { "type": "cog", "url": "https://example.com/ortho.tif" },                       // COG
+    { "type": "file", "url": "./data/stations.geojson" },                            // GeoJSON・Shapefile の .zip・画像・GeoTIFF
+    { "type": "wms", "url": "https://example.com/wms", "layer": "roads" },           // WMS（layer はレイヤー名）
+    { "type": "wmts", "url": "https://example.com/wmts", "layer": "photo",
+      "matrixSet": "GoogleMapsCompatible", "format": "image/jpeg" },                 // WMTS（matrixSet・format は任意）
+    { "type": "wfs", "url": "https://example.com/wfs", "layer": "test:stations" },   // WFS
+    { "type": "esri", "url": "https://example.com/arcgis/rest/services/X/FeatureServer", "layer": "0" } // Esri（layer はレイヤー ID）
+  ]
 }
 ```
+
+`layers` のレイヤーは `?url=`・`?service=` のリンクで指定したものより先に開きます。共有リンクには設定ファイルのサービスレイヤーも入りますが、同じレイヤーは 1 回だけ開きます。開けなかったレイヤーは状態欄に理由を出し、残りのレイヤーは開きます。`file` はサーバーが CORS を許可している必要があります（同じサイトに置くなら不要です）。
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 

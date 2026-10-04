@@ -47,3 +47,34 @@ test('a broken config.json falls back to the defaults', async ({ page }) => {
   expect(await baseMapOptions(page)).toEqual(['背景なし', '地理院 標準', '地理院 淡色', '地理院 写真', 'OpenStreetMap']);
   expect(warnings.some((w) => w.includes('config.json'))).toBe(true);
 });
+
+test('layers in config.json open at start, bottom first, and a shared link does not open them twice', async ({ page }) => {
+  await page.request.get('/svc/reset');
+  const geojson = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: '東京駅' }, geometry: { type: 'Point', coordinates: [139.7671, 35.6812] } }] };
+  await page.route('**/data/stations.geojson', (route) => route.fulfill({ status: 200, contentType: 'application/geo+json', body: JSON.stringify(geojson) }));
+  const config = {
+    layers: [
+      { type: 'cog', url: '/fixture.tif' },
+      { type: 'wfs', url: 'http://localhost:4175/svc/wfs', layer: 'test:stations' },
+      { type: 'file', url: './data/stations.geojson' },
+      { type: 'wms', url: 'http://localhost:4175/svc/wms' }, // no layer: ignored
+    ],
+  };
+  const warnings: string[] = [];
+  page.on('console', (m) => m.type() === 'warning' && warnings.push(m.text()));
+  await open(page, JSON.stringify(config));
+  // The list shows the top layer first.
+  await expect(page.locator('#images .name')).toHaveCount(3);
+  const names = await page.locator('#images .name').allTextContents();
+  expect(names[0]).toContain('stations');
+  expect(names[1]).toContain('駅');
+  expect(names[2]).toContain('fixture');
+  expect(warnings.some((w) => w.includes('layers[3]'))).toBe(true);
+
+  // The address now lists the WFS layer; opening it again keeps one WFS layer.
+  const link = new URL(page.url()).search;
+  expect(new URLSearchParams(link).getAll('service')).toHaveLength(1);
+  await page.goto(`/index.html${link}`);
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await expect(page.locator('#images .name')).toHaveCount(3);
+});
