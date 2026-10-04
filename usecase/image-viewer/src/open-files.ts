@@ -1,22 +1,24 @@
 /**
  * Files chosen or dropped together: Shapefiles and GeoJSON become read-only
  * vector layers with an attribute table, DTED files open as elevation data,
- * GeoTIFFs without overviews get them first (appended to the file, which
- * is read where it is), and other pictures open as they are. A GeoTIFF with
- * an RPC model (its own tag, or an .RPB / _RPC.TXT file chosen with it) is marked for orthorectification; without georeferencing
- * it is placed where the model puts it.
+ * GeoTIFFs without overviews get them (an RSET) first (appended to the file,
+ * which is read where it is), and other pictures open as they are. A GeoTIFF
+ * with an RPC model (its own tag, or an .RPB / _RPC.TXT file chosen with it)
+ * is marked for orthorectification; without georeferencing it is placed where
+ * the model puts it.
  */
 import { isEmpty } from 'ol/extent.js';
-import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
+import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './services/index.js';
 import { plainStyle, vectorLayer } from './services/vector.js';
 import { isVectorName, readVectorFiles, type VectorFile } from './vector-files.js';
-import { isTiff, withOverviews } from './overviews.js';
+import { isTiff, madeOverviews, withOverviews } from './overviews.js';
 import { isDtedName } from './dted.js';
 import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
 import { rpcGeo, tiffInfo } from './satellite.js';
 import type { GeometricMode } from './geometric.js';
 import { baseName } from './images.js';
+import { markGenerated, type RsetJob, type RsetProgress } from './rset.js';
 
 export interface OpenFilesContext {
   loader: LoadImageControl;
@@ -25,6 +27,10 @@ export interface OpenFilesContext {
   say: (message: string) => void;
   /** Takes DTED files and satellite images. */
   geometry: GeometricMode;
+  /** Shows the RSETs being made. */
+  rset?: RsetProgress;
+  /** Called when an image opened with an RSET the viewer made. */
+  onRsetMade?: (source: EnhancedGeoTIFF) => void;
 }
 
 /** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, DTED and RPC files. */
@@ -69,7 +75,7 @@ async function openVectors(files: File[], { addLayer, say }: OpenFilesContext): 
 }
 
 /** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first. */
-async function openImage(file: File, { loader, say, geometry }: OpenFilesContext, sideRpc: Rpc | null = null): Promise<void> {
+async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }: OpenFilesContext, sideRpc: Rpc | null = null): Promise<void> {
   let blob: Blob = file;
   let rpc: Rpc | null = null;
   if (await isTiff(file)) {
@@ -79,10 +85,23 @@ async function openImage(file: File, { loader, say, geometry }: OpenFilesContext
     // A satellite image without georeferencing goes where its RPC model puts it.
     const geo = rpc && info && !info.georeferenced ? rpcGeo(rpc, info.width, info.height) : undefined;
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
-    const onProgress = (done: number) => say(`${file.name} の概観を作っています… ${Math.floor(done * 100)}%`);
-    blob = (await withOverviews(file, { geo, onProgress }).catch(() => null)) ?? file;
+    let job: RsetJob | null = null;
+    const onProgress = (done: number) => {
+      job ??= rset?.start(file.name) ?? null;
+      job?.update(done);
+    };
+    try {
+      blob = (await withOverviews(file, { geo, onProgress }).catch(() => null)) ?? file;
+    } finally {
+      (job as RsetJob | null)?.end(); // set in onProgress
+    }
   }
   const source = await loader.loadFile(blob, file.name).catch(() => null); // the loader's onError tells the user
+  const made = madeOverviews(blob);
+  if (source && made) {
+    markGenerated(source, made);
+    onRsetMade?.(source);
+  }
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
 }
 

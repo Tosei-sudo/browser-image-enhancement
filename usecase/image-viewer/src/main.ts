@@ -24,12 +24,13 @@ import type Feature from 'ol/Feature.js';
 import type Point from 'ol/geom/Point.js';
 import DragBox from 'ol/interaction/DragBox.js';
 import { platformModifierKeyOnly } from 'ol/events/condition.js';
-import { ImageList, type ViewerLayer, type ViewerService } from './images.js';
+import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { JumpTo } from './jump.js';
-import { acceptFiles, openFiles } from './open-files.js';
+import { acceptFiles, openFiles, type OpenFilesContext } from './open-files.js';
+import { rsetOf, RsetIndicator, RsetProgress, rsetText } from './rset.js';
 import { hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
 import { tiffInfo } from './satellite.js';
@@ -88,6 +89,9 @@ const enhance = new EnhanceControl({ labels: enhanceLabelsJa, collapsed: false }
 map.addControl(enhance);
 
 const say = (message: string) => (status.textContent = message);
+// Whether the selected image is drawn from its raw pixels or an RSET level, and the RSETs being made.
+const rsetShown = new RsetIndicator(map);
+const rsetProgress = new RsetProgress(mapElement);
 const selection = new Selection(map);
 const table = new AttributeTable(document.getElementById('table')!, map, selection, { say });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
@@ -133,7 +137,8 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     mapElement.querySelector('.ol-enhance')?.classList.toggle('inactive', !target);
     selection.clear();
     showTable(layer);
-    void showInfo(info, layer, geometryInfo(layer));
+    void showInfo(info, layer, layerInfo(layer));
+    rsetShown.setLayer(layer);
     geometry?.setShifting(false);
   },
   onRemove: (layer) => {
@@ -259,11 +264,11 @@ const loader = new LoadImageControl({
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
   // Several files at once: Shapefiles and GeoJSON as read-only layers, GeoTIFFs get overviews.
   accept: acceptFiles,
-  onFiles: (files) => void openFiles(files, { loader, addLayer: addService, say, geometry }),
+  onFiles: (files) => void openFiles(files, fileContext()),
   // With the File System Access API the files are chosen as handles, remembered for 「最近」.
   onOpen: hasFileAccess() ? () => void pickAndOpen() : undefined,
   onLoad: (loaded: LoadedImage) => {
-    images.add(loaded);
+    showRset(images.add(loaded));
     status.textContent = `${loaded.name} を開きました`;
     // A COG opened by URL may be a satellite image with an RPC model.
     if (/^https?:/i.test(loaded.name)) {
@@ -280,7 +285,7 @@ map.addControl(loader);
 
 // Files opened through the File System Access API open again from 「最近」 after a reload.
 const recent = hasFileAccess()
-  ? new RecentMenu(new RecentFiles(), { open: (files) => void openFiles(files, { loader, addLayer: addService, say, geometry }), say })
+  ? new RecentMenu(new RecentFiles(), { open: (files) => void openFiles(files, fileContext()), say })
   : null;
 if (recent) {
   document.getElementById('open')!.append(recent.button);
@@ -300,17 +305,48 @@ async function pickAndOpen(): Promise<void> {
   if (!handles.length) return;
   const files = await Promise.all(handles.map((h) => h.getFile()));
   void recent?.remember(handles);
-  await openFiles(files, { loader, addLayer: addService, say, geometry });
+  await openFiles(files, fileContext());
 }
 
 // Geometric correction: DTED elevation data, orthorectification of RPC images, moving the result by hand.
 const geometry = new GeometricMode(map, images, loader, document.getElementById('geometry')!, {
   say,
   onChange: (image) => {
-    if (images.selectedLayer() === image) void showInfo(info, image, geometryInfo(image));
+    if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
   },
   onPipeline: (p) => enhance.setPipeline(p),
 });
+
+/** What opening files needs: where they go, and how RSETs being made are shown. */
+function fileContext(): OpenFilesContext {
+  return {
+    loader,
+    addLayer: addService,
+    say,
+    geometry,
+    rset: rsetProgress,
+    onRsetMade: (source) => {
+      const image = images.find(source);
+      if (!image) return;
+      showRset(image);
+      if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+      rsetShown.update();
+    },
+  };
+}
+
+/** The tag in the list saying whether an image has an RSET, and whether the viewer made it. */
+function showRset(image: ViewerImage): void {
+  const state = rsetOf(image.source);
+  const text = { generated: 'RSET生成', file: 'RSET', none: 'RSETなし' }[state.kind];
+  images.setTag(image, { text, title: `RSET（縮小版）: ${rsetText(state)}`, className: `rset-${state.kind}` });
+}
+
+/** Rows the information panel adds for an image: its RSET, and what the geometric mode knows of it. */
+function layerInfo(layer: ViewerLayer | null): Array<[string, string]> {
+  if (layer?.type !== 'image') return geometryInfo(layer);
+  return [['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
+}
 
 /** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */
 function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
@@ -349,7 +385,7 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   say(`${layer.url} を読み込んでいます…`);
   try {
     if (layer.type === 'cog') await loader.loadUrl(layer.url);
-    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], { loader, addLayer: addService, say, geometry });
+    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], fileContext());
     else {
       const { type: kind, ...ref } = layer;
       addService(await openRef({ kind, ...ref }, serviceContext()));
