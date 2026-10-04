@@ -1,6 +1,7 @@
-// Static server for the browser test: serves the built site (dist/), a
-// small georeferenced GeoTIFF at /fixture.tif with range requests, the way a
-// COG is served from object storage, and stand-in services under /svc/.
+// Static server for the browser test: serves the built site (dist/), small
+// georeferenced GeoTIFFs at /fixture.tif (8-bit) and /fixture16.tif (16-bit)
+// with range requests, the way a COG is served from object storage, and
+// stand-in services under /svc/.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -42,6 +43,41 @@ function fixture(width = 512, height = 256) {
 }
 const tif = fixture();
 
+/**
+ * 512×256, 4 bands of 16-bit values over the same area, like a Landsat
+ * scene: a narrow part of 0-65535, with band 2 (0-based) brighter than the
+ * others, as blue is in the haze of real imagery. Band 0 rises from left to right.
+ */
+function fixture16(width = 512, height = 256) {
+  const values = new Uint16Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      values[i] = 6000 + Math.round((x / (width - 1)) * 4000);
+      values[i + 1] = 7000 + Math.round((y / (height - 1)) * 3000);
+      values[i + 2] = 8500 + ((x + y) % 7) * 100;
+      values[i + 3] = 15000;
+    }
+  }
+  const [minX, minY, maxX, maxY] = [139.6, 35.6, 139.9, 35.75];
+  return Buffer.from(
+    writeArrayBuffer(values, {
+      width,
+      height,
+      SamplesPerPixel: 4,
+      BitsPerSample: [16, 16, 16, 16],
+      SampleFormat: [1, 1, 1, 1],
+      PhotometricInterpretation: 1,
+      ModelPixelScale: [(maxX - minX) / width, (maxY - minY) / height, 0],
+      ModelTiepoint: [0, 0, 0, minX, maxY, 0],
+      GeographicTypeGeoKey: 4326,
+      GTModelTypeGeoKey: 2,
+      GTRasterTypeGeoKey: 1,
+    }),
+  );
+}
+const tif16 = fixture16();
+
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = normalize(decodeURIComponent(url.pathname));
@@ -49,7 +85,7 @@ createServer(async (req, res) => {
   const headers = { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
   let body;
   try {
-    body = path === '/fixture.tif' ? tif : await readFile(join(root, path === '/' ? 'index.html' : path));
+    body = path === '/fixture.tif' ? tif : path === '/fixture16.tif' ? tif16 : await readFile(join(root, path === '/' ? 'index.html' : path));
   } catch {
     return res.writeHead(404).end('not found');
   }
