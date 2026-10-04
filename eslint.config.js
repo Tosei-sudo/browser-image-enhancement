@@ -24,4 +24,8 @@ export default tseslint.config(
     files: ['packages/*/test/browser/server.mjs'],
     languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly' } },
   },
+  {
+    files: ['usecase/*/test/server.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' } },
+  },
 );

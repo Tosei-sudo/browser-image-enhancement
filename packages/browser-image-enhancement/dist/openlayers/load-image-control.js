@@ -5,6 +5,7 @@ import { addControlStyles, iconButton } from "./control-styles.js";
 import { imageToGeoTIFF } from "./geotiff-writer.js";
 import { getCenter, getHeight, getWidth } from "ol/extent.js";
 import { transformExtent } from "ol/proj.js";
+import { unByKey } from "ol/Observable.js";
 import Control from "ol/control/Control.js";
 import BaseEvent from "ol/events/Event.js";
 //#region src/openlayers/load-image-control.ts
@@ -200,7 +201,7 @@ var LoadImageControl = class extends Control {
 		});
 		let view;
 		try {
-			view = await source.getView();
+			view = await viewOf(source);
 		} catch (error) {
 			source.dispose();
 			throw error instanceof Error ? error : new Error(String(error));
@@ -233,6 +234,30 @@ var LoadImageControl = class extends Control {
 		return source;
 	}
 };
+/**
+* The source's view, or its error. OpenLayers' `getView()` never settles when
+* the GeoTIFF cannot be read (a 404, CORS, not a TIFF): the source only goes
+* to the `error` state.
+*/
+function viewOf(source) {
+	return new Promise((resolve, reject) => {
+		const failed = () => {
+			if (source.getState() !== "error") return false;
+			unByKey(key);
+			reject(source.getError() ?? /* @__PURE__ */ new Error("The GeoTIFF could not be read."));
+			return true;
+		};
+		const key = source.on("change", failed);
+		if (failed()) return;
+		source.getView().then((view) => {
+			unByKey(key);
+			resolve(view);
+		}, (error) => {
+			unByKey(key);
+			reject(error);
+		});
+	});
+}
 /** The default placement: centered on the view, 80 % of it, keeping the picture's shape. */
 function placeOverView(size, map) {
 	const view = map.getView();

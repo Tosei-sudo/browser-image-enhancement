@@ -2,17 +2,24 @@
  * OpenLayers control with the correction sliders: a button on the map that
  * opens a panel of sliders (built from `opInfo`), a DRA switch and a reset
  * button, and band selects that pick the bands R, G and B show. It drives the
- * pipeline of an {@link EnhancedGeoTIFF}, directly or
- * through a layer, and refreshes DRA when the map stops moving.
+ * pipeline of an {@link EnhancedGeoTIFF} (or the {@link TileCorrection} of a
+ * layer of picture tiles), directly or through a layer, and refreshes DRA when
+ * the map stops moving.
  */
 import Control from 'ol/control/Control.js';
 import type OlMap from 'ol/Map.js';
 import type Layer from 'ol/layer/Layer.js';
-import type { EventsKey } from 'ol/events.js';
+import { listen, type EventsKey } from 'ol/events.js';
 import { unByKey } from 'ol/Observable.js';
 import { opInfo, pipeline, type NumberParamInfo, type OpName, type Pipeline } from '../index.js';
 import EnhancedGeoTIFF from './enhanced-geotiff.js';
+import GpuCorrectedTileLayer from './gpu-layer.js';
+import TileCorrection from './tile-correction.js';
 import { addControlStyles, iconButton } from './control-styles.js';
+
+/** Steps a slider can set: those with number parameters. */
+/** What an {@link EnhanceControl} corrects: a GeoTIFF source, or the correction of a layer of picture tiles. */
+export type EnhanceTarget = EnhancedGeoTIFF | TileCorrection;
 
 /** Steps a slider can set: those with number parameters. */
 export type SliderOp = 'brightness' | 'contrast' | 'exposure' | 'gamma' | 'saturation' | 'temperature' | 'levels' | 'sharpen';
@@ -142,8 +149,8 @@ export interface EnhanceControlOptions {
    * the pipeline the source was created with.
    */
   layer?: Layer;
-  /** The source to correct, when there is no `layer`. */
-  source?: EnhancedGeoTIFF;
+  /** The source (or {@link TileCorrection}) to correct, when there is no `layer`. */
+  source?: EnhanceTarget;
   /** The sliders, in order. Default {@link defaultEnhanceSliders}. */
   sliders?: readonly EnhanceSlider[];
   /** Show the DRA settings (default true). */
@@ -193,7 +200,7 @@ interface Row {
  */
 export default class EnhanceControl extends Control {
   private readonly layer_: Layer | null;
-  private source_: EnhancedGeoTIFF | null;
+  private source_: EnhanceTarget | null;
   private readonly rows_: Row[] = [];
   private readonly labels_: EnhanceLabels;
   private readonly onChange_?: (p: Pipeline) => void;
@@ -330,15 +337,19 @@ export default class EnhanceControl extends Control {
     this.bindSource_();
   }
 
-  /** The source being corrected: `source`, or the layer's source when it is an {@link EnhancedGeoTIFF}. */
-  getSource(): EnhancedGeoTIFF | null {
+  /**
+   * What is being corrected: `source`, or the layer's source when it is an
+   * {@link EnhancedGeoTIFF}, or else the layer's {@link TileCorrection}.
+   */
+  getSource(): EnhanceTarget | null {
     if (this.source_) return this.source_;
     const s = this.layer_?.getSource();
-    return s instanceof EnhancedGeoTIFF ? s : null;
+    if (s instanceof EnhancedGeoTIFF) return s;
+    return this.layer_ instanceof GpuCorrectedTileLayer ? this.layer_.getCorrection() : null;
   }
 
   /** Corrects `source` instead (only when the control was not given a `layer`). */
-  setSource(source: EnhancedGeoTIFF | null): void {
+  setSource(source: EnhanceTarget | null): void {
     this.source_ = source;
     this.bindSource_();
   }
@@ -427,7 +438,7 @@ export default class EnhanceControl extends Control {
     this.apply_(source);
     // Once the COG is read: gray images hide color-only sliders; DRA gets its first statistics.
     this.sourceKeys_.push(
-      source.on('change', () => {
+      listen(source, 'change', () => {
         if (source.getState() !== 'ready') return;
         this.updateColorRows_();
         this.updateBands_();
@@ -489,7 +500,7 @@ export default class EnhanceControl extends Control {
     });
   }
 
-  private apply_(source: EnhancedGeoTIFF): void {
+  private apply_(source: EnhanceTarget): void {
     source.setPipeline(this.pipeline_);
     const map = this.getMap();
     if (map) void source.updateDra(map);

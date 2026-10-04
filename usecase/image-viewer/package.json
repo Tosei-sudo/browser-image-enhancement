@@ -1,0 +1,19 @@
+{
+  "name": "@browser-image/usecase-image-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Image viewer site built on browser-image-enhancement: local files and COG URLs on an OpenLayers map, corrected in the browser.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --emptyOutDir --base ./",
+    "preview": "vite preview --base ./",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:browser": "vite build --emptyOutDir --base ./ && playwright test"
+  },
+  "dependencies": {
+    "browser-image-enhancement": "0.1.0",
+    "ol": "^10.10.0",
+    "proj4": "^2.22.0"
+  }
+}

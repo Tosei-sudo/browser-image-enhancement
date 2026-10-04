@@ -157,6 +157,21 @@ test('a file that cannot be read reports an error and keeps the current image', 
   expect(result).toEqual({ failed: true, reported: 'broken.png', kept: true });
 });
 
+test('a URL that cannot be read reports an error instead of waiting forever', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const { loader, layer } = window.controlsExample;
+    const before = layer.getSource();
+    const url = new URL('/missing.tif', location.href).href;
+    const failed = await Promise.race([
+      loader.loadUrl(url).then(() => 'loaded', () => 'failed'),
+      new Promise((r) => setTimeout(() => r('timeout'), 10_000)),
+    ]);
+    return { failed, busy: loader.isLoading(), kept: layer.getSource() === before };
+  });
+  expect(result).toEqual({ failed: 'failed', busy: false, kept: true });
+});
+
 test('the band selects assign bands of a multiband image to R, G and B', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -168,7 +183,7 @@ test('the band selects assign bands of a multiband image to R, G and B', async (
   /** The first pixel of tile 0/0/0 as the layer gets it: the bands OpenLayers draws. */
   const pixel = () =>
     page.evaluate(async () => {
-      const source = window.controlsExample.enhance.getSource()!;
+      const source = window.controlsExample.enhance.getSource() as import('../../src/openlayers/enhanced-geotiff.js').default;
       const z = source.getTileGrid()!.getMinZoom();
       const tile = source.getTile(z, 0, 0, 1, source.getProjection()!)!;
       tile.load();

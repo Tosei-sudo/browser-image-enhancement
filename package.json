@@ -5,7 +5,8 @@
   "workspaces": [
     "packages/workers",
     "packages/browser-image-enhancement",
-    "packages/browser-image-geometry"
+    "packages/browser-image-geometry",
+    "usecase/image-viewer"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

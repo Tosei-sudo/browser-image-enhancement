@@ -1,15 +1,19 @@
 import { opInfo } from "../ops/info.js";
 import { pipeline } from "../pipeline.js";
 import EnhancedGeoTIFF from "./enhanced-geotiff.js";
+import GpuCorrectedTileLayer from "./gpu-layer.js";
 import { addControlStyles, iconButton } from "./control-styles.js";
-import Control from "ol/control/Control.js";
+import { listen } from "ol/events.js";
 import { unByKey } from "ol/Observable.js";
+import Control from "ol/control/Control.js";
 //#region src/openlayers/enhance-control.ts
 /**
 * OpenLayers control with the correction sliders: a button on the map that
 * opens a panel of sliders (built from `opInfo`), a DRA switch and a reset
-* button. It drives the pipeline of an {@link EnhancedGeoTIFF}, directly or
-* through a layer, and refreshes DRA when the map stops moving.
+* button, and band selects that pick the bands R, G and B show. It drives the
+* pipeline of an {@link EnhancedGeoTIFF} (or the {@link TileCorrection} of a
+* layer of picture tiles), directly or through a layer, and refreshes DRA when
+* the map stops moving.
 */
 /** English texts (the default). */
 const enhanceLabelsEn = {
@@ -292,11 +296,15 @@ var EnhanceControl = class extends Control {
 		if (this.layer_) this.layer_.on("change:source", () => this.bindSource_());
 		this.bindSource_();
 	}
-	/** The source being corrected: `source`, or the layer's source when it is an {@link EnhancedGeoTIFF}. */
+	/**
+	* What is being corrected: `source`, or the layer's source when it is an
+	* {@link EnhancedGeoTIFF}, or else the layer's {@link TileCorrection}.
+	*/
 	getSource() {
 		if (this.source_) return this.source_;
 		const s = this.layer_?.getSource();
-		return s instanceof EnhancedGeoTIFF ? s : null;
+		if (s instanceof EnhancedGeoTIFF) return s;
+		return this.layer_ instanceof GpuCorrectedTileLayer ? this.layer_.getCorrection() : null;
 	}
 	/** Corrects `source` instead (only when the control was not given a `layer`). */
 	setSource(source) {
@@ -374,7 +382,7 @@ var EnhanceControl = class extends Control {
 		this.updateBands_();
 		if (!source) return;
 		this.apply_(source);
-		this.sourceKeys_.push(source.on("change", () => {
+		this.sourceKeys_.push(listen(source, "change", () => {
 			if (source.getState() !== "ready") return;
 			this.updateColorRows_();
 			this.updateBands_();
