@@ -321,7 +321,7 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   say(`${layer.url} を読み込んでいます…`);
   try {
     if (layer.type === 'cog') await loader.loadUrl(layer.url);
-    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], { loader, addLayer: addService, say });
+    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], { loader, addLayer: addService, say, geometry });
     else {
       const { type: kind, ...ref } = layer;
       addService(await openRef({ kind, ...ref }, serviceContext()));
