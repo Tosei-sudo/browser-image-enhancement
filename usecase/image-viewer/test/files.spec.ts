@@ -73,14 +73,17 @@ test('Shapefiles and GeoJSON open read-only, with their attributes in the table'
 
   // A click on a feature selects it.
   await page.locator('#images .name', { hasText: 'sites' }).click();
-  await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
-  const pixel = await page.evaluate(() => {
-    const f = window.viewer.table.rows()[0];
-    return window.viewer.map.getPixelFromCoordinate((f.getGeometry() as unknown as { getCoordinates(): number[] }).getCoordinates());
-  });
-  const box = (await page.locator('#map').boundingBox())!;
-  await page.mouse.click(box.x + pixel[0], box.y + pixel[1]);
-  await expect(page.locator('.table-count')).toContainText('選択 1 件');
+  // The view may still be moving to the last file opened: aim again until the click lands.
+  await expect(async () => {
+    await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
+    const pixel = await page.evaluate(() => {
+      const f = window.viewer.table.rows()[0];
+      return window.viewer.map.getPixelFromCoordinate((f.getGeometry() as unknown as { getCoordinates(): number[] }).getCoordinates());
+    });
+    const box = (await page.locator('#map').boundingBox())!;
+    await page.mouse.click(box.x + pixel[0], box.y + pixel[1]);
+    await expect(page.locator('.table-count')).toContainText('選択 1 件', { timeout: 1500 });
+  }).toPass();
 
   // The links of the page do not name local files.
   expect(page.url()).not.toContain('service=');
