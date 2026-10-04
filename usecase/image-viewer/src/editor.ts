@@ -167,15 +167,22 @@ export class Editor {
 
   /** Deletes the selected features (after asking). */
   deleteSelected(): void {
+    this.deleteFeatures(this.selection.list());
+  }
+
+  /** Deletes `features` of the layer being edited (after asking); returns whether they were deleted. */
+  deleteFeatures(list: Feature[]): boolean {
     const session = this.session_;
-    const features = this.selection.list().filter((f) => session?.source.hasFeature(f));
+    const features = list.filter((f) => session?.source.hasFeature(f));
     if (!session || features.length === 0) {
       this.options.say('削除する地物を地図か属性テーブルで選んでください');
-      return;
+      return false;
     }
-    if (!confirm(`${features.length} 件の地物を削除しますか？（「保存」を押すまでサーバーからは消えません）`)) return;
-    this.selection.clear();
+    if (!confirm(`${features.length} 件の地物を削除しますか？（「保存」を押すまでサーバーからは消えません）`)) return false;
+    this.selection.remove(features);
     session.delete(features);
+    this.options.say(`${features.length} 件を削除しました。「保存」でサーバーに反映します（「元に戻す」で戻せます）`);
+    return true;
   }
 
   discard(): void {
