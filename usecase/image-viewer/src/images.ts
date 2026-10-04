@@ -23,6 +23,8 @@ export interface ViewerImage {
 export interface ImageListOptions {
   /** Called when another image (or none) is selected. */
   onSelect: (image: ViewerImage | null) => void;
+  /** Called when an image is closed, before its source is disposed. */
+  onRemove?: (image: ViewerImage) => void;
   /** Called when images are added, removed or reordered. */
   onChange: (images: readonly ViewerImage[]) => void;
 }
@@ -75,6 +77,7 @@ export class ImageList {
     if (index < 0) return;
     this.images_.splice(index, 1);
     if (this.selected_ === image) this.select(this.images_[Math.min(index, this.images_.length - 1)] ?? null);
+    this.options.onRemove?.(image);
     this.map.removeLayer(image.layer);
     image.layer.dispose();
     image.source.dispose();
@@ -161,6 +164,11 @@ export class ImageList {
 
     row.append(visible, name, tools, opacity);
   }
+}
+
+/** The file name without its extension: `photo` for `photo.png` or `https://…/photo.tif?x`. */
+export function baseName(name: string): string {
+  return shortName(name).replace(/\.[^./\\]+$/, '');
 }
 
 /** The file name of a URL (without the query), or the name as given. */

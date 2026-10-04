@@ -17,6 +17,7 @@ import {
   type LoadedImage,
 } from 'browser-image-enhancement/openlayers';
 import { ImageList } from './images.js';
+import { PointTool } from './points.js';
 import { showInfo } from './info.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
@@ -54,9 +55,17 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     if (saved) enhance.setPipeline(saved);
     void showInfo(info, image);
   },
+  onRemove: (image) => points.removeImage(image),
   onChange: (list) => {
     empty.hidden = list.length > 0;
   },
+});
+
+const points = new PointTool(map, images, {
+  list: document.getElementById('points') as HTMLOListElement,
+  add: document.getElementById('add-point') as HTMLButtonElement,
+  save: document.getElementById('save-points') as HTMLButtonElement,
+  say: (message) => (status.textContent = message),
 });
 
 const loader = new LoadImageControl({
@@ -91,7 +100,7 @@ for (const url of new URLSearchParams(location.search).getAll('url')) {
 // For the browser test and the console.
 declare global {
   interface Window {
-    viewer: { map: Map; images: ImageList; loader: LoadImageControl; enhance: EnhanceControl; onGpu: boolean };
+    viewer: { map: Map; images: ImageList; points: PointTool; loader: LoadImageControl; enhance: EnhanceControl; onGpu: boolean };
   }
 }
-window.viewer = { map, images, loader, enhance, onGpu };
+window.viewer = { map, images, points, loader, enhance, onGpu };

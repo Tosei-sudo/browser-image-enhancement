@@ -11,6 +11,10 @@
       <header class="bar">
         <h1>画像ビューア</h1>
         <div id="open" class="open"></div>
+        <div class="point-tools">
+          <button type="button" id="add-point" aria-pressed="false">ポイント追加</button>
+          <button type="button" id="save-points">GeoJSON 保存</button>
+        </div>
       </header>
       <aside class="side">
         <section aria-labelledby="images-title">
@@ -19,6 +23,10 @@
           <p id="empty" class="empty">
             左上のボタンでローカルの画像・GeoTIFF を選ぶか、COG の URL を入力してください。表示エリアへのドラッグ＆ドロップでも開けます。
           </p>
+        </section>
+        <section aria-labelledby="points-title">
+          <h2 id="points-title">ポイント</h2>
+          <ol id="points" class="points"></ol>
         </section>
         <section aria-labelledby="info-title">
           <h2 id="info-title">情報</h2>

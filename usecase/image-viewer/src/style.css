@@ -56,6 +56,33 @@ body {
   margin: 0 0 0 4px;
 }
 
+.point-tools {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.point-tools button {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.point-tools button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.point-tools button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.adding-points {
+  cursor: crosshair;
+}
+
 .side {
   grid-area: side;
   overflow-y: auto;
@@ -139,6 +166,43 @@ body {
 .image .opacity input {
   flex: 1;
   min-width: 0;
+}
+
+.points {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.point {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  align-items: center;
+}
+.point input {
+  min-width: 0;
+  padding: 2px 4px;
+  font: inherit;
+}
+.point button {
+  width: 1.7em;
+  height: 1.7em;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.point-image {
+  grid-column: 1 / 3;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .info {

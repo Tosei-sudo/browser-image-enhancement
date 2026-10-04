@@ -110,3 +110,65 @@ test('reports a URL that cannot be read', async ({ page }) => {
   await expect(page.locator('#status')).toContainText('を開けませんでした');
   await expect(page.locator('#empty')).toBeVisible();
 });
+
+test('points are added on the selected image, named, and saved as GeoJSON', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
+  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.getByRole('button', { name: 'GeoJSON 保存' })).toBeDisabled();
+
+  // The map is fitted to the image, so its center is on the image.
+  const center = async () => {
+    const box = (await page.locator('#map').boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  await page.getByRole('button', { name: 'ポイント追加' }).click();
+  await expect(page.getByRole('button', { name: 'ポイント追加' })).toHaveAttribute('aria-pressed', 'true');
+  let c = await center();
+  await page.mouse.click(c.x, c.y);
+  const name = page.getByRole('textbox', { name: 'ポイント名称' }).first();
+  await expect(name).toBeFocused();
+  await name.fill('東京');
+
+  // A click off the image adds nothing.
+  const box = (await page.locator('#map').boundingBox())!;
+  await page.mouse.click(box.x + 40, box.y + box.height - 10);
+  await expect(page.locator('#status')).toContainText('画像（fixture）の上に置いてください');
+
+  // A point on a picture.
+  await choosePng(page, 'photo.jpeg.png');
+  await expect(page.locator('#status')).toContainText('photo.jpeg.png を開きました');
+  c = await center();
+  await page.mouse.click(c.x, c.y);
+  await expect(page.locator('#points li')).toHaveCount(2);
+  await page.getByRole('textbox', { name: 'ポイント名称' }).nth(1).fill('中央');
+  await page.keyboard.press('Enter');
+
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'GeoJSON 保存' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('points.geojson');
+  const stream = await file.createReadStream();
+  let text = '';
+  for await (const chunk of stream) text += chunk;
+  const geojson = JSON.parse(text);
+  expect(geojson.type).toBe('FeatureCollection');
+  expect(geojson.features.map((f: { properties: unknown }) => f.properties)).toEqual([
+    { image: 'fixture', name: '東京' },
+    { image: 'photo.jpeg', name: '中央' },
+  ]);
+  const [lon, lat] = geojson.features[0].geometry.coordinates;
+  expect(lon).toBeCloseTo(139.75, 1);
+  expect(lat).toBeCloseTo(35.675, 1);
+  const [x, y] = geojson.features[1].geometry.coordinates;
+  expect(x).toBeCloseTo(32, -1);
+  expect(y).toBeCloseTo(24, -1);
+
+  // Closing an image removes its points; a point can be deleted from the list.
+  await page.locator('#images li', { hasText: 'photo.jpeg.png' }).getByRole('button', { name: '閉じる' }).click();
+  await expect(page.locator('#points li')).toHaveCount(1);
+  await page.getByRole('button', { name: '東京 を削除' }).click();
+  await expect(page.locator('#points li')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
