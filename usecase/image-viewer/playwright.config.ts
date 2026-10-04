@@ -5,6 +5,7 @@ const executablePath = process.env.CHROMIUM_PATH;
 
 export default defineConfig({
   testDir: 'test',
+  testMatch: '*.spec.ts',
   timeout: 60_000,
   use: {
     baseURL: 'http://localhost:4175',

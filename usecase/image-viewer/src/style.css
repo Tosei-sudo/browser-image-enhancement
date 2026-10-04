@@ -638,3 +638,61 @@ body {
     border-top: 1px solid var(--line);
   }
 }
+
+/* Right-click menu: copy coordinates. */
+.coordinate-menu {
+  position: absolute;
+  z-index: 10;
+  display: grid;
+  min-width: 14em;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px #0003;
+  font-size: 12px;
+}
+.coordinate-menu[hidden] {
+  display: none;
+}
+.coordinate-menu button {
+  display: grid;
+  gap: 1px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.coordinate-menu button:hover,
+.coordinate-menu button:focus-visible {
+  background: var(--accent-bg);
+  outline: none;
+}
+.coordinate-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.coordinate-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Go to coordinates. */
+.jump {
+  display: flex;
+  gap: 4px;
+}
+.jump input {
+  width: 17em;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+}

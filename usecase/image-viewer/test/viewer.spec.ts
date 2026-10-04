@@ -172,3 +172,71 @@ test('points are added on the selected image, named, and saved as GeoJSON', asyn
   await expect(page.locator('#points li')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('right click copies the coordinates of the point in several notations', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
+  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  const box = (await page.locator('#map').boundingBox())!;
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+  // On a GeoTIFF: latitude / longitude, MGRS, UTM and pixels (the fixture is in EPSG:4326, so no extra CRS).
+  await page.mouse.click(center.x, center.y, { button: 'right' });
+  const menu = page.getByRole('menu', { name: '座標をコピー' });
+  await expect(menu).toBeVisible();
+  const labels = await menu.locator('.coordinate-label').allTextContents();
+  expect(labels).toEqual(['緯度, 経度', 'MGRS', 'UTM', '画素 (x, y)']);
+  await expect(menu.getByRole('menuitem').first()).toBeFocused();
+  const values = await menu.locator('.coordinate-value').allTextContents();
+  const [lat, lon] = values[0].split(', ').map(Number);
+  expect(lat).toBeCloseTo(35.675, 1);
+  expect(lon).toBeCloseTo(139.75, 1);
+  expect(values[1]).toMatch(/^54S [A-Z]{2} \d{5} \d{5}$/);
+  expect(values[2]).toMatch(/^54N \d{6} \d{7}$/);
+  const [px, py] = values[3].split(', ').map(Number);
+  expect(px).toBeCloseTo(256, -1);
+  expect(py).toBeCloseTo(128, -1);
+
+  await menu.getByRole('menuitem', { name: /MGRS/ }).click();
+  await expect(menu).toBeHidden();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(values[1]);
+  await expect(page.locator('#status')).toContainText('MGRS をコピーしました');
+
+  // Escape closes it.
+  await page.mouse.click(center.x, center.y, { button: 'right' });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+
+  // On an ordinary picture: pixels only.
+  await choosePng(page, 'photo.png');
+  await expect(page.locator('#status')).toContainText('photo.png を開きました');
+  await page.mouse.click(center.x, center.y, { button: 'right' });
+  expect(await menu.locator('.coordinate-label').allTextContents()).toEqual(['画素 (x, y)']);
+});
+
+test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page }) => {
+  await open(page);
+  const field = page.getByRole('textbox', { name: '座標へ移動' });
+  const go = async (text: string) => {
+    await field.fill(text);
+    await field.press('Enter');
+    await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
+  };
+  const expectAt = async (lon: number, lat: number) => {
+    const [x, y] = await page.evaluate(() => window.viewer.map.getView().getCenter()!);
+    // Web Mercator, by hand (the built page has no module to import).
+    const r = 6378137;
+    expect(x / r / (Math.PI / 180)).toBeCloseTo(lon, 3);
+    expect((2 * Math.atan(Math.exp(y / r)) - Math.PI / 2) / (Math.PI / 180)).toBeCloseTo(lat, 3);
+  };
+  await go('35.6812, 139.7671');
+  await expect(page.locator('#status')).toContainText('移動しました: 35.681200, 139.767100');
+  await expectAt(139.7671, 35.6812);
+  await go('19S 351290 6297680');
+  await expectAt(-70.6, -33.45);
+  await go('54SUE8843349290');
+  await expectAt(139.7671, 35.6812);
+  await go('ここはどこ');
+  await expect(page.locator('#status')).toContainText('座標として読めませんでした');
+});

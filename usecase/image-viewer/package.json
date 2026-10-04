@@ -9,10 +9,12 @@
     "build": "vite build --emptyOutDir --base ./",
     "preview": "vite preview --base ./",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:browser": "vite build --emptyOutDir --base ./ && playwright test"
+    "test:browser": "vite build --emptyOutDir --base ./ && playwright test",
+    "test": "vitest run"
   },
   "dependencies": {
     "browser-image-enhancement": "0.1.0",
+    "mgrs": "^2.2.0",
     "ol": "^10.10.0",
     "proj4": "^2.22.0"
   }

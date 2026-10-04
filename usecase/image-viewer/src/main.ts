@@ -22,6 +22,8 @@ import {
 import type Feature from 'ol/Feature.js';
 import { ImageList, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
+import { CoordinateMenu } from './coordinate-menu.js';
+import { JumpTo } from './jump.js';
 import { showInfo } from './info.js';
 import { AddServiceDialog, openRef, paramToRef, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
@@ -116,6 +118,11 @@ const points = new PointTool(map, images, {
   save: document.getElementById('save-points') as HTMLButtonElement,
   say,
 });
+
+// Right click: copy the coordinates of the point.
+const coordinateMenu = new CoordinateMenu(map, images, { say });
+// The header field: go to typed coordinates.
+const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say });
 
 // A click selects features of the selected vector layer (Ctrl / Shift: add to the selection),
 // or asks a WMS layer what is there.
@@ -227,7 +234,9 @@ declare global {
       editor: Editor;
       baseMap: BaseMapSwitch;
       addDialog: AddServiceDialog;
+      coordinateMenu: CoordinateMenu;
+      jump: JumpTo;
     };
   }
 }
-window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, baseMap, addDialog };
+window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, baseMap, addDialog, coordinateMenu, jump };

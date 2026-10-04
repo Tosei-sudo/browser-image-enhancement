@@ -35,6 +35,8 @@ const cellTexts = (page: Page, column: number) => rows(page).locator(`td:nth-chi
 
 /** The pixel of a map coordinate (EPSG:3857), on the page. */
 async function pixelOf(page: Page, lon: number, lat: number) {
+  // A zoom to a new layer may still be animating: its pixels would move under the click.
+  await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
   const [x, y] = await page.evaluate(
     ([lon, lat]) => {
       const { map } = window.viewer;
