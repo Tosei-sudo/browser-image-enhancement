@@ -85,6 +85,13 @@ function fitProjective(src, dst) {
 		b[2 * i + 1] = Y;
 	}
 	const [h] = leastSquares(a, 2 * n, 8, [b]);
+	let side = 0;
+	for (let i = 0; i < n; i++) {
+		const w = h[6] * a[2 * i * 8] + h[7] * a[2 * i * 8 + 1] + 1;
+		if (!(Math.abs(w) > 1e-6) || side !== 0 && Math.sign(w) !== side) throw new DegenerateError("The control points are degenerate (for example, three of four on one line).");
+		side = Math.sign(w);
+	}
+	if (!h.every((v) => Math.abs(v) < 1e6)) throw new DegenerateError("The control points are degenerate (for example, three of four on one line).");
 	const hn = [...h, 1];
 	const ts = [
 		1 / ns.scale,

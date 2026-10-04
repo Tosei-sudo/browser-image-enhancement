@@ -7,7 +7,7 @@
  * Results match the JS engine to within one 8-bit level (float32 on the GPU
  * instead of float64). Use the pipeline's `run` for the final, exact output.
  */
-import { createImageData } from '../core/image.js';
+import { assertImageData, createImageData } from '../core/image.js';
 import { countPixels, needsStats, resolveOps } from '../core/histogram.js';
 import { forGray, resolveMode, type ResolvedMode } from '../core/process.js';
 import { warnColorOnly } from '../functional.js';
@@ -144,6 +144,7 @@ class Renderer implements GpuRenderer {
    */
   private targets = new Map<TargetName, Target>();
   private params = new Float32Array(8);
+  private readonly vao: WebGLVertexArrayObject | null;
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -151,7 +152,8 @@ class Renderer implements GpuRenderer {
   ) {
     this.maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, ...(gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array));
     this.vertex = this.shader(gl.VERTEX_SHADER, VERTEX);
-    gl.bindVertexArray(gl.createVertexArray());
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
     this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
@@ -161,6 +163,7 @@ class Renderer implements GpuRenderer {
 
   setImage(image: ImageDataLike | GpuImageSource, options: ColorOptions = {}): void {
     const pixels = 'data' in image ? image : null;
+    if (pixels) assertImageData(pixels);
     const [width, height] = pixels ? [pixels.width, pixels.height] : sourceSize(image as GpuImageSource);
     if (width > this.maxSize || height > this.maxSize) {
       throw new RangeError(`${width}x${height} is larger than this GPU accepts (${this.maxSize} pixels per side).`);
@@ -256,6 +259,7 @@ class Renderer implements GpuRenderer {
     for (const p of this.programs.values()) gl.deleteProgram(p);
     this.programs.clear();
     gl.deleteShader(this.vertex);
+    gl.deleteVertexArray(this.vao);
     this.source = null;
     this.image = null;
   }

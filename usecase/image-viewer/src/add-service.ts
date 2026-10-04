@@ -170,7 +170,7 @@ export function refToParam(ref: ServiceRef): string {
 export function paramToRef(param: string): ServiceRef | null {
   try {
     const ref = JSON.parse(param) as ServiceRef;
-    return ref && typeof ref.url === 'string' && typeof ref.layer === 'string' && ref.kind in serviceNames ? ref : null;
+    return ref && typeof ref.url === 'string' && typeof ref.layer === 'string' && Object.hasOwn(serviceNames, ref.kind) ? ref : null;
   } catch {
     return null;
   }

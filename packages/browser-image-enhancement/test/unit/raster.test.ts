@@ -70,3 +70,13 @@ describe('raster input', () => {
     expect(() => rasterToImageData({ data: [1, 2, 3, 4], width: 2, height: 1, bands: 2, select: [0, 1] as never })).toThrow(RangeError);
   });
 });
+
+describe('non-finite values', () => {
+  it('±Infinity counts as no data, so it does not flatten the rest to black', () => {
+    const data = Float32Array.from([0, 10, 20, 30, 40, 50, 60, Infinity]);
+    const img = rasterToImageData({ data, width: 8, height: 1 }, { stretch: { method: 'minMax' } });
+    expect(img.data[4 * 6]).toBe(255);
+    expect(img.data[0]).toBe(0);
+    expect(img.data[4 * 7 + 3]).toBe(0);
+  });
+});

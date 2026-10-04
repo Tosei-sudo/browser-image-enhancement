@@ -234,7 +234,7 @@ function valueAfter(fns, c) {
 /** Resolves `autoStretch` steps from the pixels themselves (the whole buffer). */
 function resolveForPixels(ops, data, mode) {
 	if (!needsStats(ops)) return [...ops];
-	return resolveOps(ops, countPixels(data, Math.max(1, data.length >> 2), mode));
+	return resolveOps(ops, countPixels(data, Math.max(1, data.length >>> 2), mode));
 }
 //#endregion
 export { countPixels, emptyHistogram, grayFromRgb, mergeHistograms, needsStats, rangeOf, resolveForPixels, resolveOps, stretchRange };

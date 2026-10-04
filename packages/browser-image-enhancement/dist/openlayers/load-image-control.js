@@ -214,8 +214,9 @@ var LoadImageControl = class extends Control {
 			throw error instanceof Error ? error : new Error(String(error));
 		}
 		if (layer) {
+			const current = layer.getSource();
 			layer.setSource(source);
-			if (previous && previous !== source) previous.dispose();
+			if (current && current !== source) current.dispose();
 		}
 		const map = this.getMap();
 		if (map && this.options_.fit !== false && view.extent) {
@@ -293,7 +294,10 @@ function placeOverView(size, map) {
 function epsgCode(code) {
 	if (code === "CRS:84") return 4326;
 	const m = /^(?:EPSG:|urn:ogc:def:crs:EPSG:[^:]*:|http:\/\/www\.opengis\.net\/def\/crs\/EPSG\/0\/)(\d+)$/.exec(code);
-	return m ? Number(m[1]) : null;
+	if (!m) return null;
+	const n = Number(m[1]);
+	if (n === 900913 || n === 102100 || n === 102113) return 3857;
+	return n <= 65535 ? n : null;
 }
 /** TIFF magic number: "II*\0" or "MM\0*" (BigTIFF has 43 in place of 42). */
 async function isTiff(file) {

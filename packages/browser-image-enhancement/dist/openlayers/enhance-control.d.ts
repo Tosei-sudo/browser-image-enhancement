@@ -111,6 +111,7 @@ export default class EnhanceControl extends Control {
   private frame_;
   private mapKeys_;
   private sourceKeys_;
+  private layerKey_;
   constructor(options?: EnhanceControlOptions);
   /**
    * What is being corrected: `source`, or the layer's source when it is an

@@ -220,5 +220,5 @@ function valueAfter(fns: readonly ChannelFn[], c: number): (k: number) => number
 /** Resolves `autoStretch` steps from the pixels themselves (the whole buffer). */
 export function resolveForPixels(ops: readonly OpSpec[], data: Uint8ClampedArray, mode: ResolvedMode): OpSpec[] {
   if (!needsStats(ops)) return [...ops];
-  return resolveOps(ops, countPixels(data, Math.max(1, data.length >> 2), mode));
+  return resolveOps(ops, countPixels(data, Math.max(1, data.length >>> 2), mode));
 }

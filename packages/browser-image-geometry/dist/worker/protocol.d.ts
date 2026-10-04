@@ -22,6 +22,8 @@ export type WorkerRequest = {
   mapping: Mapping;
   resample: Resample;
   background: RGBA;
+  /** Repeat the edge pixels instead of fading out beyond them. */
+  clampEdges: boolean;
 };
 /** The rendered rows, RGBA, transferred back. */
 export type WorkerResponse = {

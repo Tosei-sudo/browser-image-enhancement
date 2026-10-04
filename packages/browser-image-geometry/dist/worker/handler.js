@@ -20,7 +20,7 @@ function createWorkerHandler(post) {
 				y0: 0
 			};
 			const out = new Uint8ClampedArray((y1 - y0) * width * 4);
-			renderRows(src, request.mapping, width, y0, y1, request.resample, request.background, out);
+			renderRows(src, request.mapping, width, y0, y1, request.resample, request.background, out, request.clampEdges);
 			post({
 				type: "done",
 				id: request.id,

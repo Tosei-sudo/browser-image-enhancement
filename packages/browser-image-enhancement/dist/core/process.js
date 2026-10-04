@@ -49,10 +49,14 @@ function forGray(op) {
 		]
 	};
 }
+/** Whether a step can fold into a Quantizer (per channel and non-decreasing). */
+function foldable(stage) {
+	return stage.kind === "channel" && !stage.falls;
+}
 /** Splits per-pixel steps into the middle and the trailing per-channel run (all middle without folding). */
 function splitTail(stages, fuse) {
 	let start = stages.length;
-	if (fuse) while (start > 0 && stages[start - 1].kind === "channel") start--;
+	if (fuse) while (start > 0 && foldable(stages[start - 1])) start--;
 	return [stages.slice(0, start), stages.slice(start)];
 }
 /**
@@ -69,7 +73,7 @@ function compile(ops, mode, options = {}) {
 	let tailStart = all.length;
 	if (fuse) {
 		while (lead < all.length && all[lead].kind === "channel") lead++;
-		while (tailStart > lead && all[tailStart - 1].kind === "channel") tailStart--;
+		while (tailStart > lead && foldable(all[tailStart - 1])) tailStart--;
 	}
 	if (cut >= 0) tailStart = all.length;
 	const leading = all.slice(0, lead);
@@ -92,6 +96,7 @@ function compile(ops, mode, options = {}) {
 		tail: [],
 		lut8: null,
 		grayFromColor: null,
+		grayColorSteps: [],
 		spatial: compileSpatial(stages.slice(cut), lutLinear, leading, middle.length === 0 && fuse, fuse)
 	};
 	let lut8 = null;
@@ -101,7 +106,12 @@ function compile(ops, mode, options = {}) {
 		return q;
 	});
 	let grayFromColor = null;
-	if (mode === "gray") grayFromColor = fuse ? new Quantizer(chain(all, 0)) : new Quantizer();
+	let grayColorSteps = [];
+	if (mode === "gray") {
+		const fold = fuse && all.every(foldable);
+		grayFromColor = fold ? new Quantizer(chain(all, 0)) : new Quantizer();
+		grayColorSteps = fold ? [] : all;
+	}
 	return {
 		mode,
 		lutLinear,
@@ -109,6 +119,7 @@ function compile(ops, mode, options = {}) {
 		tail,
 		lut8,
 		grayFromColor,
+		grayColorSteps,
 		spatial: null
 	};
 }
@@ -170,7 +181,7 @@ function applyChannel(stages, v) {
 function processPixels(src, dst, program, width) {
 	if (src.length !== dst.length) throw new RangeError("src and dst must have the same length");
 	if (program.spatial) {
-		const pixels = src.length >> 2;
+		const pixels = src.length >>> 2;
 		if (width === void 0 || !(width > 0) || pixels % width !== 0) throw new RangeError(`A program with sharpen needs the image width (got ${String(width)} for ${pixels} pixels).`);
 		processSpatial(src, dst, program, program.spatial, width);
 	} else if (program.mode === "gray") processGray(src, dst, program);
@@ -235,7 +246,7 @@ function runStages(stages, v) {
 	}
 }
 function processSpatial(src, dst, p, sp, width) {
-	const n = src.length >> 2;
+	const n = src.length >>> 2;
 	const channels = p.mode === "rgb" ? 3 : 1;
 	if (sp.stream) {
 		sharpenRows(src, width, channels, sp.filters[0].stage, (y, out, o) => head(src, p, sp, y * width, (y + 1) * width, out, o), (y, vals, o) => finish(src, dst, sp, y * width, (y + 1) * width, vals, o));
@@ -343,7 +354,7 @@ function processGray(src, dst, p) {
 	const tail = p.tail[0];
 	const middle = p.middle;
 	const fromColor = p.grayFromColor;
-	const colorSteps = q ? [] : middle;
+	const colorSteps = p.grayColorSteps;
 	for (let i = 0; i < n; i += 4) {
 		const r = src[i];
 		const g = src[i + 1];
@@ -365,7 +376,7 @@ function processGray(src, dst, p) {
 * their value; colored pixels use Rec. 709 luminance computed in linear light.
 */
 function extractGray(data) {
-	const out = new Uint8ClampedArray(data.length >> 2);
+	const out = new Uint8ClampedArray(data.length >>> 2);
 	for (let i = 0, j = 0; i < data.length; i += 4, j++) {
 		const r = data[i];
 		const g = data[i + 1];

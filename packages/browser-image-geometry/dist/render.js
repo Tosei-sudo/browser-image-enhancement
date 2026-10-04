@@ -13,7 +13,7 @@ function renderPlan(image, plan) {
 		height: src.height,
 		x0: 0,
 		y0: 0
-	}, plan.mapping, plan.width, 0, plan.height, plan.resample, plan.background, out);
+	}, plan.mapping, plan.width, 0, plan.height, plan.resample, plan.background, out, plan.clampEdges);
 	return createImageData(out, plan.width, plan.height);
 }
 //#endregion

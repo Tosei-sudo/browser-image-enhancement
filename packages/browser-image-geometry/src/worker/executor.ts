@@ -98,6 +98,7 @@ async function runInWorkers(pool: WorkerPool, slots: Slot[], image: ImageDataLik
       mapping: plan.mapping,
       resample: plan.resample,
       background: plan.background,
+      clampEdges: plan.clampEdges,
     };
     const reply = pool.request(slots[i], message, window ? [window.buffer] : []);
     // A strip may fail while later strips are still being sent; Promise.all below reports it.
