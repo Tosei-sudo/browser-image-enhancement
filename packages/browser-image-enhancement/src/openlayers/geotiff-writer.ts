@@ -110,7 +110,9 @@ export type GeoTIFFSamples = Uint8Array | Int8Array | Uint16Array | Int16Array |
 
 /** A raster for {@link rasterToGeoTIFF}: any number of bands of one sample type, and its georeferencing. */
 export interface GeoTIFFRaster {
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
   /** Samples per pixel. */
   bands: number;
@@ -128,11 +130,17 @@ export interface GeoTIFFRaster {
    * directory with its double and ASCII parameters.
    */
   geo: {
+    /** ModelPixelScale (tag 33550): pixel size in x, y and z. */
     modelPixelScale?: readonly number[];
+    /** ModelTiepoint (tag 33922): raster points and the model points they are at. */
     modelTiepoint?: readonly number[];
+    /** ModelTransformation (tag 34264): a 4 × 4 matrix from raster to model space. */
     modelTransformation?: readonly number[];
+    /** GeoKeyDirectory (tag 34735). */
     geoKeyDirectory?: readonly number[];
+    /** GeoDoubleParams (tag 34736). */
     geoDoubleParams?: readonly number[];
+    /** GeoAsciiParams (tag 34737). */
     geoAsciiParams?: string;
   };
 }
