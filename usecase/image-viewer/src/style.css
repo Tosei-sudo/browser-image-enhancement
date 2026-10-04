@@ -489,6 +489,22 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.attributes .check {
+  width: 28px;
+  padding: 0;
+  text-align: center;
+}
+.attributes .check input {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.table-scroll:focus-visible {
+  outline: 2px solid #00b7ff;
+  outline-offset: -2px;
+}
 .attributes td.number {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -640,7 +656,8 @@ body {
 }
 
 /* Right-click menu: copy coordinates. */
-.coordinate-menu {
+.coordinate-menu,
+.context-menu {
   position: absolute;
   z-index: 10;
   display: grid;
@@ -652,10 +669,12 @@ body {
   box-shadow: 0 4px 16px #0003;
   font-size: 12px;
 }
-.coordinate-menu[hidden] {
+.coordinate-menu[hidden],
+.context-menu[hidden] {
   display: none;
 }
-.coordinate-menu button {
+.coordinate-menu button,
+.context-menu button {
   display: grid;
   gap: 1px;
   padding: 4px 8px;
@@ -668,9 +687,30 @@ body {
   cursor: pointer;
 }
 .coordinate-menu button:hover,
-.coordinate-menu button:focus-visible {
+.coordinate-menu button:focus-visible,
+.context-menu button:hover:not(:disabled),
+.context-menu button:focus-visible {
   background: var(--accent-bg);
   outline: none;
+}
+/* Right-click menu of the attribute table. */
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 12em;
+}
+.context-menu button {
+  white-space: nowrap;
+}
+.context-menu button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.context-menu button.danger {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 4px 4px;
+  color: #dc2626;
 }
 .coordinate-label {
   color: var(--muted);
@@ -695,4 +735,10 @@ body {
   background: var(--bg);
   color: inherit;
   font: 13px system-ui, sans-serif;
+}
+
+/* Ctrl + drag on the map: select the features in the box. */
+.ol-dragbox.select-box {
+  border: 2px solid #00b7ff;
+  background: #00b7ff22;
 }

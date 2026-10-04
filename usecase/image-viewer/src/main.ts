@@ -21,6 +21,9 @@ import {
   type LoadedImage,
 } from 'browser-image-enhancement/openlayers';
 import type Feature from 'ol/Feature.js';
+import type Point from 'ol/geom/Point.js';
+import DragBox from 'ol/interaction/DragBox.js';
+import { platformModifierKeyOnly } from 'ol/events/condition.js';
 import { ImageList, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { CoordinateMenu } from './coordinate-menu.js';
@@ -81,6 +84,14 @@ function showTable(layer: ViewerLayer | null): void {
       features: () => vector.source.getFeatures(),
       note: vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : undefined,
       watch: [vector.source, ...(editor.session() ? [editor.session()!] : [])],
+      // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
+      onDelete: service.esri?.canDelete
+        ? (features) => {
+            if (!editor.start(layer)) return;
+            showTable(layer);
+            editor.deleteFeatures(features);
+          }
+        : undefined,
     });
   } else if (layer?.type === 'service' && service?.featureInfo) {
     table.show(featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示します');
@@ -152,6 +163,31 @@ map.on('singleclick', (e) => {
       .catch((error) => say(`属性を取得できませんでした: ${error instanceof Error ? error.message : String(error)}`));
   }
 });
+
+// Ctrl (⌘ on a Mac) + drag: add the features in the box to the selection.
+const boxSelect = new DragBox({ condition: platformModifierKeyOnly, className: 'ol-dragbox select-box' });
+boxSelect.on('boxend', () => {
+  const layer = images.selectedLayer();
+  const vector = layer?.type === 'service' ? layer.service.vector : null;
+  if (!vector) {
+    say('範囲で選ぶには、WFS・Esri のレイヤーを選んでください');
+    return;
+  }
+  const box = boxSelect.getGeometry();
+  const extent = box.getExtent();
+  const found: Feature[] = [];
+  vector.source.forEachFeatureIntersectingExtent(extent, (f) => {
+    // The box turns with the view: keep what really meets it.
+    const g = f.getGeometry();
+    if (!g) return;
+    const inside = g.getType() === 'Point' ? box.intersectsCoordinate((g as Point).getCoordinates()) : box.intersectsExtent(g.getExtent()) && g.intersectsExtent(extent);
+    if (inside) found.push(f as Feature);
+  });
+  selection.add(found);
+  if (found[0]) table.scrollTo(found[0]);
+  say(found.length ? `${found.length} 件を選択に加えました（選択 ${selection.list().length} 件）` : '範囲内に地物はありません');
+});
+map.addInteraction(boxSelect);
 
 const serviceContext = (): OpenContext => ({ gpu: onGpu, say });
 
@@ -237,6 +273,7 @@ declare global {
       selection: Selection;
       table: AttributeTable;
       editor: Editor;
+      boxSelect: DragBox;
       baseMap: BaseMapSwitch;
       addDialog: AddServiceDialog;
       coordinateMenu: CoordinateMenu;
@@ -244,4 +281,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, baseMap, addDialog, coordinateMenu, jump };
+window.viewer = { map, images, points, loader, enhance, onGpu, selection, table, editor, boxSelect, baseMap, addDialog, coordinateMenu, jump };
