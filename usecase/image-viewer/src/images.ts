@@ -1,15 +1,19 @@
 /**
- * The list of open images: one GPU-corrected layer each, newest on top. A
- * row shows and hides its image, sets its opacity, moves it up or down,
- * zooms to it and closes it; clicking a row selects the image the
- * correction panel works on.
+ * The list of layers: open images (one GPU-corrected layer each) and layers
+ * of services, newest on top. A row shows and hides its layer, sets its
+ * opacity, moves it up or down, zooms to it and closes it; clicking a row
+ * selects the layer the correction panel (images, WMS, WMTS) or the
+ * attribute table (WFS, Esri) works on.
  */
 import type OlMap from 'ol/Map.js';
+import type BaseLayer from 'ol/layer/Base.js';
 import { transformExtent } from 'ol/proj.js';
 import { GpuCorrectedTileLayer, type EnhancedGeoTIFF, type LoadedImage } from 'browser-image-enhancement/openlayers';
+import { serviceNames, type ServiceLayer } from './services/index.js';
 
 /** One open image. */
 export interface ViewerImage {
+  type: 'image';
   /** File name or URL. */
   name: string;
   /** `geotiff` when placed by its georeferencing, `image` when placed over the view. */
@@ -20,19 +24,35 @@ export interface ViewerImage {
   row: HTMLLIElement;
 }
 
+/** One layer of a service. */
+export interface ViewerService {
+  type: 'service';
+  /** The layer's title. */
+  name: string;
+  service: ServiceLayer;
+  layer: BaseLayer;
+  /** The list row. */
+  row: HTMLLIElement;
+}
+
+/** A row of the list. */
+export type ViewerLayer = ViewerImage | ViewerService;
+
 export interface ImageListOptions {
-  /** Called when another image (or none) is selected. */
-  onSelect: (image: ViewerImage | null) => void;
-  /** Called when an image is closed, before its source is disposed. */
-  onRemove?: (image: ViewerImage) => void;
-  /** Called when images are added, removed or reordered. */
-  onChange: (images: readonly ViewerImage[]) => void;
+  /** Called when another layer (or none) is selected. */
+  onSelect: (layer: ViewerLayer | null) => void;
+  /** Called when a layer is closed, before its source is disposed. */
+  onRemove?: (layer: ViewerLayer) => void;
+  /** Called when layers are added, removed or reordered. */
+  onChange: (layers: readonly ViewerLayer[]) => void;
+  /** Called by the edit button of an editable Esri layer. */
+  onEdit?: (layer: ViewerService) => void;
 }
 
 export class ImageList {
   /** Top first, as listed. */
-  private images_: ViewerImage[] = [];
-  private selected_: ViewerImage | null = null;
+  private images_: ViewerLayer[] = [];
+  private selected_: ViewerLayer | null = null;
 
   constructor(
     private readonly element: HTMLOListElement,
@@ -42,10 +62,21 @@ export class ImageList {
 
   /** The open images, top first. */
   list(): readonly ViewerImage[] {
+    return this.images_.filter((l): l is ViewerImage => l.type === 'image');
+  }
+
+  /** Every layer, images and services, top first. */
+  layers(): readonly ViewerLayer[] {
     return this.images_;
   }
 
+  /** The selected image (null when none, or when a service layer is selected). */
   selected(): ViewerImage | null {
+    return this.selected_?.type === 'image' ? this.selected_ : null;
+  }
+
+  /** The selected layer, image or service. */
+  selectedLayer(): ViewerLayer | null {
     return this.selected_;
   }
 
@@ -53,7 +84,7 @@ export class ImageList {
   add({ source, name, kind }: LoadedImage): ViewerImage {
     const layer = new GpuCorrectedTileLayer({ source });
     this.map.addLayer(layer);
-    const image: ViewerImage = { name, kind, source, layer, row: document.createElement('li') };
+    const image: ViewerImage = { type: 'image', name, kind, source, layer, row: document.createElement('li') };
     this.buildRow_(image);
     this.images_.unshift(image);
     this.restack_();
@@ -61,7 +92,18 @@ export class ImageList {
     return image;
   }
 
-  select(image: ViewerImage | null): void {
+  /** Adds a layer of a service on top and selects it. */
+  addService(service: ServiceLayer): ViewerService {
+    this.map.addLayer(service.layer);
+    const entry: ViewerService = { type: 'service', name: service.title, service, layer: service.layer, row: document.createElement('li') };
+    this.buildRow_(entry);
+    this.images_.unshift(entry);
+    this.restack_();
+    this.select(entry);
+    return entry;
+  }
+
+  select(image: ViewerLayer | null): void {
     if (image === this.selected_) return;
     this.selected_ = image;
     for (const i of this.images_) {
@@ -71,8 +113,8 @@ export class ImageList {
     this.options.onSelect(image);
   }
 
-  /** Closes an image: its layer leaves the map and its source is disposed. */
-  remove(image: ViewerImage): void {
+  /** Closes a layer: it leaves the map and its source is disposed. */
+  remove(image: ViewerLayer): void {
     const index = this.images_.indexOf(image);
     if (index < 0) return;
     this.images_.splice(index, 1);
@@ -80,12 +122,13 @@ export class ImageList {
     this.options.onRemove?.(image);
     this.map.removeLayer(image.layer);
     image.layer.dispose();
-    image.source.dispose();
+    if (image.type === 'image') image.source.dispose();
+    else image.service.dispose?.();
     this.restack_();
   }
 
-  /** Moves an image `by` places toward the top (negative: toward the bottom). */
-  move(image: ViewerImage, by: number): void {
+  /** Moves a layer `by` places toward the top (negative: toward the bottom). */
+  move(image: ViewerLayer, by: number): void {
     const from = this.images_.indexOf(image);
     const to = Math.max(0, Math.min(this.images_.length - 1, from - by));
     if (from < 0 || from === to) return;
@@ -94,8 +137,13 @@ export class ImageList {
     this.restack_();
   }
 
-  /** Zooms the map to an image. */
-  async zoomTo(image: ViewerImage): Promise<void> {
+  /** Zooms the map to a layer. */
+  async zoomTo(image: ViewerLayer): Promise<void> {
+    if (image.type === 'service') {
+      const extent = image.service.extent ?? image.service.vector?.source.getExtent();
+      if (extent && Number.isFinite(extent[0])) this.map.getView().fit(extent, { padding: [20, 20, 20, 20], duration: 250, maxZoom: 18 });
+      return;
+    }
     const view = await image.source.getView();
     if (!view.extent) return;
     const target = this.map.getView();
@@ -116,9 +164,10 @@ export class ImageList {
     this.options.onChange(this.images_);
   }
 
-  private buildRow_(image: ViewerImage): void {
+  private buildRow_(image: ViewerLayer): void {
     const { row, layer } = image;
     row.className = 'image';
+    if (image.type === 'service') row.dataset.kind = image.service.ref.kind;
 
     const visible = document.createElement('input');
     visible.type = 'checkbox';
@@ -130,9 +179,15 @@ export class ImageList {
     const name = document.createElement('button');
     name.type = 'button';
     name.className = 'name';
-    name.textContent = shortName(image.name);
-    name.title = image.name;
+    name.textContent = image.type === 'image' ? shortName(image.name) : image.name;
+    name.title = image.type === 'image' ? image.name : `${serviceNames[image.service.ref.kind]}: ${image.service.ref.url}`;
     name.addEventListener('click', () => this.select(image));
+    if (image.type === 'service') {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = image.service.ref.kind === 'esri' ? 'Esri' : image.service.ref.kind.toUpperCase();
+      name.prepend(badge);
+    }
 
     const tools = document.createElement('span');
     tools.className = 'tools';
@@ -146,7 +201,14 @@ export class ImageList {
       b.addEventListener('click', run);
       tools.append(b);
     };
-    button('zoom', '⤢', 'この画像へ移動', () => void this.zoomTo(image));
+    const esri = image.type === 'service' ? image.service.esri : undefined;
+    if (image.type === 'service' && esri && (esri.canCreate || esri.canUpdate || esri.canDelete) && this.options.onEdit) {
+      button('edit', '✎', '編集', () => {
+        this.select(image);
+        this.options.onEdit!(image);
+      });
+    }
+    button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));
     button('up', '↑', '上へ', () => this.move(image, 1));
     button('down', '↓', '下へ', () => this.move(image, -1));
     button('remove', '×', '閉じる', () => this.remove(image));

@@ -1,14 +1,18 @@
-/** The information panel: what the selected image is and where it lies. */
+/** The information panel: what the selected layer is and where it lies. */
 import { get as getProjection } from 'ol/proj.js';
-import type { ViewerImage } from './images.js';
+import type { ViewerLayer } from './images.js';
 
-let shown: ViewerImage | null = null;
+let shown: ViewerLayer | null = null;
 
 /** Fills `element` with the facts of `image` (cleared for none). */
-export async function showInfo(element: HTMLDListElement, image: ViewerImage | null): Promise<void> {
+export async function showInfo(element: HTMLDListElement, image: ViewerLayer | null): Promise<void> {
   shown = image;
   element.replaceChildren();
   if (!image) return;
+  if (image.type === 'service') {
+    fill(element, image.service.info);
+    return;
+  }
   const view = await image.source.getView().catch(() => null);
   if (shown !== image || !view) return;
 
@@ -36,6 +40,10 @@ export async function showInfo(element: HTMLDListElement, image: ViewerImage | n
     if (extent) rows.push(['範囲', extent.map(formatNumber).join(', ')]);
   }
 
+  fill(element, rows);
+}
+
+function fill(element: HTMLDListElement, rows: Array<[string, string]>): void {
   for (const [term, value] of rows) {
     const dt = document.createElement('dt');
     dt.textContent = term;

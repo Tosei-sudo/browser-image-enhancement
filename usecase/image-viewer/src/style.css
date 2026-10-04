@@ -29,7 +29,7 @@ body {
 .app {
   display: grid;
   height: 100%;
-  grid-template: 'bar bar' auto 'side map' 1fr / 17rem 1fr;
+  grid-template: 'bar bar' auto 'side map' 1fr 'side table' auto / 17rem minmax(0, 1fr);
 }
 
 .bar {
@@ -54,6 +54,28 @@ body {
 }
 .open .ol-load-image form {
   margin: 0 0 0 4px;
+}
+
+.bar-button,
+.basemap select {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.basemap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.basemap select {
+  padding: 3px 6px;
+  background: var(--bg);
 }
 
 .point-tools {
@@ -243,9 +265,370 @@ body {
   display: none;
 }
 
+.map.has-basemap {
+  background: none;
+}
+
+/* Service layers in the list. */
+.image .badge {
+  margin-right: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.image.editing {
+  border-color: #f59e0b;
+}
+
+/* The correction panel does nothing for vector layers. */
+.ol-enhance.inactive .ol-enhance-panel {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Edit toolbar over the map. */
+.edit-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100% - 140px);
+  padding: 4px 6px;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 13px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.edit-bar[hidden] {
+  display: none;
+}
+.edit-title {
+  margin-right: 4px;
+  font-weight: 600;
+}
+.edit-bar button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.edit-bar button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.edit-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.edit-bar button[hidden] {
+  display: none;
+}
+.drawing {
+  cursor: crosshair;
+}
+
+/* Attribute table under the map. */
+.table {
+  grid-area: table;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  --table-height: 30vh;
+}
+.table-resize {
+  position: absolute;
+  top: -3px;
+  right: 0;
+  left: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+.table.collapsed .table-resize {
+  display: none;
+}
+.table-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 4px 8px;
+}
+.table-bar h2 {
+  margin: 0;
+  font-size: 13px;
+}
+.table-count {
+  color: var(--muted);
+}
+.table-bar button,
+.table-bar input,
+.table-columns summary {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.table-bar input {
+  cursor: text;
+}
+.table-bar .table-toggle {
+  width: 1.8em;
+  padding: 2px 0;
+}
+.table.collapsed .table-toggle {
+  transform: rotate(-90deg);
+}
+.table-modes {
+  display: flex;
+}
+.table-modes button {
+  border-radius: 0;
+}
+.table-modes button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.table-modes button:last-child {
+  margin-left: -1px;
+  border-radius: 0 4px 4px 0;
+}
+.table-modes button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.table-bar button:disabled,
+.table-bar input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.table-columns {
+  position: relative;
+}
+.table-columns summary {
+  list-style: none;
+}
+.table-columns > div {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  max-height: 40vh;
+  overflow: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  white-space: nowrap;
+}
+.table-scroll {
+  height: var(--table-height);
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+.table.collapsed .table-scroll {
+  display: none;
+}
+.attributes {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+.attributes th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  text-align: left;
+}
+.attributes th button {
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.attributes th[aria-sort='ascending'] button::after {
+  content: ' ▲';
+}
+.attributes th[aria-sort='descending'] button::after {
+  content: ' ▼';
+}
+.attributes tr:not(.spacer) {
+  height: 28px;
+  cursor: default;
+}
+.attributes td {
+  max-width: 20em;
+  overflow: hidden;
+  padding: 0 8px;
+  border-bottom: 1px solid #8882;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attributes td.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.attributes tbody tr:not(.spacer):hover {
+  background: #8881;
+}
+.attributes tbody tr.selected:not(.spacer) {
+  background: #00b7ff40;
+  box-shadow: inset 3px 0 #00b7ff;
+}
+.attributes tr.added td:first-child {
+  box-shadow: inset 3px 0 #16a34a;
+}
+.attributes tr.failed {
+  background: #ef444426;
+}
+.attributes td.dirty {
+  background: #f59e0b33;
+}
+.attributes td input,
+.attributes td select {
+  width: 100%;
+  min-width: 6em;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  font: inherit;
+}
+.table-empty {
+  margin: 8px;
+  color: var(--muted);
+}
+.table-empty[hidden] {
+  display: none;
+}
+
+/* Add-a-service dialog. */
+.add-service {
+  width: min(40rem, calc(100% - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+}
+.add-service h2 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 15px;
+}
+.service-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 8px;
+}
+.service-form label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+}
+.service-form .wide {
+  grid-column: 1 / -1;
+}
+.service-form input,
+.service-form select,
+.service-actions button,
+.service-form button {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.service-form button,
+.service-actions button {
+  cursor: pointer;
+}
+.service-status {
+  min-height: 1.4em;
+  margin: 10px 0 6px;
+  color: var(--muted);
+}
+.service-layers {
+  display: grid;
+  gap: 4px;
+  max-height: 45vh;
+  overflow: auto;
+}
+.service-layer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.service-layer > label:first-child {
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.service-layer .layer-name {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.service-layer .pick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.service-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.service-actions .primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.service-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 @media (max-width: 720px) {
   .app {
-    grid-template: 'bar' auto 'map' 1fr 'side' minmax(0, 35%) / 1fr;
+    grid-template: 'bar' auto 'map' 1fr 'table' auto 'side' minmax(0, 35%) / 1fr;
   }
   .bar {
     flex-wrap: wrap;
