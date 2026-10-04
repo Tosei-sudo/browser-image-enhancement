@@ -44,13 +44,6 @@ body {
   margin: 0;
   font-size: 16px;
 }
-.basemap {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-}
 
 /* The open control lives in the header instead of over the map. */
 .open .ol-load-image {
@@ -166,9 +159,7 @@ body {
   grid-area: map;
   position: relative;
   min-height: 0;
-}
-/* Without the base map: a checkerboard, so transparent parts of an image show. */
-.map.no-basemap {
+  /* A checkerboard, so transparent parts of an image show. */
   background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px;
 }
 

@@ -3,12 +3,10 @@ import { expect, test, type Page } from '@playwright/test';
 /*
  * The image viewer, built (dist/): a local picture through the file chooser,
  * a COG by URL (served with range requests by test/server.mjs), the image
- * list, per-image corrections and the base map switch.
+ * list and per-image corrections.
  */
 
 async function open(page: Page, query = '') {
-  // The base map is not needed for these checks.
-  await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
   await page.goto(`/index.html${query}`);
   await page.waitForFunction(() => window.viewer !== undefined);
 }
@@ -98,9 +96,6 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
   expect(await names(page)).toEqual(['fixture.tif']);
   expect(await page.evaluate(() => window.viewer.images.selected()?.name)).toContain('fixture.tif');
 
-  // The base map switch.
-  await page.getByLabel('背景地図').uncheck();
-  await expect(page.locator('#map')).toHaveClass(/no-basemap/);
   expect(errors).toEqual([]);
 });
 

@@ -20,7 +20,7 @@ export async function showInfo(element: HTMLDListElement, image: ViewerImage | n
   const extent = view.extent;
   const rows: Array<[string, string]> = [
     ['名前', image.name],
-    ['種類', image.kind === 'geotiff' ? 'GeoTIFF（位置情報あり）' : '画像（表示範囲の中央に配置）'],
+    ['種類', image.kind === 'geotiff' ? 'GeoTIFF' : '画像'],
   ];
   if (extent && finest) {
     const width = Math.round((extent[2] - extent[0]) / finest);

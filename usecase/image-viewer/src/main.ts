@@ -6,8 +6,6 @@
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
 import View from 'ol/View.js';
-import TileLayer from 'ol/layer/Tile.js';
-import OSM from 'ol/source/OSM.js';
 import { register } from 'ol/proj/proj4.js';
 import proj4 from 'proj4';
 import {
@@ -33,21 +31,12 @@ const info = document.getElementById('info') as HTMLDListElement;
 const empty = document.getElementById('empty')!;
 const mapElement = document.getElementById('map')!;
 
-const basemap = new TileLayer({ source: new OSM(), className: 'basemap' });
+// No base map: the images alone, on a checkerboard, like an ordinary image viewer.
+// GeoTIFFs still keep their georeferencing, so overlapping ones line up.
 const map = new Map({
   target: mapElement,
-  layers: [basemap],
-  view: new View({ center: [15540000, 4257000], zoom: 9 }),
+  view: new View({ center: [0, 0], zoom: 2 }),
 });
-
-// Without a base map the images are shown on a plain background, like an ordinary image viewer.
-const basemapToggle = document.getElementById('basemap') as HTMLInputElement;
-const setBasemap = (visible: boolean) => {
-  basemap.setVisible(visible);
-  mapElement.classList.toggle('no-basemap', !visible);
-};
-basemapToggle.addEventListener('change', () => setBasemap(basemapToggle.checked));
-setBasemap(basemapToggle.checked);
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
 const probe = new GpuCorrectedTileLayer();
@@ -74,9 +63,11 @@ const loader = new LoadImageControl({
   target: 'open',
   labels: loadImageLabelsJa,
   sourceOptions: { loadMissingProjection: true, correctTiles: !onGpu },
+  // An ordinary picture goes at the origin, one unit per pixel, wherever the view is.
+  placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
   onLoad: (loaded: LoadedImage) => {
     images.add(loaded);
-    status.textContent = `${loaded.name} を開きました（${loaded.kind === 'geotiff' ? 'GeoTIFF の位置情報で配置' : '表示範囲の中央に配置'}）`;
+    status.textContent = `${loaded.name} を開きました`;
   },
   onError: (error, name) => {
     status.textContent = `${name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`;
