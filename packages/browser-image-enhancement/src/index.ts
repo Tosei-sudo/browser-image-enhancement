@@ -43,6 +43,7 @@ export {
   type RasterStretchRange,
   type RasterToImageDataOptions,
 } from './raster.js';
+export { panSharpen, type PanSharpenMethod, type PanSharpenOptions, type PanSharpenResult } from './pansharpen.js';
 export { assignBands, isGraySelection, selectBands, type BandSelection, type SelectedBands } from './bands.js';
 export { autoEnhance, presets, type PresetName } from './presets.js';
 export { isMonochrome } from './core/process.js';
