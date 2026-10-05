@@ -95,6 +95,8 @@ test('side panel sections fold, remember it, and points show once there are some
   await expect(info).toHaveAttribute('open', '');
   await info.locator('summary').click();
   await expect(info).not.toHaveAttribute('open');
+  // The toggle event (which saves it) comes a moment after the click.
+  await page.waitForFunction(() => localStorage.getItem('image-viewer.fold.info') === 'closed');
   await page.reload();
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(info).not.toHaveAttribute('open');
