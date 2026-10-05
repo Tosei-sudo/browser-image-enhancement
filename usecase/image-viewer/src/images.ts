@@ -50,6 +50,8 @@ export interface ImageListOptions {
   onEdit?: (layer: ViewerService) => void;
   /** Called by the export button of a vector layer. */
   onExport?: (layer: ViewerService) => void;
+  /** Called by the style button of a vector layer. */
+  onStyle?: (layer: ViewerService) => void;
 }
 
 export class ImageList {
@@ -102,6 +104,8 @@ export class ImageList {
 
   /** Adds a layer of a service on top and selects it. */
   addService(service: ServiceLayer): ViewerService {
+    // The symbols and labels chosen the last time this layer was open.
+    service.style?.restore(styleKeyOf(service));
     this.map.addLayer(service.layer);
     const entry: ViewerService = { type: 'service', name: service.title, service, layer: service.layer, row: document.createElement('li') };
     this.buildRow_(entry);
@@ -254,6 +258,12 @@ export class ImageList {
         this.options.onExport!(image);
       });
     }
+    if (image.type === 'service' && image.service.style && !image.service.tableOnly && this.options.onStyle) {
+      button('style', '◐', 'スタイル・ラベル', () => {
+        this.select(image);
+        this.options.onStyle!(image);
+      });
+    }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));
     button('up', '↑', '上へ', () => this.move(image, 1));
     button('down', '↓', '下へ', () => this.move(image, -1));
@@ -275,6 +285,13 @@ export class ImageList {
 
     row.append(visible, name, tools, opacity);
   }
+}
+
+/** The name a layer's style is kept under: its service and layer, or its file. */
+export function styleKeyOf(service: ServiceLayer): string {
+  if (service.styleKey) return service.styleKey;
+  if (service.ref) return `${service.ref.kind}:${service.ref.url}#${service.ref.layer}`;
+  return `file:${service.badge ?? ''}:${service.title}`;
 }
 
 /** The file name without its extension: `photo` for `photo.png` or `https://…/photo.tif?x`. */

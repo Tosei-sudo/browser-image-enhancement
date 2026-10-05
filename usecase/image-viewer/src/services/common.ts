@@ -15,6 +15,7 @@ import type { TileCorrection } from 'browser-image-enhancement/openlayers';
 import type { EsriLayerInfo } from './esri.js';
 import type { EditTarget } from '../edit-session.js';
 import type { TargetCrs } from '../vector-write.js';
+import type { LayerStyle } from '../vector-style.js';
 
 /** The kinds of service the viewer reads. */
 export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri';
@@ -75,6 +76,10 @@ export interface ServiceLayer {
   correction: TileCorrection | null;
   /** Attributes, for vector layers. */
   vector: VectorData | null;
+  /** Symbols and labels, for vector layers drawn on the map. */
+  style?: LayerStyle;
+  /** Name the style is kept under in the browser; by default made of `ref`, or of the badge and title. */
+  styleKey?: string;
   /** Esri layer description, for Esri layers. */
   esri?: EsriLayerInfo;
   /** Where edits go, for an editable layer read from a file (Esri layers edit through `esri`). */

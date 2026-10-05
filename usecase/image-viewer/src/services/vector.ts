@@ -1,20 +1,13 @@
-/** Vector layers of services: one color per layer, and reading features in the right axis order. */
+/** Vector layers of services, and reading features in the right axis order. */
 import type Feature from 'ol/Feature.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
-import { Circle, Fill, Stroke, Style } from 'ol/style.js';
 import type { StyleLike } from 'ol/style/Style.js';
 import { containsCoordinate, type Extent } from 'ol/extent.js';
 import type Projection from 'ol/proj/Projection.js';
 
-/** Points, lines and polygons in one color. */
-export function plainStyle(color: string): Style {
-  const fill = new Fill({ color: `${color}40` });
-  const stroke = new Stroke({ color, width: 2 });
-  return new Style({ fill, stroke, image: new Circle({ radius: 5, fill: new Fill({ color }), stroke: new Stroke({ color: '#fff', width: 1.5 }) }) });
-}
-
-export function vectorLayer(features: Feature[], style: StyleLike): VectorLayer<VectorSource<Feature>> {
+/** A layer of `features`; its style is set by a `LayerStyle` (vector-style.ts) when not given. */
+export function vectorLayer(features: Feature[], style?: StyleLike): VectorLayer<VectorSource<Feature>> {
   return new VectorLayer({ source: new VectorSource<Feature>({ features }), style });
 }
 

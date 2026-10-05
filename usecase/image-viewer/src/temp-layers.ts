@@ -10,7 +10,8 @@ import GeoJSON from 'ol/format/GeoJSON.js';
 import { isEmpty } from 'ol/extent.js';
 import type { DrawableType, EditTarget } from './edit-session.js';
 import { nextColor, type Field, type ServiceLayer } from './services/index.js';
-import { plainStyle, vectorLayer } from './services/vector.js';
+import { vectorLayer } from './services/vector.js';
+import { LayerStyle, singleSpec } from './vector-style.js';
 import { wgs84, type TargetCrs } from './vector-write.js';
 import type { ProcessingResult } from './processing/common.js';
 
@@ -108,7 +109,8 @@ export function geometryTypeOf(features: Feature[]): DrawableType | null {
  */
 export function tempLayer(record: TempRecord, store: TempStore): ServiceLayer {
   const features = featuresOf(record);
-  const layer = vectorLayer(features, plainStyle(nextColor()));
+  const layer = vectorLayer(features);
+  const style = new LayerStyle(layer, singleSpec(nextColor()));
   const source = layer.getSource()!;
   const extent = source.getExtent();
   const save = async () => {
@@ -134,6 +136,8 @@ export function tempLayer(record: TempRecord, store: TempStore): ServiceLayer {
     layer,
     correction: null,
     vector: { source, fields: record.fields, truncated: false },
+    style,
+    styleKey: `temp:${record.id}`,
     editTarget,
     fileCrs: record.crs,
     exportCrs: record.crs,
@@ -145,6 +149,9 @@ export function tempLayer(record: TempRecord, store: TempStore): ServiceLayer {
       ['座標系', record.crs.name],
       ['地物数', features.length.toLocaleString()],
     ],
-    dispose: () => void store.delete(record.id).catch(() => {}),
+    dispose: () => {
+      style.forget();
+      void store.delete(record.id).catch(() => {});
+    },
   };
 }
