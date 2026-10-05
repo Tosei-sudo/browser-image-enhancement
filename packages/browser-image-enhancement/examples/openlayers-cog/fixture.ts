@@ -80,3 +80,39 @@ export function fixtureMultibandBlob(width = 768, height = 384): Blob {
   });
   return new Blob([buffer], { type: 'image/tiff' });
 }
+
+/**
+ * A 4-band 8-bit fixture, like an RGBA picture: the RGB fixture's colors and
+ * an alpha band that is 0 over the leftmost 48 columns and 255 elsewhere.
+ * There is no alpha band for no data, so OpenLayers would add a coverage
+ * band to it when it is reprojected.
+ */
+export function fixtureRgbaBlob(width = 768, height = 384): Blob {
+  const values = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const stripe = Math.floor(x / 48) % 2 === 0 ? 0 : 24;
+      values[i] = Math.round((x / (width - 1)) * 200) + stripe;
+      values[i + 1] = Math.round((y / (height - 1)) * 200) + stripe;
+      values[i + 2] = 120;
+      values[i + 3] = x < 48 ? 0 : 255;
+    }
+  }
+  const [minX, minY, maxX, maxY] = FIXTURE_EXTENT;
+  const buffer = writeArrayBuffer(values, {
+    width,
+    height,
+    SamplesPerPixel: 4,
+    BitsPerSample: [8, 8, 8, 8],
+    SampleFormat: [1, 1, 1, 1],
+    PhotometricInterpretation: 2,
+    ExtraSamples: [2],
+    ModelPixelScale: [(maxX - minX) / width, (maxY - minY) / height, 0],
+    ModelTiepoint: [0, 0, 0, minX, maxY, 0],
+    GeographicTypeGeoKey: 4326,
+    GTModelTypeGeoKey: 2,
+    GTRasterTypeGeoKey: 1,
+  });
+  return new Blob([buffer], { type: 'image/tiff' });
+}
