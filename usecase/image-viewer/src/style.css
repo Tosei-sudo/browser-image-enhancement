@@ -881,6 +881,13 @@ body {
   opacity: 0.4;
   cursor: default;
 }
+.geometry-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
 .shifting {
   cursor: move;
 }
