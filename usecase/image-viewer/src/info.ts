@@ -2,11 +2,12 @@
 import { get as getProjection } from 'ol/proj.js';
 import type { ViewerLayer } from './images.js';
 
-let shown: ViewerLayer | null = null;
+/** Counts the calls: only the latest fills the panel (one for the same layer, with newer facts, may overtake it). */
+let calls = 0;
 
 /** Fills `element` with the facts of `image` (cleared for none). */
 export async function showInfo(element: HTMLDListElement, image: ViewerLayer | null, extra: Array<[string, string]> = []): Promise<void> {
-  shown = image;
+  const call = ++calls;
   element.replaceChildren();
   if (!image) return;
   if (image.type === 'service') {
@@ -14,7 +15,7 @@ export async function showInfo(element: HTMLDListElement, image: ViewerLayer | n
     return;
   }
   const view = await image.source.getView().catch(() => null);
-  if (shown !== image || !view) return;
+  if (call !== calls || !view) return;
 
   const projection = view.projection ? getProjection(view.projection) : null;
   const code = projection?.getCode() ?? '不明';
@@ -35,7 +36,7 @@ export async function showInfo(element: HTMLDListElement, image: ViewerLayer | n
   const mode = image.source.getColorMode();
   rows.push(['バンド数', `${bands}${mode === 'gray' ? '（グレー表示）' : ''}`]);
   const names = await image.source.getBandNames().catch(() => []);
-  if (shown !== image) return;
+  if (call !== calls) return;
   if (names.some((n) => n)) rows.push(['バンド名', names.map((n, i) => n ?? `バンド ${i + 1}`).join(', ')]);
   if (image.kind === 'geotiff') {
     rows.push(['座標系', code]);

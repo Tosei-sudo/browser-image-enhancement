@@ -896,6 +896,10 @@ body {
   background: #2563eb22;
   color: #2563eb;
 }
+.image .tag.rset-external {
+  background: #0d948822;
+  color: #0f766e;
+}
 .image .tag.rset-file {
   border: 1px solid var(--line);
   color: var(--muted);

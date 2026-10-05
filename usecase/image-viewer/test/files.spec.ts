@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import Point from 'ol/geom/Point.js';
 import { ascii, dbf, gpkg, plainGeoTiff, shp, tokyoSjis } from './fixtures.js';
 import { encodeGeometry } from '../src/geopackage.js';
+import { readFileSync } from 'node:fs';
 
 /*
  * Files beyond pictures and COGs: GeoTIFFs without overviews (rewritten with
@@ -47,6 +48,33 @@ test('a GeoTIFF without overviews gets them, so it is not sampled sparsely when 
   await page.evaluate(() => window.viewer.map.getView().setZoom(window.viewer.map.getView().getZoom()! + 3));
   await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
   expect(errors).toEqual([]);
+});
+
+test('a GeoTIFF chosen with its GDAL .ovr uses its levels as the RSET instead of making one', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  const data = (name: string) => new Uint8Array(readFileSync(new URL(`./data/${name}`, import.meta.url)));
+  await choose(page, [
+    { name: 'rgb.tif', bytes: data('rgb.tif'), type: 'image/tiff' },
+    { name: 'rgb.tif.ovr', bytes: data('rgb.tif.ovr') },
+  ]);
+  await expect(page.locator('#status')).toContainText('rgb.tif を開きました');
+  expect(await names(page)).toEqual(['rgb.tif']); // the .ovr is no layer of its own
+  await expect(page.locator('#images .tag')).toHaveText('RSET (OVR)');
+  await expect(page.locator('#info')).toContainText('外部 OVR（rgb.tif.ovr）・1/2〜1/8、3 レベル');
+  await expect(page.locator('.rset-shown')).toHaveText(/表示: RSET 1\/\d+/);
+  expect(errors).toEqual([]);
+});
+
+test('an .ovr that does not fit the image is said so, and an RSET is made instead', async ({ page }) => {
+  await open(page);
+  const data = (name: string) => new Uint8Array(readFileSync(new URL(`./data/${name}`, import.meta.url)));
+  await choose(page, [
+    { name: 'stripes.tif', bytes: plainGeoTiff(1100, 700), type: 'image/tiff' },
+    { name: 'stripes.tif.ovr', bytes: data('gray16.tif.ovr') },
+  ]);
+  await expect(page.locator('#images .tag')).toHaveText('RSET生成');
 });
 
 test('Shapefiles and GeoJSON open with their attributes in the table, editable', async ({ page }) => {
