@@ -539,7 +539,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		this.isNoData_ = this.rawAlpha_ ? floatNoData(this) : null;
 		if (this.select_) {
 			const n = this.rawBands_ - (this.rawAlpha_ ? 1 : 0);
-			if (n < 3 || this.select_.some((b) => b >= n)) {
+			if (n < 3 || this.select_.some((b) => !Number.isInteger(b) || b < 0 || b >= n)) {
 				warn(`select ${JSON.stringify(this.select_)} does not fit an image with ${n} value bands; the bands are drawn as read.`);
 				this.select_ = null;
 			}
@@ -782,8 +782,13 @@ function fromRGBA(rgba, bands, pixels) {
 	for (let p = 0, i = 0, o = 0; p < pixels; p++, i += 4, o += bands) for (let b = 0; b < bands; b++) out[o + b] = bands <= 2 && b === 1 ? rgba[i + 3] : rgba[i + b];
 	return out;
 }
-/** Three band indexes from a selection (one index means that band in all three). */
+/**
+* Three band indexes from a selection (one index means that band in all three).
+* Indexes that can never be a band throw at once, even before the band count is
+* known, so they cannot read the neighbouring pixel's values later.
+*/
 function toRgb(select) {
+	if (select.length !== 1 && select.length !== 3 || select.some((b) => !Number.isInteger(b) || b < 0)) throw new RangeError(`A band selection is 1 or 3 band indexes, each an integer from 0 (0-based), got ${JSON.stringify(select)}.`);
 	return select.length === 1 ? [
 		select[0],
 		select[0],

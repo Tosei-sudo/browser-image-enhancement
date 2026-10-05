@@ -23,6 +23,7 @@ import type { FrameState } from 'ol/Map.js';
 import { listen, unlistenByKey, type EventsKey } from 'ol/events.js';
 import { getIntersection, isEmpty } from 'ol/extent.js';
 import { createGpuRenderer, histogram, type GpuRenderer } from '../index.js';
+import { warn } from '../warn.js';
 import EnhancedGeoTIFF from './enhanced-geotiff.js';
 import TileCorrection from './tile-correction.js';
 
@@ -49,6 +50,8 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private gpu_: GpuRenderer | null;
   private readonly correction_: TileCorrection | null;
   private readonly correctionKey_: EventsKey | null;
+  private readonly useGpu_: boolean;
+  private disposed_ = false;
   /** Small canvas the drawn map is read through for DRA statistics. */
   private sample_: CanvasRenderingContext2D | null = null;
   /** Frames corrected so far. */
@@ -61,14 +64,27 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     super({ className: 'ol-layer gpu-corrected', ...layerOptions });
     this.correction_ = correction ?? null;
     this.correctionKey_ = correction ? listen(correction, 'change', () => this.changed()) : null;
-    this.gpu_ = options.gpu === false ? null : createGpuRenderer({ canvas: this.output_ });
-    this.output_.addEventListener('webglcontextlost', () => {
+    this.useGpu_ = options.gpu !== false;
+    this.gpu_ = this.useGpu_ ? createGpuRenderer({ canvas: this.output_ }) : null;
+    // The browser drops WebGL contexts when the GPU resets or too many pages use
+    // it. Until the context is back the map shows the tiles as read; then the
+    // renderer is built again (its textures and programs died with the old
+    // context) and the next frame is corrected as before.
+    this.output_.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault(); // asks the browser to restore the context
+      if (!this.gpu_) return;
       this.gpu_ = null;
+      warn('GpuCorrectedTileLayer: the WebGL context was lost; showing the tiles uncorrected until it is restored.');
+      this.changed();
+    });
+    this.output_.addEventListener('webglcontextrestored', () => {
+      if (this.disposed_ || !this.useGpu_ || this.gpu_) return;
+      this.gpu_ = createGpuRenderer({ canvas: this.output_ });
       this.changed();
     });
   }
 
-  /** Whether the layer can correct on the GPU (WebGL2 is available and the context was not lost). */
+  /** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
   hasGpu(): boolean {
     return this.gpu_ !== null;
   }
@@ -127,6 +143,7 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   }
 
   protected override disposeInternal(): void {
+    this.disposed_ = true;
     if (this.correctionKey_) unlistenByKey(this.correctionKey_);
     this.gpu_?.dispose();
     this.gpu_ = null;

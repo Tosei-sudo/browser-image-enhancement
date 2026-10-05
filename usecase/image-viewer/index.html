@@ -12,21 +12,33 @@
         <h1>画像ビューア</h1>
         <div id="open" class="open"></div>
         <button type="button" id="add-service" class="bar-button">サービスを追加</button>
-        <button type="button" id="processing" class="bar-button" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換">プロセッシング</button>
         <div id="basemap"></div>
         <form id="jump" class="jump" role="search">
           <input type="text" name="coordinate" placeholder="緯度経度・MGRS・UTM" aria-label="座標へ移動" autocomplete="off" />
           <button type="submit" class="bar-button">移動</button>
         </form>
-        <div class="measure-tools" role="group" aria-label="計測">
-          <button type="button" id="measure-distance" aria-pressed="false" title="測地線（WGS 84 楕円体）で距離を測ります">距離を測る</button>
-          <button type="button" id="measure-area" aria-pressed="false" title="WGS 84 楕円体上の面積を測ります">面積を測る</button>
-          <button type="button" id="measure-clear">計測を消去</button>
+        <!-- Everyday controls stay in the bar; the click tools and the rest are one menu away. -->
+        <div class="menu" id="tools-menu">
+          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="tools-panel">ツール</button>
+          <div id="tools-panel" class="menu-panel" role="group" aria-label="ツール" hidden>
+            <p class="menu-heading">計測</p>
+            <div class="measure-tools" role="group" aria-label="計測">
+              <button type="button" id="measure-distance" aria-pressed="false" data-key="D" aria-keyshortcuts="D" title="測地線（WGS 84 楕円体）で距離を測ります">距離を測る</button>
+              <button type="button" id="measure-area" aria-pressed="false" data-key="A" aria-keyshortcuts="A" title="WGS 84 楕円体上の面積を測ります">面積を測る</button>
+              <button type="button" id="measure-clear">計測を消去</button>
+            </div>
+            <p class="menu-heading">ポイント</p>
+            <div class="point-tools">
+              <button type="button" id="add-point" aria-pressed="false" data-key="P" aria-keyshortcuts="P">ポイント追加</button>
+              <button type="button" id="save-points">GeoJSON 保存</button>
+            </div>
+            <p class="menu-heading">解析</p>
+            <div class="point-tools">
+              <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換">プロセッシング</button>
+            </div>
+          </div>
         </div>
-        <div class="point-tools">
-          <button type="button" id="add-point" aria-pressed="false">ポイント追加</button>
-          <button type="button" id="save-points">GeoJSON 保存</button>
-        </div>
+        <button type="button" id="help" class="bar-button help-button" aria-keyshortcuts="Shift+?" title="使い方とショートカット（?）">?</button>
       </header>
       <aside class="side">
         <section aria-labelledby="images-title">
@@ -36,19 +48,19 @@
             左上のボタンでローカルの画像・GeoTIFF・Shapefile・GeoJSON・GeoPackage・CSV を選ぶか、COG の URL を入力してください。表示エリアへのドラッグ＆ドロップでも開けます。「サービスを追加」で WMS・WMTS・WFS・Esri フィーチャーサービスのレイヤーも重ねられます。
           </p>
         </section>
-        <section aria-labelledby="points-title">
-          <h2 id="points-title">ポイント</h2>
+        <details class="fold" data-fold="points" open>
+          <summary><h2 id="points-title">ポイント</h2></summary>
           <ol id="points" class="points"></ol>
-        </section>
-        <section aria-labelledby="geometry-title">
-          <h2 id="geometry-title">幾何補正</h2>
+        </details>
+        <details class="fold" data-fold="geometry">
+          <summary><h2 id="geometry-title">幾何補正</h2></summary>
           <div id="geometry" class="geometry"></div>
-        </section>
-        <section aria-labelledby="info-title">
-          <h2 id="info-title">情報</h2>
+        </details>
+        <details class="fold" data-fold="info" open>
+          <summary><h2 id="info-title">情報</h2></summary>
           <dl id="info" class="info"></dl>
           <button id="metadata-open" type="button" class="metadata-open" hidden>メタデータを表示…</button>
-        </section>
+        </details>
         <p id="build" class="build"></p>
       </aside>
       <div id="side-resize" class="side-resize"></div>

@@ -71,6 +71,44 @@ test('DTED level 0 to 2 open as elevation data', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('a DEM shows contour lines when asked, at the interval chosen', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // A hill 1990 m high in the middle of the cell.
+  const hill = dted({ west: 139, south: 35, spacing: [30, 30], level: 'DTED0', elevation: (lon, lat) => Math.max(0, Math.round(1990 - Math.hypot(lon - 139.5, lat - 35.5) * 4000)) });
+  await choose(page, [{ name: 'hill.dt0', bytes: hill }]);
+  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として開きました');
+  await page.evaluate(() => window.viewer.images.zoomTo(window.viewer.images.list()[0]));
+  const levels = () =>
+    page.evaluate(() => {
+      const layer = window.viewer.map.getAllLayers().find((l) => l.get('contours'));
+      const source = layer?.getSource() as { getFeatures(): Array<{ get(k: string): number }> } | undefined;
+      return source ? [...new Set(source.getFeatures().map((f) => f.get('level')))].sort((a, b) => a - b) : null;
+    });
+  // Off at first.
+  const check = page.locator('#geometry [data-action=contours]');
+  await expect(check).not.toBeChecked();
+  expect(await levels()).toBeNull();
+
+  await check.check();
+  const interval = page.locator('#geometry select[aria-label=等高線の間隔]');
+  await expect(interval.locator('option:checked')).toHaveText('自動（100 m）');
+  await expect.poll(levels).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900]);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/contours.png' });
+
+  await interval.selectOption('500');
+  await expect.poll(levels).toEqual([500, 1000, 1500]);
+
+  // Hidden with the DEM, and gone when it closes.
+  await page.locator('#images li').first().locator('input[type=checkbox]').uncheck();
+  expect(await page.evaluate(() => window.viewer.map.getAllLayers().find((l) => l.get('contours'))!.getVisible())).toBe(false);
+  await page.locator('#images li').first().locator('[data-action=remove]').click();
+  expect(await levels()).toBeNull();
+  expect(errors).toEqual([]);
+});
+
 test('a satellite image is orthorectified onto the DEM, moved by hand and saved', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
