@@ -57,6 +57,13 @@ export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
   draSampleSize?: number;
   /** At most this many tiles are read for DRA statistics; a coarser level is used if needed. Default 64. */
   draMaxTiles?: number;
+  /**
+   * Reproject tiles on the CPU when the map's projection differs from the
+   * image's (default true). OpenLayers' own reprojection draws every tile in
+   * a WebGL context of its own and reads it back, which stalls the main
+   * thread far longer than the JS that replaces it. False: OpenLayers' way.
+   */
+  cpuReprojection?: boolean;
 }
 /** What the last DRA statistics were taken from. */
 export interface DraInfo {
@@ -226,6 +233,13 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   resetStats(): void;
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
   protected setLoader(loader: Loader): void;
+  /**
+   * Reads the tile offsets and byte counts of every level of a local file in
+   * one go. geotiff.js otherwise reads both (8 bytes each) on their own before
+   * each tile, one after the other: three reads of the file per tile instead
+   * of one. Remote COGs read them through a block cache already.
+   */
+  private preloadTileIndex_;
   private loadEnhanced_;
   /** The tile's pixels with `margin` pixels of its neighbour tiles around it; transparent where there are none. */
   private withNeighbours_;
