@@ -7,7 +7,9 @@
  * .RPB / _RPC.TXT file chosen with it) is marked for orthorectification;
  * without georeferencing it is placed where the model puts it. A GDAL .ovr
  * file chosen with a GeoTIFF (`a.tif.ovr` or `a.ovr`) is its RSET, used
- * instead of making one.
+ * instead of making one. A georeferenced GeoTIFF without an RPC model can be
+ * orthorectified more simply; the satellite's direction comes from an .IMD
+ * file chosen with it, or from its GDAL metadata.
  */
 import { isEmpty } from 'ol/extent.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
@@ -25,6 +27,7 @@ import { isOvrName, ovrBelongsTo, withExternalOverviews } from './external-overv
 import { isDtedName } from './dted.js';
 import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
 import { rpcGeo, tiffInfo } from './satellite.js';
+import { isImdName, sensorViewFromText, type SensorView } from './simple-ortho.js';
 import type { GeometricMode } from './geometric.js';
 import { baseName } from './images.js';
 import { handleOf } from './recent-files.js';
@@ -44,8 +47,8 @@ export interface OpenFilesContext {
   onRsetMade?: (source: EnhancedGeoTIFF) => void;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles, GeoJSON, GeoPackages, CSV, DTED and RPC files. */
-export const acceptFiles = '.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
+/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles (and their .qml style), GeoJSON, GeoPackages, CSV, DTED, RPC and IMD files. */
+export const acceptFiles = '.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
@@ -54,8 +57,9 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
   for (const file of files.filter((f) => isDtedName(f.name))) await context.geometry.openDem(file);
   const rpcs = await readRpcFiles(files.filter((f) => isRpcName(f.name)), context);
   const ovrs = files.filter((f) => isOvrName(f.name));
+  const views = await readImdFiles(files.filter((f) => isImdName(f.name)));
   const images = files.filter(
-    (f) => !isVectorName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !isOvrName(f.name) && !/\.txt$/i.test(f.name),
+    (f) => !isVectorName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !isOvrName(f.name) && !isImdName(f.name) && !/\.txt$/i.test(f.name),
   );
   const used = new Set<File>();
   for (const file of images) {
@@ -63,10 +67,21 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
     const rpc = rpcs.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && rpcs.size === 1 ? [...rpcs.values()][0] : null);
     const ovr = ovrs.find((o) => ovrBelongsTo(o.name, file.name)) ?? (images.length === 1 && ovrs.length === 1 ? ovrs[0] : null);
     if (ovr) used.add(ovr);
-    await openImage(file, context, rpc, ovr);
+    const view = views.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && views.size === 1 ? [...views.values()][0] : null);
+    await openImage(file, context, rpc, ovr, view);
   }
   const unused = ovrs.filter((o) => !used.has(o));
   if (unused.length) context.say(`${unused.map((o) => o.name).join('、')} に合う GeoTIFF がありません（画像と一緒に選んでください）`);
+}
+
+/** The satellite directions in .IMD files, by the image name they belong to. */
+async function readImdFiles(files: File[]): Promise<Map<string, SensorView>> {
+  const views = new Map<string, SensorView>();
+  for (const file of files) {
+    const view = sensorViewFromText(await file.text());
+    if (view) views.set(baseName(file.name).toLowerCase(), view);
+  }
+  return views;
 }
 
 /** The RPC models of side files, by the image name they belong to. */
@@ -128,13 +143,16 @@ export function csvLayer(csv: ReturnType<typeof readCsv>): ServiceLayer {
 }
 
 /** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first, from its .ovr file when there is one. */
-async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null): Promise<void> {
+async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null): Promise<void> {
   let blob: Blob = file;
   let rpc: Rpc | null = null;
+  let georeferenced = false;
   if (await isTiff(file)) {
     say(`${file.name} を読み込んでいます…`);
     const info = await tiffInfo(file).catch(() => null);
     rpc = sideRpc ?? info?.rpc ?? null;
+    georeferenced = !!info?.georeferenced;
+    view ??= info?.view ?? null;
     // A satellite image without georeferencing goes where its RPC model puts it.
     const geo = rpc && info && !info.georeferenced ? rpcGeo(rpc, info.width, info.height) : undefined;
     if (ovr) {
@@ -163,6 +181,7 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
     onRsetMade?.(source);
   }
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
+  else if (source && georeferenced) geometry.setGeoreferenced(source, file, view);
 }
 
 /** The style a file came with, when it has one the viewer can read. */
