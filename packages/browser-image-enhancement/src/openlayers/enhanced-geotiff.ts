@@ -58,7 +58,14 @@ import {
 } from '../raster.js';
 import { warn } from '../warn.js';
 import { cropMargin, withMargin } from './margin.js';
+import { reprojectOnCpu } from './cpu-reproject.js';
 import { readBandNames, type TiffImageLike } from './tiff-metadata.js';
+
+/** The part of geotiff.js's `ImageFileDirectory` used to preload the tile index. */
+interface TiffDirectory {
+  hasTag?(tag: string): boolean;
+  loadValue(tag: string): Promise<unknown>;
+}
 
 /** Options for {@link EnhancedGeoTIFF}: those of `ol/source/GeoTIFF`, plus the correction. */
 export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'> {
@@ -110,6 +117,13 @@ export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'
   draSampleSize?: number;
   /** At most this many tiles are read for DRA statistics; a coarser level is used if needed. Default 64. */
   draMaxTiles?: number;
+  /**
+   * Reproject tiles on the CPU when the map's projection differs from the
+   * image's (default true). OpenLayers' own reprojection draws every tile in
+   * a WebGL context of its own and reads it back, which stalls the main
+   * thread far longer than the JS that replaces it. False: OpenLayers' way.
+   */
+  cpuReprojection?: boolean;
 }
 
 /** What the last DRA statistics were taken from. */
@@ -199,6 +213,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.appliedKey_ = this.tileKey_();
     this.appliedContent_ = this.contentKey_();
     if (this.correctTiles_) this.setKey(this.appliedKey_);
+    if (options.cpuReprojection ?? true) reprojectOnCpu(this);
   }
 
   /** The tile key: changes whenever tiles must be corrected again. */
@@ -617,6 +632,31 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
       }
     }
     super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
+    this.preloadTileIndex_();
+  }
+
+  /**
+   * Reads the tile offsets and byte counts of every level of a local file in
+   * one go. geotiff.js otherwise reads both (8 bytes each) on their own before
+   * each tile, one after the other: three reads of the file per tile instead
+   * of one. Remote COGs read them through a block cache already.
+   */
+  private preloadTileIndex_(): void {
+    const self = this as unknown as { sourceInfo_?: Array<{ blob?: Blob }>; sourceImagery_?: unknown[][]; sourceMasks_?: unknown[][] };
+    const info = self.sourceInfo_ ?? [];
+    for (const list of [self.sourceImagery_, self.sourceMasks_]) {
+      list?.forEach((levels, s) => {
+        if (!info[s]?.blob) return;
+        for (const image of levels ?? []) {
+          const directory = (image as { fileDirectory?: TiffDirectory } | undefined)?.fileDirectory;
+          if (!directory || typeof directory.loadValue !== 'function') continue;
+          for (const tag of ['TileOffsets', 'TileByteCounts', 'StripOffsets', 'StripByteCounts']) {
+            // A failed read only means the tiles read them one by one, as before.
+            if (directory.hasTag?.(tag)) directory.loadValue(tag).catch(() => {});
+          }
+        }
+      });
+    }
   }
 
   private async loadEnhanced_(loader: Loader, z: number, x: number, y: number, options: LoaderOptions): Promise<Data> {

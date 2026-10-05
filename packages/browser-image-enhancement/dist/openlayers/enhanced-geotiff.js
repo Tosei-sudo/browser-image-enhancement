@@ -5,6 +5,7 @@ import { pipeline } from "../pipeline.js";
 import { computeRasterStretch, rasterToImageData, sampleRasterHistogram } from "../raster.js";
 import { isGraySelection } from "../bands.js";
 import { cropMargin, withMargin } from "./margin.js";
+import { reprojectOnCpu } from "./cpu-reproject.js";
 import { readBandNames } from "./tiff-metadata.js";
 import GeoTIFF from "ol/source/GeoTIFF.js";
 import { getHeight, getIntersection, getWidth, isEmpty } from "ol/extent.js";
@@ -119,6 +120,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		this.appliedKey_ = this.tileKey_();
 		this.appliedContent_ = this.contentKey_();
 		if (this.correctTiles_) this.setKey(this.appliedKey_);
+		if (options.cpuReprojection ?? true) reprojectOnCpu(this);
 	}
 	/** The tile key: changes whenever tiles must be corrected again. */
 	tileKey_() {
@@ -533,6 +535,30 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			}
 		}
 		super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
+		this.preloadTileIndex_();
+	}
+	/**
+	* Reads the tile offsets and byte counts of every level of a local file in
+	* one go. geotiff.js otherwise reads both (8 bytes each) on their own before
+	* each tile, one after the other: three reads of the file per tile instead
+	* of one. Remote COGs read them through a block cache already.
+	*/
+	preloadTileIndex_() {
+		const self = this;
+		const info = self.sourceInfo_ ?? [];
+		for (const list of [self.sourceImagery_, self.sourceMasks_]) list?.forEach((levels, s) => {
+			if (!info[s]?.blob) return;
+			for (const image of levels ?? []) {
+				const directory = image?.fileDirectory;
+				if (!directory || typeof directory.loadValue !== "function") continue;
+				for (const tag of [
+					"TileOffsets",
+					"TileByteCounts",
+					"StripOffsets",
+					"StripByteCounts"
+				]) if (directory.hasTag?.(tag)) directory.loadValue(tag).catch(() => {});
+			}
+		});
 	}
 	async loadEnhanced_(loader, z, x, y, options) {
 		const [raw] = await Promise.all([this.rawTile_(loader, z, x, y, options), this.rawReady_()]);
