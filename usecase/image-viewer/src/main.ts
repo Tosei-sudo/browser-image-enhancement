@@ -208,7 +208,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onStyle: (layer) => styler.open(layer),
 });
 const exporter = new ExportDialog(selection, { say });
-const styler = new StyleDialog({ say });
+const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
 const metadata = new MetadataDialog({ say });
 metadataButton.addEventListener('click', () => {
   const layer = images.selectedLayer();

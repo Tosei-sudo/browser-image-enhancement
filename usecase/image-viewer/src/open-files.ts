@@ -13,7 +13,8 @@ import { isEmpty } from 'ol/extent.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './services/index.js';
 import { vectorLayer } from './services/vector.js';
-import { LayerStyle, singleSpec } from './vector-style.js';
+import { LayerStyle, singleSpec, type VectorStyleSpec } from './vector-style.js';
+import { readStyleQml } from './style-file.js';
 import { isVectorName, readVectorFiles, stem, type VectorFile } from './vector-files.js';
 import { isCsvName, readCsv } from './csv.js';
 import VectorLayer from 'ol/layer/Vector.js';
@@ -44,7 +45,7 @@ export interface OpenFilesContext {
 }
 
 /** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles, GeoJSON, GeoPackages, CSV, DTED and RPC files. */
-export const acceptFiles = '.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
+export const acceptFiles = '.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
@@ -164,6 +165,16 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
 }
 
+/** The style a file came with, when it has one the viewer can read. */
+function fileStyle(file: VectorFile): VectorStyleSpec | null {
+  if (!file.styleQml) return null;
+  try {
+    return readStyleQml(file.styleQml, singleSpec('#4363d8'));
+  } catch {
+    return null;
+  }
+}
+
 /** A layer for the list, like a service's vector layer but without a link; editable when it can be saved again. */
 export function vectorFileLayer(file: VectorFile): ServiceLayer {
   const truncated = file.features.length > MAX_FEATURES;
@@ -188,7 +199,8 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
     layer,
     correction: null,
     vector: { source, fields, truncated, idField: file.gpkg?.idColumn },
-    style: new LayerStyle(layer, singleSpec(nextColor())),
+    // The style that came with the file, else one symbol in the next color; 「初期設定に戻す」 goes back to it.
+    style: new LayerStyle(layer, fileStyle(file) ?? singleSpec(nextColor())),
     ...(editable ? { editTarget: localTarget(file, source, fields) } : {}),
     fileCrs: file.writeCrs,
     extent: extent && !isEmpty(extent) ? extent : null,

@@ -60,9 +60,20 @@ export async function readGeoPackage(bytes: Uint8Array, title: string, projectio
     const projection = await srsProjection(db, srsId, projectionOf);
     if (!projection) throw new Error(`${name} の座標系（srs_id ${srsId}）を読めませんでした`);
     const layer = readTable(db, { table, geometryColumn: String(t.column_name), srsId }, name, String(t.geometry_type_name), projection);
-    out.push({ ...layer, writeCrs: srsCrs(db, srsId, projection) });
+    const styleQml = defaultStyle(db, table);
+    out.push({ ...layer, writeCrs: srsCrs(db, srsId, projection), ...(styleQml ? { styleQml } : {}) });
   }
   return out;
+}
+
+/** The default style QGIS keeps for a table in `layer_styles` (the newest one), when there is one. */
+function defaultStyle(db: Database, table: string): string | null {
+  try {
+    const [row] = rows(db, 'SELECT styleQML FROM layer_styles WHERE f_table_name = ? AND styleQML IS NOT NULL ORDER BY useAsDefault DESC, update_time DESC, id DESC LIMIT 1', [table]);
+    return typeof row?.styleQML === 'string' && row.styleQML ? row.styleQML : null;
+  } catch {
+    return null; // no layer_styles table
+  }
 }
 
 function readTable(db: Database, t: { table: string; geometryColumn: string; srsId: number }, title: string, geometryType: string, projection: string): VectorFile {
