@@ -49,10 +49,8 @@ import { isGraySelection, type BandSelection } from '../bands.js';
 import { histogram, mergeHistograms, pipeline, type AutoStretchOptions, type ColorMode, type Histogram, type Rect, type OpSpec, type Pipeline } from '../index.js';
 import {
   computeRasterStretch,
-  mergeRasterHistograms,
-  rasterHistogram,
-  rasterRange,
   rasterToImageData,
+  sampleRasterHistogram,
   type Raster,
   type RasterHistogram,
   type RasterStretch,
@@ -179,6 +177,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private appliedContent_ = '';
   /** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
   private rawValues_: boolean;
+  /** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
+  private isNoData_: ((v: number) => boolean) | null = null;
   private readonly autoNormalize_: boolean;
   private readonly rawStretchOption_: RasterStretch | AutoStretchOptions;
   /** The raw stretch in use; null until the first statistics are read. */
@@ -467,19 +467,13 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     let rawInfo: DraInfo['rawStretch'];
     let rawHistogram: RasterHistogram | null = null;
     if (this.autoRaw_) {
-      // One range for every tile, so their histograms can be added.
       const rasters = tiles.flatMap((t) => {
         const r = this.raster_(t.raw, t.width, t.height);
         return r ? [{ r, rect: t.rect }] : [];
       });
-      let lo = Infinity;
-      let hi = -Infinity;
-      for (const { r, rect } of rasters) {
-        const range = rasterRange(r, rect);
-        if (range) [lo, hi] = [Math.min(lo, range[0]), Math.max(hi, range[1])];
-      }
-      if (lo <= hi) {
-        rawHistogram = mergeRasterHistograms(rasters.map(({ r, rect }) => rasterHistogram(r, { range: [lo, hi], rect })));
+      // Fill values not tagged as no data, and outliers, are left out (see sampleRasterHistogram).
+      rawHistogram = sampleRasterHistogram(rasters.map(({ r, rect }) => ({ raster: r, rect })));
+      if (rawHistogram) {
         rawInfo = computeRasterStretch(rawHistogram, this.rawOptions_());
         rawStretch = rawInfo;
       }
@@ -624,9 +618,11 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
       // An 8-bit image: let OpenLayers scale it as usual (it reads `normalize_` for every tile).
       this.rawValues_ = false;
       (this as unknown as { normalize_: boolean }).normalize_ = true;
+      keepEightBitRange(this);
       this.appliedKey_ = this.tileKey_();
       this.appliedContent_ = this.contentKey_();
     }
+    this.isNoData_ = this.hasAlpha ? floatNoData(this) : null;
     // The band count is known now (OpenLayers sets the source ready right after this).
     if (this.select_) {
       const n = this.bandCount - (this.hasAlpha ? 1 : 0);
@@ -738,7 +734,9 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     // The raw read is shared by every pipeline version of this tile, so it must
     // not be cancelled when one of those versions is discarded.
     this.stats.reads++;
-    const promise = Promise.resolve(loader(z, x, y, { ...options, signal: neverAborted }));
+    const isNoData = this.isNoData_;
+    const read = Promise.resolve(loader(z, x, y, { ...options, signal: neverAborted }));
+    const promise = isNoData ? read.then((data) => maskNoData(data, this.bandCount, isNoData)) : read;
     this.raw_.set(key, promise);
     promise.catch(() => {
       if (this.raw_.get(key) === promise) this.raw_.delete(key);
@@ -788,6 +786,66 @@ function isEightBit(source: GeoTIFF): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Makes OpenLayers read an 8-bit image's values as they are (0-255). Given no
+ * `min`/`max`, it scales every band by the `STATISTICS_MINIMUM`/`MAXIMUM`
+ * that GDAL wrote for the first band, so a file with statistics (of a darker
+ * first band, or stale ones) comes out washed out or all white.
+ */
+function keepEightBitRange(source: GeoTIFF): void {
+  const info = (source as unknown as { sourceInfo_?: Array<{ min?: unknown; max?: unknown }> }).sourceInfo_;
+  for (const s of info ?? []) {
+    s.min ??= 0;
+    s.max ??= 255;
+  }
+}
+
+/** Largest float32 value. */
+const FLOAT32_MAX = 3.4028234663852886e38;
+
+/**
+ * For a float32 image whose no-data value OpenLayers cannot match: the
+ * test for that value. `GDAL_NODATA` is text, often rounded
+ * ("-3.40282e+38" for the lowest float), so a sample never equals the
+ * number read from it, and the fill shows instead of being transparent.
+ * GDAL itself writes the overviews with the rounded value cast to float32,
+ * and the full image often with the exact lowest float: as GDAL does, a
+ * value close to the largest float stands for any value that close. Null
+ * when the samples are not float32 or the value matches as it is.
+ */
+function floatNoData(source: GeoTIFF): ((v: number) => boolean) | null {
+  const s = source as unknown as { sourceImagery_?: SampleInfo[][]; nodataValues_?: Array<Array<number | null>> };
+  const imagery = s.sourceImagery_;
+  if (!Array.isArray(imagery) || imagery.length !== 1) return null;
+  const image = imagery[0]?.[imagery[0].length - 1];
+  const nodata = s.nodataValues_?.[0]?.find((v) => v !== null && v !== undefined);
+  if (!image || typeof nodata !== 'number' || !Number.isFinite(nodata)) return null;
+  try {
+    if (image.getSampleFormat(0) !== 3 || image.getBitsPerSample(0) !== 32) return null;
+  } catch {
+    return null;
+  }
+  if (Math.abs(Math.abs(nodata) - FLOAT32_MAX) <= FLOAT32_MAX * 1e-5) {
+    const edge = Math.sign(nodata) * FLOAT32_MAX * (1 - 1e-5);
+    return nodata < 0 ? (v) => v <= edge : (v) => v >= edge;
+  }
+  const f = Math.fround(nodata);
+  return f === nodata ? null : (v) => v === f;
+}
+
+/** Makes transparent the pixels of a raw tile (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
+function maskNoData(data: Data, bands: number, isNoData: (v: number) => boolean): Data {
+  if (!(data instanceof Float32Array) || bands < 2) return data;
+  for (let p = 0; p < data.length; p += bands) {
+    if (data[p + bands - 1] === 0) continue;
+    let all = true;
+    for (let b = 0; b < bands - 1 && all; b++) all = isNoData(data[p + b]);
+    if (!all) continue;
+    for (let b = 0; b < bands; b++) data[p + b] = 0;
+  }
+  return data;
 }
 
 const keyFor = (p: Pipeline) => `enhanced:${JSON.stringify(p.ops satisfies readonly OpSpec[])}`;

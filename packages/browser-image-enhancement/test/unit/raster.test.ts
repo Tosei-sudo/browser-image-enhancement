@@ -5,6 +5,7 @@ import {
   rasterHistogram,
   rasterRange,
   rasterToImageData,
+  sampleRasterHistogram,
   type Raster,
 } from '../../src/index.js';
 
@@ -78,5 +79,59 @@ describe('non-finite values', () => {
     expect(img.data[4 * 6]).toBe(255);
     expect(img.data[0]).toBe(0);
     expect(img.data[4 * 7 + 3]).toBe(0);
+  });
+});
+
+/**
+ * A scene of reflectances 0.02-0.35 (a ramp) with `fill` around it in
+ * `fillShare` of the pixels, like a rotated satellite scene whose corners
+ * hold a fill value that is not tagged as no data, plus `edge` pixels
+ * blending fill and scene (as averaged overviews have).
+ */
+function scene(fill: number, fillShare = 0.4, edge = 0): Raster {
+  const n = 10000;
+  const filled = Math.round(n * fillShare);
+  const data = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (i < filled) data[i] = fill;
+    else if (i < filled + edge) data[i] = fill / 2 + 0.1;
+    else data[i] = 0.02 + (0.33 * (i - filled - edge)) / (n - filled - edge - 1);
+  }
+  return { data, width: 100, height: 100 };
+}
+
+describe('real-world raw imagery', () => {
+  it('leaves out a fill value that is not tagged as no data, instead of washing the scene out white', () => {
+    for (const fill of [-9999, -3.4028234663852886e38, -32768]) {
+      const raster = scene(fill, 0.4, 30);
+      // A plain histogram puts black at the fill: the whole scene ends up white.
+      expect(computeRasterStretch(rasterHistogram(raster), { lowPercent: 2, highPercent: 2 }).black[0]).toBe(fill);
+      const s = computeRasterStretch(sampleRasterHistogram([{ raster }])!, { lowPercent: 2, highPercent: 2 });
+      expect(s.black[0]).toBeGreaterThan(0.02);
+      expect(s.black[0]).toBeLessThan(0.04);
+      expect(s.white[0]).toBeGreaterThan(0.33);
+      expect(s.white[0]).toBeLessThanOrEqual(0.35);
+      const img = rasterToImageData(raster, { stretch: { lowPercent: 2, highPercent: 2 } });
+      // The middle of the scene is mid-gray, not white.
+      expect(img.data[4 * 7000]).toBeGreaterThan(80);
+      expect(img.data[4 * 7000]).toBeLessThan(180);
+    }
+  });
+
+  it('keeps a far outlier from squeezing the values into a few bins', () => {
+    const raster = scene(0, 0);
+    (raster.data as Float32Array)[0] = 1e30; // one hot pixel
+    const s = computeRasterStretch(sampleRasterHistogram([{ raster }])!, { lowPercent: 2, highPercent: 2 });
+    expect(s.black[0]).toBeGreaterThan(0.02);
+    expect(s.white[0]).toBeLessThan(0.35);
+    expect(s.white[0]).toBeGreaterThan(s.black[0] + 0.25);
+  });
+
+  it('gives imagery without fill or outliers the plain histogram', () => {
+    const raster = ramp(1000);
+    expect(sampleRasterHistogram([{ raster }])).toEqual(rasterHistogram(raster));
+    // A dark band near the rest is data, not fill.
+    const dark: Raster = { data: Uint16Array.from({ length: 1000 }, (_, i) => (i < 300 ? 0 : 150 + i)), width: 1000, height: 1 };
+    expect(sampleRasterHistogram([{ raster: dark }])).toEqual(rasterHistogram(dark));
   });
 });

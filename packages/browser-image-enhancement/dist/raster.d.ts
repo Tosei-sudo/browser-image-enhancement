@@ -78,6 +78,38 @@ export interface RasterToImageDataOptions {
 export declare function rasterRange(raster: Raster, rect?: Rect): [number, number] | null;
 /** Value counts of the picture bands over `range` (default: the raster's own range). */
 export declare function rasterHistogram(raster: Raster, options?: RasterHistogramOptions): RasterHistogram;
+/** A raster, or the part of it (`rect`) that counts, for {@link sampleRasterHistogram}. */
+export interface RasterSample {
+  /** The raster (a tile). */
+  raster: Raster;
+  /** Count only this rectangle (clipped to the raster). Default: all of it. */
+  rect?: Rect;
+}
+/**
+ * Value counts of the picture bands of several rasters (the tiles of one
+ * picture), made to hold up on real imagery. Null when there is no value.
+ *
+ * Two things in satellite products spoil a plain {@link rasterHistogram}
+ * (its bins spread evenly from the smallest value to the largest):
+ *
+ * - A fill value that is not tagged as no data (-9999, -32768, the lowest
+ *   float, 0 around a scene) takes the corners of the scene. It is often
+ *   more than the few percent a stretch clips, so it becomes black (or
+ *   white) and the scene itself lands at the other end, all white (or all
+ *   black). The smallest or largest value of a band is taken as such a fill
+ *   value, and left out, when it lies further from the rest of the values
+ *   than the rest spreads (between its 1st and 99th percentile).
+ * - A few far outlying values (hot pixels, a fill value on overview edges
+ *   blended with the scene) squeeze the values into a handful of bins. The
+ *   bins are then taken again over the 1-99 % range widened by its own width
+ *   on each side, with the values outside counted in the end bins.
+ *
+ * Imagery without either gets the same histogram as {@link rasterHistogram}
+ * over the rasters' range.
+ */
+export declare function sampleRasterHistogram(samples: readonly RasterSample[], options?: {
+  bins?: number;
+}): RasterHistogram | null;
 /** Adds raster histograms taken with the same range and bin count (of tiles of one picture). */
 export declare function mergeRasterHistograms(histograms: readonly RasterHistogram[]): RasterHistogram;
 /**

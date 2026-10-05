@@ -208,6 +208,7 @@ var LoadImageControl = class extends Control {
 			pipeline: previous instanceof EnhancedGeoTIFF ? previous.getPipeline() : void 0,
 			correctTiles: !onGpu,
 			normalize: "auto",
+			convertToRGB: "auto",
 			rawStretch: {
 				lowPercent: 2,
 				highPercent: 2
