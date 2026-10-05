@@ -377,6 +377,7 @@ slider.oninput = () => source.setPipeline(current());
 - `GpuCorrectedTileLayer` は `ol/layer/WebGLTile` を継承したレイヤーで、`correctTiles: false` のソースの補正を描いた地図に GPU で掛けます
 - DRA は表示範囲の統計で全タイル共通の範囲を決めるので、タイルの継ぎ目は出ません。シャープは隣のタイルを余白にして補正します（`withMargin` / `cropMargin`）
 - `select: [3, 2, 1]` で R・G・B に表示するバンドを選べます（0 から数えます。`sources[].bands` は読み込むバンドを 1 から数えて選ぶ別の設定です）。あとから `setSelect()` で変えると、キャッシュしたタイルから作り直すので COG は読み直しません。5 バンド以上の画像は、指定がなければバンド 0, 1, 2 を表示します
+- バンド名: `getBandNames()` はファイルの GDAL メタデータ（`GDAL_METADATA` の `DESCRIPTION`。`gdal_translate`・QGIS・rasterio が書くもの）からバンド名を返し、`EnhanceControl` のバンド割当は「バンド 4 (NIR)」のように表示します。`bandNames: [...]` で指定もできます。`getTiffImages()` は OpenLayers が開いた geotiff.js の画像（原画像から順）を返すので、タグを読み直さずに使えます
 - `normalize: false` にすると、16bit や float の COG を元の値のまま読み、元の値の統計でバンドごとに 0〜255 に引き伸ばしてから補正します（QGIS と同じ考え方）。`normalize: true`（OpenLayers の既定）は 0〜65535 全体を 0〜255 に縮めるので、値が狭い範囲に集まる衛星画像（Landsat など）は数十段階に潰れ、あとから DRA を掛けてもまだらになります。`normalize: 'auto'` は 8bit 画像だけ従来どおり、それより深い画像は元の値で読みます（`LoadImageControl` の既定）。
   - パイプラインに `autoStretch`（DRA）がないときは `rawStretch` の設定で画像全体の統計から引き伸ばします。範囲を固定するときは `rawStretch: { black, white }`、自動ストレッチの設定を変えるときは `rawStretch: { lowPercent: 2, highPercent: 2 }` のように渡します。
   - `autoStretch` があるときは、その設定（方式・クリップ・RGB 連動）で元の値を表示範囲の統計（`updateDra(map)`）から引き伸ばし、8bit での `autoStretch` は掛けません。

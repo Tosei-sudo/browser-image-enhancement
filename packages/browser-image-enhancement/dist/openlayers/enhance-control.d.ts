@@ -139,6 +139,8 @@ export default class EnhanceControl extends Control {
   private bindSource_;
   /** Band choices for the source's band count, showing the bands it draws now. */
   private updateBands_;
+  /** "Band 4" or, with a name, "Band 4 (NIR)". */
+  private bandLabel_;
   /** Sends the chosen bands to the source. */
   private applyBands_;
   private updateColorRows_;

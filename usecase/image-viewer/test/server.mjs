@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { writeArrayBuffer } from 'geotiff';
+import { globals, writeArrayBuffer } from 'geotiff';
 import { serveService } from './services.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -43,10 +43,20 @@ function fixture(width = 512, height = 256) {
 }
 const tif = fixture();
 
+// geotiff.js reads GDAL's metadata tags but has no type to write them with.
+globals.fieldTagTypes[globals.tags.GDAL_METADATA] = 'ASCII';
+
+/** GDAL's metadata XML naming the bands, as gdal_translate writes it. */
+const bandNames = (names) =>
+  `<GDALMetadata><Item name="AREA_OR_POINT">Area</Item>${names
+    .map((n, i) => `<Item name="DESCRIPTION" sample="${i}" role="description">${n}</Item>`)
+    .join('')}</GDALMetadata>`;
+
 /**
  * 512×256, 4 bands of 16-bit values over the same area, like a Landsat
  * scene: a narrow part of 0-65535, with band 2 (0-based) brighter than the
  * others, as blue is in the haze of real imagery. Band 0 rises from left to right.
+ * The bands are named Blue, Green, Red and NIR in GDAL's metadata.
  */
 function fixture16(width = 512, height = 256) {
   const values = new Uint16Array(width * height * 4);
@@ -68,6 +78,7 @@ function fixture16(width = 512, height = 256) {
       BitsPerSample: [16, 16, 16, 16],
       SampleFormat: [1, 1, 1, 1],
       PhotometricInterpretation: 1,
+      GDAL_METADATA: bandNames(['Blue', 'Green', 'Red', 'NIR']),
       ModelPixelScale: [(maxX - minX) / width, (maxY - minY) / height, 0],
       ModelTiepoint: [0, 0, 0, minX, maxY, 0],
       GeographicTypeGeoKey: 4326,

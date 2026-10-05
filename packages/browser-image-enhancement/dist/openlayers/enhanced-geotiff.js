@@ -5,6 +5,7 @@ import { pipeline } from "../pipeline.js";
 import { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToImageData } from "../raster.js";
 import { isGraySelection } from "../bands.js";
 import { cropMargin, withMargin } from "./margin.js";
+import { readBandNames } from "./tiff-metadata.js";
 import GeoTIFF from "ol/source/GeoTIFF.js";
 import { getHeight, getIntersection, getWidth, isEmpty } from "ol/extent.js";
 import { transformExtent } from "ol/proj.js";
@@ -87,6 +88,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	viewRaw_ = null;
 	/** The bands R, G and B show, as set; null: as read. */
 	select_;
+	bandNamesOption_;
+	bandNames_ = null;
 	/** How many tiles were read and corrected, and the time it took. */
 	stats = {
 		tiles: 0,
@@ -103,6 +106,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		this.rawStretchOption_ = options.rawStretch ?? {};
 		if ("black" in this.rawStretchOption_ && "white" in this.rawStretchOption_) this.rawStretch_ = this.rawStretchOption_;
 		this.select_ = options.select ? toRgb(options.select) : null;
+		this.bandNamesOption_ = options.bandNames ?? null;
 		this.pipeline_ = options.pipeline ?? pipeline();
 		this.worker_ = options.worker ?? true;
 		this.correctTiles_ = options.correctTiles ?? true;
@@ -174,6 +178,42 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	getSelect() {
 		const select = this.remap_();
 		return select ? [...select] : null;
+	}
+	/**
+	* The name of each value band (0-based, alpha not counted), null for a band
+	* without one: the `bandNames` option, else the band's `DESCRIPTION` in
+	* GDAL's metadata (`GDAL_METADATA`), as `gdal_translate`, QGIS or
+	* rasterio write it. Empty before the COG is read.
+	*/
+	async getBandNames() {
+		const n = this.getValueBandCount();
+		if (!n) return [];
+		const names = this.bandNamesOption_ ?? await (this.bandNames_ ??= this.readBandNames_().catch(() => []));
+		return Array.from({ length: n }, (_, i) => names[i] ?? null);
+	}
+	/** Band names of each source, in the order the bands are read (`sources[].bands` picks them). */
+	async readBandNames_() {
+		const info = this.sourceInfo_ ?? [];
+		const images = this.getTiffImages();
+		const names = [];
+		for (let s = 0; s < images.length; s++) {
+			const image = images[s][0];
+			if (!image) return names;
+			const own = await readBandNames(image);
+			const bands = info[s]?.bands;
+			names.push(...bands ? bands.map((b) => own[b - 1] ?? null) : own);
+		}
+		return names;
+	}
+	/**
+	* The geotiff.js images (`GeoTIFFImage`) OpenLayers opened, for reading
+	* their tags: one list per source, the full-resolution image first, then
+	* the overviews from finest to coarsest. Empty before the COG is read.
+	*/
+	getTiffImages() {
+		const imagery = this.sourceImagery_;
+		if (this.getState() !== "ready" || !Array.isArray(imagery)) return [];
+		return imagery.map((levels) => (levels ?? []).filter((image) => image).reverse());
 	}
 	/**
 	* Shows other bands as R, G and B (see the `select` option); null draws the

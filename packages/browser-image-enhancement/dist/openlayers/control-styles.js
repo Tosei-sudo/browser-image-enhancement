@@ -21,6 +21,7 @@ const CSS = `
 .ol-enhance-row input[type=range] { width: 100%; min-width: 0; margin: 0; }
 .ol-enhance-row output { text-align: right; font-variant-numeric: tabular-nums; }
 .ol-enhance-row select { grid-column: 2 / 4; min-width: 0; font: inherit; }
+.ol-enhance-bands .ol-enhance-row { grid-template-columns: 4em minmax(0, 1fr) 0; }
 .ol-enhance-row input[type=checkbox] { justify-self: start; margin: 0; }
 .ol-enhance-head { display: flex; align-items: center; gap: 8px; }
 .ol-enhance-head label { display: flex; align-items: center; gap: 4px; margin-right: auto; }

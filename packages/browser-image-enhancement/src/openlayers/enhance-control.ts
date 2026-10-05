@@ -65,6 +65,7 @@ export const enhanceLabelsEn: EnhanceLabels = {
   'bands.g': 'Green',
   'bands.b': 'Blue',
   'bands.band': 'Band {n}',
+  'bands.named': 'Band {n} ({name})',
   opacity: 'Opacity',
   exposure: 'Exposure (EV)',
   brightness: 'Brightness',
@@ -100,6 +101,7 @@ export const enhanceLabelsJa: EnhanceLabels = {
   'bands.g': 'G（緑）',
   'bands.b': 'B（青）',
   'bands.band': 'バンド {n}',
+  'bands.named': 'バンド {n} ({name})',
   opacity: '不透明度',
   exposure: '露出 (EV)',
   brightness: '明るさ',
@@ -474,10 +476,23 @@ export default class EnhanceControl extends Control {
     const current = source!.getSelect() ?? [0, 1, 2];
     b.selects.forEach((select, c) => {
       if (select.options.length !== n) {
-        select.replaceChildren(...Array.from({ length: n }, (_, i) => new Option(this.labels_['bands.band'].replace('{n}', String(i + 1)), String(i))));
+        select.replaceChildren(...Array.from({ length: n }, (_, i) => new Option(this.bandLabel_(i, null), String(i))));
       }
       select.value = String(current[c]);
     });
+    // Names from the file (GDAL's DESCRIPTION, e.g. NIR) label the bands once read.
+    void source!.getBandNames().then((names) => {
+      if (this.getSource() !== source) return;
+      for (const select of b.selects) {
+        for (const option of select.options) option.text = this.bandLabel_(Number(option.value), names[Number(option.value)] ?? null);
+      }
+    });
+  }
+
+  /** "Band 4" or, with a name, "Band 4 (NIR)". */
+  private bandLabel_(band: number, name: string | null): string {
+    const n = String(band + 1);
+    return name ? this.labels_['bands.named'].replace('{n}', n).replace('{name}', () => name) : this.labels_['bands.band'].replace('{n}', n);
   }
 
   /** Sends the chosen bands to the source. */

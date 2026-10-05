@@ -78,6 +78,11 @@ export default class TileCorrection extends Observable {
     return 0;
   }
 
+  /** Always empty: picture tiles have no bands to name. */
+  async getBandNames(): Promise<Array<string | null>> {
+    return [];
+  }
+
   /** Always null: picture tiles have no bands to assign. */
   getSelect(): [number, number, number] | null {
     return null;

@@ -42,6 +42,12 @@ export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
    * for images with more than 4 bands). Needs an image with at least 3 bands.
    */
   select?: BandSelection;
+  /**
+   * Names of the bands (0-based, alpha not counted), shown by the band
+   * selects of `EnhanceControl`. Default: read from the file
+   * (`DESCRIPTION` in GDAL's metadata, e.g. `NIR`); see `getBandNames`.
+   */
+  bandNames?: ReadonlyArray<string | null>;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -111,6 +117,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private viewRaw_;
   /** The bands R, G and B show, as set; null: as read. */
   private select_;
+  private readonly bandNamesOption_;
+  private bandNames_;
   /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats;
   constructor(options: EnhancedGeoTIFFOptions);
@@ -140,6 +148,21 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   getValueBandCount(): number;
   /** The bands R, G and B show now (0-based), or null when tiles are drawn as read. */
   getSelect(): [number, number, number] | null;
+  /**
+   * The name of each value band (0-based, alpha not counted), null for a band
+   * without one: the `bandNames` option, else the band's `DESCRIPTION` in
+   * GDAL's metadata (`GDAL_METADATA`), as `gdal_translate`, QGIS or
+   * rasterio write it. Empty before the COG is read.
+   */
+  getBandNames(): Promise<Array<string | null>>;
+  /** Band names of each source, in the order the bands are read (`sources[].bands` picks them). */
+  private readBandNames_;
+  /**
+   * The geotiff.js images (`GeoTIFFImage`) OpenLayers opened, for reading
+   * their tags: one list per source, the full-resolution image first, then
+   * the overviews from finest to coarsest. Empty before the COG is read.
+   */
+  getTiffImages(): unknown[][];
   /**
    * Shows other bands as R, G and B (see the `select` option); null draws the
    * bands as read. Tiles are rebuilt from the raw cache, without reading the

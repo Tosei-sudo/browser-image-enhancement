@@ -52,3 +52,12 @@ export {
   type LoadImageLabels,
 } from './load-image-control.js';
 export { imageToGeoTIFF, rasterToGeoTIFF, type GeoTIFFPlacement, type GeoTIFFRaster, type GeoTIFFSamples } from './geotiff-writer.js';
+export {
+  bandNamesFromGdalMetadata,
+  parseGdalMetadata,
+  readBandNames,
+  readGdalMetadataXml,
+  readTag,
+  type GdalMetadataItem,
+  type TiffImageLike,
+} from './tiff-metadata.js';

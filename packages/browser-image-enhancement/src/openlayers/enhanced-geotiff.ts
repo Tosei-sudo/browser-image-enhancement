@@ -60,6 +60,7 @@ import {
 } from '../raster.js';
 import { warn } from '../warn.js';
 import { cropMargin, withMargin } from './margin.js';
+import { readBandNames, type TiffImageLike } from './tiff-metadata.js';
 
 /** Options for {@link EnhancedGeoTIFF}: those of `ol/source/GeoTIFF`, plus the correction. */
 export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'> {
@@ -96,6 +97,12 @@ export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'
    * for images with more than 4 bands). Needs an image with at least 3 bands.
    */
   select?: BandSelection;
+  /**
+   * Names of the bands (0-based, alpha not counted), shown by the band
+   * selects of `EnhanceControl`. Default: read from the file
+   * (`DESCRIPTION` in GDAL's metadata, e.g. `NIR`); see `getBandNames`.
+   */
+  bandNames?: ReadonlyArray<string | null>;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -168,6 +175,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private viewRaw_: RasterHistogram | null = null;
   /** The bands R, G and B show, as set; null: as read. */
   private select_: readonly [number, number, number] | null;
+  private readonly bandNamesOption_: ReadonlyArray<string | null> | null;
+  private bandNames_: Promise<Array<string | null>> | null = null;
   /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats = { tiles: 0, ms: 0, reads: 0 };
 
@@ -179,6 +188,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.rawStretchOption_ = options.rawStretch ?? {};
     if ('black' in this.rawStretchOption_ && 'white' in this.rawStretchOption_) this.rawStretch_ = this.rawStretchOption_;
     this.select_ = options.select ? toRgb(options.select) : null;
+    this.bandNamesOption_ = options.bandNames ?? null;
     this.pipeline_ = options.pipeline ?? pipeline();
     this.worker_ = options.worker ?? true;
     this.correctTiles_ = options.correctTiles ?? true;
@@ -256,6 +266,45 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   getSelect(): [number, number, number] | null {
     const select = this.remap_();
     return select ? [...select] : null;
+  }
+
+  /**
+   * The name of each value band (0-based, alpha not counted), null for a band
+   * without one: the `bandNames` option, else the band's `DESCRIPTION` in
+   * GDAL's metadata (`GDAL_METADATA`), as `gdal_translate`, QGIS or
+   * rasterio write it. Empty before the COG is read.
+   */
+  async getBandNames(): Promise<Array<string | null>> {
+    const n = this.getValueBandCount();
+    if (!n) return [];
+    const names = this.bandNamesOption_ ?? (await (this.bandNames_ ??= this.readBandNames_().catch(() => [])));
+    return Array.from({ length: n }, (_, i) => names[i] ?? null);
+  }
+
+  /** Band names of each source, in the order the bands are read (`sources[].bands` picks them). */
+  private async readBandNames_(): Promise<Array<string | null>> {
+    const info = (this as unknown as { sourceInfo_?: Array<{ bands?: number[] }> }).sourceInfo_ ?? [];
+    const images = this.getTiffImages();
+    const names: Array<string | null> = [];
+    for (let s = 0; s < images.length; s++) {
+      const image = images[s][0] as TiffImageLike | undefined;
+      if (!image) return names;
+      const own = await readBandNames(image);
+      const bands = info[s]?.bands;
+      names.push(...(bands ? bands.map((b) => own[b - 1] ?? null) : own));
+    }
+    return names;
+  }
+
+  /**
+   * The geotiff.js images (`GeoTIFFImage`) OpenLayers opened, for reading
+   * their tags: one list per source, the full-resolution image first, then
+   * the overviews from finest to coarsest. Empty before the COG is read.
+   */
+  getTiffImages(): unknown[][] {
+    const imagery = (this as unknown as { sourceImagery_?: unknown[][] }).sourceImagery_;
+    if (this.getState() !== 'ready' || !Array.isArray(imagery)) return [];
+    return imagery.map((levels) => (levels ?? []).filter((image) => image).reverse());
   }
 
   /**
