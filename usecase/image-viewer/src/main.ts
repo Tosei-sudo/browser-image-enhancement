@@ -51,6 +51,7 @@ import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
+import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
 
@@ -295,6 +296,9 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
   },
 });
 
+// Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
+const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
+
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
 
 /** Keeps `?service=` (and `?base=`) in the address, so the view can be shared as a link. */
@@ -491,7 +495,8 @@ declare global {
       geometry: GeometricMode;
       recent: RecentMenu | null;
       processing: ProcessingDialog;
+      viewExport: ViewExportDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, viewExport };
