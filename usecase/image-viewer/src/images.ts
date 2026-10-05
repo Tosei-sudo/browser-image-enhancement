@@ -63,7 +63,19 @@ export class ImageList {
     private readonly element: HTMLOListElement,
     private readonly map: OlMap,
     private readonly options: ImageListOptions,
-  ) {}
+  ) {
+    // Layers shown only at some scales are dimmed in the list where they are not drawn.
+    map.on('moveend', () => this.images_.forEach((l) => this.markScale_(l)));
+  }
+
+  /** Dims the row of a layer the map does not draw at this scale (its style's scale range). */
+  private markScale_(entry: ViewerLayer): void {
+    const resolution = this.map.getView().getResolution();
+    const layer = entry.layer;
+    const out = resolution !== undefined && (resolution < layer.getMinResolution() || resolution >= layer.getMaxResolution());
+    entry.row.classList.toggle('out-of-scale', out);
+    entry.row.title = out ? 'この縮尺では表示されません（スタイルの「縮尺で表示を切り替える」）' : '';
+  }
 
   /** The open image showing `source`. */
   find(source: EnhancedGeoTIFF): ViewerImage | undefined {
@@ -109,6 +121,8 @@ export class ImageList {
     this.map.addLayer(service.layer);
     const entry: ViewerService = { type: 'service', name: service.title, service, layer: service.layer, row: document.createElement('li') };
     this.buildRow_(entry);
+    service.layer.on(['change:minResolution', 'change:maxResolution'], () => this.markScale_(entry));
+    this.markScale_(entry);
     this.images_.unshift(entry);
     this.restack_();
     this.select(entry);

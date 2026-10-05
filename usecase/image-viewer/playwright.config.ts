@@ -9,6 +9,8 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL: 'http://localhost:4175',
+    // The first-visit guide stays away, so it covers no part of the map the tests click (shell.spec.ts shows it).
+    storageState: { cookies: [], origins: [{ origin: 'http://localhost:4175', localStorage: [{ name: 'image-viewer.guide-seen', value: '1' }] }] },
     launchOptions: executablePath ? { executablePath } : {},
   },
   webServer: {

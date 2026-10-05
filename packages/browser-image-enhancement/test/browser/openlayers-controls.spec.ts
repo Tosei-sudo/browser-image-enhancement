@@ -215,7 +215,8 @@ test('the band selects assign bands of a multiband image to R, G and B', async (
   await bandSet.getByLabel('B（青）').selectOption('2');
   expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getSelect())).toEqual([4, 3, 2]);
   const after = await pixel();
-  expect(after.bands).toBe(5);
+  // Handed to the layer as R, G, B and alpha: one texture per tile, not one per 4 bands.
+  expect(after.bands).toBe(4);
   expect(after.values).toEqual([220, 120, 40, 255]);
   expect(await page.evaluate(() => window.controlsExample.enhance.getSource()!.getColorMode())).toBe('rgb');
 
@@ -229,6 +230,51 @@ test('the band selects assign bands of a multiband image to R, G and B', async (
   // DRA follows the new bands: a flat band stretches to a fixed range.
   await page.getByLabel('オン').check();
   await page.waitForFunction(() => window.controlsExample.enhance.getSource()!.getEffectivePipeline().ops[0]?.op === 'stretch');
+  expect(errors).toEqual([]);
+});
+
+test('a 4-band image reprojected on the map is drawn from 4-band tiles, its alpha kept', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page, '?fixture=rgba');
+  // The image is in EPSG:4326 on a Web Mercator map: OpenLayers would add a fifth (coverage) band.
+  const info = await page.evaluate(() => {
+    const source = window.controlsExample.enhance.getSource()!;
+    return [source.getValueBandCount(), source.getColorMode(), source.getSelect()];
+  });
+  expect(info).toEqual([4, 'rgb', null]);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        window.controlsExample.map.once('rendercomplete', () => resolve());
+        window.controlsExample.map.render();
+      }),
+  );
+  /** The tile data the layer draws at a point of the image (fractions of its width and height from the top left). */
+  const at = (fx: number, fy: number) =>
+    page.evaluate(
+      ([fx, fy]) => {
+        const { map, layer } = window.controlsExample;
+        // The fixture's extent (FIXTURE_EXTENT), to Web Mercator.
+        const lon = 139.6 + 0.3 * fx;
+        const lat = 35.75 - 0.15 * fy;
+        const r = 6378137;
+        const coord = [(lon * Math.PI * r) / 180, r * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))];
+        const data = layer.getData(map.getPixelFromCoordinate(coord)) as Uint8Array | null;
+        return data ? Array.from(data) : null;
+      },
+      [fx, fy],
+    );
+  const inside = await at(0.55, 0.5);
+  expect(inside).not.toBeNull();
+  expect(inside!.length).toBe(4);
+  // Column 422: red ramps 0-200 across (no stripe there), blue is flat 120, alpha 255.
+  expect(Math.abs(inside![0] - 110)).toBeLessThanOrEqual(2);
+  expect(Math.abs(inside![2] - 120)).toBeLessThanOrEqual(1);
+  expect(inside![3]).toBe(255);
+  // The leftmost columns are transparent in the image's own alpha band.
+  const left = await at(0.02, 0.5);
+  expect(left === null || left[3] === 0).toBe(true);
   expect(errors).toEqual([]);
 });
 

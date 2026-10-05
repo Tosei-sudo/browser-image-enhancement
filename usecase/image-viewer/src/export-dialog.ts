@@ -3,12 +3,14 @@
  * features (all, or the selected ones) to GeoJSON, a Shapefile (.zip) or a
  * GeoPackage, in WGS 84, Web Mercator or the layer's own CRS, and hands the
  * file over as a download. Unsaved edits are included: it writes what the
- * map shows.
+ * map shows. The layer's style goes with Shapefiles and GeoPackages (as
+ * QGIS keeps styles), so QGIS and the viewer draw them the same way.
  */
 import type Feature from 'ol/Feature.js';
 import { download } from './local-edit.js';
 import type { ViewerService } from './images.js';
 import type { Selection } from './selection.js';
+import type { VectorStyleSpec } from './vector-style.js';
 import { webMercator, wgs84, writeGeoJson, writeGeoPackage, writeShapefile, zipFiles, type TargetCrs } from './vector-write.js';
 
 /** The formats a layer can be written to. */
@@ -20,18 +22,25 @@ export function safeName(title: string): string {
   return name.trim() || 'layer';
 }
 
-/** The file of `features` in `format`: its name and bytes. */
+/** The file of `features` in `format`: its name and bytes; with `style` where the format keeps one (not GeoJSON). */
 export async function exportFile(
   title: string,
   features: Feature[],
   fields: Parameters<typeof writeGeoJson>[1],
   format: ExportFormat,
   crs: TargetCrs,
+  style?: VectorStyleSpec,
 ): Promise<{ name: string; bytes: Uint8Array<ArrayBuffer> | string; type: string }> {
   const name = safeName(title);
   if (format === 'geojson') return { name: `${name}.geojson`, bytes: writeGeoJson(features, fields, crs), type: 'application/geo+json' };
-  if (format === 'shapefile') return { name: `${name}.zip`, bytes: zipFiles(writeShapefile(name, features, fields, crs)), type: 'application/zip' };
-  return { name: `${name}.gpkg`, bytes: await writeGeoPackage(name, features, fields, crs), type: 'application/geopackage+sqlite3' };
+  if (format === 'shapefile') return { name: `${name}.zip`, bytes: zipFiles(writeShapefile(name, features, fields, crs, style)), type: 'application/zip' };
+  return { name: `${name}.gpkg`, bytes: await writeGeoPackage(name, features, fields, crs, style), type: 'application/geopackage+sqlite3' };
+}
+
+/** The style a layer is written with: none for the service's own drawing, which the viewer cannot describe. */
+export function exportStyle(entry: ViewerService): VectorStyleSpec | undefined {
+  const spec = entry.service.style?.get();
+  return spec && spec.mode !== 'own' ? spec : undefined;
 }
 
 export class ExportDialog {
@@ -39,6 +48,7 @@ export class ExportDialog {
   private readonly form_: HTMLFormElement;
   private readonly crs_: HTMLSelectElement;
   private readonly selected_: HTMLInputElement;
+  private readonly withStyle_: HTMLInputElement;
   private readonly note_: HTMLElement;
   private entry_: ViewerService | null = null;
   private choices_: TargetCrs[] = [];
@@ -60,6 +70,7 @@ export class ExportDialog {
         </select></label>
         <label>座標系<select name="crs" aria-label="座標系"></select></label>
         <label class="wide check"><input name="selected" type="checkbox" /><span>選択中の地物だけ</span></label>
+        <label class="wide check"><input name="withStyle" type="checkbox" checked /><span>スタイルも保存する（QGIS でも同じ見た目で開けます）</span></label>
       </form>
       <p class="service-status export-note" role="status"></p>
       <div class="service-actions">
@@ -70,6 +81,7 @@ export class ExportDialog {
     this.form_ = this.dialog.querySelector('form')!;
     this.crs_ = this.form_.elements.namedItem('crs') as HTMLSelectElement;
     this.selected_ = this.form_.elements.namedItem('selected') as HTMLInputElement;
+    this.withStyle_ = this.form_.elements.namedItem('withStyle') as HTMLInputElement;
     this.note_ = this.dialog.querySelector('.export-note')!;
     this.dialog.querySelector('button[value=cancel]')!.addEventListener('click', () => this.dialog.close());
     this.dialog.querySelector('button[value=export]')!.addEventListener('click', () => void this.export());
@@ -105,7 +117,8 @@ export class ExportDialog {
     this.dialog.close();
     this.options.say(`${entry.name} を書き出しています…`);
     try {
-      const file = await exportFile(entry.name, features, vector.fields, format, crs);
+      const style = this.withStyle_.checked ? exportStyle(entry) : undefined;
+      const file = await exportFile(entry.name, features, vector.fields, format, crs, style);
       download(file.name, file.bytes, file.type);
       this.options.say(`${features.length.toLocaleString()} 件を ${file.name} に書き出しました`);
     } catch (error) {
@@ -120,6 +133,8 @@ export class ExportDialog {
 
   private update_(): void {
     const format = (this.form_.elements.namedItem('format') as HTMLSelectElement).value;
+    // GeoJSON has no place for a style, and a service's own drawing cannot be written.
+    this.withStyle_.closest('label')!.hidden = format === 'geojson' || !this.entry_ || !exportStyle(this.entry_);
     const notes: string[] = [];
     if (this.entry_?.service.vector?.truncated) notes.push('このレイヤーは先頭 5 万件だけ読み込んでいます。書き出すのも読み込んだ地物だけです');
     if (format === 'shapefile') notes.push('属性名は 10 バイトまでに切り詰め、文字は UTF-8（.cpg 付き）で書きます。点・線・面が混ざっていると種類ごとに別の Shapefile にします');
