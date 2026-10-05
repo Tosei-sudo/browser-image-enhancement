@@ -126,7 +126,9 @@ export class PointTool {
     this.points_.push(point);
     this.buildRow_(point);
     this.update_();
-    // Name it right away.
+    // Name it right away (opening the list's section if it is folded).
+    const fold = this.options.list.closest('details');
+    if (fold) fold.open = true;
     const input = point.row.querySelector('input')!;
     input.focus();
     input.select();
