@@ -12,7 +12,7 @@ import {
   LoadImageControl,
   loadImageLabelsJa,
 } from '../../src/openlayers/index.js';
-import { fixtureBlob, fixtureMultibandBlob } from '../openlayers-cog/fixture.js';
+import { fixtureBlob, fixtureMultibandBlob, fixtureRgbaBlob } from '../openlayers-cog/fixture.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -46,9 +46,10 @@ const enhance = new EnhanceControl({ layer, labels: enhanceLabelsJa, collapsed: 
 map.addControl(loader);
 map.addControl(enhance);
 
-// `?fixture` opens a small GeoTIFF made in the page (no network needed); `?fixture=multiband` a 5-band one.
+// `?fixture` opens a small GeoTIFF made in the page (no network needed); `?fixture=multiband` a 5-band one, `?fixture=rgba` a 4-band one.
 const fixture = new URLSearchParams(location.search).get('fixture');
 if (fixture === 'multiband') void loader.loadFile(fixtureMultibandBlob(), 'multiband.tif');
+else if (fixture === 'rgba') void loader.loadFile(fixtureRgbaBlob(), 'rgba.tif');
 else if (fixture !== null) void loader.loadFile(fixtureBlob(), 'fixture.tif');
 
 // For the browser test.
