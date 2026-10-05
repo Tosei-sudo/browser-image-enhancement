@@ -47,10 +47,12 @@ import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
+import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
+import { PanSharpenDialog } from './pansharpen-dialog.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
 
@@ -96,6 +98,7 @@ const map = new Map({
 
 // Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;
+foldSections(side);
 makeResizer({
   handle: document.getElementById('side-resize')!,
   target: document.querySelector<HTMLElement>('.app')!,
@@ -107,6 +110,21 @@ makeResizer({
   key: 'image-viewer.side-width',
   label: 'レイヤーパネルの幅',
   onResize: () => map.updateSize(),
+});
+
+// The shell: the click tools in one menu, a guide on the first visit, 「?」 for every shortcut.
+const toolMenu = new ToolMenu(document.getElementById('tools-menu')!);
+const guide = new Guide(mapElement);
+const help = new HelpDialog(guide);
+document.getElementById('help')!.addEventListener('click', () => help.open());
+const press = (id: string) => () => document.getElementById(id)!.click();
+bindShortcuts({
+  '?': () => help.open(),
+  o: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click(),
+  '/': () => document.querySelector<HTMLInputElement>('#jump input')!.focus(),
+  d: press('measure-distance'),
+  a: press('measure-area'),
+  p: press('add-point'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -180,6 +198,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onChange: (list) => {
     empty.hidden = list.length > 0;
+    if (list.length && guide.isShown()) guide.close();
     updateLink();
   },
   onEdit: (layer) => {
@@ -293,6 +312,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
     addService(tempLayer(record, tempStore));
   },
+  rasterTools: [{ id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() }],
 });
 
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
@@ -370,6 +390,9 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
   },
   onPipeline: (p) => enhance.setPipeline(p),
 });
+
+// Pan-sharpening (from the processing dialog): a panchromatic and a multispectral image make a new layer.
+const panSharpen = new PanSharpenDialog(map, images, loader, { say, onPipeline: (p) => enhance.setPipeline(p) });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
 function fileContext(): OpenFilesContext {
@@ -491,7 +514,11 @@ declare global {
       geometry: GeometricMode;
       recent: RecentMenu | null;
       processing: ProcessingDialog;
+      panSharpen: PanSharpenDialog;
+      toolMenu: ToolMenu;
+      guide: Guide;
+      help: HelpDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help };

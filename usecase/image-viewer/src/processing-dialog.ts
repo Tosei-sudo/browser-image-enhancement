@@ -196,6 +196,8 @@ export interface ProcessingDialogOptions {
   /** Opens a result as a temporary layer. */
   onResult: (result: ProcessingResult, made: string) => Promise<void>;
   say: (message: string) => void;
+  /** Tools on images, with dialogs of their own: choosing one opens it in place of this one. */
+  rasterTools?: Array<{ id: string; label: string; open: () => void }>;
 }
 
 export class ProcessingDialog {
@@ -219,7 +221,7 @@ export class ProcessingDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="processing-title">プロセッシング</h2>
-        <label>処理<select name="tool" aria-label="処理">${tools.map((t) => `<option value="${t.id}">${t.label}</option>`).join('')}</select></label>
+        <label>処理<select name="tool" aria-label="処理">${this.toolOptions_()}</select></label>
         <label>入力レイヤー<select name="input" aria-label="入力レイヤー"></select></label>
         <label class="wide check"><input name="selectedOnly" type="checkbox" /><span>選択中の地物だけ</span></label>
         <div class="wide processing-settings service-form"></div>
@@ -239,7 +241,14 @@ export class ProcessingDialog {
     this.run_ = this.dialog.querySelector('button[value=run]')!;
     this.dialog.querySelector('button[value=cancel]')!.addEventListener('click', () => this.dialog.close());
     this.run_.addEventListener('click', () => void this.run());
-    this.tool_.addEventListener('change', () => this.update_());
+    this.tool_.addEventListener('change', () => {
+      const raster = this.options.rasterTools?.find((t) => t.id === this.tool_.value);
+      if (!raster) return this.update_();
+      // Back to a vector tool for next time, then over to the image tool's own dialog.
+      this.tool_.value = tools[0].id;
+      this.dialog.close();
+      raster.open();
+    });
     this.input_.addEventListener('change', () => this.update_(false));
     button.addEventListener('click', () => this.open());
   }
@@ -288,6 +297,14 @@ export class ProcessingDialog {
     } finally {
       this.run_.disabled = false;
     }
+  }
+
+  /** The tool choices: vector tools, then the image tools under their own heading. */
+  private toolOptions_(): string {
+    const vector = tools.map((t) => `<option value="${t.id}">${t.label}</option>`).join('');
+    const raster = this.options.rasterTools ?? [];
+    if (!raster.length) return vector;
+    return `<optgroup label="ベクター">${vector}</optgroup><optgroup label="画像">${raster.map((t) => `<option value="${t.id}">${escape(t.label)}</option>`).join('')}</optgroup>`;
   }
 
   /** Fills the input layers the tool takes, and (when `tool` changed or the layer did) its settings. */
