@@ -353,6 +353,27 @@ const swapped = assignBands(imageData, [2, 1, 0]);
 - `selectBands` は選んだバンドを順に取り出します（`alpha: true` の最後のバンドは残します）。16bit や float も元の値のままです
 - 同じバンドを 3 つとも選ぶと、そのバンドを白黒で表示します（`isGraySelection` で判定できます）
 
+## パンシャープン
+
+高解像度の白黒（パンクロ）バンドの細かさを、解像度の低いマルチスペクトル画像に移します。マルチスペクトル画像は先にパンクロと同じ格子（同じ幅・高さ）へ再サンプリングしておきます（`browser-image-geometry` の `warpRaster` など）。値の型（16bit など）とバンド数はそのままです。
+
+```ts
+import { panSharpen } from 'browser-image-enhancement';
+
+const sharp = panSharpen(
+  { data: pan, width, height, noData: 0 },                 // パンクロ（1 バンド）
+  { data: msOnPanGrid, width, height, bands: 4, noData: 0 }, // パンクロの格子に合わせたマルチスペクトル
+  { method: 'gram-schmidt' },                              // 'ihs' | 'brovey' も
+);
+// sharp.data はマルチスペクトルと同じ型（Uint16Array など）。sharp.weights は推定した輝度の重み
+```
+
+- `gram-schmidt`（既定）: 適応 Gram-Schmidt（GSA）。バンドごとの係数で細部を足すので色が変わりにくい
+- `ihs`: 全バンドに同じ細部を足す（Fast IHS）。いちばんくっきり、色が変わることも
+- `brovey`: 全バンドをパンクロ ÷ 輝度の比で掛ける。コントラストが強め
+- 輝度の重みは `weights: 'auto'`（既定、パンクロに最小二乗で合わせる）か `'equal'`、または数値の配列。パンクロは輝度と同じ平均・ばらつきに合わせてから使います
+- `strength`（既定 1）で細部の量、`bands` で鮮鋭化するバンドを選べます。no data（と NaN）はどちらかにあればそのまま no data です
+
 ## 地図（OpenLayers + COG）での利用
 
 OpenLayers 用の部品を `browser-image-enhancement/openlayers` から読み込めます（`ol` 10 以降を別にインストールしてください）。

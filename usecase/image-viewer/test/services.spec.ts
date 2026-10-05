@@ -432,7 +432,7 @@ async function exportLayer(page: Page, format: string, options: { crs?: string; 
   const dialog = page.getByRole('dialog', { name: '書き出し' });
   await dialog.getByRole('combobox', { name: '形式' }).selectOption(format);
   if (options.crs) await dialog.getByRole('combobox', { name: '座標系' }).selectOption({ label: options.crs });
-  await dialog.getByRole('checkbox').setChecked(!!options.selectedOnly);
+  await dialog.getByRole('checkbox', { name: /選択中の地物だけ/ }).setChecked(!!options.selectedOnly);
   const download = page.waitForEvent('download');
   await dialog.getByRole('button', { name: '書き出す' }).click();
   const file: Download = await download;

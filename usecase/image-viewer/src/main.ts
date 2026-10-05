@@ -47,10 +47,12 @@ import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
+import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
+import { PanSharpenDialog } from './pansharpen-dialog.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
 import { SwipeTool } from './swipe.js';
@@ -98,6 +100,7 @@ const map = new Map({
 
 // Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;
+foldSections(side);
 makeResizer({
   handle: document.getElementById('side-resize')!,
   target: document.querySelector<HTMLElement>('.app')!,
@@ -109,6 +112,21 @@ makeResizer({
   key: 'image-viewer.side-width',
   label: 'レイヤーパネルの幅',
   onResize: () => map.updateSize(),
+});
+
+// The shell: the click tools in one menu, a guide on the first visit, 「?」 for every shortcut.
+const toolMenu = new ToolMenu(document.getElementById('tools-menu')!);
+const guide = new Guide(mapElement);
+const help = new HelpDialog(guide);
+document.getElementById('help')!.addEventListener('click', () => help.open());
+const press = (id: string) => () => document.getElementById(id)!.click();
+bindShortcuts({
+  '?': () => help.open(),
+  o: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click(),
+  '/': () => document.querySelector<HTMLInputElement>('#jump input')!.focus(),
+  d: press('measure-distance'),
+  a: press('measure-area'),
+  p: press('add-point'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -185,6 +203,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onChange: (list) => {
     empty.hidden = list.length > 0;
+    if (list.length && guide.isShown()) guide.close();
     updateLink();
   },
   onEdit: (layer) => {
@@ -194,7 +213,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onStyle: (layer) => styler.open(layer),
 });
 const exporter = new ExportDialog(selection, { say });
-const styler = new StyleDialog({ say });
+const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
 const metadata = new MetadataDialog({ say });
 // Comparison and analysis, tucked under the information: the selected layer on one side of a line, and its histogram.
 const swipe = new SwipeTool(map, { button: document.getElementById('swipe') as HTMLButtonElement, say });
@@ -302,6 +321,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
     addService(tempLayer(record, tempStore));
   },
+  rasterTools: [{ id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() }],
 });
 
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
@@ -333,10 +353,13 @@ const loader = new LoadImageControl({
   onLoad: (loaded: LoadedImage) => {
     showRset(images.add(loaded));
     status.textContent = `${loaded.name} を開きました`;
-    // A COG opened by URL may be a satellite image with an RPC model.
+    // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
       void tiffInfo(loaded.name)
-        .then((found) => found.rpc && geometry.setSatellite(loaded.source, { rpc: found.rpc, from: loaded.name }))
+        .then((found) => {
+          if (found.rpc) geometry.setSatellite(loaded.source, { rpc: found.rpc, from: loaded.name });
+          else if (found.georeferenced) geometry.setGeoreferenced(loaded.source, loaded.name, found.view);
+        })
         .catch(() => {});
     }
   },
@@ -379,6 +402,9 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
   },
   onPipeline: (p) => enhance.setPipeline(p),
 });
+
+// Pan-sharpening (from the processing dialog): a panchromatic and a multispectral image make a new layer.
+const panSharpen = new PanSharpenDialog(map, images, loader, { say, onPipeline: (p) => enhance.setPipeline(p) });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
 function fileContext(): OpenFilesContext {
@@ -424,6 +450,8 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
   }
   const satellite = geometry.satelliteOf(layer);
   if (satellite) return [['センサーモデル', 'RPC']];
+  const view = geometry.geoImageOf(layer)?.view;
+  if (view) return [['衛星の方向', `方位角 ${view.azimuth}°、仰角 ${view.elevation}°`]];
   const ortho = geometry.orthoOf(layer);
   if (ortho) return [['オルソ補正', `${ortho.sourceName} から`]];
   return [];
@@ -500,9 +528,13 @@ declare global {
       geometry: GeometricMode;
       recent: RecentMenu | null;
       processing: ProcessingDialog;
+      panSharpen: PanSharpenDialog;
+      toolMenu: ToolMenu;
+      guide: Guide;
+      help: HelpDialog;
       swipe: SwipeTool;
       histogram: HistogramPanel;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, swipe, histogram: histogramPanel };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel };

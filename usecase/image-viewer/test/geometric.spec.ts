@@ -71,6 +71,44 @@ test('DTED level 0 to 2 open as elevation data', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('a DEM shows contour lines when asked, at the interval chosen', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // A hill 1990 m high in the middle of the cell.
+  const hill = dted({ west: 139, south: 35, spacing: [30, 30], level: 'DTED0', elevation: (lon, lat) => Math.max(0, Math.round(1990 - Math.hypot(lon - 139.5, lat - 35.5) * 4000)) });
+  await choose(page, [{ name: 'hill.dt0', bytes: hill }]);
+  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として開きました');
+  await page.evaluate(() => window.viewer.images.zoomTo(window.viewer.images.list()[0]));
+  const levels = () =>
+    page.evaluate(() => {
+      const layer = window.viewer.map.getAllLayers().find((l) => l.get('contours'));
+      const source = layer?.getSource() as { getFeatures(): Array<{ get(k: string): number }> } | undefined;
+      return source ? [...new Set(source.getFeatures().map((f) => f.get('level')))].sort((a, b) => a - b) : null;
+    });
+  // Off at first.
+  const check = page.locator('#geometry [data-action=contours]');
+  await expect(check).not.toBeChecked();
+  expect(await levels()).toBeNull();
+
+  await check.check();
+  const interval = page.locator('#geometry select[aria-label=等高線の間隔]');
+  await expect(interval.locator('option:checked')).toHaveText('自動（100 m）');
+  await expect.poll(levels).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900]);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'test-results/contours.png' });
+
+  await interval.selectOption('500');
+  await expect.poll(levels).toEqual([500, 1000, 1500]);
+
+  // Hidden with the DEM, and gone when it closes.
+  await page.locator('#images li').first().locator('input[type=checkbox]').uncheck();
+  expect(await page.evaluate(() => window.viewer.map.getAllLayers().find((l) => l.get('contours'))!.getVisible())).toBe(false);
+  await page.locator('#images li').first().locator('[data-action=remove]').click();
+  expect(await levels()).toBeNull();
+  expect(errors).toEqual([]);
+});
+
 test('a satellite image is orthorectified onto the DEM, moved by hand and saved', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -197,4 +235,54 @@ END;`;
   await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED）がありません');
   await page.locator('#geometry [data-action=ortho]').click();
   await expect(page.locator('#status')).toContainText('P001_ortho.tif を作りました（標高データがないため RPC の基準高 500 m で補正）', { timeout: 30_000 });
+});
+
+test('a georeferenced image without RPC is orthorectified from the satellite direction', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await choose(page, [{ name: 'plateau.dt0', bytes: plateau() }]);
+  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として開きました');
+
+  // Placed on a flat ground at sea level, seen from the east at 45°: the plateau (1500 m) shows 1500 m west of where it is.
+  const geo = { west: 139.7, north: 35.7, step: 0.0001 };
+  const tif = satelliteTiff(1000, 1000, (x, y) => (Math.abs(x - 500) <= 2 && Math.abs(y - 500) <= 2 ? 4000 : 300), undefined, geo);
+  await choose(page, [
+    { name: 'P002.TIF', bytes: tif },
+    { name: 'P002.IMD', bytes: 'BEGIN_GROUP = IMAGE_1\n\tmeanSatAz = 90.0;\n\tmeanSatEl = 45.0;\nEND_GROUP = IMAGE_1\nEND;\n' },
+  ]);
+  await expect.poll(() => names(page)).toEqual(['P002.TIF', 'DEMplateau.dt0']);
+  await expect(page.locator('#info')).toContainText('方位角 90°、仰角 45°');
+  await expect(page.locator('#geometry')).toContainText('簡易オルソ補正できます');
+  await expect(page.locator('#geometry input[name="方位角 °"]')).toHaveValue('90');
+  await expect(page.locator('#geometry input[name="仰角 °"]')).toHaveValue('45');
+
+  // The image was placed at sea level, not at the mean height (the default).
+  await page.locator('#geometry summary').click();
+  await page.locator('#geometry input[name="基準高 m"]').fill('0');
+  await page.locator('#geometry [data-action=simple-ortho]').click();
+  await expect(page.locator('#status')).toContainText('P002_ortho.tif を作りました', { timeout: 30_000 });
+  expect(await names(page)).toEqual(['オルソP002_ortho.tif', 'P002.TIF', 'DEMplateau.dt0']);
+
+  const spot = await page.evaluate(() => {
+    const { raster, geoTransform } = window.viewer.geometry.orthoOf(window.viewer.images.selected()!)!.result;
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (let i = 0; i < raster.data.length; i++) {
+      if (raster.data[i] < 2000) continue;
+      sx += i % raster.width;
+      sy += Math.floor(i / raster.width);
+      n++;
+    }
+    const x = geoTransform[0] + (sx / n + 0.5) * geoTransform[1];
+    const y = geoTransform[3] + (sy / n + 0.5) * geoTransform[5];
+    return [(x / 6378137) * (180 / Math.PI), (Math.atan(Math.exp(y / 6378137)) * 360) / Math.PI - 90];
+  });
+  const placed = [geo.west + 500.5 * geo.step, geo.north - 500.5 * geo.step];
+  const metresPerLon = 111_320 * Math.cos((placed[1] * Math.PI) / 180);
+  expect((spot[0] - placed[0]) * metresPerLon).toBeGreaterThan(1500 - 20);
+  expect((spot[0] - placed[0]) * metresPerLon).toBeLessThan(1500 + 20);
+  expect(Math.abs(spot[1] - placed[1]) * 111_000).toBeLessThan(20);
+  expect(errors).toEqual([]);
 });

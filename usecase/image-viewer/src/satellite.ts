@@ -8,11 +8,14 @@
 import { fromArrayBuffer, fromBlob, fromUrl, type GeoTIFF } from 'geotiff';
 import type { GeoTIFFRaster } from 'browser-image-enhancement/openlayers';
 import { rpcFromTag, rpcProjector, type Rpc } from './rpc.js';
+import { sensorViewFromText, type SensorView } from './simple-ortho.js';
 
 /** The RPC model and georeferencing state of a TIFF. */
 export interface TiffInfo {
   rpc: Rpc | null;
   georeferenced: boolean;
+  /** Where the satellite looked from, when the GDAL metadata says. */
+  view: SensorView | null;
   width: number;
   height: number;
 }
@@ -23,7 +26,7 @@ export async function openTiff(from: Blob | string): Promise<GeoTIFF> {
   return typeof FileReader === 'undefined' ? fromArrayBuffer(await from.arrayBuffer()) : fromBlob(from);
 }
 
-/** The RPC model in the TIFF's RPCCoefficientTag (50844), and whether it has georeferencing tags. */
+/** The RPC model in the TIFF's RPCCoefficientTag (50844), whether it has georeferencing tags, and the sensor angles in its GDAL metadata. */
 export async function tiffInfo(from: Blob | string): Promise<TiffInfo> {
   const tiff = await openTiff(from);
   const image = await tiff.getImage();
@@ -36,7 +39,12 @@ export async function tiffInfo(from: Blob | string): Promise<TiffInfo> {
       rpc = null;
     }
   }
-  return { rpc, georeferenced: fd.hasTag(33922) || fd.hasTag(34264), width: image.getWidth(), height: image.getHeight() };
+  let view: SensorView | null = null;
+  if (fd.hasTag(42112)) {
+    const text = await fd.loadValue(42112).catch(() => null);
+    view = typeof text === 'string' ? sensorViewFromText(text) : null;
+  }
+  return { rpc, georeferenced: fd.hasTag(33922) || fd.hasTag(34264), view, width: image.getWidth(), height: image.getHeight() };
 }
 
 /**

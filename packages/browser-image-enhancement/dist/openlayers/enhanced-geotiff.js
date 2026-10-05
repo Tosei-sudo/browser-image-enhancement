@@ -79,6 +79,12 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	appliedContent_ = "";
 	/** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
 	rawValues_;
+	/** Bands of a tile as OpenLayers reads it (the value bands, then its alpha band for no data if any); 0 before the COG is read. */
+	rawBands_ = 0;
+	/** Whether OpenLayers adds an alpha band for no data to the tiles it reads (the last band). */
+	rawAlpha_ = false;
+	/** True when tiles are handed to the layer as 4 bands (RGB + alpha) instead of the bands as read (see `packTiles_`). */
+	packed_ = false;
 	/** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
 	isNoData_ = null;
 	autoNormalize_;
@@ -102,7 +108,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	constructor(options) {
 		super({
 			...options,
-			normalize: options.normalize === void 0 || options.normalize === true
+			normalize: options.normalize === void 0 || options.normalize === true,
+			transition: options.transition ?? DEFAULT_TRANSITION
 		});
 		this.autoNormalize_ = options.normalize === "auto";
 		this.rawValues_ = options.normalize === false || this.autoNormalize_;
@@ -172,11 +179,11 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	}
 	colorMode_() {
 		const select = this.remap_();
-		return select ? isGraySelection(select) ? "gray" : "rgb" : colorModeFor(this.bandCount);
+		return select ? isGraySelection(select) ? "gray" : "rgb" : colorModeFor(this.rawBands_);
 	}
 	/** Bands that hold values (the alpha band OpenLayers adds for nodata not counted); 0 before the COG is read. */
 	getValueBandCount() {
-		return this.getState() === "ready" ? this.bandCount - (this.hasAlpha ? 1 : 0) : 0;
+		return this.getState() === "ready" ? this.rawBands_ - (this.rawAlpha_ ? 1 : 0) : 0;
 	}
 	/** The bands R, G and B show now (0-based), or null when tiles are drawn as read. */
 	getSelect() {
@@ -248,7 +255,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	/** The selection tiles are rebuilt with; null when they are drawn as read. */
 	remap_() {
 		if (this.getValueBandCount() < 3) return null;
-		return this.select_ ?? (this.bandCount > 4 ? [
+		return this.select_ ?? (this.rawBands_ > 4 ? [
 			0,
 			1,
 			2
@@ -440,7 +447,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			width,
 			height,
 			bands,
-			alpha: this.hasAlpha,
+			alpha: this.rawAlpha_,
 			select
 		};
 		return {
@@ -448,7 +455,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			width,
 			height,
 			bands,
-			alpha: this.hasAlpha
+			alpha: this.rawAlpha_
 		};
 	}
 	/**
@@ -466,13 +473,14 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		const bands = raw.length / (width * height);
 		if (!Number.isInteger(bands) || bands < 1) return null;
 		const select = this.remap_();
-		if (select) return selectRGBA(raw, bands, select, this.hasAlpha ? bands - 1 : -1, width * height);
+		if (select) return selectRGBA(raw, bands, select, this.rawAlpha_ ? bands - 1 : -1, width * height);
 		if (bands > 4) return null;
 		return toRGBA(raw, bands, width * height);
 	}
-	/** RGBA pixels back in the tile layout OpenLayers expects (`bandCount` bands). */
+	/** RGBA pixels back in the tile layout the layer expects (`bandCount` bands). */
 	toTile_(rgba, pixels) {
-		return this.remap_() ? toSelectedTile(rgba, this.bandCount, this.hasAlpha, pixels) : fromRGBA(rgba, this.bandCount, pixels);
+		if (this.packed_) return new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.length);
+		return this.remap_() ? toSelectedTile(rgba, this.rawBands_, this.rawAlpha_, pixels) : fromRGBA(rgba, this.rawBands_, pixels);
 	}
 	/** The finest level that is no finer than the sample size, coarsened until the tile count fits. */
 	draZoom_(area) {
@@ -519,6 +527,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	/** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
 	setLoader(loader) {
 		this.rawLoader_ = loader;
+		this.rawBands_ = this.bandCount;
+		this.rawAlpha_ = this.hasAlpha;
 		if (this.autoNormalize_ && isEightBit(this)) {
 			this.rawValues_ = false;
 			this.normalize_ = true;
@@ -526,16 +536,49 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			this.appliedKey_ = this.tileKey_();
 			this.appliedContent_ = this.contentKey_();
 		}
-		this.isNoData_ = this.hasAlpha ? floatNoData(this) : null;
+		this.isNoData_ = this.rawAlpha_ ? floatNoData(this) : null;
 		if (this.select_) {
-			const n = this.bandCount - (this.hasAlpha ? 1 : 0);
-			if (n < 3 || this.select_.some((b) => b >= n)) {
+			const n = this.rawBands_ - (this.rawAlpha_ ? 1 : 0);
+			if (n < 3 || this.select_.some((b) => !Number.isInteger(b) || b < 0 || b >= n)) {
 				warn(`select ${JSON.stringify(this.select_)} does not fit an image with ${n} value bands; the bands are drawn as read.`);
 				this.select_ = null;
 			}
 		}
+		this.packTiles_();
 		super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
 		this.preloadTileIndex_();
+	}
+	/**
+	* Hands the layer 4-band tiles (R, G, B, alpha) when the bands as read
+	* would make more. OpenLayers' WebGL layer uploads every band of a tile:
+	* past 4 it splits each tile into several textures, pixel by pixel in JS,
+	* and samples all of them for every pixel drawn. A 4-band image without
+	* an alpha band for no data gets a fifth (coverage) band whenever it is
+	* reprojected, and an image with an alpha band for no data one more than
+	* its value bands. Only R, G, B and alpha are ever drawn, so the tiles are
+	* cut to those: the source tells the layer it has 4 bands with alpha last
+	* (`bandCount`, `hasAlpha`, `nodataBandIndex`), while OpenLayers still
+	* reads every band (see `composeTile_`) for band assignment and statistics.
+	*/
+	packTiles_() {
+		const bands = this.rawBands_;
+		const host = this;
+		const compose = host.composeTile_;
+		this.packed_ = typeof compose === "function" && (bands > 4 || bands === 4 && !this.rawAlpha_);
+		if (!this.packed_) return;
+		this.bandCount = 4;
+		this.hasAlpha = true;
+		this.nodataBandIndex = 4;
+		host.composeTile_ = (...args) => {
+			this.bandCount = this.rawBands_;
+			this.hasAlpha = this.rawAlpha_;
+			try {
+				return compose.apply(this, args);
+			} finally {
+				this.bandCount = 4;
+				this.hasAlpha = true;
+			}
+		};
 	}
 	/**
 	* Reads the tile offsets and byte counts of every level of a local file in
@@ -628,7 +671,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			...options,
 			signal: neverAborted
 		}));
-		const promise = isNoData ? read.then((data) => maskNoData(data, this.bandCount, isNoData)) : read;
+		const promise = isNoData ? read.then((data) => maskNoData(data, this.rawBands_, isNoData)) : read;
 		this.raw_.set(key, promise);
 		promise.catch(() => {
 			if (this.raw_.get(key) === promise) this.raw_.delete(key);
@@ -638,6 +681,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	}
 };
 const neverAborted = new AbortController().signal;
+/** Tile fade-in in milliseconds, unless `transition` is given (OpenLayers' own default is 250). */
+const DEFAULT_TRANSITION = 100;
 /**
 * True when every image the source reads holds unsigned 8-bit samples. Reads
 * the images OpenLayers opened (`sourceImagery_`, set before the loader);
@@ -737,8 +782,13 @@ function fromRGBA(rgba, bands, pixels) {
 	for (let p = 0, i = 0, o = 0; p < pixels; p++, i += 4, o += bands) for (let b = 0; b < bands; b++) out[o + b] = bands <= 2 && b === 1 ? rgba[i + 3] : rgba[i + b];
 	return out;
 }
-/** Three band indexes from a selection (one index means that band in all three). */
+/**
+* Three band indexes from a selection (one index means that band in all three).
+* Indexes that can never be a band throw at once, even before the band count is
+* known, so they cannot read the neighbouring pixel's values later.
+*/
 function toRgb(select) {
+	if (select.length !== 1 && select.length !== 3 || select.some((b) => !Number.isInteger(b) || b < 0)) throw new RangeError(`A band selection is 1 or 3 band indexes, each an integer from 0 (0-based), got ${JSON.stringify(select)}.`);
 	return select.length === 1 ? [
 		select[0],
 		select[0],
