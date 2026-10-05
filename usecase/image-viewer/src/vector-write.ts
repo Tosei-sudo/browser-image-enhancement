@@ -2,7 +2,9 @@
  * Writing vector layers to files: GeoJSON, Shapefile (.shp, .shx, .dbf,
  * .prj and .cpg, in a .zip) and GeoPackage. Features are in the map's
  * projection (`EPSG:3857`) and are written in the CRS asked for; the
- * attributes are the layer's fields.
+ * attributes are the layer's fields. A style can go with a Shapefile (a
+ * `.qml` beside it) or into a GeoPackage (its `layer_styles` table), as QGIS
+ * keeps them.
  */
 import type Feature from 'ol/Feature.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -17,6 +19,8 @@ import { encodeGeometry, openGeoPackageDb, quote } from './geopackage.js';
 import type { Field } from './services/index.js';
 import type { SqlValue } from './sqlite.js';
 import type { NamedBytes } from './vector-files.js';
+import { styleQml, symbolKindOf, type SymbolKind } from './style-file.js';
+import type { VectorStyleSpec } from './vector-style.js';
 
 /** The CRS a file is written in. */
 export interface TargetCrs {
@@ -327,7 +331,7 @@ function writeDbf(columns: DbfField[], features: Feature[]): Uint8Array<ArrayBuf
  * and .cpg (UTF-8). A Shapefile holds one kind of geometry: features of
  * different kinds go to one Shapefile per kind (`name_point`, `name_line`…).
  */
-export function writeShapefile(name: string, features: Feature[], fields: Field[], crs: TargetCrs = wgs84): NamedBytes[] {
+export function writeShapefile(name: string, features: Feature[], fields: Field[], crs: TargetCrs = wgs84, style?: VectorStyleSpec): NamedBytes[] {
   const groups = new Map<ShapeKind, Array<{ feature: Feature; geometry: Geometry | null }>>();
   const empty: Feature[] = [];
   for (const feature of features) {
@@ -352,9 +356,15 @@ export function writeShapefile(name: string, features: Feature[], fields: Field[
       items.map((i) => i.geometry),
       kind,
     );
-    out.push({ name: `${base}.shp`, bytes: shp }, { name: `${base}.shx`, bytes: shx }, { name: `${base}.dbf`, bytes: writeDbf(dbfFields(fields, list), list) });
+    const columns = dbfFields(fields, list);
+    out.push({ name: `${base}.shp`, bytes: shp }, { name: `${base}.shx`, bytes: shx }, { name: `${base}.dbf`, bytes: writeDbf(columns, list) });
     if (crs.wkt) out.push({ name: `${base}.prj`, bytes: utf8.encode(crs.wkt) });
     out.push({ name: `${base}.cpg`, bytes: utf8.encode('UTF-8') });
+    if (style) {
+      // QGIS reads `name.qml` with `name.shp`; the style names the columns as written.
+      const rename = new Map(columns.map((c) => [c.field.name, new TextDecoder().decode(c.name)]));
+      out.push({ name: `${base}.qml`, bytes: utf8.encode(styleQml(style, kind === 'multipoint' ? 'point' : kind, rename)) });
+    }
   }
   return out;
 }
@@ -484,7 +494,7 @@ function geometryTypeName(geometries: Array<Geometry | null>): string {
  * A new GeoPackage with one feature table named `name`: an integer `fid`,
  * a `geom` column and one column per field, with an R-tree spatial index.
  */
-export async function writeGeoPackage(name: string, features: Feature[], fields: Field[], crs: TargetCrs = wgs84): Promise<Uint8Array<ArrayBuffer>> {
+export async function writeGeoPackage(name: string, features: Feature[], fields: Field[], crs: TargetCrs = wgs84, style?: VectorStyleSpec): Promise<Uint8Array<ArrayBuffer>> {
   const db = await openGeoPackageDb();
   try {
     const srs = srsRow(crs);
@@ -542,10 +552,33 @@ export async function writeGeoPackage(name: string, features: Feature[], fields:
     db.exec(`CREATE VIRTUAL TABLE ${rtree} USING rtree(id, minx, maxx, miny, maxy)`);
     db.exec(`INSERT INTO ${rtree} SELECT fid, ST_MinX(geom), ST_MaxX(geom), ST_MinY(geom), ST_MaxY(geom) FROM ${table} WHERE geom NOT NULL AND NOT ST_IsEmpty(geom)`);
     db.exec(rtreeTriggers(name));
+    if (style) writeLayerStyle(db, name, style, symbolKindOf(geometryType) ?? commonKind(geometries), new Map(columns.map((c) => [c.field.name, c.column])));
     return db.export();
   } finally {
     db.close();
   }
+}
+
+/** The kind of symbol most of `geometries` need (polygons when there are none). */
+function commonKind(geometries: Array<Geometry | null>): SymbolKind {
+  const counts = new Map<SymbolKind, number>();
+  for (const g of geometries) {
+    const kind = symbolKindOf(g?.getType());
+    if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'polygon';
+}
+
+/** The `layer_styles` table QGIS reads a GeoPackage layer's default style from, with `style` in it. */
+function writeLayerStyle(db: Awaited<ReturnType<typeof openGeoPackageDb>>, table: string, style: VectorStyleSpec, kind: SymbolKind, rename: Map<string, string>): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS layer_styles (id INTEGER PRIMARY KEY AUTOINCREMENT, f_table_catalog TEXT(256), f_table_schema TEXT(256), f_table_name TEXT(256), f_geometry_column TEXT(256), styleName TEXT(30), styleQML TEXT, styleSLD TEXT, useAsDefault BOOLEAN, description TEXT, owner TEXT(30), ui TEXT(30), update_time DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
+  db.run(`INSERT OR IGNORE INTO gpkg_contents (table_name, data_type, identifier) VALUES ('layer_styles', 'attributes', 'layer_styles')`);
+  db.run(`INSERT INTO layer_styles (f_table_catalog, f_table_schema, f_table_name, f_geometry_column, styleName, styleQML, styleSLD, useAsDefault, description, owner) VALUES ('', '', ?, 'geom', ?, ?, '', 1, ?, '')`, [
+    table,
+    table,
+    styleQml(style, kind, rename),
+    'browser-image-viewer',
+  ]);
 }
 
 /** The R-tree triggers of the GeoPackage spec (1.2) for a table's `geom` column, keyed by `fid`. */

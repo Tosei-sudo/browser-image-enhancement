@@ -638,6 +638,9 @@ body {
   gap: 6px;
   color: var(--fg);
 }
+.service-form label[hidden] {
+  display: none;
+}
 .export-note {
   max-width: 36rem;
 }
@@ -1111,4 +1114,58 @@ body {
 }
 .style-reset {
   margin-right: auto;
+}
+/* A range of a graduated style: its upper bound can be typed. */
+.style-bounds {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.style-bounds input {
+  width: 7rem;
+}
+/* A scale: 「1 :」, the denominator, and a button to take the map's scale. */
+.style-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+}
+.style-scale input {
+  flex: 1;
+}
+.style-scale button,
+.style-scales summary {
+  cursor: pointer;
+}
+.style-scale button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  white-space: nowrap;
+}
+.style-scales {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.style-scales summary {
+  font-weight: 600;
+}
+.style-scale-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.style-now {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+}
+.image.out-of-scale .name {
+  opacity: 0.55;
 }
