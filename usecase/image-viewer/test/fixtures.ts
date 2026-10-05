@@ -274,7 +274,14 @@ export function rpcModel(lon: number, lat: number) {
  * one strip, with no georeferencing, and the RPC model in the
  * RPCCoefficientTag (50844) when given.
  */
-export function satelliteTiff(width: number, height: number, value: (x: number, y: number) => number, rpc?: ReturnType<typeof rpcModel>): Uint8Array<ArrayBuffer> {
+export function satelliteTiff(
+  width: number,
+  height: number,
+  value: (x: number, y: number) => number,
+  rpc?: ReturnType<typeof rpcModel>,
+  /** Georeferencing in WGS 84: the top-left corner and the pixel size, in degrees. */
+  geo?: { west: number; north: number; step: number },
+): Uint8Array<ArrayBuffer> {
   const pixels = width * height * 2;
   const entries: Array<[tag: number, type: number, values: number[]]> = [
     [256, 4, [width]],
@@ -291,6 +298,14 @@ export function satelliteTiff(width: number, height: number, value: (x: number, 
   if (rpc) {
     entries.push([50844, 12, [1, 0.5, rpc.lineOff, rpc.sampOff, rpc.latOff, rpc.lonOff, rpc.heightOff, rpc.lineScale, rpc.sampScale, rpc.latScale, rpc.lonScale, rpc.heightScale, ...rpc.lineNum, ...rpc.lineDen, ...rpc.sampNum, ...rpc.sampDen]]);
   }
+  if (geo) {
+    entries.push(
+      [33550, 12, [geo.step, geo.step, 0]],
+      [33922, 12, [0, 0, 0, geo.west, geo.north, 0]],
+      [34735, 3, [1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326]],
+    );
+  }
+  entries.sort((a, b) => a[0] - b[0]);
   const size = (type: number) => (type === 3 ? 2 : type === 4 ? 4 : 8);
   const ifdLength = 2 + entries.length * 12 + 4;
   let extra = 8 + ifdLength;

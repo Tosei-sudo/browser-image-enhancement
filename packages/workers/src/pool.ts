@@ -190,6 +190,27 @@ export class WorkerPool<Req extends { id: number }, Res extends { id: number }> 
     if (!slot.dead) slot.worker.postMessage(message, []);
   }
 
+  /**
+   * Gives up on requests already sent: each rejects with `error`. A worker
+   * busy only with them is stopped, so an aborted job stops using the CPU (a
+   * new worker starts on the next {@link acquire}); on a worker that also has
+   * other jobs' requests, the answers to these are ignored when they come.
+   */
+  cancel(slot: Slot<Req, Res>, ids: Iterable<number>, error: Error): void {
+    const mine = [...ids].filter((id) => slot.pending.has(id));
+    if (mine.length === 0) return;
+    if (mine.length === slot.pending.size) {
+      this.kill(slot, error);
+      return;
+    }
+    for (const id of mine) {
+      const pending = slot.pending.get(id)!;
+      slot.pending.delete(id);
+      slot.load--;
+      pending.reject(error);
+    }
+  }
+
   private kill(slot: Slot<Req, Res>, error: Error): void {
     if (slot.dead) return;
     slot.dead = true;

@@ -64,6 +64,8 @@ export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
    * thread far longer than the JS that replaces it. False: OpenLayers' way.
    */
   cpuReprojection?: boolean;
+  /** How long a new tile fades in, in milliseconds; 0 for none. Default 100 (OpenLayers' own is 250). */
+  transition?: number;
 }
 /** What the last DRA statistics were taken from. */
 export interface DraInfo {
@@ -114,6 +116,12 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private appliedContent_;
   /** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
   private rawValues_;
+  /** Bands of a tile as OpenLayers reads it (the value bands, then its alpha band for no data if any); 0 before the COG is read. */
+  private rawBands_;
+  /** Whether OpenLayers adds an alpha band for no data to the tiles it reads (the last band). */
+  private rawAlpha_;
+  /** True when tiles are handed to the layer as 4 bands (RGB + alpha) instead of the bands as read (see `packTiles_`). */
+  private packed_;
   /** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
   private isNoData_;
   private readonly autoNormalize_;
@@ -223,7 +231,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
    * stretched with `rawStretch`.
    */
   private tileRGBA_;
-  /** RGBA pixels back in the tile layout OpenLayers expects (`bandCount` bands). */
+  /** RGBA pixels back in the tile layout the layer expects (`bandCount` bands). */
   private toTile_;
   /** The finest level that is no finer than the sample size, coarsened until the tile count fits. */
   private draZoom_;
@@ -235,6 +243,19 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   resetStats(): void;
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
   protected setLoader(loader: Loader): void;
+  /**
+   * Hands the layer 4-band tiles (R, G, B, alpha) when the bands as read
+   * would make more. OpenLayers' WebGL layer uploads every band of a tile:
+   * past 4 it splits each tile into several textures, pixel by pixel in JS,
+   * and samples all of them for every pixel drawn. A 4-band image without
+   * an alpha band for no data gets a fifth (coverage) band whenever it is
+   * reprojected, and an image with an alpha band for no data one more than
+   * its value bands. Only R, G, B and alpha are ever drawn, so the tiles are
+   * cut to those: the source tells the layer it has 4 bands with alpha last
+   * (`bandCount`, `hasAlpha`, `nodataBandIndex`), while OpenLayers still
+   * reads every band (see `composeTile_`) for band assignment and statistics.
+   */
+  private packTiles_;
   /**
    * Reads the tile offsets and byte counts of every level of a local file in
    * one go. geotiff.js otherwise reads both (8 bytes each) on their own before

@@ -1,4 +1,4 @@
-import { race, throwIfAborted } from "../workers/src/abort.js";
+import { abortError, race, throwIfAborted } from "../workers/src/abort.js";
 import { WorkerUnavailableError } from "../workers/src/pool.js";
 import { splitRows, stripCount, yieldToEventLoop } from "../workers/src/strips.js";
 import { createImageData } from "../workers/src/image.js";
@@ -28,12 +28,14 @@ async function execute(image, plan, options = {}) {
 		if (e instanceof WorkerUnavailableError) return onMain();
 		throw e;
 	}
+	const sent = [];
 	try {
 		return {
-			image: await race(runInWorkers(pool, slots, image, plan, signal), signal),
+			image: await race(runInWorkers(pool, slots, image, plan, sent, signal), signal),
 			usedWorker: true
 		};
 	} catch (e) {
+		if (signal?.aborted) for (const { slot, id } of sent) pool.cancel(slot, [id], abortError(signal));
 		if (e instanceof WorkerUnavailableError) {
 			throwIfAborted(signal);
 			return onMain();
@@ -65,7 +67,7 @@ function copyWindow(src, [left, top, right, bottom]) {
 		y0: top
 	};
 }
-async function runInWorkers(pool, slots, image, plan, signal) {
+async function runInWorkers(pool, slots, image, plan, sent, signal) {
 	const src = shrink(image, plan.levels);
 	const { width, height } = plan;
 	const ranges = splitRows(height, slots.length);
@@ -78,9 +80,10 @@ async function runInWorkers(pool, slots, image, plan, signal) {
 		const [y0, y1] = ranges[i];
 		const bounds = sourceBounds(plan.mapping, width, y0, y1, src.width, src.height, plan.resample);
 		const window = bounds ? copyWindow(src, bounds) : null;
+		const id = nextId++;
 		const message = {
 			type: "warp",
-			id: nextId++,
+			id,
 			window,
 			width,
 			y0,
@@ -93,6 +96,10 @@ async function runInWorkers(pool, slots, image, plan, signal) {
 		const reply = pool.request(slots[i], message, window ? [window.buffer] : []);
 		reply.catch(() => {});
 		replies.push(reply);
+		sent.push({
+			slot: slots[i],
+			id
+		});
 	}
 	if (replies.length === 1) return createImageData(new Uint8ClampedArray((await replies[0]).buffer), width, height);
 	const out = new Uint8ClampedArray(width * height * 4);

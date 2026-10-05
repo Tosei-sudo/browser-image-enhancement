@@ -1,3 +1,4 @@
+import { warn } from "../warn.js";
 import { histogram } from "../stats.js";
 import { createGpuRenderer } from "../gpu/renderer.js";
 import EnhancedGeoTIFF from "./enhanced-geotiff.js";
@@ -37,6 +38,8 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	gpu_;
 	correction_;
 	correctionKey_;
+	useGpu_;
+	disposed_ = false;
 	/** Small canvas the drawn map is read through for DRA statistics. */
 	sample_ = null;
 	/** Frames corrected so far. */
@@ -49,13 +52,22 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		});
 		this.correction_ = correction ?? null;
 		this.correctionKey_ = correction ? listen(correction, "change", () => this.changed()) : null;
-		this.gpu_ = options.gpu === false ? null : createGpuRenderer({ canvas: this.output_ });
-		this.output_.addEventListener("webglcontextlost", () => {
+		this.useGpu_ = options.gpu !== false;
+		this.gpu_ = this.useGpu_ ? createGpuRenderer({ canvas: this.output_ }) : null;
+		this.output_.addEventListener("webglcontextlost", (event) => {
+			event.preventDefault();
+			if (!this.gpu_) return;
 			this.gpu_ = null;
+			warn("GpuCorrectedTileLayer: the WebGL context was lost; showing the tiles uncorrected until it is restored.");
+			this.changed();
+		});
+		this.output_.addEventListener("webglcontextrestored", () => {
+			if (this.disposed_ || !this.useGpu_ || this.gpu_) return;
+			this.gpu_ = createGpuRenderer({ canvas: this.output_ });
 			this.changed();
 		});
 	}
-	/** Whether the layer can correct on the GPU (WebGL2 is available and the context was not lost). */
+	/** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
 	hasGpu() {
 		return this.gpu_ !== null;
 	}
@@ -117,6 +129,7 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		});
 	}
 	disposeInternal() {
+		this.disposed_ = true;
 		if (this.correctionKey_) unlistenByKey(this.correctionKey_);
 		this.gpu_?.dispose();
 		this.gpu_ = null;

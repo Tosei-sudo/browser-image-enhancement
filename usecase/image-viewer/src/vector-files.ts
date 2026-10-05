@@ -53,13 +53,15 @@ export interface VectorFile {
   writeCrs?: TargetCrs;
   /** The files it was read from (set by {@link readVectorFiles}). */
   origin?: FileOrigin;
+  /** The style that came with it, as QGIS keeps it (QML): a Shapefile's `.qml`, a GeoPackage's `layer_styles`. */
+  styleQml?: string;
 }
 
 /** The projection for a CRS name (it may load the definition), or null when unknown. */
 export type ProjectionLookup = (crs: string) => Promise<{ getCode(): string } | null>;
 
 /** What the viewer reads as vectors, by extension. */
-export const vectorExtensions = ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.geojson', '.json', '.gpkg'];
+export const vectorExtensions = ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.qml', '.geojson', '.json', '.gpkg'];
 
 export function isVectorName(name: string): boolean {
   const lower = name.toLowerCase();
@@ -112,7 +114,7 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
       out.push({ ...(await readGeoJson(new TextDecoder().decode(f.bytes), stem(f.name), projectionOf)), origin });
     } else if (ext === '.gpkg') {
       out.push(...(await readGeoPackage(f.bytes, stem(f.name), projectionOf)).map((layer) => ({ ...layer, origin })));
-    } else if (['.shp', '.shx', '.dbf', '.prj', '.cpg'].includes(ext)) {
+    } else if (['.shp', '.shx', '.dbf', '.prj', '.cpg', '.qml'].includes(ext)) {
       const key = f.name.slice(0, -ext.length);
       const entry = byStem.get(key) ?? { parts: {}, zip: f.zip };
       entry.parts[ext] = f;
@@ -126,7 +128,8 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
     }
     const decode = (b?: NamedBytes) => (b ? new TextDecoder().decode(b.bytes) : undefined);
     const file = readShapefile(stem(key + '.x'), { shp: parts['.shp'].bytes, dbf: parts['.dbf']?.bytes, prj: decode(parts['.prj']), cpg: decode(parts['.cpg']) });
-    out.push({ ...file, origin: { files: parts, zip } });
+    const styleQml = decode(parts['.qml']);
+    out.push({ ...file, origin: { files: parts, zip }, ...(styleQml ? { styleQml } : {}) });
   }
   if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage のどれも見つかりませんでした');
   return out;

@@ -70,6 +70,23 @@ describe('painter', () => {
     expect(paint(new Feature({ geometry: new LineString([[0, 0], [1, 1]]), use: '公園' }))?.stroke).toEqual([0, 255, 0, 1]);
   });
 
+  it('paints graduated ranges, leaving hidden ranges out', () => {
+    const paint = painter({
+      ...singleSpec('#000000'),
+      mode: 'graduated',
+      field: 'pop',
+      classes: [
+        { min: 0, max: 10, color: '#00ff00', visible: true },
+        { min: 10, max: 20, color: '#ff0000', visible: false },
+      ],
+      othersVisible: false,
+    });
+    const f = (pop: unknown) => new Feature({ geometry: square(0, 0, 1), pop });
+    expect(paint(f(5))?.fill).toEqual([0, 255, 0, 0.25]);
+    expect(paint(f(15))).toBeNull();
+    expect(paint(f(null))).toBeNull();
+  });
+
   it('gives points their shape', () => {
     const spec = singleSpec('#ff0000');
     expect(glStyle(spec)['circle-radius']).toBe(5);

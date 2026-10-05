@@ -1,7 +1,8 @@
 /**
  * Symbols and labels of vector layers, like QGIS's layer styling: one symbol
- * for every feature, or a color per value of an attribute (分類), and labels
- * from an attribute. A style is kept in the browser (localStorage) under a
+ * for every feature, a color per value of an attribute (分類), or per range
+ * of a number (段階), labels from an attribute, and the scales the layer and
+ * its labels are shown at. A style is kept in the browser (localStorage) under a
  * key for the layer (its service URL, or its file), so the layer looks the
  * same when it is opened again.
  */
@@ -59,6 +60,31 @@ export interface Category {
   visible: boolean;
 }
 
+/** One range of the number a graduated style colors by: `min` < value ≤ `max` (the first range includes its `min`). */
+export interface GradClass {
+  min: number;
+  max: number;
+  color: string;
+  visible: boolean;
+}
+
+/** How a number is cut into ranges. */
+export type ClassMethod = 'equal' | 'quantile' | 'jenks';
+export const classMethods: Record<ClassMethod, string> = { equal: '等間隔', quantile: '等量（分位数）', jenks: '自然分類（Jenks）' };
+
+/** Color ramps of graduated styles: stops from low to high. */
+export const colorRamps = {
+  reds: { name: '赤', stops: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15'] },
+  blues: { name: '青', stops: ['#eff3ff', '#bdd7e7', '#6baed6', '#3182bd', '#08519c'] },
+  greens: { name: '緑', stops: ['#edf8e9', '#bae4b3', '#74c476', '#31a354', '#006d2c'] },
+  oranges: { name: '橙', stops: ['#feedde', '#fdbe85', '#fd8d3c', '#e6550d', '#a63603'] },
+  viridis: { name: 'Viridis', stops: ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'] },
+  magma: { name: 'Magma', stops: ['#000004', '#51127c', '#b73779', '#fc8961', '#fcfdbf'] },
+  spectral: { name: '青→黄→赤', stops: ['#2b83ba', '#abdda4', '#ffffbf', '#fdae61', '#d7191c'] },
+  rdylgn: { name: '赤→黄→緑', stops: ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641'] },
+} satisfies Record<string, { name: string; stops: string[] }>;
+export type RampName = keyof typeof colorRamps;
+
 /** Labels from an attribute. */
 export interface LabelSpec {
   /** Attribute shown; null: no labels. */
@@ -72,23 +98,40 @@ export interface LabelSpec {
   haloWidth: number;
   /** Show every label, even where they overlap (else overlapping ones are left out). */
   overlap: boolean;
+  /** Labels are left out when zoomed out beyond 1:`maxScale`; null: at every scale. */
+  maxScale: number | null;
 }
 
 /** How a vector layer is drawn. */
 export interface VectorStyleSpec {
   /**
    * `own`: as the service draws it (Esri renderers); `single`: one symbol;
-   * `categorized`: a color for each value of `field`.
+   * `categorized`: a color for each value of `field`; `graduated`: a color
+   * for each range of the number in `field`.
    */
-  mode: 'own' | 'single' | 'categorized';
-  /** The symbol (`single`), and everything but the color of the categories (`categorized`). */
+  mode: 'own' | 'single' | 'categorized' | 'graduated';
+  /** The symbol (`single`), and everything but the color of the categories and ranges. */
   symbol: SymbolSpec;
-  /** The attribute categorized by. */
+  /** The attribute categorized or graduated by. */
   field: string | null;
   categories: Category[];
-  /** Whether features whose value is not listed are drawn (in the symbol's colors). */
+  /** The ranges of `graduated`, from low to high. */
+  classes: GradClass[];
+  /** How the ranges were made, to make them again. */
+  method: ClassMethod;
+  classCount: number;
+  ramp: RampName;
+  /** Whether the ramp runs from high to low. */
+  reversed: boolean;
+  /** Whether features whose value is not listed (or in no range) are drawn (in the symbol's colors). */
   othersVisible: boolean;
   label: LabelSpec;
+  /**
+   * Scales the layer is shown at, as QGIS has them: hidden when zoomed out
+   * beyond 1:`minScale` or zoomed in beyond 1:`maxScale`; null: no limit.
+   */
+  minScale: number | null;
+  maxScale: number | null;
 }
 
 /** A spec with one symbol in `color` (the color the viewer gives each new layer). */
@@ -98,8 +141,15 @@ export function singleSpec(color: string): VectorStyleSpec {
     symbol: { fill: color, fillOpacity: 0.25, stroke: color, strokeWidth: 2, strokeOpacity: 1, dash: 'solid', shape: 'circle', size: 10 },
     field: null,
     categories: [],
+    classes: [],
+    method: 'jenks',
+    classCount: 5,
+    ramp: 'reds',
+    reversed: false,
     othersVisible: true,
-    label: { field: null, size: 13, color: '#222222', bold: false, halo: '#ffffff', haloWidth: 3, overlap: false },
+    label: { field: null, size: 13, color: '#222222', bold: false, halo: '#ffffff', haloWidth: 3, overlap: false, maxScale: null },
+    minScale: null,
+    maxScale: null,
   };
 }
 
@@ -120,7 +170,10 @@ export function normalizeSpec(spec: unknown, base: VectorStyleSpec): VectorStyle
   const symbol = pick(s.symbol, base.symbol);
   if (!(symbol.shape in pointShapes)) symbol.shape = base.symbol.shape;
   if (!(symbol.dash in lineDashes)) symbol.dash = base.symbol.dash;
-  const mode = s.mode === 'own' || s.mode === 'single' || s.mode === 'categorized' ? s.mode : base.mode;
+  const mode = s.mode === 'own' || s.mode === 'single' || s.mode === 'categorized' || s.mode === 'graduated' ? s.mode : base.mode;
+  const label = pick(s.label, base.label);
+  label.maxScale = scaleOf((s.label as Partial<LabelSpec> | undefined)?.maxScale);
+  const isNumber = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
   return {
     mode: mode === 'own' && base.mode !== 'own' ? 'single' : mode,
     symbol,
@@ -128,9 +181,23 @@ export function normalizeSpec(spec: unknown, base: VectorStyleSpec): VectorStyle
     categories: Array.isArray(s.categories)
       ? s.categories.filter((c): c is Category => !!c && typeof c.value === 'string' && typeof c.color === 'string').map((c) => ({ value: c.value, color: c.color, visible: c.visible !== false }))
       : [],
+    classes: Array.isArray(s.classes)
+      ? s.classes.filter((c): c is GradClass => !!c && isNumber(c.min) && isNumber(c.max) && typeof c.color === 'string').map((c) => ({ min: c.min, max: c.max, color: c.color, visible: c.visible !== false }))
+      : [],
+    method: s.method && s.method in classMethods ? s.method : base.method,
+    classCount: isNumber(s.classCount) ? Math.max(1, Math.min(MAX_CLASSES, Math.round(s.classCount))) : base.classCount,
+    ramp: s.ramp && s.ramp in colorRamps ? s.ramp : base.ramp,
+    reversed: s.reversed === true,
     othersVisible: typeof s.othersVisible === 'boolean' ? s.othersVisible : true,
-    label: pick(s.label, base.label),
+    label,
+    minScale: scaleOf(s.minScale),
+    maxScale: scaleOf(s.maxScale),
   };
+}
+
+/** A scale denominator, or null when it is none (no limit). */
+function scaleOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 /** `#rrggbb` with an opacity, as an OpenLayers color. */
@@ -261,12 +328,44 @@ function labelStyles(label: LabelSpec): (feature: FeatureLike) => Style | null {
   };
 }
 
+/** The number of a feature's value, or null when it is none. */
+export function numberValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+  const n = typeof value === 'number' ? value : value instanceof Date ? value.getTime() : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The index of the range `value` is in (`min` < value ≤ `max`, the first including its `min`), or -1. */
+export function classIndex(classes: GradClass[], value: number): number {
+  for (let i = 0; i < classes.length; i++) {
+    const c = classes[i];
+    if (value <= c.max && (value > c.min || (i === 0 && value >= c.min))) return i;
+  }
+  return -1;
+}
+
 /**
- * The style function of a spec; `own` is the layer's own style, for the `own`
- * mode. Without `symbols`, only the labels (of the features drawn).
+ * Meters on the ground per scale-denominator unit and per view resolution:
+ * the view is in Web Mercator, whose meters shrink by cos(latitude).
+ * The OGC standard pixel is 0.28 mm.
  */
-export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, symbols = true): StyleFunction {
+export function resolutionOfScale(scale: number, latitude: number): number {
+  return (scale * 0.00028) / Math.max(0.01, Math.cos((latitude * Math.PI) / 180));
+}
+
+/** The scale denominator of a view resolution (Web Mercator meters per pixel) at `latitude`. */
+export function scaleOfResolution(resolution: number, latitude: number): number {
+  return (resolution * Math.max(0.01, Math.cos((latitude * Math.PI) / 180))) / 0.00028;
+}
+
+/**
+ * The style function of a spec; `own` is the layer's own style, for the `own` mode.
+ * `latitude` is where scales are measured (labels' `maxScale`). Without
+ * `symbols`, only the labels (of the features drawn).
+ */
+export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude = 0, symbols = true): StyleFunction {
   const labels = spec.label.field ? labelStyles(spec.label) : null;
+  const labelResolution = spec.label.maxScale ? resolutionOfScale(spec.label.maxScale, latitude) : Infinity;
   let draw: (feature: FeatureLike, resolution: number) => Style | Style[] | void;
   if (spec.mode === 'own' && own) {
     const ownFn = typeof own === 'function' ? own : () => own;
@@ -282,6 +381,18 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, symbols = 
       if (!s) return undefined;
       return isLine(feature.getGeometry()?.getType()) ? s.line : s.area;
     };
+  } else if (spec.mode === 'graduated' && spec.field) {
+    const field = spec.field;
+    const classes = spec.classes;
+    const styles = classes.map((c) => (c.visible ? symbolStyles(spec.symbol, c.color) : null));
+    const others = spec.othersVisible ? symbolStyles(spec.symbol, null) : null;
+    draw = (feature) => {
+      const value = numberValue(feature.get(field));
+      const i = value === null ? -1 : classIndex(classes, value);
+      const s = i < 0 ? others : styles[i];
+      if (!s) return undefined;
+      return isLine(feature.getGeometry()?.getType()) ? s.line : s.area;
+    };
   } else {
     const s = symbolStyles(spec.symbol, null);
     draw = (feature) => (isLine(feature.getGeometry()?.getType()) ? s.line : s.area);
@@ -291,6 +402,7 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, symbols = 
     const drawn = draw(feature, resolution);
     // A feature hidden by its category gets no label either.
     if (!drawn || (Array.isArray(drawn) && drawn.length === 0)) return undefined;
+    if (resolution > labelResolution) return symbols ? drawn : undefined;
     const label = labels(feature);
     if (!symbols) return label ?? undefined;
     if (!label) return drawn;
@@ -340,6 +452,134 @@ export function categoriesFor(features: FeatureLike[], field: string, earlier: C
   const collator = new Intl.Collator('ja', { numeric: true });
   values.sort((a, b) => collator.compare(a.value, b.value));
   return values.map(({ value }, i) => kept.get(value) ?? { value, color: categoryColor(i), visible: true });
+}
+
+/** The most ranges of a graduated style. */
+export const MAX_CLASSES = 20;
+
+/** The numbers of `field` among `features` (values that are not numbers are left out). */
+export function numbersOf(features: FeatureLike[], field: string): number[] {
+  const out: number[] = [];
+  for (const f of features) {
+    const n = numberValue(f.get(field));
+    if (n !== null) out.push(n);
+  }
+  return out;
+}
+
+/** A color of a ramp, at `t` (0–1). */
+export function rampColor(ramp: RampName, t: number, reversed = false): string {
+  const stops = colorRamps[ramp].stops;
+  const x = Math.max(0, Math.min(1, reversed ? 1 - t : t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x));
+  const a = asArray(stops[i]);
+  const b = asArray(stops[i + 1]);
+  const f = x - i;
+  return `#${[0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Fisher–Jenks natural breaks of sorted `values` into `k` groups: the k−1 inner breaks (the largest value of each group but the last). */
+function jenksBreaks(values: number[], k: number): number[] {
+  const n = values.length;
+  // mat1[i][j]: the first value (1-based) of the last group of the best split of i values into j groups; mat2: its variance sum.
+  const mat1 = Array.from({ length: n + 1 }, () => new Int32Array(k + 1));
+  const mat2 = Array.from({ length: n + 1 }, () => new Float64Array(k + 1).fill(Infinity));
+  for (let j = 1; j <= k; j++) {
+    mat1[1][j] = 1;
+    mat2[1][j] = 0;
+  }
+  for (let l = 2; l <= n; l++) {
+    let s1 = 0;
+    let s2 = 0;
+    let w = 0;
+    for (let m = 1; m <= l; m++) {
+      const i3 = l - m + 1;
+      const v = values[i3 - 1];
+      s2 += v * v;
+      s1 += v;
+      w++;
+      const variance = s2 - (s1 * s1) / w;
+      const i4 = i3 - 1;
+      if (i4 !== 0) {
+        for (let j = 2; j <= k; j++) {
+          if (mat2[l][j] >= variance + mat2[i4][j - 1]) {
+            mat1[l][j] = i3;
+            mat2[l][j] = variance + mat2[i4][j - 1];
+          }
+        }
+      }
+    }
+    mat1[l][1] = 1;
+    mat2[l][1] = s2 - (s1 * s1) / w;
+  }
+  const breaks: number[] = [];
+  let at = n;
+  for (let j = k; j >= 2; j--) {
+    const id = mat1[at][j] - 1;
+    breaks.unshift(values[id - 1]);
+    at = id;
+  }
+  return breaks;
+}
+
+/** The most values natural breaks are found among (more are sampled evenly: it takes n² steps). */
+const JENKS_SAMPLE = 2000;
+
+/** The bounds of `count` ranges of `values` by `method`: count + 1 numbers, low to high, without repeats. */
+export function classBreaks(values: number[], method: ClassMethod, count: number): number[] {
+  if (!values.length) return [];
+  const sorted = Float64Array.from(values).sort();
+  const min = sorted[0];
+  const max = sorted[sorted.length - 1];
+  const k = Math.max(1, Math.min(MAX_CLASSES, Math.round(count)));
+  let inner: number[];
+  if (min === max) {
+    inner = [];
+  } else if (method === 'quantile') {
+    inner = Array.from({ length: k - 1 }, (_, i) => {
+      const p = ((i + 1) / k) * (sorted.length - 1);
+      const lo = Math.floor(p);
+      return sorted[lo] + (sorted[Math.min(sorted.length - 1, lo + 1)] - sorted[lo]) * (p - lo);
+    });
+  } else if (method === 'jenks') {
+    let sample = [...sorted];
+    if (sample.length > JENKS_SAMPLE) {
+      const step = (sample.length - 1) / (JENKS_SAMPLE - 1);
+      sample = Array.from({ length: JENKS_SAMPLE }, (_, i) => sorted[Math.round(i * step)]);
+    }
+    const distinct = new Set(sample).size;
+    inner = distinct <= k ? [...new Set(sample)].slice(0, -1) : jenksBreaks(sample, k);
+  } else {
+    inner = Array.from({ length: k - 1 }, (_, i) => min + ((max - min) * (i + 1)) / k);
+  }
+  const out = [min];
+  for (const b of [...inner, max]) if (b > out[out.length - 1]) out.push(b);
+  if (out.length === 1) out.push(max);
+  return out;
+}
+
+/** Ranges of the numbers of `field`, colored along a ramp. */
+export function classesFor(features: FeatureLike[], field: string, method: ClassMethod, count: number, ramp: RampName, reversed = false): GradClass[] {
+  const bounds = classBreaks(numbersOf(features, field), method, count);
+  const n = bounds.length - 1;
+  return Array.from({ length: Math.max(0, n) }, (_, i) => ({
+    min: bounds[i],
+    max: bounds[i + 1],
+    color: rampColor(ramp, n === 1 ? 1 : i / (n - 1), reversed),
+    visible: true,
+  }));
+}
+
+/** Ranges recolored along a ramp. */
+export function recolorClasses(classes: GradClass[], ramp: RampName, reversed = false): GradClass[] {
+  const n = classes.length;
+  return classes.map((c, i) => ({ ...c, color: rampColor(ramp, n === 1 ? 1 : i / (n - 1), reversed) }));
+}
+
+/** A number as a range bound is shown: up to 4 significant decimals, with digit grouping. */
+export function formatBound(n: number): string {
+  const digits = Math.abs(n) >= 1000 ? 0 : Math.abs(n) >= 1 ? 2 : 4;
+  return n.toLocaleString('ja-JP', { maximumFractionDigits: digits });
 }
 
 /** Where styles are kept: one entry per layer key. */
@@ -395,6 +635,7 @@ export class LayerStyle {
   private spec_: VectorStyleSpec;
   private key_: string | null = null;
   private gl_: GlVector | null = null;
+  private waiting_ = false;
 
   /**
    * @param layer The layer drawn.
@@ -460,19 +701,43 @@ export class LayerStyle {
     return this.gl_?.featureAt(map, pixel, tolerance);
   }
 
+  /** The latitude scales are measured at: the middle of the layer's features (null until there are some). */
+  latitude(): number | null {
+    const extent = this.layer.getSource()?.getExtent();
+    if (!extent || !Number.isFinite(extent[1]) || !Number.isFinite(extent[3])) return null;
+    const y = (extent[1] + extent[3]) / 2;
+    return (Math.atan(Math.exp(y / 6378137)) * 360) / Math.PI - 90;
+  }
+
   private apply_(): void {
     const spec = this.spec_;
+    let latitude = this.latitude();
+    if (latitude === null) {
+      latitude = 0;
+      // Features still loading (a WFS layer): scales are measured again where they are.
+      const source = this.layer.getSource();
+      if (source && !this.waiting_ && (spec.minScale || spec.maxScale || spec.label.maxScale)) {
+        this.waiting_ = true;
+        source.once('change', () => {
+          this.waiting_ = false;
+          this.apply_();
+        });
+      }
+    }
     const count = this.layer.getSource()?.getFeatures().length ?? 0;
     if (drawsOnGpu(spec, count)) {
       if (this.gl_) this.gl_.setSpec(spec);
       else this.gl_ = new GlVector(this.layer, spec);
       // The canvas layer draws only the labels.
-      this.layer.setStyle(spec.label.field ? styleFunction(spec, this.own, false) : null);
+      this.layer.setStyle(spec.label.field ? styleFunction(spec, this.own, latitude, false) : null);
     } else {
       this.gl_?.dispose();
       this.gl_ = null;
-      this.layer.setStyle(styleFunction(spec, this.own));
+      this.layer.setStyle(styleFunction(spec, this.own, latitude));
     }
+    // Shown between the two scales: a larger scale denominator is a larger resolution.
+    this.layer.setMaxResolution(spec.minScale ? resolutionOfScale(spec.minScale, latitude) : Infinity);
+    this.layer.setMinResolution(spec.maxScale ? resolutionOfScale(spec.maxScale, latitude) : 0);
     // Labels that would overlap are left out; point symbols are always drawn (their declutterMode is `obstacle`).
     this.layer.setDeclutter(!!spec.label.field && !spec.label.overlap);
   }

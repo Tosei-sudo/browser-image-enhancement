@@ -45,6 +45,7 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'プロセッシ
 const layerRows = (page: Page) => page.locator('#images li');
 
 async function runTool(page: Page, tool: string, fill?: () => Promise<void>) {
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: 'プロセッシング' }).click();
   await dialog(page).getByLabel('処理').selectOption({ label: tool });
   await dialog(page).getByLabel('入力レイヤー').selectOption({ label: 'track' });
@@ -164,6 +165,7 @@ test('a CSV opens as a table, and points are made from its X / Y columns', async
   await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('東京');
 
   // With the CSV selected, the dialog opens on the XY tool with the columns guessed.
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: 'プロセッシング' }).click();
   await expect(dialog(page).getByLabel('処理')).toHaveValue('xy');
   await expect(dialog(page).getByLabel('X（経度・東西）の列')).toHaveValue('経度');

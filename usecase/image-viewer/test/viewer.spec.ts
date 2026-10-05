@@ -120,15 +120,17 @@ test('points are added on the selected image, named, and saved as GeoJSON', asyn
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
   await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
-  await expect(page.getByRole('button', { name: 'GeoJSON 保存' })).toBeDisabled();
+  await expect(page.locator('#save-points')).toBeDisabled();
 
   // The map is fitted to the image, so its center is on the image.
   const center = async () => {
     const box = (await page.locator('#map').boundingBox())!;
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   };
+  // The point tools are in the 「ツール」 menu.
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: 'ポイント追加' }).click();
-  await expect(page.getByRole('button', { name: 'ポイント追加' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#add-point')).toHaveAttribute('aria-pressed', 'true');
   let c = await center();
   await page.mouse.click(c.x, c.y);
   const name = page.getByRole('textbox', { name: 'ポイント名称' }).first();
@@ -150,6 +152,7 @@ test('points are added on the selected image, named, and saved as GeoJSON', asyn
   await page.keyboard.press('Enter');
 
   const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: 'GeoJSON 保存' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('points.geojson');
