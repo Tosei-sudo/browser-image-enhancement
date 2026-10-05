@@ -17,6 +17,7 @@ async function open(page: Page) {
 
 /** Saves through the dialog with the given choices; returns the download. */
 async function save(page: Page, choices: { content?: string; format?: string; scale?: string }): Promise<Download> {
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#save-view').click();
   const dialog = page.locator('.view-export');
   await expect(dialog).toBeVisible();
@@ -120,6 +121,7 @@ test("the selected GeoTIFF's samples under the view save with its bands, values 
 test('the data choice needs a GeoTIFF selected', async ({ page }) => {
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#save-view').click();
   const dialog = page.locator('.view-export');
   await expect(dialog.locator('option[value=data]')).toHaveAttribute('disabled', '');

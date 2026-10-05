@@ -207,6 +207,35 @@ test('the GPU corrects the drawn map without reloading tiles, matching corrected
   expect(errors).toEqual([]);
 });
 
+test('the GPU layer recovers from a lost WebGL context', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page, '&engine=gpu');
+  test.skip(!(await page.evaluate(() => window.example.layer.hasGpu())), 'WebGL2 is not available');
+  const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+  const points = Array.from({ length: 20 }, (_, i): [number, number] => [w * (0.2 + i * 0.03), h * 0.5]);
+  const raw = await shown(page, points);
+  await setSliders(page, { exposure: '0.7', saturation: '0.5' });
+  const corrected = await shown(page, points);
+
+  await page.evaluate(() => {
+    const gl = window.example.layer.getOutputCanvas().getContext('webgl2')!;
+    (window as unknown as { loser: WEBGL_lose_context }).loser = gl.getExtension('WEBGL_lose_context')!;
+    (window as unknown as { loser: WEBGL_lose_context }).loser.loseContext();
+  });
+  await page.waitForFunction(() => !window.example.layer.hasGpu());
+  await page.evaluate(() => (window as unknown as { loser: WEBGL_lose_context }).loser.restoreContext());
+  await page.waitForFunction(() => window.example.layer.hasGpu());
+  await settle(page);
+  // Corrected again (the redrawn map may differ by a level or so from the first drawing).
+  const restored = await shown(page, points);
+  expect(restored).not.toEqual(raw);
+  for (let i = 0; i < points.length; i++) {
+    for (let c = 0; c < 4; c++) expect(Math.abs(restored[i][c] - corrected[i][c])).toBeLessThanOrEqual(4);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('the GPU layer sharpens the drawn map and follows DRA', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

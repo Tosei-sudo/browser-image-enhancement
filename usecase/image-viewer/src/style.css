@@ -130,9 +130,6 @@ body {
   display: flex;
   gap: 6px;
 }
-.measure-tools {
-  margin-left: auto;
-}
 .measure-tools button,
 .point-tools button {
   padding: 4px 10px;
@@ -175,6 +172,33 @@ body {
   margin: 8px 0 6px;
   font-size: 13px;
   color: var(--muted);
+}
+/* Side panel sections that fold away (ポイント・幾何補正・情報). */
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  cursor: pointer;
+}
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+.fold > summary::before {
+  content: '▸';
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform 0.1s;
+}
+.fold[open] > summary::before {
+  transform: rotate(90deg);
+}
+.fold > summary h2 {
+  display: inline;
+}
+/* No points yet: no points section. */
+.fold:has(> .points:empty) {
+  display: none;
 }
 .empty {
   margin: 0;
@@ -638,6 +662,9 @@ body {
   gap: 6px;
   color: var(--fg);
 }
+.service-form label[hidden] {
+  display: none;
+}
 .export-note {
   max-width: 36rem;
 }
@@ -877,9 +904,38 @@ body {
   background: var(--accent-bg);
   color: var(--accent);
 }
+.geometry-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.geometry-field input {
+  width: 5.5em;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+}
+.geometry-details {
+  margin-bottom: 6px;
+}
+.geometry-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
 .geometry-row button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.geometry-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
 }
 .shifting {
   cursor: move;
@@ -1111,4 +1167,304 @@ body {
 }
 .style-reset {
   margin-right: auto;
+}
+/* A range of a graduated style: its upper bound can be typed. */
+.style-bounds {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.style-bounds input {
+  width: 7rem;
+}
+/* A scale: 「1 :」, the denominator, and a button to take the map's scale. */
+.style-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+}
+.style-scale input {
+  flex: 1;
+}
+.style-scale button,
+.style-scales summary {
+  cursor: pointer;
+}
+.style-scale button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  white-space: nowrap;
+}
+.style-scales {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.style-scales summary {
+  font-weight: 600;
+}
+.style-scale-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.style-now {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+}
+.image.out-of-scale .name {
+  opacity: 0.55;
+}
+
+/* The 「ツール」 menu: the click tools, out of the way until wanted. */
+.menu {
+  position: relative;
+  margin-left: auto;
+}
+.menu-button::after {
+  content: ' ▾';
+  font-size: 10px;
+}
+.menu-button.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  min-width: 14rem;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px #0003;
+}
+.menu-panel[hidden] {
+  display: none;
+}
+.menu-heading {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.menu-panel .measure-tools,
+.menu-panel .point-tools {
+  flex-wrap: wrap;
+}
+/* The shortcut key, after the tool's name. */
+.menu-panel button[data-key]::after {
+  content: attr(data-key);
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.help-button {
+  min-width: 2em;
+  font-weight: 600;
+}
+
+/* The guide of a first visit, over the bottom of the map. */
+.guide {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 5;
+  width: min(30rem, calc(100% - 32px));
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 4px 20px #0004;
+  font-size: 13px;
+  line-height: 1.5;
+  transform: translateX(-50%);
+}
+.guide[hidden] {
+  display: none;
+}
+.guide h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.guide ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+.guide-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* The 「?」 dialog of shortcuts (in the add-a-service dialog's style). */
+.help-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.help-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 4px 24px;
+  max-height: 65vh;
+  overflow: auto;
+}
+.help-groups h3 {
+  margin: 8px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.help-groups dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+}
+.help-groups dt {
+  white-space: nowrap;
+}
+.help-groups dd {
+  margin: 0;
+}
+.help-groups kbd {
+  display: inline-block;
+  min-width: 1.2em;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font: 12px ui-monospace, monospace;
+  text-align: center;
+}
+.help-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Comparison and analysis under the information: swipe and histogram. */
+.analysis-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.analysis-tools button {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.analysis-tools button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.histogram {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.histogram-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.histogram canvas {
+  display: block;
+  width: 100%;
+  height: 100px;
+  border: 1px solid var(--line);
+  background: #0000000d;
+  image-rendering: pixelated;
+}
+.histogram-readout,
+.histogram-note {
+  min-height: 1.2em;
+  margin: 2px 0;
+  color: var(--muted);
+}
+.histogram-stats {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.histogram-stats th,
+.histogram-stats td {
+  padding: 0 6px 0 0;
+  font-weight: normal;
+  text-align: right;
+}
+.histogram-stats tr:first-child th {
+  color: var(--muted);
+}
+
+/* The swipe line over the map; the selected layer shows on its left (or above it). */
+.swipe-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 12px;
+  margin-left: -6px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.swipe-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 2px #000a;
+}
+.swipe-bar.horizontal {
+  top: auto;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 12px;
+  margin: -6px 0 0;
+  cursor: ns-resize;
+}
+.swipe-bar.horizontal::before {
+  top: 5px;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 2px;
+}
+.swipe-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 3px #000a;
+  transform: translate(-50%, -50%);
+}
+.swipe-handle:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
 }

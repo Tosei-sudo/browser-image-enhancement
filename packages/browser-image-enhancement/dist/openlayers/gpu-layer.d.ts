@@ -24,12 +24,14 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private gpu_;
   private readonly correction_;
   private readonly correctionKey_;
+  private readonly useGpu_;
+  private disposed_;
   /** Small canvas the drawn map is read through for DRA statistics. */
   private sample_;
   /** Frames corrected so far. */
   frames: number;
   constructor(options?: GpuCorrectedTileLayerOptions);
-  /** Whether the layer can correct on the GPU (WebGL2 is available and the context was not lost). */
+  /** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
   hasGpu(): boolean;
   /** The `correction` given in the options, or null. */
   getCorrection(): TileCorrection | null;

@@ -8,6 +8,22 @@ import type { Field } from '../src/services/index.js';
 import { readGeoPackage, rows } from '../src/geopackage.js';
 import { readVectorFiles, unzipFiles } from '../src/vector-files.js';
 import { webMercator, writeGeoJson, writeGeoPackage, writeShapefile, zipFiles } from '../src/vector-write.js';
+import { singleSpec, type VectorStyleSpec } from '../src/vector-style.js';
+
+/** A style graduated by POP and labelled by 名称, shown at 1:50,000 and closer. */
+function style(): VectorStyleSpec {
+  return {
+    ...singleSpec('#ff0000'),
+    mode: 'graduated',
+    field: 'POP',
+    classes: [
+      { min: 0, max: 50, color: '#fee5d9', visible: true },
+      { min: 50, max: 100, color: '#a50f15', visible: true },
+    ],
+    label: { ...singleSpec('#ff0000').label, field: '名称' },
+    minScale: 50000,
+  };
+}
 
 const fields: Field[] = [
   { name: 'OBJECTID', alias: 'OBJECTID', type: 'oid', editable: false, nullable: false },
@@ -79,6 +95,33 @@ describe('writeShapefile', () => {
     ]);
     // shpjs makes clockwise .shp rings counter-clockwise (GeoJSON) again: an outer ring, not a hole.
     expect((read[0].features[0].getGeometry() as Polygon).getArea()).toBeGreaterThan(0);
+  });
+});
+
+describe('styles in files', () => {
+  it('writes a .qml beside each Shapefile, naming the columns as written', () => {
+    const long: Field[] = [{ name: 'POPULATION_TOTAL', alias: 'P', type: 'integer', editable: true, nullable: true }];
+    const f = new Feature({ geometry: new Point([0, 0]), POPULATION_TOTAL: 5 });
+    const files = writeShapefile('x', [f], long, undefined, { ...style(), field: 'POPULATION_TOTAL', label: { ...style().label, field: null } });
+    const qml = files.find((x) => x.name === 'x.qml');
+    expect(qml).toBeDefined();
+    const text = new TextDecoder().decode(qml!.bytes);
+    expect(text).toContain('type="graduatedSymbol" attr="POPULATION"');
+    expect(text).toContain('class="SimpleMarker"');
+    expect(text).toContain('minScale="50000"');
+    expect(writeShapefile('x', [f], long).some((x) => x.name.endsWith('.qml'))).toBe(false);
+  });
+
+  it('writes the style into layer_styles of a GeoPackage, as QGIS reads it', async () => {
+    const bytes = await writeGeoPackage('sites', features(), fields, undefined, style());
+    const [file] = await readGeoPackage(bytes, 'sites');
+    const db = file.gpkg!.db;
+    const [row] = rows(db, 'SELECT f_table_name, f_geometry_column, useAsDefault, styleQML FROM layer_styles');
+    expect([row.f_table_name, row.f_geometry_column, row.useAsDefault]).toEqual(['sites', 'geom', 1]);
+    expect(String(row.styleQML)).toContain('<text-style fieldName="名称"');
+    expect(file.styleQml).toBe(row.styleQML);
+    // layer_styles is a table of attributes, not of features.
+    expect(rows(db, "SELECT data_type FROM gpkg_contents WHERE table_name = 'layer_styles'")).toEqual([{ data_type: 'attributes' }]);
   });
 });
 
