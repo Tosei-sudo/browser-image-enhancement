@@ -626,7 +626,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     // The band count is known now (OpenLayers sets the source ready right after this).
     if (this.select_) {
       const n = this.bandCount - (this.hasAlpha ? 1 : 0);
-      if (n < 3 || this.select_.some((b) => b >= n)) {
+      if (n < 3 || this.select_.some((b) => !Number.isInteger(b) || b < 0 || b >= n)) {
         warn(`select ${JSON.stringify(this.select_)} does not fit an image with ${n} value bands; the bands are drawn as read.`);
         this.select_ = null;
       }
@@ -880,8 +880,15 @@ export function fromRGBA(rgba: Uint8ClampedArray, bands: number, pixels: number)
   return out;
 }
 
-/** Three band indexes from a selection (one index means that band in all three). */
+/**
+ * Three band indexes from a selection (one index means that band in all three).
+ * Indexes that can never be a band throw at once, even before the band count is
+ * known, so they cannot read the neighbouring pixel's values later.
+ */
 function toRgb(select: BandSelection): readonly [number, number, number] {
+  if ((select.length !== 1 && select.length !== 3) || select.some((b) => !Number.isInteger(b) || b < 0)) {
+    throw new RangeError(`A band selection is 1 or 3 band indexes, each an integer from 0 (0-based), got ${JSON.stringify(select)}.`);
+  }
   return select.length === 1 ? [select[0], select[0], select[0]] : [select[0], select[1], select[2]];
 }
 

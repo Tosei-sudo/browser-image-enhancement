@@ -3,6 +3,7 @@
  * strips, and each worker receives only the source rectangle its strip reads.
  */
 import {
+  abortError,
   createImageData,
   race,
   splitRows,
@@ -47,10 +48,13 @@ export async function execute(image: ImageDataLike, plan: Plan, options: Execute
     if (e instanceof WorkerUnavailableError) return onMain();
     throw e;
   }
+  const sent: Sent[] = [];
   try {
-    const result = await race(runInWorkers(pool, slots, image, plan, signal), signal);
+    const result = await race(runInWorkers(pool, slots, image, plan, sent, signal), signal);
     return { image: result, usedWorker: true };
   } catch (e) {
+    // Stop the strips still being computed rather than letting them run on.
+    if (signal?.aborted) for (const { slot, id } of sent) pool.cancel(slot, [id], abortError(signal));
     // The source was copied, not transferred, so it is still here to retry with.
     if (e instanceof WorkerUnavailableError) {
       throwIfAborted(signal);
@@ -75,7 +79,13 @@ function copyWindow(src: { data: Uint8ClampedArray; width: number }, [left, top,
   return { buffer: data.buffer, width: w, height: h, x0: left, y0: top };
 }
 
-async function runInWorkers(pool: WorkerPool, slots: Slot[], image: ImageDataLike, plan: Plan, signal?: AbortSignal): Promise<ImageData> {
+/** A strip request sent to a worker. */
+interface Sent {
+  slot: Slot;
+  id: number;
+}
+
+async function runInWorkers(pool: WorkerPool, slots: Slot[], image: ImageDataLike, plan: Plan, sent: Sent[], signal?: AbortSignal): Promise<ImageData> {
   const src = shrink(image, plan.levels);
   const { width, height } = plan;
   const ranges = splitRows(height, slots.length);
@@ -88,9 +98,10 @@ async function runInWorkers(pool: WorkerPool, slots: Slot[], image: ImageDataLik
     const [y0, y1] = ranges[i];
     const bounds = sourceBounds(plan.mapping, width, y0, y1, src.width, src.height, plan.resample);
     const window = bounds ? copyWindow(src, bounds) : null;
+    const id = nextId++;
     const message: WorkerRequest = {
       type: 'warp',
-      id: nextId++,
+      id,
       window,
       width,
       y0,
@@ -104,6 +115,7 @@ async function runInWorkers(pool: WorkerPool, slots: Slot[], image: ImageDataLik
     // A strip may fail while later strips are still being sent; Promise.all below reports it.
     reply.catch(() => {});
     replies.push(reply);
+    sent.push({ slot: slots[i], id });
   }
   if (replies.length === 1) return createImageData(new Uint8ClampedArray((await replies[0]).buffer), width, height);
   const out = new Uint8ClampedArray(width * height * 4);
