@@ -97,6 +97,136 @@ function rasterHistogram(raster, options = {}) {
 		count
 	};
 }
+/**
+* Value counts of the picture bands of several rasters (the tiles of one
+* picture), made to hold up on real imagery. Null when there is no value.
+*
+* Two things in satellite products spoil a plain {@link rasterHistogram}
+* (its bins spread evenly from the smallest value to the largest):
+*
+* - A fill value that is not tagged as no data (-9999, -32768, the lowest
+*   float, 0 around a scene) takes the corners of the scene. It is often
+*   more than the few percent a stretch clips, so it becomes black (or
+*   white) and the scene itself lands at the other end, all white (or all
+*   black). The smallest or largest value of a band is taken as such a fill
+*   value, and left out, when it lies further from the rest of the values
+*   than the rest spreads (between its 1st and 99th percentile).
+* - A few far outlying values (hot pixels, a fill value on overview edges
+*   blended with the scene) squeeze the values into a handful of bins. The
+*   bins are then taken again over the 1-99 % range widened by its own width
+*   on each side, with the values outside counted in the end bins.
+*
+* Imagery without either gets the same histogram as {@link rasterHistogram}
+* over the rasters' range.
+*/
+function sampleRasterHistogram(samples, options = {}) {
+	const n = Math.max(2, Math.floor(options.bins ?? 4096));
+	if (samples.length === 0) return null;
+	const layouts = samples.map((s) => layout(s.raster));
+	const bands = layouts[0].picture.length;
+	const none = new Array(bands).fill(null);
+	const lo = new Array(bands).fill(Infinity);
+	const hi = new Array(bands).fill(-Infinity);
+	samples.forEach((s, i) => forEachValue(s, layouts[i], none, (c, v) => {
+		if (v < lo[c]) lo[c] = v;
+		if (v > hi[c]) hi[c] = v;
+	}));
+	const range = [Math.min(...lo), Math.max(...hi)];
+	if (!(range[0] <= range[1])) return null;
+	const coarse = histogramOf(samples, layouts, range, n, none);
+	const exact = countValues(samples, layouts, [lo, hi]);
+	const skip = coarse.bins.map((bins, c) => {
+		const k = (v) => binOf(v, range, n);
+		const rest = Float64Array.from(bins);
+		rest[k(lo[c])] -= exact[0][c];
+		if (hi[c] !== lo[c]) rest[k(hi[c])] -= exact[1][c];
+		const p1 = quantile(rest, .01, range);
+		const p99 = quantile(rest, .99, range);
+		if (p1 === null || p99 === null) return [];
+		const spread = p99 - p1;
+		const out = [];
+		if (p1 - lo[c] > spread && lo[c] < p1) out.push(lo[c]);
+		if (hi[c] - p99 > spread && hi[c] > p99) out.push(hi[c]);
+		return out;
+	});
+	let first = skip.some((s) => s.length > 0) ? histogramOf(samples, layouts, range, n, skip) : coarse;
+	let current = range;
+	for (let round = 0; round < 16; round++) {
+		let q1 = Infinity;
+		let q99 = -Infinity;
+		for (const bins of first.bins) {
+			const a = quantile(bins, .01, current);
+			const b = quantile(bins, .99, current);
+			if (a !== null && b !== null) [q1, q99] = [Math.min(q1, a), Math.max(q99, b)];
+		}
+		if (!(q1 <= q99)) break;
+		const margin = Math.max(q99 - q1, (current[1] - current[0]) / (n - 1));
+		const narrow = [Math.max(current[0], q1 - margin), Math.min(current[1], q99 + margin)];
+		if ((narrow[1] - narrow[0]) * 16 >= current[1] - current[0]) break;
+		current = narrow;
+		first = histogramOf(samples, layouts, current, n, skip);
+	}
+	return first;
+}
+/** Calls `fn(band, value)` for every value of the picture bands that counts (not transparent, no data, NaN or skipped). */
+function forEachValue(s, l, skip, fn) {
+	const r = s.raster;
+	const [x0, y0, x1, y1] = clip(s.rect, r.width, r.height);
+	const d = r.data;
+	for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+		const p = (y * r.width + x) * l.bands;
+		if (hidden(d, p, l)) continue;
+		for (let c = 0; c < l.picture.length; c++) {
+			const v = d[p + l.picture[c]];
+			const k = skip[c];
+			if (k !== null && (Array.isArray(k) ? k.includes(v) : k === v)) continue;
+			fn(c, v);
+		}
+	}
+}
+const binOf = (v, [min, max], n) => {
+	const k = Math.round((v - min) * (max > min ? (n - 1) / (max - min) : 0));
+	return k < 0 ? 0 : k >= n ? n - 1 : k;
+};
+/** Histogram of the samples over `range`, values in `skip` (per band) left out. */
+function histogramOf(samples, layouts, range, n, skip) {
+	const bins = layouts[0].picture.map(() => new Float64Array(n));
+	let count = 0;
+	samples.forEach((s, i) => {
+		const l = layouts[i];
+		const r = s.raster;
+		const [x0, y0, x1, y1] = clip(s.rect, r.width, r.height);
+		for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (!hidden(r.data, (y * r.width + x) * l.bands, l)) count++;
+		forEachValue(s, l, skip, (c, v) => bins[c][binOf(v, range, n)]++);
+	});
+	return {
+		range,
+		bins,
+		count
+	};
+}
+/** How many values of each band equal `values[j][band]`, for each j. */
+function countValues(samples, layouts, values) {
+	const out = values.map((v) => v.map(() => 0));
+	const none = values[0].map(() => null);
+	samples.forEach((s, i) => forEachValue(s, layouts[i], none, (c, v) => {
+		for (let j = 0; j < values.length; j++) if (values[j][c] === v) out[j][c]++;
+	}));
+	return out;
+}
+/** The value below which fraction `q` of the counts lie (a bin's value), or null for no counts. */
+function quantile(bins, q, [min, max]) {
+	let total = 0;
+	for (let k = 0; k < bins.length; k++) total += bins[k];
+	if (total <= 0) return null;
+	const target = total * q;
+	let cum = 0;
+	for (let k = 0; k < bins.length; k++) {
+		cum += bins[k];
+		if (cum > target) return min + (max - min) * k / (bins.length - 1);
+	}
+	return max;
+}
 /** Adds raster histograms taken with the same range and bin count (of tiles of one picture). */
 function mergeRasterHistograms(histograms) {
 	if (histograms.length === 0) throw new RangeError("Nothing to merge.");
@@ -177,7 +307,7 @@ function rasterToImageData(raster, options = {}) {
 	const stretch = isFixed(options.stretch) ? {
 		black: perBand(options.stretch.black, n, "stretch.black"),
 		white: perBand(options.stretch.white, n, "stretch.white")
-	} : computeRasterStretch(rasterHistogram(raster), options.stretch);
+	} : computeRasterStretch(sampleRasterHistogram([{ raster }]) ?? rasterHistogram(raster), options.stretch);
 	const scale = stretch.black.map((b, c) => stretch.white[c] > b ? 255 / (stretch.white[c] - b) : 0);
 	const pixels = raster.width * raster.height;
 	const out = new Uint8ClampedArray(pixels * 4);
@@ -193,6 +323,6 @@ function rasterToImageData(raster, options = {}) {
 	return createImageData(out, raster.width, raster.height);
 }
 //#endregion
-export { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToImageData };
+export { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToImageData, sampleRasterHistogram };
 
 //# sourceMappingURL=raster.js.map

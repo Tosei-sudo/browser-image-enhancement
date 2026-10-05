@@ -2,7 +2,7 @@ import { warn } from "../warn.js";
 import { mergeHistograms } from "../core/histogram.js";
 import { histogram } from "../stats.js";
 import { pipeline } from "../pipeline.js";
-import { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToImageData } from "../raster.js";
+import { computeRasterStretch, rasterToImageData, sampleRasterHistogram } from "../raster.js";
 import { isGraySelection } from "../bands.js";
 import { cropMargin, withMargin } from "./margin.js";
 import { readBandNames } from "./tiff-metadata.js";
@@ -78,6 +78,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	appliedContent_ = "";
 	/** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
 	rawValues_;
+	/** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
+	isNoData_ = null;
 	autoNormalize_;
 	rawStretchOption_;
 	/** The raw stretch in use; null until the first statistics are read. */
@@ -360,17 +362,11 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 					rect: t.rect
 				}] : [];
 			});
-			let lo = Infinity;
-			let hi = -Infinity;
-			for (const { r, rect } of rasters) {
-				const range = rasterRange(r, rect);
-				if (range) [lo, hi] = [Math.min(lo, range[0]), Math.max(hi, range[1])];
-			}
-			if (lo <= hi) {
-				rawHistogram = mergeRasterHistograms(rasters.map(({ r, rect }) => rasterHistogram(r, {
-					range: [lo, hi],
-					rect
-				})));
+			rawHistogram = sampleRasterHistogram(rasters.map(({ r, rect }) => ({
+				raster: r,
+				rect
+			})));
+			if (rawHistogram) {
 				rawInfo = computeRasterStretch(rawHistogram, this.rawOptions_());
 				rawStretch = rawInfo;
 			}
@@ -524,9 +520,11 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		if (this.autoNormalize_ && isEightBit(this)) {
 			this.rawValues_ = false;
 			this.normalize_ = true;
+			keepEightBitRange(this);
 			this.appliedKey_ = this.tileKey_();
 			this.appliedContent_ = this.contentKey_();
 		}
+		this.isNoData_ = this.hasAlpha ? floatNoData(this) : null;
 		if (this.select_) {
 			const n = this.bandCount - (this.hasAlpha ? 1 : 0);
 			if (n < 3 || this.select_.some((b) => b >= n)) {
@@ -599,10 +597,12 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			return cached;
 		}
 		this.stats.reads++;
-		const promise = Promise.resolve(loader(z, x, y, {
+		const isNoData = this.isNoData_;
+		const read = Promise.resolve(loader(z, x, y, {
 			...options,
 			signal: neverAborted
 		}));
+		const promise = isNoData ? read.then((data) => maskNoData(data, this.bandCount, isNoData)) : read;
 		this.raw_.set(key, promise);
 		promise.catch(() => {
 			if (this.raw_.get(key) === promise) this.raw_.delete(key);
@@ -630,6 +630,62 @@ function isEightBit(source) {
 	} catch {
 		return false;
 	}
+}
+/**
+* Makes OpenLayers read an 8-bit image's values as they are (0-255). Given no
+* `min`/`max`, it scales every band by the `STATISTICS_MINIMUM`/`MAXIMUM`
+* that GDAL wrote for the first band, so a file with statistics (of a darker
+* first band, or stale ones) comes out washed out or all white.
+*/
+function keepEightBitRange(source) {
+	const info = source.sourceInfo_;
+	for (const s of info ?? []) {
+		s.min ??= 0;
+		s.max ??= 255;
+	}
+}
+/** Largest float32 value. */
+const FLOAT32_MAX = 34028234663852886e22;
+/**
+* For a float32 image whose no-data value OpenLayers cannot match: the
+* test for that value. `GDAL_NODATA` is text, often rounded
+* ("-3.40282e+38" for the lowest float), so a sample never equals the
+* number read from it, and the fill shows instead of being transparent.
+* GDAL itself writes the overviews with the rounded value cast to float32,
+* and the full image often with the exact lowest float: as GDAL does, a
+* value close to the largest float stands for any value that close. Null
+* when the samples are not float32 or the value matches as it is.
+*/
+function floatNoData(source) {
+	const s = source;
+	const imagery = s.sourceImagery_;
+	if (!Array.isArray(imagery) || imagery.length !== 1) return null;
+	const image = imagery[0]?.[imagery[0].length - 1];
+	const nodata = s.nodataValues_?.[0]?.find((v) => v !== null && v !== void 0);
+	if (!image || typeof nodata !== "number" || !Number.isFinite(nodata)) return null;
+	try {
+		if (image.getSampleFormat(0) !== 3 || image.getBitsPerSample(0) !== 32) return null;
+	} catch {
+		return null;
+	}
+	if (Math.abs(Math.abs(nodata) - FLOAT32_MAX) <= FLOAT32_MAX * 1e-5) {
+		const edge = Math.sign(nodata) * FLOAT32_MAX * .99999;
+		return nodata < 0 ? (v) => v <= edge : (v) => v >= edge;
+	}
+	const f = Math.fround(nodata);
+	return f === nodata ? null : (v) => v === f;
+}
+/** Makes transparent the pixels of a raw tile (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
+function maskNoData(data, bands, isNoData) {
+	if (!(data instanceof Float32Array) || bands < 2) return data;
+	for (let p = 0; p < data.length; p += bands) {
+		if (data[p + bands - 1] === 0) continue;
+		let all = true;
+		for (let b = 0; b < bands - 1 && all; b++) all = isNoData(data[p + b]);
+		if (!all) continue;
+		for (let b = 0; b < bands; b++) data[p + b] = 0;
+	}
+	return data;
 }
 const keyFor = (p) => `enhanced:${JSON.stringify(p.ops)}`;
 /** 1 band = gray, 2 = gray + alpha, 3 = RGB, 4 = RGB + alpha (OpenLayers adds alpha for nodata). */

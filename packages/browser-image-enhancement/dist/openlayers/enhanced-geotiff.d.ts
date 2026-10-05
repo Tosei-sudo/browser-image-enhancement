@@ -107,6 +107,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private appliedContent_;
   /** True with `normalize: false` (or `'auto'` on a deeper than 8-bit image): tiles hold raw values that are stretched here. */
   private rawValues_;
+  /** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
+  private isNoData_;
   private readonly autoNormalize_;
   private readonly rawStretchOption_;
   /** The raw stretch in use; null until the first statistics are read. */

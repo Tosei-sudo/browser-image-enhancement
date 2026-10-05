@@ -57,7 +57,8 @@ export interface LoadImageControlOptions {
    * else corrected in workers. Images deeper than 8 bits (16-bit, float) are
    * read raw (`normalize: 'auto'`) and stretched band by band from their own
    * values, cutting 2 % at each end like QGIS's default
-   * (`rawStretch: { lowPercent: 2, highPercent: 2 }`).
+   * (`rawStretch: { lowPercent: 2, highPercent: 2 }`). YCbCr (JPEG-compressed
+   * imagery), CMYK and CIELab images are converted to RGB (`convertToRGB: 'auto'`).
    */
   sourceOptions?: Omit<EnhancedGeoTIFFOptions, 'sources'>;
   /** Zoom the map to the loaded image (default true). */
