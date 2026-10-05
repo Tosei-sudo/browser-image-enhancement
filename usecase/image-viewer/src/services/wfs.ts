@@ -26,7 +26,8 @@ import {
   type ServiceCatalog,
   type ServiceLayer,
 } from './common.js';
-import { plainStyle, toMap, vectorLayer } from './vector.js';
+import { toMap, vectorLayer } from './vector.js';
+import { LayerStyle, singleSpec } from '../vector-style.js';
 import { fieldsOf } from './wms.js';
 
 interface FeatureType {
@@ -119,13 +120,14 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
   const found = fieldsOf(features);
   const all: Field[] = fields ? [...fields, ...found.filter((f) => !fields.some((d) => d.name === f.name))] : found;
   const color = nextColor();
-  const layer = vectorLayer(features, plainStyle(color));
+  const layer = vectorLayer(features);
   return {
     ref: { kind: 'wfs', url: ep.url, layer: type.name },
     title: type.title,
     layer,
     correction: null,
     vector: { source: layer.getSource()!, fields: all, truncated },
+    style: new LayerStyle(layer, singleSpec(color)),
     extent: type.box ? transformExtent([type.box[0], Math.max(type.box[1], -85), type.box[2], Math.min(type.box[3], 85)], 'EPSG:4326', 'EPSG:3857') : null,
     info: [
       ['種類', 'WFS'],

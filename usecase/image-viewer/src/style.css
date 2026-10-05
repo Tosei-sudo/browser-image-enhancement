@@ -221,6 +221,18 @@ body {
   display: flex;
   gap: 2px;
 }
+/* A narrow panel: the buttons go under the name, so the name stays readable. */
+.images {
+  container-type: inline-size;
+}
+@container (max-width: 24rem) {
+  .image .name {
+    grid-column: 2 / 4;
+  }
+  .image .tools {
+    grid-column: 2 / 4;
+  }
+}
 .image .tools button {
   width: 1.7em;
   height: 1.7em;
@@ -985,4 +997,114 @@ body {
 .metadata-list dd {
   white-space: pre-wrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Style dialog of a vector layer (in the add-a-service dialog's style), at the right so the map shows the changes. */
+.style-dialog {
+  width: min(40rem, calc(100% - 32px));
+  margin-right: 16px;
+}
+.style-dialog::backdrop {
+  background: transparent;
+}
+.style-form {
+  display: grid;
+  gap: 10px;
+  max-height: 70vh;
+  margin-top: 10px;
+  overflow: auto;
+}
+.style-form fieldset {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.style-form legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+.style-form label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+}
+.style-form label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+}
+.style-form .wide-2 {
+  grid-column: span 2;
+}
+.style-form .wide {
+  grid-column: 1 / -1;
+}
+.style-form [hidden] {
+  display: none;
+}
+.style-form input:not([type=checkbox]),
+.style-form select,
+.style-categories button {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.style-form input[type=color] {
+  height: 28px;
+  padding: 1px 2px;
+}
+.style-form input[type=range] {
+  padding: 0;
+  border: 0;
+}
+.style-categories {
+  display: grid;
+  gap: 2px;
+  max-height: 14rem;
+  overflow: auto;
+}
+.style-categories .style-category {
+  display: grid;
+  grid-template-columns: auto 2.4rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+}
+.style-categories .style-category input[type=color] {
+  width: 2.4rem;
+  height: 22px;
+}
+.style-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.style-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.style-swatch {
+  width: 2.4rem;
+  height: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+}
+.style-categories button {
+  justify-self: start;
+  margin-top: 4px;
+  cursor: pointer;
+}
+.style-reset {
+  margin-right: auto;
 }

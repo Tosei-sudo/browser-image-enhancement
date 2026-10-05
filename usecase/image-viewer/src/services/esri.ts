@@ -11,6 +11,7 @@ import type Geometry from 'ol/geom/Geometry.js';
 import { transformExtent } from 'ol/proj.js';
 import type { FeatureLike } from 'ol/Feature.js';
 import { Circle, Fill, Icon, RegularShape, Stroke, Style } from 'ol/style.js';
+import { LayerStyle, ownSpec } from '../vector-style.js';
 import type ImageStyle from 'ol/style/Image.js';
 import type { Extent } from 'ol/extent.js';
 import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer } from './common.js';
@@ -133,7 +134,8 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
   const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
   const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
   const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token);
-  const layer = vectorLayer(features, rendererStyle(json.drawingInfo?.renderer, url));
+  const own = rendererStyle(json.drawingInfo?.renderer, url);
+  const layer = vectorLayer(features, own);
   const extent = json.extent ? await extentOf(json.extent) : null;
 
   return {
@@ -143,6 +145,8 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
     correction: null,
     vector: { source: layer.getSource()!, fields, idField: info.objectIdField, truncated },
     esri: info,
+    // Drawn as the service draws it until another style is chosen.
+    style: new LayerStyle(layer, ownSpec(), own),
     extent,
     info: [
       ['種類', mapServer ? 'Esri マップサービス（フィーチャーレイヤー）' : 'Esri フィーチャーサービス'],
@@ -317,7 +321,7 @@ export function symbolStyle(sym: EsriSymbol | null | undefined, baseUrl: string)
       const src = sym.imageData ? `data:${sym.contentType ?? 'image/png'};base64,${sym.imageData}` : sym.url ? new URL(sym.url, `${baseUrl}/`).href : undefined;
       if (!src) break;
       return new Style({
-        image: new Icon({ src, width: px(sym.width ?? 16), height: px(sym.height ?? 16), rotation: ((sym.angle ?? 0) * Math.PI) / 180, displacement: [px(sym.xoffset), px(sym.yoffset)] }),
+        image: new Icon({ src, width: px(sym.width ?? 16), height: px(sym.height ?? 16), rotation: ((sym.angle ?? 0) * Math.PI) / 180, displacement: [px(sym.xoffset), px(sym.yoffset)], declutterMode: 'obstacle' }),
       });
     }
     case 'esriSLS':
@@ -327,7 +331,7 @@ export function symbolStyle(sym: EsriSymbol | null | undefined, baseUrl: string)
     case 'esriPFS':
       return new Style({ fill: new Fill({ color: 'rgba(128,128,128,0.3)' }), stroke: stroke(sym.outline) });
   }
-  return new Style({ stroke: new Stroke({ color: '#666', width: 1.5 }), fill: new Fill({ color: 'rgba(128,128,128,0.3)' }), image: new Circle({ radius: 5, fill: new Fill({ color: '#666' }) }) });
+  return new Style({ stroke: new Stroke({ color: '#666', width: 1.5 }), fill: new Fill({ color: 'rgba(128,128,128,0.3)' }), image: new Circle({ radius: 5, fill: new Fill({ color: '#666' }), declutterMode: 'obstacle' }) });
 }
 
 function markerImage(sym: EsriSymbol): ImageStyle {
@@ -338,17 +342,17 @@ function markerImage(sym: EsriSymbol): ImageStyle {
   const displacement = [px(sym.xoffset), px(sym.yoffset)];
   switch (sym.style) {
     case 'esriSMSSquare':
-      return new RegularShape({ points: 4, radius: radius * Math.SQRT2, angle: Math.PI / 4, fill, stroke: line, rotation, displacement });
+      return new RegularShape({ points: 4, radius: radius * Math.SQRT2, angle: Math.PI / 4, fill, stroke: line, rotation, displacement, declutterMode: 'obstacle' });
     case 'esriSMSDiamond':
-      return new RegularShape({ points: 4, radius, fill, stroke: line, rotation, displacement });
+      return new RegularShape({ points: 4, radius, fill, stroke: line, rotation, displacement, declutterMode: 'obstacle' });
     case 'esriSMSTriangle':
-      return new RegularShape({ points: 3, radius, fill, stroke: line, rotation, displacement });
+      return new RegularShape({ points: 3, radius, fill, stroke: line, rotation, displacement, declutterMode: 'obstacle' });
     case 'esriSMSCross':
-      return new RegularShape({ points: 4, radius, radius2: 0, stroke: line ?? new Stroke({ color: rgba(sym.color), width: 2 }), rotation, displacement });
+      return new RegularShape({ points: 4, radius, radius2: 0, stroke: line ?? new Stroke({ color: rgba(sym.color), width: 2 }), rotation, displacement, declutterMode: 'obstacle' });
     case 'esriSMSX':
-      return new RegularShape({ points: 4, radius, radius2: 0, angle: Math.PI / 4, stroke: line ?? new Stroke({ color: rgba(sym.color), width: 2 }), rotation, displacement });
+      return new RegularShape({ points: 4, radius, radius2: 0, angle: Math.PI / 4, stroke: line ?? new Stroke({ color: rgba(sym.color), width: 2 }), rotation, displacement, declutterMode: 'obstacle' });
     default:
-      return new Circle({ radius, fill, stroke: line, displacement });
+      return new Circle({ radius, fill, stroke: line, displacement, declutterMode: 'obstacle' });
   }
 }
 

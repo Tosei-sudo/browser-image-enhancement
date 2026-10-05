@@ -6,6 +6,7 @@
  * are corrected like the images, vector layers show their attributes in a
  * table, and editable Esri layers can be edited. Shapefiles, GeoJSON and
  * GeoPackages open as vector layers with the same table, and can be edited too.
+ * Vector layers get symbols and labels of the user's choosing (style-dialog.ts).
  */
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
@@ -41,6 +42,7 @@ import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
 import { ExportDialog } from './export-dialog.js';
+import { StyleDialog } from './style-dialog.js';
 import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
@@ -184,8 +186,10 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     if (editor.start(layer)) showTable(layer);
   },
   onExport: (layer) => exporter.open(layer),
+  onStyle: (layer) => styler.open(layer),
 });
 const exporter = new ExportDialog(selection, { say });
+const styler = new StyleDialog({ say });
 const metadata = new MetadataDialog({ say });
 metadataButton.addEventListener('click', () => {
   const layer = images.selectedLayer();
@@ -476,6 +480,7 @@ declare global {
       table: AttributeTable;
       editor: Editor;
       exporter: ExportDialog;
+      styler: StyleDialog;
       metadata: MetadataDialog;
       boxSelect: DragBox;
       baseMap: BaseMapSwitch;
@@ -489,4 +494,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing };

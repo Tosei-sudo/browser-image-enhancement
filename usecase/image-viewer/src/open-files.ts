@@ -10,7 +10,8 @@
 import { isEmpty } from 'ol/extent.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './services/index.js';
-import { plainStyle, vectorLayer } from './services/vector.js';
+import { vectorLayer } from './services/vector.js';
+import { LayerStyle, singleSpec } from './vector-style.js';
 import { isVectorName, readVectorFiles, stem, type VectorFile } from './vector-files.js';
 import { isCsvName, readCsv } from './csv.js';
 import VectorLayer from 'ol/layer/Vector.js';
@@ -149,7 +150,7 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
 export function vectorFileLayer(file: VectorFile): ServiceLayer {
   const truncated = file.features.length > MAX_FEATURES;
   const features = truncated ? file.features.slice(0, MAX_FEATURES) : file.features;
-  const layer = vectorLayer(features, plainStyle(nextColor()));
+  const layer = vectorLayer(features);
   const source = layer.getSource()!;
   const extent = source.getExtent();
   const editable = isEditable(file, truncated);
@@ -169,6 +170,7 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
     layer,
     correction: null,
     vector: { source, fields, truncated, idField: file.gpkg?.idColumn },
+    style: new LayerStyle(layer, singleSpec(nextColor())),
     ...(editable ? { editTarget: localTarget(file, source, fields) } : {}),
     fileCrs: file.writeCrs,
     extent: extent && !isEmpty(extent) ? extent : null,
