@@ -411,3 +411,40 @@ test('16-bit raw values (normalize: false) are stretched from their own statisti
   expect(brighter[0]).toBeGreaterThan(left[0]);
   expect(errors).toEqual([]);
 });
+
+test('tiles reprojected on the CPU match OpenLayers’ WebGL reprojection', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // The fixture is in EPSG:4326 on a Web Mercator map, so every tile is reprojected.
+  const pixel = (x: number, y: number) =>
+    page.evaluate(([x, y]) => {
+      const data = window.example.layer.getData([x, y]) as Uint8Array | null;
+      return data ? Array.from(data) : [];
+    }, [x, y]);
+  const read = async (query: string) => {
+    await open(page, `${query}&engine=worker`);
+    const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
+    const values: number[][] = [];
+    for (const zoom of [0, 1.5, 3]) {
+      if (zoom) {
+        await page.evaluate((z) => window.example.map.getView().setZoom(window.example.map.getView().getZoom()! + z), zoom);
+        await settle(page);
+      }
+      // A grid over the map: inside the image, across its edges and outside it.
+      for (let y = 0.05; y < 1; y += 0.1) for (let x = 0.05; x < 1; x += 0.1) values.push(await pixel(Math.round(w * x), Math.round(h * y)));
+    }
+    return values;
+  };
+  const gl = await read('&glReprojection');
+  const cpu = await read('');
+  expect(cpu.length).toBe(gl.length);
+  let inside = 0;
+  for (let i = 0; i < gl.length; i++) {
+    expect(cpu[i].length, `point ${i}`).toBe(gl[i].length);
+    if (gl[i].length) inside++;
+    // Bilinear on both; the GPU rounds its 8-bit result once more.
+    for (let k = 0; k < gl[i].length; k++) expect(Math.abs(cpu[i][k] - gl[i][k]), `point ${i} band ${k}`).toBeLessThanOrEqual(1);
+  }
+  expect(inside).toBeGreaterThan(50);
+  expect(errors).toEqual([]);
+});

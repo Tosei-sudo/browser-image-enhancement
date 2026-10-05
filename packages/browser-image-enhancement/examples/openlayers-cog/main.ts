@@ -109,6 +109,8 @@ function load() {
     correctTiles: !onGpu(),
     worker: engine.value !== 'main',
     loadMissingProjection: true,
+    // `?glReprojection`: OpenLayers' WebGL reprojection instead of the CPU one, to compare.
+    cpuReprojection: !params.has('glReprojection'),
   });
   cogLayer.setSource(source);
   source.getView().then(
