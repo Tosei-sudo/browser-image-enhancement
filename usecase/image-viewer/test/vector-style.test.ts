@@ -106,6 +106,10 @@ describe('styleFunction', () => {
     const far = resolutionOfScale(50000, 0);
     expect(fn(point({ name: 'a' }), near)).toHaveLength(2);
     expect(fn(point({ name: 'a' }), far)).not.toBeInstanceOf(Array);
+    // Labels only (the symbols drawn on the GPU): nothing at all beyond the scale.
+    const labelsOnly = styleFunction(spec, undefined, 0, false);
+    expect(labelsOnly(point({ name: 'a' }), near)).toBeTruthy();
+    expect(labelsOnly(point({ name: 'a' }), far)).toBeUndefined();
   });
 
   it('keeps a service style in the own mode and adds labels over it', () => {
