@@ -10,6 +10,8 @@
  * - An orthorectified layer can be moved by hand to line it up where the RPC
  *   model is off: drag it on the map, or use the arrow keys (Shift: 10×).
  *   The move is in metres on the ground and goes into the saved GeoTIFF.
+ * - A DEM can show contour lines (off at first): at a round interval for its
+ *   range, or one chosen.
  */
 import type OlMap from 'ol/Map.js';
 import PointerInteraction from 'ol/interaction/Pointer.js';
@@ -19,6 +21,8 @@ import type { Raster, Resample } from 'browser-image-geometry';
 import { readDted, type Dted } from './dted.js';
 import { coversAny, elevationRange, type GeoidGrid } from './dem.js';
 import { dtedToGeoTIFF } from './dem-layer.js';
+import { ContourLayer } from './contour-layer.js';
+import { gridOfDted, niceInterval } from './contours.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
 import { fromMercator, type OrthoInput, type OrthoResult } from './ortho.js';
 import type { OrthoReply } from './ortho-worker.js';
@@ -51,8 +55,16 @@ export interface GeometricOptions {
 
 const resampleNames: Record<Resample, string> = { nearest: '最近傍', bilinear: 'バイリニア', bicubic: 'バイキュービック' };
 
+/** Contour intervals to choose from, metres. */
+const CONTOUR_INTERVALS = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+
 export class GeometricMode {
   private readonly dems_ = new Map<ViewerImage, Dted>();
+  private readonly contours_ = new Map<ViewerImage, ContourLayer>();
+  /** Contour interval chosen for a DEM (none: a round one for its range). */
+  private readonly contourIntervals_ = new WeakMap<ViewerImage, number>();
+  private readonly autoIntervals_ = new WeakMap<ViewerImage, number>();
+  private contourNote_ = '';
   private readonly satellites_ = new WeakMap<ViewerImage, SatelliteImage>();
   private readonly orthos_ = new WeakMap<ViewerImage, OrthoImage>();
   private shifting_ = false;
@@ -160,9 +172,53 @@ export class GeometricMode {
     this.changed_(image);
   }
 
+  /** Shows or hides the contour lines of a DEM. */
+  setContours(image: ViewerImage, on: boolean): void {
+    const dem = this.dems_.get(image);
+    const shown = this.contours_.get(image);
+    if (!dem || on === !!shown) return;
+    if (on) {
+      this.contourNote_ = '';
+      const contours = new ContourLayer(this.map, image.layer, gridOfDted(dem), {
+        interval: this.contourInterval(image),
+        onTraced: (_, truncated) => {
+          const note = truncated ? '間隔が細かすぎるため、一部の等高線だけ表示しています。広い間隔にするか拡大してください。' : '';
+          if (note === this.contourNote_) return;
+          this.contourNote_ = note;
+          if (this.images.selected() === image) this.render();
+        },
+      });
+      this.contours_.set(image, contours);
+    } else {
+      shown!.dispose();
+      this.contours_.delete(image);
+    }
+    this.render();
+  }
+
+  /** Whether a DEM shows its contour lines. */
+  hasContours(image: ViewerImage): boolean {
+    return this.contours_.has(image);
+  }
+
+  /** Sets the contour interval of a DEM in metres (null: a round one for its range). */
+  setContourInterval(image: ViewerImage, interval: number | null): void {
+    if (interval === null) this.contourIntervals_.delete(image);
+    else this.contourIntervals_.set(image, interval);
+    this.contours_.get(image)?.setInterval(this.contourInterval(image));
+    this.render();
+  }
+
+  /** The contour interval of a DEM in metres. */
+  contourInterval(image: ViewerImage): number {
+    return this.contourIntervals_.get(image) ?? this.autoInterval_(image);
+  }
+
   /** Forgets a closed layer. */
   remove(image: ViewerImage): void {
     this.dems_.delete(image);
+    this.contours_.get(image)?.dispose();
+    this.contours_.delete(image);
     if (this.images.selected() === image) this.setShifting(false);
     this.render();
   }
@@ -307,6 +363,7 @@ export class GeometricMode {
     const ortho = image && this.orthos_.get(image);
     if (image && dem) {
       p(`標高データ（${dem.level}）。開いている間、オルソ補正の地形に使います。`);
+      this.renderContours_(image, row);
     } else if (image && ortho) {
       p(`${baseName(ortho.sourceName)} のオルソ補正画像。位置がずれていれば、ずらして合わせられます。`);
       row(
@@ -335,6 +392,50 @@ export class GeometricMode {
       p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）を選ぶと、オルソ補正できます。');
     }
     p(cells.length ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）` : '標高データ: なし（DTED .dt0〜.dt2 を開くと使います）', 'geometry-dems');
+  }
+
+  /** The contour switch and interval of a DEM. */
+  private renderContours_(image: ViewerImage, row: (...children: HTMLElement[]) => HTMLDivElement): void {
+    const on = this.contours_.has(image);
+    const label = document.createElement('label');
+    label.className = 'geometry-check';
+    label.title = 'DEM のすぐ上に描きます。DEM の不透明度を 0 にすると等高線だけになります';
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = on;
+    check.dataset.action = 'contours';
+    check.addEventListener('change', () => this.setContours(image, check.checked));
+    label.append(check, '等高線');
+    if (!on) {
+      row(label);
+      return;
+    }
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', '等高線の間隔');
+    select.title = '等高線の間隔（5 本ごとの太線に標高を表示）';
+    const chosen = this.contourIntervals_.get(image);
+    select.append(new Option(`自動（${this.autoInterval_(image)} m）`, '', chosen === undefined, chosen === undefined));
+    for (const m of CONTOUR_INTERVALS) select.append(new Option(`${m} m`, String(m), m === chosen, m === chosen));
+    select.addEventListener('change', () => this.setContourInterval(image, select.value ? Number(select.value) : null));
+    row(label, select);
+    if (this.contourNote_) {
+      const note = document.createElement('p');
+      note.className = 'geometry-note';
+      note.textContent = this.contourNote_;
+      this.element.append(note);
+    }
+  }
+
+  /** A round contour interval for a DEM's range: about 20 lines. */
+  private autoInterval_(image: ViewerImage): number {
+    let interval = this.autoIntervals_.get(image);
+    if (interval === undefined) {
+      const dem = this.dems_.get(image);
+      const range = dem && elevationRange(dem);
+      interval = range ? niceInterval(range[0], range[1]) : 10;
+      this.autoIntervals_.set(image, interval);
+    }
+    return interval;
   }
 
   private showShift_(image: ViewerImage, readout = this.element.querySelector<HTMLElement>('[data-shift]')): void {
