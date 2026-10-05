@@ -31,6 +31,7 @@ import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
+import { glVector } from './gl-vector.js';
 import { acceptFiles, openFiles, type OpenFilesContext } from './open-files.js';
 import { rsetOf, RsetIndicator, RsetProgress, rsetText } from './rset.js';
 import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
@@ -227,7 +228,9 @@ map.on('singleclick', (e) => {
   if (points.isAdding() || measure.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
   const service = layer.service;
   if (service.vector) {
-    const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f as Feature, { layerFilter: (l) => l === service.layer, hitTolerance: 4 });
+    const hit = service.style?.onGpu()
+      ? service.style.featureAt(map, e.pixel, 4)
+      : map.forEachFeatureAtPixel(e.pixel, (f) => f as Feature, { layerFilter: (l) => l === service.layer, hitTolerance: 4 });
     const add = e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey;
     if (hit && add) selection.toggle(hit);
     else if (hit) selection.set([hit]);
@@ -433,6 +436,9 @@ map.on('moveend', () => {
 // opens COGs, `?service=` service layers and `?base=` a base map, so a view can be shared as a link.
 const start = new URLSearchParams(location.search);
 baseMap.set(start.get('base') ?? config.defaultBaseMap);
+// `?vectorgl=always` / `never`: draw vector layers on the GPU whatever their size, or never (else only large ones).
+const vectorGl = start.get('vectorgl');
+if (vectorGl === 'always' || vectorGl === 'never') glVector.mode = vectorGl;
 
 /** Opens one layer at start; failures are reported in the status line and the rest still open. */
 async function openAtStart(layer: LayerConfig): Promise<void> {

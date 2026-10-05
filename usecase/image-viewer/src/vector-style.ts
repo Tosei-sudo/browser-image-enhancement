@@ -5,8 +5,10 @@
  * key for the layer (its service URL, or its file), so the layer looks the
  * same when it is opened again.
  */
-import type { FeatureLike } from 'ol/Feature.js';
+import type { default as Feature, FeatureLike } from 'ol/Feature.js';
+import type OlMap from 'ol/Map.js';
 import type VectorLayer from 'ol/layer/Vector.js';
+import type { Pixel } from 'ol/pixel.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import type MultiPolygon from 'ol/geom/MultiPolygon.js';
 import type Polygon from 'ol/geom/Polygon.js';
@@ -14,6 +16,7 @@ import { Circle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style.js';
 import type ImageStyle from 'ol/style/Image.js';
 import type { StyleFunction, StyleLike } from 'ol/style/Style.js';
 import { asArray } from 'ol/color.js';
+import { drawsOnGpu, GlVector } from './gl-vector.js';
 
 /** Shapes of point symbols. */
 export type PointShape = 'circle' | 'square' | 'triangle' | 'diamond' | 'star' | 'cross' | 'x';
@@ -193,7 +196,8 @@ function symbolStyles(s: SymbolSpec, color: string | null): { area: Style; line:
   return { area, line };
 }
 
-const isLine = (type: string | undefined) => type === 'LineString' || type === 'MultiLineString' || type === 'LinearRing';
+/** Whether a geometry of `type` is drawn as a line. */
+export const isLine = (type: string | undefined) => type === 'LineString' || type === 'MultiLineString' || type === 'LinearRing';
 
 /** The text of a feature's label: its value, or null when it has none. */
 export function labelText(value: unknown): string | null {
@@ -257,8 +261,11 @@ function labelStyles(label: LabelSpec): (feature: FeatureLike) => Style | null {
   };
 }
 
-/** The style function of a spec; `own` is the layer's own style, for the `own` mode. */
-export function styleFunction(spec: VectorStyleSpec, own?: StyleLike): StyleFunction {
+/**
+ * The style function of a spec; `own` is the layer's own style, for the `own`
+ * mode. Without `symbols`, only the labels (of the features drawn).
+ */
+export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, symbols = true): StyleFunction {
   const labels = spec.label.field ? labelStyles(spec.label) : null;
   let draw: (feature: FeatureLike, resolution: number) => Style | Style[] | void;
   if (spec.mode === 'own' && own) {
@@ -285,6 +292,7 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike): StyleFunc
     // A feature hidden by its category gets no label either.
     if (!drawn || (Array.isArray(drawn) && drawn.length === 0)) return undefined;
     const label = labels(feature);
+    if (!symbols) return label ?? undefined;
     if (!label) return drawn;
     return [...(Array.isArray(drawn) ? drawn : [drawn]), label];
   };
@@ -386,6 +394,7 @@ const storeOf = () => (defaultStore ??= browserStyleStore());
 export class LayerStyle {
   private spec_: VectorStyleSpec;
   private key_: string | null = null;
+  private gl_: GlVector | null = null;
 
   /**
    * @param layer The layer drawn.
@@ -441,9 +450,29 @@ export class LayerStyle {
     if (this.key_) this.store.delete(this.key_);
   }
 
+  /** Whether the symbols are drawn on the GPU (a layer of many features); clicks then go to {@link featureAt}. */
+  onGpu(): boolean {
+    return this.gl_ !== null;
+  }
+
+  /** The feature drawn at `pixel`, when the symbols are drawn on the GPU. */
+  featureAt(map: OlMap, pixel: Pixel, tolerance?: number): Feature | undefined {
+    return this.gl_?.featureAt(map, pixel, tolerance);
+  }
+
   private apply_(): void {
     const spec = this.spec_;
-    this.layer.setStyle(styleFunction(spec, this.own));
+    const count = this.layer.getSource()?.getFeatures().length ?? 0;
+    if (drawsOnGpu(spec, count)) {
+      if (this.gl_) this.gl_.setSpec(spec);
+      else this.gl_ = new GlVector(this.layer, spec);
+      // The canvas layer draws only the labels.
+      this.layer.setStyle(spec.label.field ? styleFunction(spec, this.own, false) : null);
+    } else {
+      this.gl_?.dispose();
+      this.gl_ = null;
+      this.layer.setStyle(styleFunction(spec, this.own));
+    }
     // Labels that would overlap are left out; point symbols are always drawn (their declutterMode is `obstacle`).
     this.layer.setDeclutter(!!spec.label.field && !spec.label.overlap);
   }
