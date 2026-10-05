@@ -1,6 +1,7 @@
 /**
  * Reduced-resolution sets (RSET, overviews) of the open images: whether an
- * image has them (in the file, or made by the viewer when it was opened),
+ * image has them (in the file, in a GDAL .ovr file chosen with it, or made
+ * by the viewer when it was opened),
  * which level the view is drawn from right now (an RSET level or the raw
  * pixels), and the progress of the ones being made.
  */
@@ -13,15 +14,20 @@ import type { ViewerLayer } from './images.js';
 
 const generated = new WeakMap<EnhancedGeoTIFF, MadeOverviews>();
 
-/** Marks `source` as opened with an RSET the viewer made. */
+/** Marks `source` as opened with an RSET the viewer made, or joined from an .ovr file. */
 export function markGenerated(source: EnhancedGeoTIFF, made: MadeOverviews): void {
   generated.set(source, made);
 }
 
-/** The RSET of an image: made by the viewer, in the file, or none; with each level's reduction (2 = half size), finest first. */
+/**
+ * The RSET of an image: made by the viewer, from an .ovr file (named in
+ * `ovr`), in the file, or none; with each level's reduction (2 = half size),
+ * finest first.
+ */
 export interface RsetState {
-  kind: 'generated' | 'file' | 'none';
+  kind: 'generated' | 'external' | 'file' | 'none';
   factors: number[];
+  ovr?: string;
 }
 
 export function rsetOf(source: EnhancedGeoTIFF): RsetState {
@@ -31,14 +37,18 @@ export function rsetOf(source: EnhancedGeoTIFF): RsetState {
     .map((r) => reduction(r / finest))
     .filter((f) => f > 1)
     .sort((a, b) => a - b);
-  return { kind: !factors.length ? 'none' : generated.has(source) ? 'generated' : 'file', factors };
+  const made = generated.get(source);
+  if (!factors.length) return { kind: 'none', factors };
+  if (made?.external) return { kind: 'external', factors, ovr: made.external };
+  return { kind: made ? 'generated' : 'file', factors };
 }
 
 /** For the information panel: 生成済み（1/2〜1/32、5 レベル） and the like. */
-export function rsetText({ kind, factors }: RsetState): string {
+export function rsetText({ kind, factors, ovr }: RsetState): string {
   if (kind === 'none') return 'なし（縮小表示でも生画素を読みます）';
   const range = factors.length > 1 ? `1/${factors[0]}〜1/${factors[factors.length - 1]}` : `1/${factors[0]}`;
-  return `${kind === 'generated' ? '生成済み（このビューアーで作成）' : 'ファイルに内蔵'}・${range}、${factors.length} レベル`;
+  const from = { generated: '生成済み（このビューアーで作成）', external: `外部 OVR（${ovr}）`, file: 'ファイルに内蔵' }[kind];
+  return `${from}・${range}、${factors.length} レベル`;
 }
 
 /**

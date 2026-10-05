@@ -5,7 +5,9 @@
  * RSET) first (appended to the file, which is read where it is), and other
  * pictures open as they are. A GeoTIFF with an RPC model (its own tag, or an
  * .RPB / _RPC.TXT file chosen with it) is marked for orthorectification;
- * without georeferencing it is placed where the model puts it.
+ * without georeferencing it is placed where the model puts it. A GDAL .ovr
+ * file chosen with a GeoTIFF (`a.tif.ovr` or `a.ovr`) is its RSET, used
+ * instead of making one.
  */
 import { isEmpty } from 'ol/extent.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
@@ -16,7 +18,8 @@ import { isCsvName, readCsv } from './csv.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import type Feature from 'ol/Feature.js';
-import { isTiff, madeOverviews, withOverviews } from './overviews.js';
+import { geoEntries, isTiff, madeOverviews, withOverviews } from './overviews.js';
+import { isOvrName, ovrBelongsTo, withExternalOverviews } from './external-overviews.js';
 import { isDtedName } from './dted.js';
 import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
 import { rpcGeo, tiffInfo } from './satellite.js';
@@ -39,8 +42,8 @@ export interface OpenFilesContext {
   onRsetMade?: (source: EnhancedGeoTIFF) => void;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs, Shapefiles, GeoJSON, GeoPackages, CSV, DTED and RPC files. */
-export const acceptFiles = '.tif,.tiff,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
+/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles, GeoJSON, GeoPackages, CSV, DTED and RPC files. */
+export const acceptFiles = '.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
@@ -48,12 +51,20 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
   for (const file of files.filter((f) => isCsvName(f.name))) await openCsv(file, context);
   for (const file of files.filter((f) => isDtedName(f.name))) await context.geometry.openDem(file);
   const rpcs = await readRpcFiles(files.filter((f) => isRpcName(f.name)), context);
-  const images = files.filter((f) => !isVectorName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !/\.txt$/i.test(f.name));
+  const ovrs = files.filter((f) => isOvrName(f.name));
+  const images = files.filter(
+    (f) => !isVectorName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !isOvrName(f.name) && !/\.txt$/i.test(f.name),
+  );
+  const used = new Set<File>();
   for (const file of images) {
-    // An RPC file goes with the image of the same name, or with the only image.
+    // An RPC file goes with the image of the same name, or with the only image; so does an .ovr file.
     const rpc = rpcs.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && rpcs.size === 1 ? [...rpcs.values()][0] : null);
-    await openImage(file, context, rpc);
+    const ovr = ovrs.find((o) => ovrBelongsTo(o.name, file.name)) ?? (images.length === 1 && ovrs.length === 1 ? ovrs[0] : null);
+    if (ovr) used.add(ovr);
+    await openImage(file, context, rpc, ovr);
   }
+  const unused = ovrs.filter((o) => !used.has(o));
+  if (unused.length) context.say(`${unused.map((o) => o.name).join('、')} に合う GeoTIFF がありません（画像と一緒に選んでください）`);
 }
 
 /** The RPC models of side files, by the image name they belong to. */
@@ -114,8 +125,8 @@ export function csvLayer(csv: ReturnType<typeof readCsv>): ServiceLayer {
   };
 }
 
-/** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first. */
-async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }: OpenFilesContext, sideRpc: Rpc | null = null): Promise<void> {
+/** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first, from its .ovr file when there is one. */
+async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null): Promise<void> {
   let blob: Blob = file;
   let rpc: Rpc | null = null;
   if (await isTiff(file)) {
@@ -124,6 +135,13 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
     rpc = sideRpc ?? info?.rpc ?? null;
     // A satellite image without georeferencing goes where its RPC model puts it.
     const geo = rpc && info && !info.georeferenced ? rpcGeo(rpc, info.width, info.height) : undefined;
+    if (ovr) {
+      try {
+        blob = (await withExternalOverviews(file, ovr, { name: ovr.name, replace: geo ? geoEntries(geo) : [] })) ?? file;
+      } catch (error) {
+        say(`${ovr.name} は ${file.name} の RSET に使えません（${error instanceof Error ? error.message : String(error)}）。RSET を生成します`);
+      }
+    }
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
     let job: RsetJob | null = null;
     const onProgress = (done: number) => {
@@ -131,7 +149,7 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
       job?.update(done);
     };
     try {
-      blob = (await withOverviews(file, { geo, onProgress }).catch(() => null)) ?? file;
+      if (blob === file) blob = (await withOverviews(file, { geo, onProgress }).catch(() => null)) ?? file;
     } finally {
       (job as RsetJob | null)?.end(); // set in onProgress
     }

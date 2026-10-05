@@ -385,10 +385,10 @@ function fileContext(): OpenFilesContext {
   };
 }
 
-/** The tag in the list saying whether an image has an RSET, and whether the viewer made it. */
+/** The tag in the list saying whether an image has an RSET, and whether the viewer made it or it came from an .ovr file. */
 function showRset(image: ViewerImage): void {
   const state = rsetOf(image.source);
-  const text = { generated: 'RSET生成', file: 'RSET', none: 'RSETなし' }[state.kind];
+  const text = { generated: 'RSET生成', external: 'RSET (OVR)', file: 'RSET', none: 'RSETなし' }[state.kind];
   images.setTag(image, { text, title: `RSET（縮小版）: ${rsetText(state)}`, className: `rset-${state.kind}` });
 }
 

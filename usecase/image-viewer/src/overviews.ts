@@ -103,15 +103,8 @@ export async function withOverviews(file: Blob, options: OverviewOptions = {}): 
   });
 
   // New georeferencing and statistics replace the image's own.
-  const replace: Entry[] = [];
+  const replace = options.geo ? geoEntries(options.geo) : [];
   if (options.geo) {
-    const g = options.geo;
-    if (g.modelPixelScale) replace.push({ tag: 33550, type: DOUBLE, values: [...g.modelPixelScale] });
-    if (g.modelTiepoint) replace.push({ tag: 33922, type: DOUBLE, values: [...g.modelTiepoint] });
-    if (g.modelTransformation) replace.push({ tag: 34264, type: DOUBLE, values: [...g.modelTransformation] });
-    if (g.geoKeyDirectory) replace.push({ tag: 34735, type: SHORT, values: [...g.geoKeyDirectory] });
-    if (g.geoDoubleParams) replace.push({ tag: 34736, type: DOUBLE, values: [...g.geoDoubleParams] });
-    if (g.geoAsciiParams) replace.push({ tag: 34737, type: ASCII, values: ascii(g.geoAsciiParams) });
     const statistics = gdalStatistics(first.min, first.max);
     if (statistics) replace.push({ tag: 42112, type: ASCII, values: ascii(statistics) });
   }
@@ -120,15 +113,40 @@ export async function withOverviews(file: Blob, options: OverviewOptions = {}): 
   return blob;
 }
 
-/** The overviews {@link withOverviews} made: how many levels, and the reduction of the finest (2 = half size). */
+/**
+ * The georeferencing tags for `geo`, to replace the image's own. Values as
+ * numbers: SHORT, DOUBLE or ASCII (character codes, ending in 0).
+ */
+export function geoEntries(g: NonNullable<GeoTIFFRaster['geo']>): Array<{ tag: number; type: number; values: number[] }> {
+  const entries: Entry[] = [];
+  if (g.modelPixelScale) entries.push({ tag: 33550, type: DOUBLE, values: [...g.modelPixelScale] });
+  if (g.modelTiepoint) entries.push({ tag: 33922, type: DOUBLE, values: [...g.modelTiepoint] });
+  if (g.modelTransformation) entries.push({ tag: 34264, type: DOUBLE, values: [...g.modelTransformation] });
+  if (g.geoKeyDirectory) entries.push({ tag: 34735, type: SHORT, values: [...g.geoKeyDirectory] });
+  if (g.geoDoubleParams) entries.push({ tag: 34736, type: DOUBLE, values: [...g.geoDoubleParams] });
+  if (g.geoAsciiParams) entries.push({ tag: 34737, type: ASCII, values: ascii(g.geoAsciiParams) });
+  return entries;
+}
+
+/**
+ * The overviews an opened file was given: how many levels, and the reduction
+ * of the finest (2 = half size); `external` names the .ovr file they came
+ * from, when they are not ones {@link withOverviews} made.
+ */
 export interface MadeOverviews {
   levels: number;
   factor: number;
+  external?: string;
 }
 
 const made = new WeakMap<Blob, MadeOverviews>();
 
-/** What {@link withOverviews} appended to `blob`, if it made it. */
+/** Notes that `blob` is a file joined with overviews (see external-overviews.ts). */
+export function recordOverviews(blob: Blob, overviews: MadeOverviews): void {
+  made.set(blob, overviews);
+}
+
+/** The overviews joined to `blob`, if it was made by {@link withOverviews} or {@link recordOverviews}. */
 export function madeOverviews(blob: Blob): MadeOverviews | undefined {
   return made.get(blob);
 }
