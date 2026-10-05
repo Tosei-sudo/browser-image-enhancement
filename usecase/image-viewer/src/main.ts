@@ -324,10 +324,13 @@ const loader = new LoadImageControl({
   onLoad: (loaded: LoadedImage) => {
     showRset(images.add(loaded));
     status.textContent = `${loaded.name} を開きました`;
-    // A COG opened by URL may be a satellite image with an RPC model.
+    // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
       void tiffInfo(loaded.name)
-        .then((found) => found.rpc && geometry.setSatellite(loaded.source, { rpc: found.rpc, from: loaded.name }))
+        .then((found) => {
+          if (found.rpc) geometry.setSatellite(loaded.source, { rpc: found.rpc, from: loaded.name });
+          else if (found.georeferenced) geometry.setGeoreferenced(loaded.source, loaded.name, found.view);
+        })
         .catch(() => {});
     }
   },
@@ -415,6 +418,8 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
   }
   const satellite = geometry.satelliteOf(layer);
   if (satellite) return [['センサーモデル', 'RPC']];
+  const view = geometry.geoImageOf(layer)?.view;
+  if (view) return [['衛星の方向', `方位角 ${view.azimuth}°、仰角 ${view.elevation}°`]];
   const ortho = geometry.orthoOf(layer);
   if (ortho) return [['オルソ補正', `${ortho.sourceName} から`]];
   return [];

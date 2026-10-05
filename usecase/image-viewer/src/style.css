@@ -877,6 +877,28 @@ body {
   background: var(--accent-bg);
   color: var(--accent);
 }
+.geometry-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.geometry-field input {
+  width: 5.5em;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+}
+.geometry-details {
+  margin-bottom: 6px;
+}
+.geometry-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
 .geometry-row button:disabled {
   opacity: 0.4;
   cursor: default;

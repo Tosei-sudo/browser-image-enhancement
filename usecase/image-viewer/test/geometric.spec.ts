@@ -198,3 +198,53 @@ END;`;
   await page.locator('#geometry [data-action=ortho]').click();
   await expect(page.locator('#status')).toContainText('P001_ortho.tif を作りました（標高データがないため RPC の基準高 500 m で補正）', { timeout: 30_000 });
 });
+
+test('a georeferenced image without RPC is orthorectified from the satellite direction', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await choose(page, [{ name: 'plateau.dt0', bytes: plateau() }]);
+  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として開きました');
+
+  // Placed on a flat ground at sea level, seen from the east at 45°: the plateau (1500 m) shows 1500 m west of where it is.
+  const geo = { west: 139.7, north: 35.7, step: 0.0001 };
+  const tif = satelliteTiff(1000, 1000, (x, y) => (Math.abs(x - 500) <= 2 && Math.abs(y - 500) <= 2 ? 4000 : 300), undefined, geo);
+  await choose(page, [
+    { name: 'P002.TIF', bytes: tif },
+    { name: 'P002.IMD', bytes: 'BEGIN_GROUP = IMAGE_1\n\tmeanSatAz = 90.0;\n\tmeanSatEl = 45.0;\nEND_GROUP = IMAGE_1\nEND;\n' },
+  ]);
+  await expect.poll(() => names(page)).toEqual(['P002.TIF', 'DEMplateau.dt0']);
+  await expect(page.locator('#info')).toContainText('方位角 90°、仰角 45°');
+  await expect(page.locator('#geometry')).toContainText('簡易オルソ補正できます');
+  await expect(page.locator('#geometry input[name="方位角 °"]')).toHaveValue('90');
+  await expect(page.locator('#geometry input[name="仰角 °"]')).toHaveValue('45');
+
+  // The image was placed at sea level, not at the mean height (the default).
+  await page.locator('#geometry summary').click();
+  await page.locator('#geometry input[name="基準高 m"]').fill('0');
+  await page.locator('#geometry [data-action=simple-ortho]').click();
+  await expect(page.locator('#status')).toContainText('P002_ortho.tif を作りました', { timeout: 30_000 });
+  expect(await names(page)).toEqual(['オルソP002_ortho.tif', 'P002.TIF', 'DEMplateau.dt0']);
+
+  const spot = await page.evaluate(() => {
+    const { raster, geoTransform } = window.viewer.geometry.orthoOf(window.viewer.images.selected()!)!.result;
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (let i = 0; i < raster.data.length; i++) {
+      if (raster.data[i] < 2000) continue;
+      sx += i % raster.width;
+      sy += Math.floor(i / raster.width);
+      n++;
+    }
+    const x = geoTransform[0] + (sx / n + 0.5) * geoTransform[1];
+    const y = geoTransform[3] + (sy / n + 0.5) * geoTransform[5];
+    return [(x / 6378137) * (180 / Math.PI), (Math.atan(Math.exp(y / 6378137)) * 360) / Math.PI - 90];
+  });
+  const placed = [geo.west + 500.5 * geo.step, geo.north - 500.5 * geo.step];
+  const metresPerLon = 111_320 * Math.cos((placed[1] * Math.PI) / 180);
+  expect((spot[0] - placed[0]) * metresPerLon).toBeGreaterThan(1500 - 20);
+  expect((spot[0] - placed[0]) * metresPerLon).toBeLessThan(1500 + 20);
+  expect(Math.abs(spot[1] - placed[1]) * 111_000).toBeLessThan(20);
+  expect(errors).toEqual([]);
+});

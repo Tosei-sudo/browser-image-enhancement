@@ -7,17 +7,23 @@
  *   file opened with it) can be orthorectified onto that terrain. The result
  *   is a new layer in the map's projection, keeping the image's bands and
  *   sample type.
+ * - A georeferenced image without an RPC model can be orthorectified more
+ *   simply: the DEM height moves each point toward or away from the
+ *   satellite, given the direction it looked from (azimuth and elevation,
+ *   from an .IMD file or the GDAL metadata, or typed in). See simple-ortho.ts.
  * - An orthorectified layer can be moved by hand to line it up where the RPC
  *   model is off: drag it on the map, or use the arrow keys (Shift: 10×).
  *   The move is in metres on the ground and goes into the saved GeoTIFF.
  */
 import type OlMap from 'ol/Map.js';
 import PointerInteraction from 'ol/interaction/Pointer.js';
+import { getTransform, transformExtent } from 'ol/proj.js';
+import type { GeoTIFFImage } from 'geotiff';
 import { rasterToGeoTIFF, type EnhancedGeoTIFF, type GeoTIFFSamples, type LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { pipeline, type Pipeline } from 'browser-image-enhancement';
 import type { Raster, Resample } from 'browser-image-geometry';
 import { readDted, type Dted } from './dted.js';
-import { coversAny, elevationRange, type GeoidGrid } from './dem.js';
+import { coversAny, elevationAt, elevationRange, type GeoidGrid } from './dem.js';
 import { dtedToGeoTIFF } from './dem-layer.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
 import { fromMercator, type OrthoInput, type OrthoResult } from './ortho.js';
@@ -25,6 +31,7 @@ import type { OrthoReply } from './ortho-worker.js';
 import { MAX_OVERVIEW_SAMPLES } from './overviews.js';
 import type { Rpc } from './rpc.js';
 import { openTiff } from './satellite.js';
+import { displacement, sampleGrid, type GridMap, type SensorView, type SimpleOrthoInput } from './simple-ortho.js';
 import { getShift, setShift } from './shift.js';
 
 /** A satellite image that can be orthorectified. */
@@ -32,6 +39,18 @@ export interface SatelliteImage {
   rpc: Rpc;
   /** Where to read the full image from. */
   from: Blob | string;
+}
+
+/** A georeferenced image without an RPC model, for the simple orthorectification. */
+export interface GeoImage {
+  /** Where to read the full image from. */
+  from: Blob | string;
+  /** Where the satellite looked from: from metadata, or as typed in the panel. */
+  view: SensorView | null;
+  /** The height the image was placed at (m above sea level); null: the mean DEM height over it. */
+  referenceHeight: number | null;
+  /** `[west, south, east, north]` in degrees, once known. */
+  lonLat: [number, number, number, number] | null;
 }
 
 /** An orthorectified layer. */
@@ -55,6 +74,7 @@ export class GeometricMode {
   private readonly dems_ = new Map<ViewerImage, Dted>();
   private readonly satellites_ = new WeakMap<ViewerImage, SatelliteImage>();
   private readonly orthos_ = new WeakMap<ViewerImage, OrthoImage>();
+  private readonly geoImages_ = new WeakMap<ViewerImage, GeoImage>();
   private shifting_ = false;
   private busy_ = false;
   private geoidGrid_: Promise<GeoidGrid> | null = null;
@@ -122,6 +142,10 @@ export class GeometricMode {
     return this.satellites_.get(image) ?? null;
   }
 
+  geoImageOf(image: ViewerImage): GeoImage | null {
+    return this.geoImages_.get(image) ?? null;
+  }
+
   orthoOf(image: ViewerImage): OrthoImage | null {
     return this.orthos_.get(image) ?? null;
   }
@@ -157,6 +181,23 @@ export class GeometricMode {
     this.images.setBadge(image, 'RPC');
     // Satellite images are mostly 11 to 16-bit: start with DRA (the image has just been opened, so nothing is lost).
     this.setPipeline_(image, pipeline().autoStretch());
+    this.changed_(image);
+  }
+
+  /** Marks a loaded, georeferenced image without an RPC model, for the simple orthorectification. */
+  setGeoreferenced(source: EnhancedGeoTIFF, from: Blob | string, view: SensorView | null = null): void {
+    const image = this.find_(source);
+    if (!image || this.satellites_.has(image) || this.dems_.has(image)) return;
+    const geo: GeoImage = { from, view, referenceHeight: null, lonLat: null };
+    this.geoImages_.set(image, geo);
+    void source
+      .getView()
+      .then((v) => {
+        if (!v.extent) return;
+        geo.lonLat = transformExtent(v.extent, v.projection ?? 'EPSG:4326', 'EPSG:4326') as GeoImage['lonLat'];
+        if (this.images.selected() === image) this.render();
+      })
+      .catch(() => {});
     this.changed_(image);
   }
 
@@ -205,46 +246,19 @@ export class GeometricMode {
     this.render();
     try {
       say(`${baseName(image.name)} を読み込んでいます…`);
-      const tiff = await openTiff(satellite.from);
-      const first = await tiff.getImage();
-      const width = first.getWidth();
-      const height = first.getHeight();
-      const bands = first.getSamplesPerPixel();
-      // Large images are read reduced (from their overviews when they have them).
-      const k = Math.max(1, Math.ceil(Math.sqrt((width * height * bands) / MAX_OVERVIEW_SAMPLES)));
-      const w = Math.ceil(width / k);
-      const h = Math.ceil(height / k);
-      // The smallest level (the image or one of its overviews) that is still at least that large.
-      let level = first;
-      for (let i = 1, n = k > 1 ? await tiff.getImageCount() : 1; i < n; i++) {
-        const overview = await tiff.getImage(i);
-        if (overview.getWidth() >= w && overview.getWidth() < level.getWidth()) level = overview;
-      }
-      const data = (await level.readRasters(k > 1 ? { width: w, height: h, interleave: true } : { interleave: true })) as unknown as GeoTIFFSamples;
-      const noData = first.getGDALNoData() ?? defaultNoData(data);
-      const raster: Raster = { width: w, height: h, bands, data, noData };
-
+      const { raster, width, height } = await readForOrtho(satellite.from);
       const cells = this.cells();
       say(`${baseName(image.name)} をオルソ補正しています（${cells.length ? `標高データ ${cells.length} 枚` : '標高データなし'}、${resampleNames[resample]}）…`);
       const geoid = await this.geoid_();
-      const result = await runOrtho({ raster, scale: [width / w, height / h], rpc: satellite.rpc, cells, geoid, resample });
+      const result = await runOrtho({ raster, scale: [width / raster.width, height / raster.height], rpc: satellite.rpc, cells, geoid, resample });
 
-      const name = `${baseName(image.name)}_ortho.tif`;
-      const blob = orthoGeoTIFF(result);
-      const source = await this.loader.loadFile(blob, name).catch(() => null);
-      const ortho = source && this.find_(source);
-      if (!ortho || !source) return null;
-      this.orthos_.set(ortho, { sourceName: image.name, result });
-      this.images.setBadge(ortho, 'オルソ');
-      // Keep the look of the original: its correction and band assignment.
-      const select = image.source.getSelect();
-      if (select) await source.setSelect(select);
-      this.setPipeline_(ortho, image.source.getPipeline());
+      const ortho = await this.addOrtho_(image, result);
+      if (!ortho) return null;
       const coverage = Math.round(result.demCoverage * 100);
       say(
-        `${name} を作りました` +
+        `${baseName(image.name)}_ortho.tif を作りました` +
           (coverage >= 100 ? '' : coverage > 0 ? `（標高データがない部分 ${100 - coverage}% は RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m で補正）` : `（標高データがないため RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m で補正）`) +
-          (k > 1 ? `。大きい画像のため 1/${k} の解像度で補正しました` : ''),
+          reducedNote(width / raster.width),
       );
       this.changed_(ortho);
       return ortho;
@@ -255,6 +269,87 @@ export class GeometricMode {
       this.busy_ = false;
       this.render();
     }
+  }
+
+  /**
+   * Orthorectifies a georeferenced image without an RPC model (default: the
+   * selected one) onto the open DEMs, from the direction the satellite looked
+   * from, as a new layer.
+   */
+  async simpleOrthorectify(image = this.images.selected(), resample: Resample = 'bilinear'): Promise<ViewerImage | null> {
+    const geo = image && this.geoImages_.get(image);
+    const view = geo?.view;
+    if (!image || !geo || !view || this.busy_) return null;
+    const { say } = this.options;
+    const projection = image.source.getProjection();
+    const cells = this.cells();
+    if (!projection) {
+      say('この画像の座標系が分からないため、簡易オルソ補正できません');
+      return null;
+    }
+    this.busy_ = true;
+    this.render();
+    try {
+      say(`${baseName(image.name)} を読み込んでいます…`);
+      const { first, raster, width, height } = await readForOrtho(geo.from);
+      const { width: w, height: h } = raster;
+      // Raster position → the image's CRS → Web Mercator, and back.
+      const [ox, oy] = first.getOrigin();
+      const [rx, ry] = first.getResolution();
+      const sx = (rx * width) / w;
+      const sy = (ry * height) / h;
+      const toMercator = getTransform(projection, 'EPSG:3857');
+      const fromMercator3857 = getTransform('EPSG:3857', projection);
+      const toMap = sampleGrid([0, 0, w, h], 33, 33, (x, y) => toMercator([ox + x * sx, oy + y * sy]));
+      const extent = gridBounds(toMap);
+      const pixelSize = Math.sqrt(((extent[2] - extent[0]) * (extent[3] - extent[1])) / (w * h));
+
+      const reference = geo.referenceHeight ?? meanHeight(cells, toMap) ?? 0;
+      // How far the terrain can move a point, in Web Mercator units: the inverse grid reaches that far beyond the output.
+      const [, lat] = fromMercator((extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2);
+      const ranges = cells.map(elevationRange).filter((r): r is [number, number] => !!r);
+      const highest = ranges.reduce((m, r) => Math.max(m, Math.abs(r[0] - reference), Math.abs(r[1] - reference)), 0);
+      const margin = (Math.hypot(...displacement(view)) * highest) / Math.cos((lat * Math.PI) / 180) + 2 * pixelSize;
+      const reach: GridMap['extent'] = [extent[0] - margin, extent[1] - margin, extent[2] + margin, extent[3] + margin];
+      const toRaster = sampleGrid(reach, 65, 65, (x, y) => {
+        const [px, py] = fromMercator3857([x, y]);
+        return [(px - ox) / sx, (py - oy) / sy];
+      });
+
+      say(`${baseName(image.name)} を簡易オルソ補正しています（標高データ ${cells.length} 枚、方位角 ${view.azimuth}°・仰角 ${view.elevation}°、基準高 ${Math.round(reference)} m）…`);
+      const result = await runOrtho({ raster, toMap, toRaster, extent, pixelSize, cells, view, referenceHeight: reference, resample });
+      const ortho = await this.addOrtho_(image, result);
+      if (!ortho) return null;
+      const coverage = Math.round(result.demCoverage * 100);
+      say(
+        `${baseName(image.name)}_ortho.tif を作りました` +
+          (coverage >= 100 ? '' : coverage > 0 ? `（標高データがない部分 ${100 - coverage}% はそのまま）` : '（この範囲に標高データがないため、位置は変わっていません）') +
+          reducedNote(width / w),
+      );
+      this.changed_(ortho);
+      return ortho;
+    } catch (error) {
+      say(`簡易オルソ補正できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    } finally {
+      this.busy_ = false;
+      this.render();
+    }
+  }
+
+  /** Adds an orthorectified result of `image` as a new layer that looks like it. */
+  private async addOrtho_(image: ViewerImage, result: OrthoResult): Promise<ViewerImage | null> {
+    const name = `${baseName(image.name)}_ortho.tif`;
+    const source = await this.loader.loadFile(orthoGeoTIFF(result), name).catch(() => null);
+    const ortho = source && this.find_(source);
+    if (!ortho || !source) return null;
+    this.orthos_.set(ortho, { sourceName: image.name, result });
+    this.images.setBadge(ortho, 'オルソ');
+    // Keep the look of the original: its correction and band assignment.
+    const select = image.source.getSelect();
+    if (select) await source.setSelect(select);
+    this.setPipeline_(ortho, image.source.getPipeline());
+    return ortho;
   }
 
   /** Saves the selected orthorectified layer as a GeoTIFF, moved as it is shown. */
@@ -305,6 +400,7 @@ export class GeometricMode {
     const dem = image && this.dems_.get(image);
     const satellite = image && this.satellites_.get(image);
     const ortho = image && this.orthos_.get(image);
+    const geo = image && this.geoImages_.get(image);
     if (image && dem) {
       p(`標高データ（${dem.level}）。開いている間、オルソ補正の地形に使います。`);
     } else if (image && ortho) {
@@ -331,10 +427,72 @@ export class GeometricMode {
       select.setAttribute('aria-label', '再サンプリング');
       for (const [value, label] of Object.entries(resampleNames)) select.append(new Option(label, value, value === 'bilinear', value === 'bilinear'));
       row(select, button(this.busy_ ? '補正中…' : 'オルソ補正', () => void this.orthorectify(image, select.value as Resample), { disabled: this.busy_, name: 'ortho' }));
+    } else if (image && geo) {
+      this.renderSimple_(geo, image, cells, p, row, button);
     } else {
-      p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）を選ぶと、オルソ補正できます。');
+      p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）か、位置情報のある GeoTIFF を選ぶと、オルソ補正できます。');
     }
     p(cells.length ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）` : '標高データ: なし（DTED .dt0〜.dt2 を開くと使います）', 'geometry-dems');
+  }
+
+  /** The simple orthorectification's part of the panel: the satellite's direction, then the details most never need. */
+  private renderSimple_(
+    geo: GeoImage,
+    image: ViewerImage,
+    cells: Dted[],
+    p: (text: string) => HTMLElement,
+    row: (...children: HTMLElement[]) => HTMLElement,
+    button: (text: string, run: () => void, options?: { disabled?: boolean; name?: string }) => HTMLButtonElement,
+  ): void {
+    const covered = cells.length > 0 && !!geo.lonLat && coversAny(cells, geo.lonLat);
+    p(
+      'RPC のない画像は、衛星の方向と標高データで簡易オルソ補正できます。' +
+        (covered ? '' : 'この範囲の標高データ（DTED）を開いてください。') +
+        (geo.view ? '' : '衛星の方位角と仰角を入れてください（.IMD を画像と一緒に開くと読み取ります）。'),
+    );
+    const angles = { azimuth: geo.view?.azimuth ?? NaN, elevation: geo.view?.elevation ?? NaN };
+    const run = button(this.busy_ ? '補正中…' : '簡易オルソ補正', () => void this.simpleOrthorectify(image, resample.value as Resample), { name: 'simple-ortho' });
+    const update = () => {
+      const ok = angles.azimuth >= 0 && angles.azimuth <= 360 && angles.elevation > 0 && angles.elevation <= 90;
+      geo.view = ok ? { ...angles } : null;
+      run.disabled = this.busy_ || !ok || !covered;
+    };
+    const field = (label: string, value: number, min: number, max: number, set: (v: number) => void, placeholder = '') => {
+      const el = document.createElement('label');
+      el.className = 'geometry-field';
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = 'any';
+      input.placeholder = placeholder;
+      input.name = label;
+      if (Number.isFinite(value)) input.value = String(value);
+      input.addEventListener('input', () => {
+        set(input.value === '' ? NaN : Number(input.value));
+        update();
+      });
+      el.append(label, input);
+      return el;
+    };
+    row(
+      field('方位角 °', angles.azimuth, 0, 360, (v) => (angles.azimuth = v)),
+      field('仰角 °', angles.elevation, 1, 90, (v) => (angles.elevation = v)),
+    );
+    const details = document.createElement('details');
+    details.className = 'geometry-details';
+    const summary = document.createElement('summary');
+    summary.textContent = '詳細';
+    const resample = document.createElement('select');
+    resample.setAttribute('aria-label', '再サンプリング');
+    for (const [value, label] of Object.entries(resampleNames)) resample.append(new Option(label, value, value === 'bilinear', value === 'bilinear'));
+    const reference = field('基準高 m', geo.referenceHeight ?? NaN, -500, 9000, (v) => (geo.referenceHeight = Number.isFinite(v) ? v : null), '平均標高');
+    reference.title = '画像を地図に置いた高さ。空欄なら画像の範囲の平均標高';
+    const inner = row(reference, resample);
+    details.append(summary, inner);
+    this.element.append(details);
+    row(run);
+    update();
   }
 
   private showShift_(image: ViewerImage, readout = this.element.querySelector<HTMLElement>('[data-shift]')): void {
@@ -399,8 +557,64 @@ function defaultNoData(data: GeoTIFFSamples): number {
   return data instanceof Float32Array || data instanceof Float64Array ? NaN : 0;
 }
 
+/** What the message adds when the image was corrected reduced. */
+function reducedNote(k: number): string {
+  const n = Math.round(k);
+  return n > 1 ? `。大きい画像のため 1/${n} の解像度で補正しました` : '';
+}
+
+/**
+ * Reads an image for orthorectification: large ones reduced (from their
+ * overviews when they have them), so the result stays within what the
+ * viewer can make overviews for.
+ */
+async function readForOrtho(from: Blob | string): Promise<{ first: GeoTIFFImage; raster: Raster; width: number; height: number }> {
+  const tiff = await openTiff(from);
+  const first = await tiff.getImage();
+  const width = first.getWidth();
+  const height = first.getHeight();
+  const bands = first.getSamplesPerPixel();
+  const k = Math.max(1, Math.ceil(Math.sqrt((width * height * bands) / MAX_OVERVIEW_SAMPLES)));
+  const w = Math.ceil(width / k);
+  const h = Math.ceil(height / k);
+  // The smallest level (the image or one of its overviews) that is still at least that large.
+  let level = first;
+  for (let i = 1, n = k > 1 ? await tiff.getImageCount() : 1; i < n; i++) {
+    const overview = await tiff.getImage(i);
+    if (overview.getWidth() >= w && overview.getWidth() < level.getWidth()) level = overview;
+  }
+  const data = (await level.readRasters(k > 1 ? { width: w, height: h, interleave: true } : { interleave: true })) as unknown as GeoTIFFSamples;
+  const noData = first.getGDALNoData() ?? defaultNoData(data);
+  return { first, raster: { width: w, height: h, bands, data, noData }, width, height };
+}
+
+/** `[minX, minY, maxX, maxY]` of a grid's values. */
+function gridBounds({ values }: GridMap): [number, number, number, number] {
+  const b: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < values.length; i += 2) {
+    b[0] = Math.min(b[0], values[i]);
+    b[1] = Math.min(b[1], values[i + 1]);
+    b[2] = Math.max(b[2], values[i]);
+    b[3] = Math.max(b[3], values[i + 1]);
+  }
+  return b;
+}
+
+/** The mean DEM height at a grid's values (Web Mercator points), or null where no DEM covers any. */
+function meanHeight(cells: readonly Dted[], { values }: GridMap): number | null {
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < values.length; i += 2) {
+    const h = elevationAt(cells, ...fromMercator(values[i], values[i + 1]));
+    if (h === null) continue;
+    sum += h;
+    n++;
+  }
+  return n ? sum / n : null;
+}
+
 /** Runs the orthorectification in a worker. */
-function runOrtho(input: OrthoInput): Promise<OrthoResult> {
+function runOrtho(input: OrthoInput | SimpleOrthoInput): Promise<OrthoResult> {
   const worker = new Worker(new URL('./ortho-worker.ts', import.meta.url), { type: 'module' });
   return new Promise<OrthoResult>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<OrthoReply>) => (e.data.ok ? resolve(e.data.result) : reject(new Error(e.data.message)));
