@@ -1,5 +1,5 @@
 import type { ControlResponse } from '@browser-image/workers';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { affine, fitTransform, identity, projective, rotation, scaling, warpImageData, type CoordinateTransform, type Point } from '../../src/index.js';
 import { planWarp, type OutputOptions } from '../../src/plan.js';
 import type { Transform } from '../../src/types.js';
@@ -9,16 +9,18 @@ import { terminateWorkers, WorkerPool, type WorkerLike } from '../../src/worker/
 import type { WorkerRequest, WorkerResponse } from '../../src/worker/protocol.js';
 import { noiseImage } from '../helpers.js';
 
-type Behavior = 'ok' | 'throw' | 'crash-on-first-job' | 'error-reply';
+type Behavior = 'ok' | 'throw' | 'crash-on-first-job' | 'error-reply' | 'hang';
 
 /** Runs the real handler asynchronously with real transfer semantics. */
 class FakeWorker implements WorkerLike {
   static jobs: Array<{ y0: number; y1: number; windowPixels: number }> = [];
+  static created: FakeWorker[] = [];
   private listeners: Record<string, Array<(e: any) => void>> = { message: [], error: [], messageerror: [] };
   private handle: (r: WorkerRequest) => void;
-  private terminated = false;
+  terminated = false;
 
   constructor(private behavior: Behavior = 'ok') {
+    FakeWorker.created.push(this);
     if (behavior === 'throw') throw new DOMException('Blocked by CSP', 'SecurityError');
     this.handle = createWorkerHandler((msg, transfer) => this.emit('message', { data: structuredClone(msg, { transfer }) }));
     setTimeout(() => this.emit('message', { data: { type: 'ready' } }), 1);
@@ -28,7 +30,7 @@ class FakeWorker implements WorkerLike {
     const cloned = structuredClone(message, { transfer: transfer as any });
     FakeWorker.jobs.push({ y0: message.y0, y1: message.y1, windowPixels: message.window ? message.window.width * message.window.height : 0 });
     setTimeout(() => {
-      if (this.terminated) return;
+      if (this.terminated || this.behavior === 'hang') return;
       if (this.behavior === 'crash-on-first-job') return this.emit('error', { preventDefault() {} });
       if (this.behavior === 'error-reply') return this.emit('message', { data: { type: 'error', id: cloned.id, message: 'boom' } });
       this.handle(cloned);
@@ -55,6 +57,7 @@ function pool(behavior: Behavior = 'ok', maxWorkers = 4) {
 
 afterEach(() => {
   FakeWorker.jobs = [];
+  FakeWorker.created = [];
   terminateWorkers();
 });
 
@@ -124,6 +127,19 @@ describe('workers', () => {
     const pending = execute(img, planWarp(30, 30, identity()), { pool: pool('ok', 2), signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toThrow(/abort/i);
+  });
+
+  it('stops the workers of an aborted warp instead of letting them run on', async () => {
+    const img = noiseImage(30, 30);
+    const controller = new AbortController();
+    const p = pool('hang', 2);
+    const pending = execute(img, planWarp(30, 30, identity()), { pool: p, signal: controller.signal });
+    pending.catch(() => {});
+    await vi.waitFor(() => expect(FakeWorker.jobs.length).toBe(2));
+    controller.abort();
+    await expect(pending).rejects.toThrow(/abort/i);
+    expect(FakeWorker.created.map((w) => w.terminated)).toEqual([true, true]);
+    expect(p.size).toBe(0);
   });
 
   it('runs on the main thread when asked', async () => {
