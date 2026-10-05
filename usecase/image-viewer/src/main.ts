@@ -47,6 +47,7 @@ import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
+import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
@@ -97,6 +98,7 @@ const map = new Map({
 
 // Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;
+foldSections(side);
 makeResizer({
   handle: document.getElementById('side-resize')!,
   target: document.querySelector<HTMLElement>('.app')!,
@@ -108,6 +110,21 @@ makeResizer({
   key: 'image-viewer.side-width',
   label: 'レイヤーパネルの幅',
   onResize: () => map.updateSize(),
+});
+
+// The shell: the click tools in one menu, a guide on the first visit, 「?」 for every shortcut.
+const toolMenu = new ToolMenu(document.getElementById('tools-menu')!);
+const guide = new Guide(mapElement);
+const help = new HelpDialog(guide);
+document.getElementById('help')!.addEventListener('click', () => help.open());
+const press = (id: string) => () => document.getElementById(id)!.click();
+bindShortcuts({
+  '?': () => help.open(),
+  o: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click(),
+  '/': () => document.querySelector<HTMLInputElement>('#jump input')!.focus(),
+  d: press('measure-distance'),
+  a: press('measure-area'),
+  p: press('add-point'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -181,6 +198,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onChange: (list) => {
     empty.hidden = list.length > 0;
+    if (list.length && guide.isShown()) guide.close();
     updateLink();
   },
   onEdit: (layer) => {
@@ -497,7 +515,10 @@ declare global {
       recent: RecentMenu | null;
       processing: ProcessingDialog;
       panSharpen: PanSharpenDialog;
+      toolMenu: ToolMenu;
+      guide: Guide;
+      help: HelpDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help };

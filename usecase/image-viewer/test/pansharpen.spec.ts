@@ -82,6 +82,7 @@ test('pan-sharpens a multispectral image with a panchromatic one and saves the r
   await expect(page.locator('#images .name')).toHaveCount(2);
 
   // The image tools are in the processing dialog; choosing one opens its own dialog.
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#processing').click();
   await page.locator('.processing-dialog').first().getByLabel('処理').selectOption('pansharpen');
   const dialog = page.locator('.pansharpen-dialog');
@@ -98,6 +99,7 @@ test('pan-sharpens a multispectral image with a panchromatic one and saves the r
 
   // Saved as a 4-band 16-bit GeoTIFF on the panchromatic grid, with the square's edge sharp.
   await page.locator('#images .name').first().click();
+  await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#processing').click();
   await page.locator('.processing-dialog').first().getByLabel('処理').selectOption('pansharpen');
   const download = page.waitForEvent('download');
