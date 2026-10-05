@@ -108,7 +108,7 @@ export function foldSections(side: HTMLElement): void {
   if (geometry && panel) {
     let actions = false;
     new MutationObserver(() => {
-      const now = !!panel.querySelector('button[data-action]');
+      const now = !!panel.querySelector('[data-action]');
       if (now && !actions) geometry.open = true;
       actions = now;
     }).observe(panel, { childList: true, subtree: true });
