@@ -53,8 +53,11 @@ import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/in
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
+import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
+import { SwipeTool } from './swipe.js';
+import { HistogramPanel } from './histogram-panel.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -189,6 +192,9 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     metadataButton.hidden = layer?.type !== 'image' || layer.kind !== 'geotiff';
     rsetShown.setLayer(layer);
     geometry?.setShifting(false);
+    // Swipe comparison and the histogram follow the selection.
+    swipe?.setLayer(layer?.layer ?? null, layer?.name);
+    histogramPanel?.setLayer(layer?.layer ?? null, () => target?.getColorMode() ?? null);
   },
   onRemove: (layer) => {
     if (layer.type === 'image') {
@@ -210,6 +216,10 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
 const exporter = new ExportDialog(selection, { say });
 const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
 const metadata = new MetadataDialog({ say });
+// Comparison and analysis, tucked under the information: the selected layer on one side of a line, and its histogram.
+const swipe = new SwipeTool(map, { button: document.getElementById('swipe') as HTMLButtonElement, say });
+const histogramPanel = new HistogramPanel(map, { button: document.getElementById('histogram-open') as HTMLButtonElement, element: document.getElementById('histogram')! });
+histogramPanel.setLayer(null);
 metadataButton.addEventListener('click', () => {
   const layer = images.selectedLayer();
   if (layer?.type === 'image') void metadata.open(layer);
@@ -314,6 +324,9 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
   },
   rasterTools: [{ id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() }],
 });
+
+// Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
+const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
 
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
 
@@ -523,7 +536,10 @@ declare global {
       toolMenu: ToolMenu;
       guide: Guide;
       help: HelpDialog;
+      swipe: SwipeTool;
+      histogram: HistogramPanel;
+      viewExport: ViewExportDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport };

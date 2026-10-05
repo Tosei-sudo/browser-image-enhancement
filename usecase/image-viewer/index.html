@@ -36,6 +36,10 @@
             <div class="point-tools">
               <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・パンシャープン">プロセッシング</button>
             </div>
+            <p class="menu-heading">保存</p>
+            <div class="point-tools">
+              <button type="button" id="save-view" title="表示範囲を PNG・GeoTIFF で保存します">表示範囲を保存</button>
+            </div>
           </div>
         </div>
         <button type="button" id="help" class="bar-button help-button" aria-keyshortcuts="Shift+?" title="使い方とショートカット（?）">?</button>
@@ -60,6 +64,11 @@
           <summary><h2 id="info-title">情報</h2></summary>
           <dl id="info" class="info"></dl>
           <button id="metadata-open" type="button" class="metadata-open" hidden>メタデータを表示…</button>
+          <div class="analysis-tools" role="group" aria-label="比較・分析">
+            <button id="swipe" type="button" aria-pressed="false" title="選択中のレイヤーを線の片側だけに表示し、下のレイヤーと見比べます">スワイプ比較</button>
+            <button id="histogram-open" type="button" aria-pressed="false" title="選択中の画像の、表示範囲のヒストグラム">ヒストグラム</button>
+          </div>
+          <div id="histogram"></div>
         </details>
         <p id="build" class="build"></p>
       </aside>

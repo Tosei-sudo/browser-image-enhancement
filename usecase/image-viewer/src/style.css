@@ -1353,3 +1353,118 @@ body {
   gap: 8px;
   margin-top: 12px;
 }
+
+/* Comparison and analysis under the information: swipe and histogram. */
+.analysis-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.analysis-tools button {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.analysis-tools button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.histogram {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.histogram-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.histogram canvas {
+  display: block;
+  width: 100%;
+  height: 100px;
+  border: 1px solid var(--line);
+  background: #0000000d;
+  image-rendering: pixelated;
+}
+.histogram-readout,
+.histogram-note {
+  min-height: 1.2em;
+  margin: 2px 0;
+  color: var(--muted);
+}
+.histogram-stats {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.histogram-stats th,
+.histogram-stats td {
+  padding: 0 6px 0 0;
+  font-weight: normal;
+  text-align: right;
+}
+.histogram-stats tr:first-child th {
+  color: var(--muted);
+}
+
+/* The swipe line over the map; the selected layer shows on its left (or above it). */
+.swipe-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 12px;
+  margin-left: -6px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.swipe-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 2px #000a;
+}
+.swipe-bar.horizontal {
+  top: auto;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 12px;
+  margin: -6px 0 0;
+  cursor: ns-resize;
+}
+.swipe-bar.horizontal::before {
+  top: 5px;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 2px;
+}
+.swipe-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 3px #000a;
+  transform: translate(-50%, -50%);
+}
+.swipe-handle:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
