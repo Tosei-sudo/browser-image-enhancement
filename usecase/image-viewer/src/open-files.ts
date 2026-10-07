@@ -2,7 +2,8 @@
  * Files chosen or dropped together: Shapefiles, GeoJSON and GeoPackages
  * become vector layers with an attribute table (editable, see local-edit.ts),
  * DTED files open as elevation data, GeoTIFFs without overviews get them (an
- * RSET) first (appended to the file, which is read where it is), and other
+ * RSET) first (appended to the file, which is read where it is; a large one
+ * is shown at once, zoomed in only, and gets its RSET after), and other
  * pictures open as they are. A GeoTIFF with an RPC model (its own tag, or an
  * .RPB / _RPC.TXT file chosen with it) is marked for orthorectification;
  * without georeferencing it is placed where the model puts it. A GDAL .ovr
@@ -22,7 +23,7 @@ import { isCsvName, readCsv } from './csv.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import type Feature from 'ol/Feature.js';
-import { geoEntries, isTiff, madeOverviews, withOverviews } from './overviews.js';
+import { geoEntries, isTiff, madeOverviews, planOverviews, type OverviewPlan } from './overviews.js';
 import { isOvrName, ovrBelongsTo, withExternalOverviews } from './external-overviews.js';
 import { isDtedName } from './dted.js';
 import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
@@ -32,7 +33,7 @@ import type { GeometricMode } from './geometric.js';
 import { baseName } from './images.js';
 import { handleOf } from './recent-files.js';
 import { isEditable, localTarget } from './local-edit.js';
-import { markGenerated, type RsetJob, type RsetProgress } from './rset.js';
+import { markGenerated, rsetSettings, type RsetJob, type RsetProgress } from './rset.js';
 
 export interface OpenFilesContext {
   loader: LoadImageControl;
@@ -43,8 +44,17 @@ export interface OpenFilesContext {
   geometry: GeometricMode;
   /** Shows the RSETs being made. */
   rset?: RsetProgress;
-  /** Called when an image opened with an RSET the viewer made. */
-  onRsetMade?: (source: EnhancedGeoTIFF) => void;
+  /**
+   * Called when an image opened with an RSET the viewer made. For a large
+   * image, shown before its RSET was made (see {@link rsetSettings}), it is
+   * called again when the RSET is done, with the source to show from then on
+   * and the one it `replaces`: put it on the image's layer, or dispose of it
+   * when the image has been closed. When the RSET could not be made, the
+   * image keeps its source, given as both.
+   */
+  onRsetMade?: (source: EnhancedGeoTIFF, replaces?: EnhancedGeoTIFF) => void;
+  /** Called when a large image is shown before its RSET is made (it is being made). */
+  onRsetBuilding?: (source: EnhancedGeoTIFF) => void;
 }
 
 /** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles (and their .qml style), GeoJSON, GeoPackages, CSV, DTED, RPC and IMD files. */
@@ -142,8 +152,13 @@ export function csvLayer(csv: ReturnType<typeof readCsv>): ServiceLayer {
   };
 }
 
-/** Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first, from its .ovr file when there is one. */
-async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null): Promise<void> {
+/**
+ * Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first,
+ * from its .ovr file when there is one. A large one without an .ovr is
+ * shown at once (only zoomed in near its raw pixels) while they are made.
+ */
+async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null): Promise<void> {
+  const { loader, say, geometry, rset, onRsetMade } = context;
   let blob: Blob = file;
   let rpc: Rpc | null = null;
   let georeferenced = false;
@@ -163,16 +178,17 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
       }
     }
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
-    let job: RsetJob | null = null;
-    const onProgress = (done: number) => {
-      job ??= rset?.start(file.name) ?? null;
-      job?.update(done);
-    };
-    try {
-      if (blob === file) blob = (await withOverviews(file, { geo, onProgress }).catch(() => null)) ?? file;
-    } finally {
-      (job as RsetJob | null)?.end(); // set in onProgress
+    const plan = blob === file ? await planOverviews(file, { geo }).catch(() => null) : null;
+    if (plan && plan.width * plan.height > rsetSettings.showFirstAbove) {
+      const source = await loader.loadFile(plan.raw, file.name).catch(() => null);
+      if (!source) return;
+      context.onRsetBuilding?.(source);
+      if (rpc) geometry.setSatellite(source, { rpc, from: file });
+      else if (georeferenced) geometry.setGeoreferenced(source, file, view);
+      void buildLater(file.name, plan, source, context);
+      return;
     }
+    if (plan) blob = (await buildOverviews(file.name, plan, rset)) ?? file;
   }
   const source = await loader.loadFile(blob, file.name).catch(() => null); // the loader's onError tells the user
   const made = madeOverviews(blob);
@@ -182,6 +198,40 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
   }
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
   else if (source && georeferenced) geometry.setGeoreferenced(source, file, view);
+}
+
+/** Makes the overviews of `plan`, with its progress in `rset`; null when they cannot be made. */
+async function buildOverviews(name: string, plan: OverviewPlan, rset: RsetProgress | undefined): Promise<Blob | null> {
+  let job: RsetJob | null = null;
+  try {
+    return await plan.build((done) => {
+      job ??= rset?.start(name) ?? null;
+      job?.update(done);
+    });
+  } catch {
+    return null;
+  } finally {
+    (job as RsetJob | null)?.end(); // set in onProgress
+  }
+}
+
+/** Makes the RSET of an image already shown as `shown`, then gives the source to show from then on to `onRsetMade`. */
+async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTIFF, { loader, say, rset, onRsetMade }: OpenFilesContext): Promise<void> {
+  // The progress panel shows at once: the image is on the map, but zoomed out nothing is drawn yet.
+  const job = rset?.start(name) ?? null;
+  const blob = await Promise.resolve(rsetSettings.hold)
+    .then(() => plan.build((done) => job?.update(done)))
+    .catch(() => null)
+    .finally(() => job?.end());
+  const made = blob && madeOverviews(blob);
+  const source = blob && made ? await loader.createSource(blob).catch(() => null) : null;
+  if (!source || !made) {
+    say(`${name} の RSET を生成できませんでした。縮小表示でも生画素を読みます`);
+    onRsetMade?.(shown, shown);
+    return;
+  }
+  markGenerated(source, made);
+  onRsetMade?.(source, shown);
 }
 
 /** The style a file came with, when it has one the viewer can read. */
