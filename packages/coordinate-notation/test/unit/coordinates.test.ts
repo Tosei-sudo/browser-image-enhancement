@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatLatLon, formatMgrs, formatUtm, parseCoordinate } from '../src/coordinates.js';
+import { formatLatLon, formatMgrs, formatUtm, parseCoordinate } from '../../src/index.js';
 
 // Tokyo Station.
 const TOKYO: [number, number] = [139.7671, 35.6812];
