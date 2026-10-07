@@ -200,7 +200,16 @@ var LoadImageControl = class extends Control {
 			}
 		}
 	}
-	async show_(from, name, kind) {
+	/**
+	* Makes the source {@link loadFile} would show for the GeoTIFF `file`, with
+	* the same options, but neither shows it nor calls `onLoad`: for replacing
+	* the source of a layer of your own (a file the same image is read from in
+	* another way, say). Resolves once the GeoTIFF has been read.
+	*/
+	async createSource(file) {
+		return (await this.source_({ blob: file })).source;
+	}
+	async source_(from) {
 		const layer = this.options_.layer;
 		const previous = layer?.getSource();
 		const onGpu = layer instanceof GpuCorrectedTileLayer && layer.hasGpu();
@@ -216,13 +225,19 @@ var LoadImageControl = class extends Control {
 			...this.options_.sourceOptions,
 			sources: [from]
 		});
-		let view;
 		try {
-			view = await viewOf(source);
+			return {
+				source,
+				view: await viewOf(source)
+			};
 		} catch (error) {
 			source.dispose();
 			throw error instanceof Error ? error : new Error(String(error));
 		}
+	}
+	async show_(from, name, kind) {
+		const layer = this.options_.layer;
+		const { source, view } = await this.source_(from);
 		if (layer) {
 			const current = layer.getSource();
 			layer.setSource(source);

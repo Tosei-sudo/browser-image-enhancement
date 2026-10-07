@@ -22,11 +22,25 @@
       "maxZoom": 18
     },
     {
+      "id": "gsi-vector",
+      "label": "地理院 ベクトル",
+      "url": "https://gsi-cyberjapan.github.io/optimal_bvmap/style/std.json",
+      "attributions": "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noopener\">地理院タイル</a>",
+      "maxZoom": 16
+    },
+    {
       "id": "osm",
       "label": "OpenStreetMap",
       "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       "attributions": "© <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors",
       "maxZoom": 19
+    },
+    {
+      "id": "esri-osm",
+      "label": "OpenStreetMap（Esri ベクトル）",
+      "url": "https://basemaps.arcgis.com/arcgis/rest/services/OpenStreetMap_v2/VectorTileServer",
+      "attributions": "Esri, © <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors",
+      "maxZoom": 22
     }
   ],
   "defaultBaseMap": "",

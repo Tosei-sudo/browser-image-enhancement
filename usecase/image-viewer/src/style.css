@@ -960,6 +960,10 @@ body {
   border: 1px solid var(--line);
   color: var(--muted);
 }
+.image .tag.rset-building {
+  background: #7c3aed22;
+  color: #6d28d9;
+}
 .image .tag.rset-none {
   background: #f59e0b22;
   color: #b45309;
@@ -979,6 +983,9 @@ body {
 }
 .rset-shown.raw {
   background: #15803ddd;
+}
+.rset-shown.waiting {
+  background: #6d28d9dd;
 }
 .rset-shown[hidden],
 .rset-progress[hidden] {

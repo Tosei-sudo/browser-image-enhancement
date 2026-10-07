@@ -50,6 +50,62 @@ test('a GeoTIFF without overviews gets them, so it is not sampled sparsely when 
   expect(errors).toEqual([]);
 });
 
+test('a large GeoTIFF without overviews is on the map at once, drawn zoomed in only until its RSET is made', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // Every image counts as large here, and the RSET waits until the test lets it go.
+  await page.evaluate(() => {
+    window.viewer.rset.showFirstAbove = 0;
+    window.viewer.rset.hold = new Promise((resolve) => ((window as unknown as { release: () => void }).release = () => resolve(null)));
+  });
+  await choose(page, [{ name: 'stripes.tif', bytes: plainGeoTiff(1100, 700), type: 'image/tiff' }]);
+  await expect(page.locator('#status')).toContainText('stripes.tif を開きました');
+  await expect(page.locator('#images .tag')).toHaveText('RSET生成中');
+  await expect(page.locator('.rset-progress')).toContainText('stripes.tif の RSET を生成中');
+  await expect(page.locator('#info')).toContainText('生成中');
+  const first = await page.evaluate(() => {
+    const image = window.viewer.images.list()[0];
+    return { levels: image.source.getTileGrid()!.getResolutions().length, max: image.layer.getMaxResolution() };
+  });
+  expect(first.levels).toBe(1);
+  // Zoomed out, nothing is drawn yet; zoomed in near the raw pixels (down to half size), it is.
+  expect(first.max).toBeLessThan(Infinity);
+  const raw = first.max / 2 / 1.01; // a raw pixel, in the view's units
+  await page.evaluate((raw) => window.viewer.map.getView().setResolution(raw * 4), raw);
+  await expect(page.locator('.rset-shown')).toHaveText(/RSET 生成中: 1\/2 以上に拡大すると表示します/);
+  await expect(page.locator('#images li').first()).toHaveClass(/out-of-scale/);
+  await page.evaluate((raw) => window.viewer.map.getView().setResolution(raw * 1.5), raw);
+  await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
+  await expect(page.locator('#images li').first()).not.toHaveClass(/out-of-scale/);
+  // A correction made meanwhile stays when the RSET comes.
+  await page.evaluate(() => {
+    const source = window.viewer.images.list()[0].source;
+    source.setPipeline(source.getPipeline().brightness(0.2));
+  });
+  await page.evaluate(() => (window as unknown as { release: () => void }).release());
+  await expect(page.locator('#images .tag')).toHaveText('RSET生成');
+  await expect(page.locator('.rset-progress')).toBeHidden();
+  const after = await page.evaluate(() => {
+    const image = window.viewer.images.list()[0];
+    return {
+      levels: image.source.getTileGrid()!.getResolutions().length,
+      max: image.layer.getMaxResolution(),
+      same: image.layer.getSource() === image.source,
+      pipeline: image.source.getPipeline().toJSON(),
+    };
+  });
+  expect(after.levels).toBeGreaterThan(1);
+  expect(after.max).toBe(Infinity);
+  expect(after.same).toBe(true);
+  expect(JSON.stringify(after.pipeline)).toContain('brightness');
+  // Now drawn at every scale, from an RSET level zoomed out.
+  await page.evaluate((raw) => window.viewer.map.getView().setResolution(raw * 8), raw);
+  await expect(page.locator('.rset-shown')).toHaveText(/表示: RSET 1\/\d+/);
+  await expect(page.locator('#images li').first()).not.toHaveClass(/out-of-scale/);
+  expect(errors).toEqual([]);
+});
+
 test('a GeoTIFF chosen with its GDAL .ovr uses its levels as the RSET instead of making one', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

@@ -336,8 +336,10 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	async collectStats_(area, z) {
 		const loader = this.rawLoader_;
 		const grid = this.getTileGrid();
-		const parts = [];
-		grid.forEachTileCoord(area, z, ([tz, x, y]) => {
+		const coords = [];
+		grid.forEachTileCoord(area, z, (c) => void coords.push([...c]));
+		const max = this.draMaxTiles_;
+		const parts = (coords.length > max ? Array.from({ length: max }, (_, i) => coords[Math.floor((i + .5) * coords.length / max)]) : coords).map(([tz, x, y]) => {
 			const tileExtent = grid.getTileCoordExtent([
 				tz,
 				x,
@@ -351,7 +353,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 				width: (area[2] - area[0]) / res,
 				height: (area[3] - area[1]) / res
 			};
-			parts.push(this.rawTile_(loader, tz, x, y, {
+			return this.rawTile_(loader, tz, x, y, {
 				signal: neverAborted,
 				crossOrigin: "anonymous"
 			}).then((raw) => ({
@@ -359,7 +361,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 				rect,
 				width,
 				height
-			}), () => null));
+			}), () => null);
 		});
 		const tiles = (await Promise.all(parts)).filter((t) => t !== null);
 		let rawStretch = this.rawStretch_;

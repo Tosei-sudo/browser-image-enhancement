@@ -11,6 +11,7 @@ import { transformExtent } from 'ol/proj.js';
 import { GpuCorrectedTileLayer, type EnhancedGeoTIFF, type LoadedImage } from 'browser-image-enhancement/openlayers';
 import { serviceNames, type ServiceLayer } from './services/index.js';
 import { editTargetOf } from './edit-session.js';
+import { getShift, setShift } from './shift.js';
 
 /** One open image. */
 export interface ViewerImage {
@@ -74,7 +75,9 @@ export class ImageList {
     const layer = entry.layer;
     const out = resolution !== undefined && (resolution < layer.getMinResolution() || resolution >= layer.getMaxResolution());
     entry.row.classList.toggle('out-of-scale', out);
-    entry.row.title = out ? 'この縮尺では表示されません（スタイルの「縮尺で表示を切り替える」）' : '';
+    // An image is only limited while its RSET is made (see rset.ts).
+    const why = entry.type === 'image' ? 'RSET の生成中は、拡大したときだけ表示します' : 'この縮尺では表示されません（スタイルの「縮尺で表示を切り替える」）';
+    entry.row.title = out ? why : '';
   }
 
   /** The open image showing `source`. */
@@ -107,11 +110,33 @@ export class ImageList {
     const layer = new GpuCorrectedTileLayer({ source });
     this.map.addLayer(layer);
     const image: ViewerImage = { type: 'image', name, kind, source, layer, row: document.createElement('li') };
+    // Limited while its RSET is made (see rset.ts).
+    layer.on('change:maxResolution', () => this.markScale_(image));
     this.buildRow_(image);
     this.images_.unshift(image);
     this.restack_();
     this.select(image);
     return image;
+  }
+
+  /**
+   * Shows `source` on the image's layer in place of its source (the same
+   * image read another way: with the RSET made for it), which is disposed.
+   * The correction, the bands shown, the DRA lock and a shift go with it.
+   */
+  replaceSource(image: ViewerImage, source: EnhancedGeoTIFF): void {
+    const old = image.source;
+    source.setPipeline(old.getPipeline());
+    const select = old.getSelect();
+    if (select) void source.setSelect(select).catch(() => {});
+    source.setDraLocked(old.isDraLocked());
+    const [dx, dy] = getShift(old);
+    if (dx || dy) setShift(source, [dx, dy]);
+    image.source = source;
+    image.layer.setSource(source);
+    old.dispose();
+    // The correction panel, histogram and the rest follow the new source.
+    if (this.selected_ === image) this.options.onSelect(image);
   }
 
   /** Adds a layer of a service on top and selects it. */

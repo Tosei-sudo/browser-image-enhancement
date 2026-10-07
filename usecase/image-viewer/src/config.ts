@@ -6,17 +6,46 @@
  * entry, so the site always starts.
  */
 
-/** One base map: an XYZ tile URL (`{z}`, `{x}`, `{y}`, or `{-y}`). */
+/**
+ * What a base map URL points to:
+ * - `xyz`: raster tiles, a URL with `{z}`, `{x}`, `{y}` (or `{-y}`);
+ * - `mvt`: vector tiles (Mapbox Vector Tile / `.pbf`), a URL with `{z}`, `{x}`, `{y}`, drawn in a plain built-in style;
+ * - `style`: a Mapbox / MapLibre style JSON (its vector tiles drawn as the style says);
+ * - `esri`: an ArcGIS `VectorTileServer` (ArcGIS Online, Enterprise or Data Appliance), drawn in its default style.
+ */
+export type BaseMapType = 'xyz' | 'mvt' | 'style' | 'esri';
+
+/** One base map. */
 export interface BaseMapConfig {
   /** Key used in `?base=` links. */
   id: string;
   /** Name in the base map switch. */
   label: string;
+  /** Read from the URL when `config.json` does not say (see {@link baseMapType}). */
+  type: BaseMapType;
   url: string;
   /** Attribution HTML shown on the map. */
   attributions: string;
+  /** The deepest zoom level with tiles (`xyz` and `mvt`); deeper views enlarge those. */
   maxZoom: number;
+  /** For `esri`: another style for the server, such as one saved with ArcGIS Vector Tile Style Editor. */
+  style?: string;
+  /** For `esri`: an ArcGIS token added to every request to the server. */
+  token?: string;
 }
+
+/**
+ * The kind of base map a URL points to: an ArcGIS `VectorTileServer`, tiles
+ * by `{z}/{x}/{y}` (vector when the file is `.pbf` or `.mvt`), or else a style JSON.
+ */
+export function baseMapType(url: string): BaseMapType {
+  const path = url.split(/[?#]/, 1)[0];
+  if (/\/VectorTileServer\/?$/i.test(path)) return 'esri';
+  if (path.includes('{z}')) return /\.(pbf|mvt)$/i.test(path) ? 'mvt' : 'xyz';
+  return 'style';
+}
+
+const baseMapTypes: readonly BaseMapType[] = ['xyz', 'mvt', 'style', 'esri'];
 
 /**
  * A layer opened at start: a COG by URL, a layer of a service (as in
@@ -47,19 +76,30 @@ export interface ViewerConfig {
 }
 
 const gsi = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
+const osm = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 
 /** The settings used when `config.json` does not give them. */
 export const defaultConfig: ViewerConfig = {
   baseMaps: [
-    { id: 'gsi-std', label: '地理院 標準', url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', attributions: gsi, maxZoom: 18 },
-    { id: 'gsi-pale', label: '地理院 淡色', url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', attributions: gsi, maxZoom: 18 },
-    { id: 'gsi-photo', label: '地理院 写真', url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', attributions: gsi, maxZoom: 18 },
+    { id: 'gsi-std', label: '地理院 標準', type: 'xyz', url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', attributions: gsi, maxZoom: 18 },
+    { id: 'gsi-pale', label: '地理院 淡色', type: 'xyz', url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', attributions: gsi, maxZoom: 18 },
+    { id: 'gsi-photo', label: '地理院 写真', type: 'xyz', url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', attributions: gsi, maxZoom: 18 },
+    { id: 'gsi-vector', label: '地理院 ベクトル', type: 'style', url: 'https://gsi-cyberjapan.github.io/optimal_bvmap/style/std.json', attributions: gsi, maxZoom: 16 },
     {
       id: 'osm',
       label: 'OpenStreetMap',
+      type: 'xyz',
       url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      attributions: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+      attributions: osm,
       maxZoom: 19,
+    },
+    {
+      id: 'esri-osm',
+      label: 'OpenStreetMap（Esri ベクトル）',
+      type: 'esri',
+      url: 'https://basemaps.arcgis.com/arcgis/rest/services/OpenStreetMap_v2/VectorTileServer',
+      attributions: `Esri, ${osm}`,
+      maxZoom: 22,
     },
   ],
   defaultBaseMap: '',
@@ -74,17 +114,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 
 function baseMapOf(value: unknown, problems: string[], index: number): BaseMapConfig | null {
   if (!isRecord(value)) return (problems.push(`baseMaps[${index}] がオブジェクトではありません`), null);
-  const { id, label, url, attributions, maxZoom } = value;
+  const { id, label, type, url, attributions, maxZoom, style, token } = value;
   if (typeof id !== 'string' || !id || !isUrl(url)) {
     problems.push(`baseMaps[${index}] に id か url（http(s) か相対パス）がありません`);
     return null;
   }
+  if (type !== undefined && !baseMapTypes.includes(type as BaseMapType)) {
+    problems.push(`baseMaps[${index}] の type「${String(type)}」は xyz・mvt・style・esri のどれかにしてください`);
+    return null;
+  }
+  const kind = (type as BaseMapType | undefined) ?? baseMapType(url);
+  if (style !== undefined && !isUrl(style)) problems.push(`baseMaps[${index}] の style は http(s) か相対パスの URL にしてください`);
   return {
     id,
     label: typeof label === 'string' && label ? label : id,
+    type: kind,
     url,
     attributions: typeof attributions === 'string' ? attributions : '',
-    maxZoom: typeof maxZoom === 'number' && Number.isInteger(maxZoom) && maxZoom >= 0 && maxZoom <= 30 ? maxZoom : 18,
+    // Vector tiles usually stop at zoom 14 and are enlarged beyond it.
+    maxZoom: typeof maxZoom === 'number' && Number.isInteger(maxZoom) && maxZoom >= 0 && maxZoom <= 30 ? maxZoom : kind === 'mvt' ? 14 : 18,
+    ...(kind === 'esri' && isUrl(style) ? { style } : {}),
+    ...(kind === 'esri' && typeof token === 'string' && token ? { token } : {}),
   };
 }
 

@@ -289,7 +289,17 @@ export default class LoadImageControl extends Control {
     }
   }
 
-  private async show_(from: { url: string } | { blob: Blob }, name: string, kind: LoadedImage['kind']): Promise<EnhancedGeoTIFF> {
+  /**
+   * Makes the source {@link loadFile} would show for the GeoTIFF `file`, with
+   * the same options, but neither shows it nor calls `onLoad`: for replacing
+   * the source of a layer of your own (a file the same image is read from in
+   * another way, say). Resolves once the GeoTIFF has been read.
+   */
+  async createSource(file: Blob): Promise<EnhancedGeoTIFF> {
+    return (await this.source_({ blob: file })).source;
+  }
+
+  private async source_(from: { url: string } | { blob: Blob }): Promise<{ source: EnhancedGeoTIFF; view: Awaited<ReturnType<EnhancedGeoTIFF['getView']>> }> {
     const layer = this.options_.layer;
     const previous = layer?.getSource();
     const onGpu = layer instanceof GpuCorrectedTileLayer && layer.hasGpu();
@@ -302,13 +312,17 @@ export default class LoadImageControl extends Control {
       ...this.options_.sourceOptions,
       sources: [from],
     });
-    let view;
     try {
-      view = await viewOf(source);
+      return { source, view: await viewOf(source) };
     } catch (error) {
       source.dispose();
       throw error instanceof Error ? error : new Error(String(error));
     }
+  }
+
+  private async show_(from: { url: string } | { blob: Blob }, name: string, kind: LoadedImage['kind']): Promise<EnhancedGeoTIFF> {
+    const layer = this.options_.layer;
+    const { source, view } = await this.source_(from);
     if (layer) {
       // Read the source again: another load may have replaced it while this one was reading.
       const current = layer.getSource();

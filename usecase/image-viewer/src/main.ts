@@ -35,7 +35,7 @@ import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
 import { glVector } from './gl-vector.js';
 import { acceptFiles, openFiles, type OpenFilesContext } from './open-files.js';
-import { rsetOf, RsetIndicator, RsetProgress, rsetText } from './rset.js';
+import { endBuilding, markBuilding, rsetOf, RsetIndicator, RsetProgress, rsetSettings, rsetText } from './rset.js';
 import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
 import { tiffInfo } from './satellite.js';
@@ -150,7 +150,7 @@ const rsetProgress = new RsetProgress(mapElement);
 const selection = new Selection(map);
 const table = new AttributeTable(document.getElementById('table')!, map, selection, { say });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
-const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps);
+const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say });
 
 /** Features found by the last WMS GetFeatureInfo, per layer. */
 const featureInfo = new WeakMap<ViewerService, TableData>();
@@ -450,9 +450,23 @@ function fileContext(): OpenFilesContext {
     say,
     geometry,
     rset: rsetProgress,
-    onRsetMade: (source) => {
+    onRsetBuilding: (source) => {
       const image = images.find(source);
       if (!image) return;
+      markBuilding(source, image.layer, map);
+      showRset(image);
+      if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+      rsetShown.update();
+    },
+    onRsetMade: (source, replaces) => {
+      if (replaces) endBuilding(replaces);
+      const image = images.find(replaces ?? source);
+      if (!image) {
+        // Closed while its RSET was being made.
+        if (source !== replaces) source.dispose();
+        return;
+      }
+      if (replaces && source !== replaces) images.replaceSource(image, source);
       showRset(image);
       if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
       rsetShown.update();
@@ -463,7 +477,7 @@ function fileContext(): OpenFilesContext {
 /** The tag in the list saying whether an image has an RSET, and whether the viewer made it or it came from an .ovr file. */
 function showRset(image: ViewerImage): void {
   const state = rsetOf(image.source);
-  const text = { generated: 'RSET生成', external: 'RSET (OVR)', file: 'RSET', none: 'RSETなし' }[state.kind];
+  const text = { generated: 'RSET生成', external: 'RSET (OVR)', file: 'RSET', building: 'RSET生成中', none: 'RSETなし' }[state.kind];
   images.setTag(image, { text, title: `RSET（縮小版）: ${rsetText(state)}`, className: `rset-${state.kind}` });
 }
 
@@ -587,7 +601,8 @@ declare global {
       histogram: HistogramPanel;
       viewExport: ViewExportDialog;
       project: ProjectControl;
+      rset: typeof rsetSettings;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings };

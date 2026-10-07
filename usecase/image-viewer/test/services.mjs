@@ -1,6 +1,8 @@
 // Stand-ins for the services the viewer adds as layers, for the browser
 // test: a WMS, a WMTS, a WFS and an Esri feature service (editable, with
-// applyEdits), plus a secured Esri service that needs a token. All of them
+// applyEdits), plus a secured Esri service that needs a token, and vector
+// tiles for base maps (ArcGIS VectorTileServers, one secured, and plain
+// {z}/{x}/{y}.pbf tiles). All of them
 // allow CORS and live under /svc/.
 import { Buffer } from 'node:buffer';
 import { URLSearchParams } from 'node:url';
@@ -240,6 +242,47 @@ function query(form) {
   };
 }
 
+/** Protocol buffer pieces, enough to write a Mapbox Vector Tile. */
+const varint = (n) => {
+  const out = [];
+  while (n > 0x7f) {
+    out.push((n & 0x7f) | 0x80);
+    n >>>= 7;
+  }
+  out.push(n);
+  return Buffer.from(out);
+};
+const field = (number, wire, payload) => Buffer.concat([varint((number << 3) | wire), ...(wire === 2 ? [varint(payload.length)] : []), payload]);
+const bytes = (number, payload) => field(number, 2, payload);
+const packed = (number, values) => bytes(number, Buffer.concat(values.map(varint)));
+const zigzag = (n) => (n << 1) ^ (n >> 31);
+
+/**
+ * A vector tile with one layer `land`: a square covering the whole tile
+ * (tagged `class=land`), so the map shows its fill wherever it is drawn.
+ */
+export function landTile() {
+  const geometry = [9, zigzag(0), zigzag(0), 26, zigzag(4096), zigzag(0), zigzag(0), zigzag(4096), zigzag(-4096), zigzag(0), 15];
+  const feature = Buffer.concat([field(1, 0, varint(1)), packed(2, [0, 0]), field(3, 0, varint(3)), packed(4, geometry)]);
+  const layer = Buffer.concat([field(15, 0, varint(2)), bytes(1, Buffer.from('land')), bytes(2, feature), bytes(3, Buffer.from('class')), bytes(4, bytes(1, Buffer.from('land'))), field(5, 0, varint(4096))]);
+  return bytes(3, layer);
+}
+
+/** The vector tiles asked for, as paths with their query. */
+export const vectorTileRequests = [];
+
+/** The default style of the stand-in VectorTileServers: the land in green, as ArcGIS writes it (the source is the server, `../../`). */
+const vtsStyle = {
+  version: 8,
+  sprite: '../sprites/sprite',
+  glyphs: '../fonts/{fontstack}/{range}.pbf',
+  sources: { esri: { type: 'vector', url: '../../' } },
+  layers: [
+    { id: 'background', type: 'background', paint: { 'background-color': '#ffffff' } },
+    { id: 'land', type: 'fill', source: 'esri', 'source-layer': 'land', paint: { 'fill-color': '#2e7d32' } },
+  ],
+};
+
 /** Answers a request under /svc/, or returns false. */
 export async function serveService(req, res, url, base) {
   const path = url.pathname;
@@ -257,9 +300,42 @@ export async function serveService(req, res, url, base) {
 
   if (path === '/svc/reset') {
     resetServices();
+    vectorTileRequests.length = 0;
     return json({ ok: true });
   }
   if (path === '/svc/state') return json([...parks.values()]);
+  if (path === '/svc/vector-tiles') return json(vectorTileRequests);
+
+  const vts = /^\/svc\/arcgis\/rest\/services\/(OSM|SecureOSM)\/VectorTileServer(\/.*)?$/.exec(path);
+  if (vts) {
+    const [, service, rest = ''] = vts;
+    if (service === 'SecureOSM' && url.searchParams.get('token') !== 'secret') {
+      return rest.startsWith('/tile/') ? send('text/plain', 'Token Required', 403) : json({ error: { code: 499, message: 'Token Required', details: [] } });
+    }
+    if ((rest === '' || rest === '/') && url.searchParams.get('f') === 'json') {
+      return json({
+        currentVersion: 11.1,
+        name: service,
+        capabilities: 'TilesOnly',
+        type: 'indexedVector',
+        defaultStyles: 'resources/styles',
+        tiles: ['tile/{z}/{y}/{x}.pbf'],
+        copyrightText: 'テスト地図',
+        tileInfo: { rows: 512, cols: 512, format: 'pbf', spatialReference: { wkid: 102100, latestWkid: 3857 }, lods: Array.from({ length: 23 }, (_, level) => ({ level })) },
+        maxzoom: 14,
+      });
+    }
+    if (rest === '' || rest === '/') return send('text/html', '<html><body>VectorTileServer</body></html>');
+    if (rest === '/resources/styles/root.json') return json(vtsStyle);
+    if (rest.startsWith('/tile/')) {
+      vectorTileRequests.push(path + url.search);
+      return send('application/x-protobuf', landTile());
+    }
+  }
+  if (path.startsWith('/svc/mvt/')) {
+    vectorTileRequests.push(path + url.search);
+    return send('application/x-protobuf', landTile());
+  }
 
   if (path === '/svc/wms') {
     if (p.REQUEST === 'GetCapabilities') return send('text/xml', wmsCapabilities(base));
