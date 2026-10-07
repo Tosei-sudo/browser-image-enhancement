@@ -133,6 +133,12 @@ npm run test:browser
 
 ライブラリはワークスペース経由で `packages/browser-image-enhancement/dist` を使います。ライブラリのソースを変えたときは、先に `packages/browser-image-enhancement` で `npm run build` してください。
 
+## 閉域への持ち込み
+
+`npm run build` のあと `npm run package` で、`release/image-viewer-<日付>-<コミット>.zip`（例: `image-viewer-20261007-fa088f0.zip`）を作ります。中身は `image-viewer/` フォルダにサイト一式と `README.txt`（置き方と config.json の直し方）です。外部の CDN は使っていないので、閉域内の Web サーバーにコピーすれば動きます（`file://` では動きません）。背景地図と座標系の検索先はインターネットを指しているので、閉域では `config.json` の `baseMaps` と `projectionLookup` を書き換えてください。
+
+デプロイのたびに同じ zip を作り、Actions の実行結果の Artifacts（90 日保存）と、サーバーの `download/image-viewer.zip`（最新のみ）に置きます。
+
 ## デプロイ（VPS）
 
 `.github/workflows/deploy-image-viewer.yml` が、既定ブランチへの push（マージ）で CI が通ったあと、`dist/` を VPS へ SFTP（lftp、パスワード認証）で転送します。Actions タブから手動実行（workflow_dispatch）もできます。

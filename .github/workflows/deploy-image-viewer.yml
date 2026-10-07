@@ -12,6 +12,10 @@ name: Deploy image viewer
 #
 # public/config.json is only uploaded when the server has none, so edits made on
 # the server survive later deploys.
+#
+# Each deploy also packs the site into a zip for closed networks
+# (image-viewer-<YYYYMMDD>-<commit>.zip, scripts/package.mjs): kept as an
+# artifact of the run, and on the server as download/image-viewer.zip.
 on:
   workflow_run:
     workflows: [CI]
@@ -45,6 +49,18 @@ jobs:
       - run: npm ci
       # Builds the libraries first, then the viewer (workspace order).
       - run: npm run build
+      # The zip to carry into a closed network.
+      - id: package
+        run: npm run package -w usecase/image-viewer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.zip }}
+          # The zip already is one: download it as it is.
+          compression-level: 0
+          retention-days: 90
+      # The latest one on the server too, beside the site (not part of the offline cache).
+      - run: mkdir -p usecase/image-viewer/dist/download && cp "${{ steps.package.outputs.zip }}" usecase/image-viewer/dist/download/image-viewer.zip
       - name: Install lftp
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
       - name: Upload to the VPS
