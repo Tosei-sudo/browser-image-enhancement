@@ -6,8 +6,10 @@
  * key for the layer (its service URL, or its file), so the layer looks the
  * same when it is opened again.
  */
-import type { FeatureLike } from 'ol/Feature.js';
+import type { default as Feature, FeatureLike } from 'ol/Feature.js';
+import type OlMap from 'ol/Map.js';
 import type VectorLayer from 'ol/layer/Vector.js';
+import type { Pixel } from 'ol/pixel.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import type MultiPolygon from 'ol/geom/MultiPolygon.js';
 import type Polygon from 'ol/geom/Polygon.js';
@@ -15,6 +17,7 @@ import { Circle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style.js';
 import type ImageStyle from 'ol/style/Image.js';
 import type { StyleFunction, StyleLike } from 'ol/style/Style.js';
 import { asArray } from 'ol/color.js';
+import { drawsOnGpu, GlVector } from './gl-vector.js';
 
 /** Shapes of point symbols. */
 export type PointShape = 'circle' | 'square' | 'triangle' | 'diamond' | 'star' | 'cross' | 'x';
@@ -260,7 +263,8 @@ function symbolStyles(s: SymbolSpec, color: string | null): { area: Style; line:
   return { area, line };
 }
 
-const isLine = (type: string | undefined) => type === 'LineString' || type === 'MultiLineString' || type === 'LinearRing';
+/** Whether a geometry of `type` is drawn as a line. */
+export const isLine = (type: string | undefined) => type === 'LineString' || type === 'MultiLineString' || type === 'LinearRing';
 
 /** The text of a feature's label: its value, or null when it has none. */
 export function labelText(value: unknown): string | null {
@@ -356,9 +360,10 @@ export function scaleOfResolution(resolution: number, latitude: number): number 
 
 /**
  * The style function of a spec; `own` is the layer's own style, for the `own` mode.
- * `latitude` is where scales are measured (labels' `maxScale`).
+ * `latitude` is where scales are measured (labels' `maxScale`). Without
+ * `symbols`, only the labels (of the features drawn).
  */
-export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude = 0): StyleFunction {
+export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude = 0, symbols = true): StyleFunction {
   const labels = spec.label.field ? labelStyles(spec.label) : null;
   const labelResolution = spec.label.maxScale ? resolutionOfScale(spec.label.maxScale, latitude) : Infinity;
   let draw: (feature: FeatureLike, resolution: number) => Style | Style[] | void;
@@ -397,8 +402,9 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude =
     const drawn = draw(feature, resolution);
     // A feature hidden by its category gets no label either.
     if (!drawn || (Array.isArray(drawn) && drawn.length === 0)) return undefined;
-    if (resolution > labelResolution) return drawn;
+    if (resolution > labelResolution) return symbols ? drawn : undefined;
     const label = labels(feature);
+    if (!symbols) return label ?? undefined;
     if (!label) return drawn;
     return [...(Array.isArray(drawn) ? drawn : [drawn]), label];
   };
@@ -628,6 +634,7 @@ const storeOf = () => (defaultStore ??= browserStyleStore());
 export class LayerStyle {
   private spec_: VectorStyleSpec;
   private key_: string | null = null;
+  private gl_: GlVector | null = null;
   private waiting_ = false;
 
   /**
@@ -684,6 +691,16 @@ export class LayerStyle {
     if (this.key_) this.store.delete(this.key_);
   }
 
+  /** Whether the symbols are drawn on the GPU (a layer of many features); clicks then go to {@link featureAt}. */
+  onGpu(): boolean {
+    return this.gl_ !== null;
+  }
+
+  /** The feature drawn at `pixel`, when the symbols are drawn on the GPU. */
+  featureAt(map: OlMap, pixel: Pixel, tolerance?: number): Feature | undefined {
+    return this.gl_?.featureAt(map, pixel, tolerance);
+  }
+
   /** The latitude scales are measured at: the middle of the layer's features (null until there are some). */
   latitude(): number | null {
     const extent = this.layer.getSource()?.getExtent();
@@ -707,7 +724,17 @@ export class LayerStyle {
         });
       }
     }
-    this.layer.setStyle(styleFunction(spec, this.own, latitude));
+    const count = this.layer.getSource()?.getFeatures().length ?? 0;
+    if (drawsOnGpu(spec, count)) {
+      if (this.gl_) this.gl_.setSpec(spec);
+      else this.gl_ = new GlVector(this.layer, spec);
+      // The canvas layer draws only the labels.
+      this.layer.setStyle(spec.label.field ? styleFunction(spec, this.own, latitude, false) : null);
+    } else {
+      this.gl_?.dispose();
+      this.gl_ = null;
+      this.layer.setStyle(styleFunction(spec, this.own, latitude));
+    }
     // Shown between the two scales: a larger scale denominator is a larger resolution.
     this.layer.setMaxResolution(spec.minScale ? resolutionOfScale(spec.minScale, latitude) : Infinity);
     this.layer.setMinResolution(spec.maxScale ? resolutionOfScale(spec.maxScale, latitude) : 0);
