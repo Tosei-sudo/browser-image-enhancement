@@ -22,6 +22,7 @@ import type { EditSession } from './edit-session.js';
 import { makeResizer } from './resize.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
+import { compareValues, display, localInput, toCsv, toTsv } from './table-text.js';
 
 const ROW_HEIGHT = 28;
 
@@ -257,9 +258,7 @@ export class AttributeTable {
 
   /** Copies the rows of `features` (visible columns, with a header) as tab-separated text, for a spreadsheet. */
   async copyRows(features: Feature[]): Promise<void> {
-    const fields = this.visibleFields_();
-    const clean = (s: string) => defuse(s.replace(/[\t\r\n]+/g, ' '));
-    const text = [fields.map((f) => clean(f.alias)), ...features.map((r) => fields.map((f) => clean(display(f, r.get(f.name)))))].map((l) => l.join('\t')).join('\n');
+    const text = toTsv(this.visibleFields_(), features);
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -342,13 +341,7 @@ export class AttributeTable {
   downloadCsv(): void {
     const data = this.data_;
     if (!data) return;
-    const fields = this.visibleFields_();
-    const quote = (text: string) => {
-      const s = defuse(text);
-      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [fields.map((f) => quote(f.alias)), ...this.rows_.map((r) => fields.map((f) => quote(display(f, r.get(f.name)))))];
-    const blob = new Blob(['\uFEFF', lines.map((l) => l.join(',')).join('\r\n')], { type: 'text/csv' });
+    const blob = new Blob(['\uFEFF', toCsv(this.visibleFields_(), this.rows_)], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${data.title.replace(/[\\/:*?"<>|]/g, '_')}.csv`;
@@ -445,7 +438,7 @@ export class AttributeTable {
       if (this.sort_) {
         const { field, dir } = this.sort_;
         const def = data.fields.find((f) => f.name === field);
-        rows = rows.slice().sort((a, b) => dir * compare(a.get(field), b.get(field), def));
+        rows = rows.slice().sort((a, b) => dir * compareValues(a.get(field), b.get(field), def));
       }
     }
     this.rows_ = rows;
@@ -615,42 +608,4 @@ export class AttributeTable {
     });
     return input;
   }
-}
-
-/** A value as the table shows it: domain names, local dates, empty for null. */
-export function display(field: Field, value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (field.codes) {
-    const code = field.codes.find((c) => String(c.code) === String(value));
-    if (code) return code.name;
-  }
-  if (field.type === 'date' && typeof value === 'number') return new Date(value).toLocaleString('ja-JP');
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-/**
- * Text a spreadsheet would read as a formula (`=`, `+`, `-`, `@`, or a tab or
- * carriage return first) gets a leading `'`, so attribute values from a
- * service or a file cannot run as formulas when the CSV or the copied rows
- * are opened. Plain numbers (`-12.5`) stay as they are.
- */
-export function defuse(text: string): string {
-  return /^[=+\-@\t\r]/.test(text) && !/^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(text) ? `'${text}` : text;
-}
-
-function compare(a: unknown, b: unknown, field?: Field): number {
-  const empty = (v: unknown) => v === null || v === undefined || v === '';
-  if (empty(a) || empty(b)) return empty(a) === empty(b) ? 0 : empty(a) ? 1 : -1; // empty last
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  const x = field ? display(field, a) : String(a);
-  const y = field ? display(field, b) : String(b);
-  return x.localeCompare(y, 'ja', { numeric: true });
-}
-
-/** `yyyy-MM-ddTHH:mm` in local time, for a datetime-local input. */
-function localInput(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

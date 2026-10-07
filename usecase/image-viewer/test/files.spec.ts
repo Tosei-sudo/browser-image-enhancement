@@ -116,6 +116,7 @@ test('Shapefiles and GeoJSON open with their attributes in the table, editable',
     await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
     const pixel = await page.evaluate(() => {
       const f = window.viewer.table.rows()[0];
+      window.viewer.map.renderSync();
       return window.viewer.map.getPixelFromCoordinate((f.getGeometry() as unknown as { getCoordinates(): number[] }).getCoordinates());
     });
     const box = (await page.locator('#map').boundingBox())!;

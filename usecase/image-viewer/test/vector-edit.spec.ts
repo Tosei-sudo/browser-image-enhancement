@@ -30,6 +30,8 @@ async function pixelOf(page: Page, lon: number, lat: number) {
   await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
   const [x, y] = await page.evaluate(([lon, lat]) => {
     const c = [(lon * 20037508.342789244) / 180, Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) * 6378137];
+    // The last frame drawn may predate the animation's end: the pixel is of the view as it is now.
+    window.viewer.map.renderSync();
     return window.viewer.map.getPixelFromCoordinate(c);
   }, [lon, lat]);
   const box = (await page.locator('#map').boundingBox())!;
