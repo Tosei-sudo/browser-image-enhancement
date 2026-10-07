@@ -10,7 +10,7 @@ import { globals, writeArrayBuffer } from 'geotiff';
 import { serveService } from './services.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.tif': 'image/tiff', '.json': 'application/json' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.tif': 'image/tiff', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm' };
 const port = Number(process.env.PORT ?? 4175);
 
 /** 512×256 RGB over central Tokyo (EPSG:4326): a red-green gradient on blue. */

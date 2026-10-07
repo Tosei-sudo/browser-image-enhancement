@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>画像ビューア</title>
+    <!-- An installable app (PWA) that opens .ivproj project files: src/pwa.ts, sw.js. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#1e3a5f" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
@@ -11,6 +16,17 @@
       <header class="bar">
         <h1>画像ビューア</h1>
         <div id="open" class="open"></div>
+        <!-- The layers, styles, corrections and view as one .ivproj file: src/project.ts. -->
+        <div class="menu project-menu" id="project-menu">
+          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="project-panel">プロジェクト</button>
+          <div id="project-panel" class="menu-panel" role="group" aria-label="プロジェクト" hidden>
+            <div class="point-tools project-tools">
+              <button type="button" id="project-open" title="保存したプロジェクト（.ivproj）を開きます">開く…</button>
+              <button type="button" id="project-save" aria-keyshortcuts="Control+S" title="開いているレイヤー・スタイル・補正・表示範囲を保存します（Ctrl+S）">保存</button>
+              <button type="button" id="project-save-as" aria-keyshortcuts="Control+Shift+S" title="別のファイルに保存します（Ctrl+Shift+S）">名前を付けて保存…</button>
+            </div>
+          </div>
+        </div>
         <button type="button" id="add-service" class="bar-button">サービスを追加</button>
         <div id="basemap"></div>
         <form id="jump" class="jump" role="search">

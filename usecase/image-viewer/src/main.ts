@@ -7,6 +7,8 @@
  * table, and editable Esri layers can be edited. Shapefiles, GeoJSON and
  * GeoPackages open as vector layers with the same table, and can be edited too.
  * Vector layers get symbols and labels of the user's choosing (style-dialog.ts).
+ * What is open saves as a project file (project.ts), and the site installs as
+ * an app that opens those files (pwa.ts).
  */
 import 'ol/ol.css';
 import Map from 'ol/Map.js';
@@ -59,6 +61,8 @@ import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
 import { SwipeTool } from './swipe.js';
 import { HistogramPanel } from './histogram-panel.js';
+import { ProjectControl } from './project.js';
+import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -354,7 +358,7 @@ const loader = new LoadImageControl({
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
   // Several files at once: Shapefiles, GeoJSON and GeoPackages as vector layers, GeoTIFFs get overviews.
   accept: acceptFiles,
-  onFiles: (files) => void openFiles(files, fileContext()),
+  onFiles: (files) => void project.openFiles(files),
   // With the File System Access API the files are chosen as handles, remembered for 「最近」.
   onOpen: hasFileAccess() ? () => void pickAndOpen() : undefined,
   onLoad: (loaded: LoadedImage) => {
@@ -377,9 +381,8 @@ const loader = new LoadImageControl({
 map.addControl(loader);
 
 // Files opened through the File System Access API open again from 「最近」 after a reload.
-const recent = hasFileAccess()
-  ? new RecentMenu(new RecentFiles(), { open: (files) => void openFiles(files, fileContext()), say })
-  : null;
+const recentFiles = hasFileAccess() ? new RecentFiles() : null;
+const recent = recentFiles ? new RecentMenu(recentFiles, { open: (files) => void project.openFiles(files), say }) : null;
 if (recent) {
   document.getElementById('open')!.append(recent.button);
   onDroppedHandles(map.getViewport(), (handles) => void recent.remember(handles));
@@ -398,8 +401,34 @@ async function pickAndOpen(): Promise<void> {
   if (!handles.length) return;
   const files = await Promise.all(handles.map(fileOf));
   void recent?.remember(handles);
-  await openFiles(files, fileContext());
+  await project.openFiles(files);
 }
+
+// Projects: the open layers with their styles and corrections, the base map and the view, in one .ivproj file.
+const project = new ProjectControl({
+  map,
+  images,
+  loader,
+  baseMap,
+  tempStore,
+  recent: recentFiles,
+  openFiles: (files) => openFiles(files, fileContext()),
+  serviceContext,
+  say,
+  remember: (handles) => void recent?.remember(handles),
+  onChange: updateLink,
+});
+new ToolMenu(document.getElementById('project-menu')!);
+document.getElementById('project-open')!.addEventListener('click', () => void project.choose());
+document.getElementById('project-save')!.addEventListener('click', () => void project.save());
+document.getElementById('project-save-as')!.addEventListener('click', () => void project.save(true));
+// Ctrl+S (⌘S): save the project rather than the page; with Shift, under another name.
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    void project.save(e.shiftKey);
+  }
+});
 
 // Geometric correction: DTED elevation data, orthorectification of RPC images, moving the result by hand.
 const geometry = new GeometricMode(map, images, loader, document.getElementById('geometry')!, {
@@ -500,7 +529,7 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   say(`${layer.url} を読み込んでいます…`);
   try {
     if (layer.type === 'cog') await loader.loadUrl(layer.url);
-    else if (layer.type === 'file') await openFiles([await fetchFile(layer.url)], fileContext());
+    else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
     else {
       const { type: kind, ...ref } = layer;
       addService(await openRef({ kind, ...ref }, serviceContext()));
@@ -511,7 +540,7 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   }
 }
 
-void (async () => {
+const started = (async () => {
   const opening: LayerConfig[] = [...config.layers];
   for (const url of start.getAll('url')) opening.push({ type: 'cog', url });
   // A shared link lists the service layers in config.json too: open those once.
@@ -525,6 +554,18 @@ void (async () => {
   for (const record of kept) images.addService(tempLayer(record, tempStore));
   if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
 })();
+// A project opened meanwhile replaces these layers once they are open.
+project.setReady(started);
+
+// The installed app opened with files from the operating system (a project, GeoTIFFs…): open them as if chosen.
+onLaunchFiles((handles) => {
+  void (async () => {
+    const files = await Promise.all(handles.map(fileOf));
+    void recent?.remember(handles.filter((h) => !/\.ivproj$/i.test(h.name)));
+    await project.openFiles(files);
+  })();
+});
+void registerServiceWorker();
 
 // For the browser test and the console.
 declare global {
@@ -559,8 +600,9 @@ declare global {
       swipe: SwipeTool;
       histogram: HistogramPanel;
       viewExport: ViewExportDialog;
+      project: ProjectControl;
       rset: typeof rsetSettings;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, rset: rsetSettings };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings };

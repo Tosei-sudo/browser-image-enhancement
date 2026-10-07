@@ -220,6 +220,28 @@ export class ImageList {
     this.restack_();
   }
 
+  /**
+   * Puts the layers in the order given (top first); layers left out keep
+   * their order below them.
+   */
+  arrange(order: readonly ViewerLayer[]): void {
+    const first = order.filter((l) => this.images_.includes(l));
+    this.images_ = [...first, ...this.images_.filter((l) => !first.includes(l))];
+    this.restack_();
+  }
+
+  /** Shows or hides a layer, as its check box does. */
+  setVisible(image: ViewerLayer, visible: boolean): void {
+    image.layer.setVisible(visible);
+    image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked = visible;
+  }
+
+  /** Sets a layer's opacity (0–1), as its slider does. */
+  setOpacity(image: ViewerLayer, opacity: number): void {
+    image.layer.setOpacity(opacity);
+    image.row.querySelector<HTMLInputElement>('.opacity input')!.value = String(opacity);
+  }
+
   /** Zooms the map to a layer. */
   async zoomTo(image: ViewerLayer): Promise<void> {
     if (image.type === 'service') {
