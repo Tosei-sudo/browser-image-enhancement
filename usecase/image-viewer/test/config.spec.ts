@@ -18,7 +18,7 @@ const baseMapOptions = (page: Page) => page.getByRole('combobox', { name: '背�
 
 test('the shipped config.json gives the built-in base maps', async ({ page }) => {
   await open(page, null);
-  expect(await baseMapOptions(page)).toEqual(['背景なし', '地理院 標準', '地理院 淡色', '地理院 写真', 'OpenStreetMap']);
+  expect(await baseMapOptions(page)).toEqual(['背景なし', '地理院 標準', '地理院 淡色', '地理院 写真', '地理院 ベクトル', 'OpenStreetMap', 'OpenStreetMap（Esri ベクトル）']);
   await expect(page.getByRole('combobox', { name: '背景地図' })).toHaveValue('');
 });
 
@@ -44,7 +44,7 @@ test('a broken config.json falls back to the defaults', async ({ page }) => {
   const warnings: string[] = [];
   page.on('console', (m) => m.type() === 'warning' && warnings.push(m.text()));
   await open(page, '{ "baseMaps": [ broken');
-  expect(await baseMapOptions(page)).toEqual(['背景なし', '地理院 標準', '地理院 淡色', '地理院 写真', 'OpenStreetMap']);
+  expect(await baseMapOptions(page)).toEqual(['背景なし', '地理院 標準', '地理院 淡色', '地理院 写真', '地理院 ベクトル', 'OpenStreetMap', 'OpenStreetMap（Esri ベクトル）']);
   expect(warnings.some((w) => w.includes('config.json'))).toBe(true);
 });
 

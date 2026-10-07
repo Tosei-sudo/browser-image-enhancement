@@ -16,7 +16,7 @@
 - **複数の画像を重ねる**: 左の一覧で表示切替・不透明度・重なり順・移動・閉じるを操作できます。一覧で選んだ画像に右上の補正パネルが効き、補正は画像ごとに保持されます
 - **補正**: 明るさ・コントラスト・露出・ガンマ・彩度・色温度・レベル・シャープ、表示範囲に合わせた DRA（「範囲を固定」で画像ごとに今のレンジを保ったまま移動・拡大できます）、バンド割当。WebGL2 が使える環境では GPU で補正するので、スライダーにそのまま追従します。16bit や float の画像（Landsat など）は元の値からバンドごとに引き伸ばして表示します。DRA がオフのときは QGIS の既定と同じく画像全体の 2〜98 %、オンのときは DRA の設定で表示範囲から引き伸ばします。「RGB 連動」をオンにすると 3 バンドに同じ範囲を使うので、大気の散乱で値が高い青バンドが持ち上がり、青っぽく見えます
 - **画像ビューアの表示**: 既定では背景地図はなく、市松模様の背景に画像だけを表示します。開いた画像に合わせて表示範囲を調整します。GeoTIFF 同士は位置情報で重なるので、同じ範囲の画像を重ねて比べられます
-- **背景地図**: ヘッダーの「背景地図」で、なし・地理院 標準・地理院 淡色・地理院 写真・OpenStreetMap を切り替えられます（補正はかかりません）。一覧は `config.json` で変えられます
+- **背景地図**: ヘッダーの「背景地図」で、なし・地理院 標準・地理院 淡色・地理院 写真・地理院 ベクトル・OpenStreetMap・OpenStreetMap（Esri ベクトル）を切り替えられます（補正はかかりません）。一覧は `config.json` で変えられ、ラスタータイルのほかベクタータイル（ArcGIS の VectorTileServer〔ArcGIS Online・Enterprise・Data Appliance〕、Mapbox / MapLibre のスタイル JSON、`{z}/{x}/{y}.pbf` のタイル）も使えます
 - **サービスのレイヤー**: ヘッダーの「サービスを追加」で URL を入れると、種類（WMS・WMTS・WFS・Esri フィーチャーサービス）を自動で判定してレイヤーの一覧を出します。選んだレイヤーは画像と同じ一覧に入り、表示切替・不透明度・重なり順を操作できます
   - **WMS・WMTS**: 画像と同じように補正パネルで補正できます（GPU で補正するので、サーバーが CORS を許可している必要があります。許可していないサーバーは補正なしで表示します）。WMS は地図をクリックすると、その地点の属性（GetFeatureInfo）を属性テーブルに出します。WMTS はタイル行列セットと画像形式を選べます
   - **WFS・Esri フィーチャーサービス**: 地物をすべて読み込み（1 レイヤー 5 万件まで）、Esri はサービスの描画設定（単一シンボル・個別値・等級区分）で表示します。WFS は 2.0.0・1.1.0・1.0.0 に対応し、GeoJSON を出せるサーバーでは GeoJSON、それ以外は GML で読みます
@@ -78,7 +78,16 @@ COG は、サーバーが CORS と Range リクエストを許可している必
       "url": "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", // XYZ タイル（http(s) か相対パス）
       "attributions": "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\">地理院タイル</a>", // 出典（HTML）
       "maxZoom": 18
-    }
+    },
+    // ベクタータイル。種類（type）は URL から判断します（書いて指定もできます）
+    { "id": "appliance-osm", "label": "OSM（Data Appliance）",
+      "url": "https://appliance.example.com/arcgis/rest/services/OpenStreetMap/VectorTileServer" }, // ArcGIS VectorTileServer（type: "esri"）。サーバーの既定スタイルで描きます
+    { "id": "secure", "label": "社内地図", "url": "https://gis.example.com/server/rest/services/Base/VectorTileServer",
+      "token": "…", "style": "https://gis.example.com/styles/dark/root.json" },          // token・別スタイル（style）は任意
+    { "id": "style", "label": "地理院 ベクトル",
+      "url": "https://gsi-cyberjapan.github.io/optimal_bvmap/style/std.json" },     // Mapbox / MapLibre のスタイル JSON（type: "style"）
+    { "id": "pbf", "label": "ベクタータイル", "url": "https://example.com/tiles/{z}/{x}/{y}.pbf",
+      "maxZoom": 14 }                                                                  // .pbf・.mvt のタイル（type: "mvt"）。組み込みの淡い配色で描きます
   ],
   // ?base= がないときに出す背景地図の id（"" で背景なし）
   "defaultBaseMap": "",
@@ -103,6 +112,8 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 ```
 
 `layers` のレイヤーは `?url=`・`?service=` のリンクで指定したものより先に開きます。共有リンクには設定ファイルのサービスレイヤーも入りますが、同じレイヤーは 1 回だけ開きます。開けなかったレイヤーは状態欄に理由を出し、残りのレイヤーは開きます。`file` はサーバーが CORS を許可している必要があります（同じサイトに置くなら不要です）。
+
+背景地図の `type` は `xyz`（ラスタータイル）・`mvt`・`style`・`esri` のどれかで、書かなければ URL から決めます（`…/VectorTileServer` なら `esri`、`{z}` を含み `.pbf`・`.mvt` で終われば `mvt`、`{z}` を含むそれ以外は `xyz`、残りは `style`）。ベクタータイルは Web メルカトル（EPSG:3857）のものに対応します。ArcGIS のサービスは `?f=json` の情報とスタイル（`resources/styles/root.json`）を読み、タイルの `{z}/{y}/{x}` の並びとズーム範囲をサーバーの情報に合わせます。`token` はサーバーへのすべての要求（情報・スタイル・タイル・アイコン）に付けます。スタイルのアイコン（sprite）が読めないときはアイコンなしで表示し、読み込めない背景地図は理由を状態欄に出します。ラベルの文字は端末のフォントで描き、入っていないフォントは jsDelivr から取得を試みます（閉じたネットワークではその要求が失敗するだけで、代わりのフォントで描きます）。
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 
