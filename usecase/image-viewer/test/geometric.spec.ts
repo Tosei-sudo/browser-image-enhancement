@@ -237,6 +237,29 @@ END;`;
   await expect(page.locator('#status')).toContainText('P001_ortho.tif を作りました（標高データがないため RPC の基準高 500 m で補正）', { timeout: 30_000 });
 });
 
+test('an image with ground control points only (an ICEYE GRD) is placed by its RPC model, else by its points', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // A 5 × 5 grid of points: 0.1° square around LON, LAT, north up.
+  const gcps: number[] = [];
+  for (let j = 0; j <= 1000; j += 250) for (let i = 0; i <= 1000; i += 250) gcps.push(i, j, 0, LON + (i / 1000 - 0.5) * 0.1, LAT - (j / 1000 - 0.5) * 0.1, 0);
+  const extent = async () => page.evaluate(async () => (await window.viewer.images.list()[0].source.getView()).extent!);
+
+  await choose(page, [{ name: 'ICEYE_GRD.tif', bytes: satelliteTiff(1000, 1000, (x, y) => (x + y) % 4000, rpcModel(LON, LAT), undefined, gcps) }]);
+  await expect.poll(() => names(page)).toEqual(['RPCICEYE_GRD.tif']);
+  // Where the RPC model puts it at its height offset, not 0, 0 to 1000, 1000 degrees (one pixel per degree, wrapped round the world in stripes).
+  let box = await extent();
+  [LON - 0.05, LAT - 0.05, LON + 0.05, LAT + 0.05].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 3));
+
+  await page.locator('#images li').first().locator('[data-action=remove]').click();
+  await choose(page, [{ name: 'GCP_ONLY.tif', bytes: satelliteTiff(1000, 1000, (x, y) => (x + y) % 4000, undefined, undefined, gcps) }]);
+  await expect.poll(() => names(page)).toEqual(['GCP_ONLY.tif']);
+  box = await extent();
+  [LON - 0.05, LAT - 0.05, LON + 0.05, LAT + 0.05].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 6));
+  expect(errors).toEqual([]);
+});
+
 test('a georeferenced image without RPC is orthorectified from the satellite direction', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
