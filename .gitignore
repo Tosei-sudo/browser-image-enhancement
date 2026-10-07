@@ -7,3 +7,4 @@ playwright-report/
 .example-dist/
 api-docs/
 usecase/*/dist/
+usecase/*/release/

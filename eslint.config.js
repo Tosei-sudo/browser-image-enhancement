@@ -30,7 +30,7 @@ export default tseslint.config(
     languageOptions: { globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', URL: 'readonly' } },
   },
   {
-    files: ['usecase/*/test/server.mjs'],
+    files: ['usecase/*/test/server.mjs', 'usecase/*/scripts/*.mjs'],
     languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' } },
   },
 );
