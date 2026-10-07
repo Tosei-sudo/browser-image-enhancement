@@ -11,6 +11,8 @@ export default defineConfig({
     baseURL: 'http://localhost:4175',
     // The first-visit guide stays away, so it covers no part of the map the tests click (shell.spec.ts shows it).
     storageState: { cookies: [], origins: [{ origin: 'http://localhost:4175', localStorage: [{ name: 'image-viewer.guide-seen', value: '1' }] }] },
+    // The service worker caches the site; only pwa.spec.ts lets it run, so the others see every request.
+    serviceWorkers: 'block',
     launchOptions: executablePath ? { executablePath } : {},
   },
   webServer: {

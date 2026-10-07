@@ -16,6 +16,7 @@ import type { EsriLayerInfo } from './esri.js';
 import type { EditTarget } from '../edit-session.js';
 import type { TargetCrs } from '../vector-write.js';
 import type { LayerStyle } from '../vector-style.js';
+import type { TempRecord } from '../temp-layers.js';
 
 /** The kinds of service the viewer reads. */
 export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri';
@@ -90,6 +91,8 @@ export interface ServiceLayer {
   exportCrs?: TargetCrs;
   /** A table without geometry (CSV): its rows are shown in the table, not exported as a vector layer. */
   tableOnly?: boolean;
+  /** The record of a temporary layer (a processing result), kept in the browser. */
+  temp?: TempRecord;
   /** Asked before the layer is closed (a temporary layer is forgotten when closed). */
   closeWarning?: string;
   /** Area covered, in the view projection, when known. */

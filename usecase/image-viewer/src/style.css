@@ -1223,6 +1223,71 @@ body {
   opacity: 0.55;
 }
 
+/* The 「プロジェクト」 menu, by the open button. */
+.menu.project-menu {
+  margin-left: 0;
+}
+.project-menu .menu-panel {
+  right: auto;
+  left: 0;
+  min-width: 12rem;
+}
+.project-tools {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* The files of a project that must be allowed or chosen before it opens. */
+.project-files-note {
+  margin: 8px 0;
+}
+.project-files-list {
+  max-height: 40vh;
+  margin: 0 0 12px;
+  padding-left: 1.2em;
+  overflow: auto;
+}
+.project-file-state {
+  color: var(--muted);
+  font-size: 11px;
+}
+.project-files .service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.project-files .service-actions button[hidden] {
+  display: none;
+}
+
+/* A newer version of the installed app is ready. */
+.app-update {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px #0003;
+  font-size: 13px;
+  transform: translateX(-50%);
+}
+.app-update button {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
 /* The 「ツール」 menu: the click tools, out of the way until wanted. */
 .menu {
   position: relative;

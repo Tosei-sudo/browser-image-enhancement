@@ -138,6 +138,7 @@ export function tempLayer(record: TempRecord, store: TempStore): ServiceLayer {
     vector: { source, fields: record.fields, truncated: false },
     style,
     styleKey: `temp:${record.id}`,
+    temp: record,
     editTarget,
     fileCrs: record.crs,
     exportCrs: record.crs,

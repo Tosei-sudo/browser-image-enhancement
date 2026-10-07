@@ -47,8 +47,8 @@ export interface OpenFilesContext {
   onRsetMade?: (source: EnhancedGeoTIFF) => void;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles (and their .qml style), GeoJSON, GeoPackages, CSV, DTED, RPC and IMD files. */
-export const acceptFiles = '.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
+/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles (and their .qml style), GeoJSON, GeoPackages, CSV, DTED, RPC and IMD files, and project files (opened by project.ts). */
+export const acceptFiles = '.ivproj,.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
