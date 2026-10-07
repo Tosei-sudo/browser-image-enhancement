@@ -281,6 +281,8 @@ export function satelliteTiff(
   rpc?: ReturnType<typeof rpcModel>,
   /** Georeferencing in WGS 84: the top-left corner and the pixel size, in degrees. */
   geo?: { west: number; north: number; step: number },
+  /** Ground control points instead (as in an ICEYE GRD): ModelTiepoint only, I, J, K, X, Y, Z for each, in WGS 84. */
+  gcps?: number[],
 ): Uint8Array<ArrayBuffer> {
   const pixels = width * height * 2;
   const entries: Array<[tag: number, type: number, values: number[]]> = [
@@ -305,6 +307,7 @@ export function satelliteTiff(
       [34735, 3, [1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326]],
     );
   }
+  if (gcps) entries.push([33922, 12, gcps], [34735, 3, [1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326]]);
   entries.sort((a, b) => a[0] - b[0]);
   const size = (type: number) => (type === 3 ? 2 : type === 4 ? 4 : 8);
   const ifdLength = 2 + entries.length * 12 + 4;

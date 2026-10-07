@@ -153,8 +153,8 @@ async function openImage(file: File, { loader, say, geometry, rset, onRsetMade }
     rpc = sideRpc ?? info?.rpc ?? null;
     georeferenced = !!info?.georeferenced;
     view ??= info?.view ?? null;
-    // A satellite image without georeferencing goes where its RPC model puts it.
-    const geo = rpc && info && !info.georeferenced ? rpcGeo(rpc, info.width, info.height) : undefined;
+    // A satellite image without georeferencing (or with ground control points only, like an ICEYE GRD) goes where its RPC model puts it, else where its points do.
+    const geo = info && !info.georeferenced ? (rpc ? rpcGeo(rpc, info.width, info.height) : (info.gcpGeo ?? undefined)) : undefined;
     if (ovr) {
       try {
         blob = (await withExternalOverviews(file, ovr, { name: ovr.name, replace: geo ? geoEntries(geo) : [] })) ?? file;
