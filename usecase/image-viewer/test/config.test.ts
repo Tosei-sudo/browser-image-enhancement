@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultConfig, lookupUrl, parseConfig } from '../src/config.js';
+import { baseMapType, defaultConfig, lookupUrl, parseConfig } from '../src/config.js';
 import shipped from '../public/config.json' with { type: 'json' };
 
 describe('parseConfig', () => {
@@ -21,10 +21,40 @@ describe('parseConfig', () => {
     });
     expect(problems).toEqual([]);
     expect(config.baseMaps).toEqual([
-      { id: 'mine', label: '自社', url: 'https://tiles.example.com/{z}/{x}/{y}.png', attributions: '', maxZoom: 20 },
-      { id: 'local', label: 'local', url: './tiles/{z}/{x}/{y}.png', attributions: '', maxZoom: 18 },
+      { id: 'mine', label: '自社', type: 'xyz', url: 'https://tiles.example.com/{z}/{x}/{y}.png', attributions: '', maxZoom: 20 },
+      { id: 'local', label: 'local', type: 'xyz', url: './tiles/{z}/{x}/{y}.png', attributions: '', maxZoom: 18 },
     ]);
     expect(config.defaultBaseMap).toBe('mine');
+  });
+
+  it('reads vector tile base maps, telling their kind from the URL', () => {
+    const { config, problems } = parseConfig({
+      baseMaps: [
+        { id: 'appliance', url: 'https://appliance.example.com/arcgis/rest/services/OSM/VectorTileServer', token: 'abc', style: './my-style.json' },
+        { id: 'style', url: 'https://maps.example.com/styles/basic/style.json?key=k' },
+        { id: 'pbf', url: 'https://maps.example.com/tiles/{z}/{x}/{y}.pbf' },
+        { id: 'forced', type: 'style', url: 'https://maps.example.com/styles/basic' },
+        { id: 'xyz-token', url: 'https://tiles.example.com/{z}/{x}/{y}.png', token: 'ignored' },
+        { id: 'bad', type: 'wms', url: 'https://example.com/wms' },
+      ],
+    });
+    expect(config.baseMaps).toEqual([
+      { id: 'appliance', label: 'appliance', type: 'esri', url: 'https://appliance.example.com/arcgis/rest/services/OSM/VectorTileServer', attributions: '', maxZoom: 18, style: './my-style.json', token: 'abc' },
+      { id: 'style', label: 'style', type: 'style', url: 'https://maps.example.com/styles/basic/style.json?key=k', attributions: '', maxZoom: 18 },
+      { id: 'pbf', label: 'pbf', type: 'mvt', url: 'https://maps.example.com/tiles/{z}/{x}/{y}.pbf', attributions: '', maxZoom: 14 },
+      { id: 'forced', label: 'forced', type: 'style', url: 'https://maps.example.com/styles/basic', attributions: '', maxZoom: 18 },
+      { id: 'xyz-token', label: 'xyz-token', type: 'xyz', url: 'https://tiles.example.com/{z}/{x}/{y}.png', attributions: '', maxZoom: 18 },
+    ]);
+    expect(problems).toEqual(['baseMaps[5] の type「wms」は xyz・mvt・style・esri のどれかにしてください']);
+  });
+
+  it('tells the kind of a base map URL', () => {
+    expect(baseMapType('https://a.example.com/arcgis/rest/services/X/VectorTileServer/')).toBe('esri');
+    expect(baseMapType('https://a.example.com/arcgis/rest/services/X/VectorTileServer?token=t')).toBe('esri');
+    expect(baseMapType('https://a.example.com/{z}/{x}/{y}.mvt')).toBe('mvt');
+    expect(baseMapType('https://a.example.com/{z}/{x}/{y}.png')).toBe('xyz');
+    expect(baseMapType('https://a.example.com/{z}/{x}/{y}')).toBe('xyz');
+    expect(baseMapType('./style.json')).toBe('style');
   });
 
   it('drops invalid entries and says why', () => {

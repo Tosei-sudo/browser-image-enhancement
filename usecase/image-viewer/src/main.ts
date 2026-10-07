@@ -146,7 +146,7 @@ const rsetProgress = new RsetProgress(mapElement);
 const selection = new Selection(map);
 const table = new AttributeTable(document.getElementById('table')!, map, selection, { say });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
-const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps);
+const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say });
 
 /** Features found by the last WMS GetFeatureInfo, per layer. */
 const featureInfo = new WeakMap<ViewerService, TableData>();
