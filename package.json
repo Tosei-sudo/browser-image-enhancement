@@ -4,6 +4,7 @@
   "type": "module",
   "workspaces": [
     "packages/workers",
+    "packages/coordinate-notation",
     "packages/browser-image-enhancement",
     "packages/browser-image-geometry",
     "usecase/image-viewer"

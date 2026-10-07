@@ -1,0 +1,52 @@
+{
+  "name": "coordinate-notation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reads and writes coordinates as people type them: latitude/longitude in decimal or degrees-minutes-seconds (Japanese notation included), MGRS and UTM.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/cdn/coordinate-notation.iife.min.js",
+  "jsdelivr": "./dist/cdn/coordinate-notation.iife.min.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "coordinates",
+    "latitude",
+    "longitude",
+    "dms",
+    "mgrs",
+    "utm",
+    "parser",
+    "geo"
+  ],
+  "scripts": {
+    "build": "tsdown && vite build -c cdn/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "mgrs": "^2.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tosei-sudo/browser-image-enhancement.git",
+    "directory": "packages/coordinate-notation"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -4,7 +4,8 @@
   "entryPointStrategy": "packages",
   "entryPoints": [
     "packages/browser-image-enhancement",
-    "packages/browser-image-geometry"
+    "packages/browser-image-geometry",
+    "packages/coordinate-notation"
   ],
   "out": "api-docs",
   "readme": "none",
