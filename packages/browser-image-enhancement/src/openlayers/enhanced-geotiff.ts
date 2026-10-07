@@ -42,11 +42,12 @@
 import GeoTIFF, { type Options as GeoTIFFOptions } from 'ol/source/GeoTIFF.js';
 import type { Loader, LoaderOptions } from 'ol/source/DataTile.js';
 import type { Data } from 'ol/DataTile.js';
+import type { TileCoord } from 'ol/tilecoord.js';
 import type OlMap from 'ol/Map.js';
 import { getHeight, getIntersection, getWidth, isEmpty, type Extent } from 'ol/extent.js';
 import { transformExtent } from 'ol/proj.js';
 import { isGraySelection, type BandSelection } from '../bands.js';
-import { histogram, mergeHistograms, pipeline, type AutoStretchOptions, type ColorMode, type Histogram, type Rect, type OpSpec, type Pipeline } from '../index.js';
+import { histogram, mergeHistograms, pipeline, type AutoStretchOptions, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../index.js';
 import {
   computeRasterStretch,
   rasterToImageData,
@@ -457,8 +458,12 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private async collectStats_(area: Extent, z: number): Promise<CollectedStats> {
     const loader = this.rawLoader_!;
     const grid = this.getTileGrid()!;
-    const parts: Array<Promise<{ raw: Data; rect: Rect; width: number; height: number } | null>> = [];
-    grid.forEachTileCoord(area, z, ([tz, x, y]) => {
+    const coords: TileCoord[] = [];
+    grid.forEachTileCoord(area, z, (c) => void coords.push([...c]));
+    // An image with no coarser level (a large one without overviews): tiles spread evenly over the area stand for it.
+    const max = this.draMaxTiles_;
+    const read = coords.length > max ? Array.from({ length: max }, (_, i) => coords[Math.floor(((i + 0.5) * coords.length) / max)]) : coords;
+    const parts = read.map(([tz, x, y]) => {
       const tileExtent = grid.getTileCoordExtent([tz, x, y]);
       const res = grid.getResolution(tz);
       const [width, height] = this.getTileSize(tz);
@@ -469,11 +474,9 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
         width: (area[2] - area[0]) / res,
         height: (area[3] - area[1]) / res,
       };
-      parts.push(
-        this.rawTile_(loader, tz, x, y, { signal: neverAborted, crossOrigin: 'anonymous' }).then(
-          (raw) => ({ raw, rect, width, height }),
-          () => null, // a tile that fails to load is left out of the statistics
-        ),
+      return this.rawTile_(loader, tz, x, y, { signal: neverAborted, crossOrigin: 'anonymous' }).then(
+        (raw) => ({ raw, rect, width, height }),
+        () => null, // a tile that fails to load is left out of the statistics
       );
     });
     const tiles = (await Promise.all(parts)).filter((t) => t !== null);

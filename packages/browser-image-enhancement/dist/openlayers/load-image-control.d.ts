@@ -137,6 +137,14 @@ export default class LoadImageControl extends Control {
   private takeFiles_;
   protected disposeInternal(): void;
   private track_;
+  /**
+   * Makes the source {@link loadFile} would show for the GeoTIFF `file`, with
+   * the same options, but neither shows it nor calls `onLoad`: for replacing
+   * the source of a layer of your own (a file the same image is read from in
+   * another way, say). Resolves once the GeoTIFF has been read.
+   */
+  createSource(file: Blob): Promise<EnhancedGeoTIFF>;
+  private source_;
   private show_;
 }
 /** The default placement: centered on the view, 80 % of it, keeping the picture's shape. */

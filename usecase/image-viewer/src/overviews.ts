@@ -42,6 +42,29 @@ export interface OverviewOptions {
  * odd bit depth): then open the file as it is.
  */
 export async function withOverviews(file: Blob, options: OverviewOptions = {}): Promise<Blob | null> {
+  const plan = await planOverviews(file, options);
+  return plan ? plan.build(options.onProgress) : null;
+}
+
+/** Overviews to make for a GeoTIFF, and the file to show until they are made. */
+export interface OverviewPlan {
+  /**
+   * The file as it can be shown right away, at its full resolution only: the
+   * file itself, or with `geo` in place of its georeferencing.
+   */
+  raw: Blob;
+  /** The image's size in pixels. */
+  width: number;
+  height: number;
+  /** Makes the overviews: the file with them appended (see {@link withOverviews}). */
+  build(onProgress?: (done: number) => void): Promise<Blob>;
+}
+
+/**
+ * What {@link withOverviews} would do for `file`, without doing it yet; null
+ * when the file needs no overviews or they cannot be made.
+ */
+export async function planOverviews(file: Blob, options: Pick<OverviewOptions, 'geo'> = {}): Promise<OverviewPlan | null> {
   const tiff = await openBlob(file);
   const forced = !!options.geo;
   if (!forced && (await tiff.getImageCount()) > 1) return null;
@@ -66,11 +89,34 @@ export async function withOverviews(file: Blob, options: OverviewOptions = {}): 
   const extraSamples = numbers(await tag(338));
   const noData = image.getGDALNoData();
   const layout = await readLayout(file);
+  const raw = options.geo ? compose(file, layout, geoEntries(options.geo), []) : file;
+  const build = (onProgress?: (done: number) => void) =>
+    buildOverviews(file, image, layout, { bands, bits, photometric, format, Type, extraSamples, noData, geo: options.geo, onProgress });
+  return { raw, width, height, build };
+}
+
+/** What {@link planOverviews} found out about the image, for making its overviews. */
+interface ImageFacts {
+  bands: number;
+  bits: number;
+  photometric: number;
+  format: number;
+  Type: SampleArray;
+  extraSamples: number[] | undefined;
+  noData: number | null;
+  geo?: GeoTIFFRaster['geo'];
+  onProgress?: (done: number) => void;
+}
+
+async function buildOverviews(file: Blob, image: GeoTIFFImage, layout: Layout, facts: ImageFacts): Promise<Blob> {
+  const { bands, bits, photometric, format, Type, extraSamples, noData, onProgress } = facts;
+  const width = image.getWidth();
+  const height = image.getHeight();
 
   // The first overview: half the size, or smaller when that would not fit in memory.
   let f = 2;
   while (Math.ceil(width / f) * Math.ceil(height / f) * bands * (bits / 8) > MAX_OVERVIEW_BYTES) f *= 2;
-  const first = await reduceImage(file, image, { f, bands, noData, Type, onProgress: options.onProgress });
+  const first = await reduceImage(file, image, { f, bands, noData, Type, onProgress });
   const levels: Level[] = [first];
   while (Math.max(levels[levels.length - 1].width, levels[levels.length - 1].height) > TILE) {
     levels.push(halve(levels[levels.length - 1], bands, noData));
@@ -103,8 +149,8 @@ export async function withOverviews(file: Blob, options: OverviewOptions = {}): 
   });
 
   // New georeferencing and statistics replace the image's own.
-  const replace = options.geo ? geoEntries(options.geo) : [];
-  if (options.geo) {
+  const replace = facts.geo ? geoEntries(facts.geo) : [];
+  if (facts.geo) {
     const statistics = gdalStatistics(first.min, first.max);
     if (statistics) replace.push({ tag: 42112, type: ASCII, values: ascii(statistics) });
   }

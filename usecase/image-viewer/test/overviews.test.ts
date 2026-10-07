@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fromArrayBuffer, writeArrayBuffer } from 'geotiff';
 import { plainGeoTiff } from './fixtures.js';
-import { isTiff, withOverviews } from '../src/overviews.js';
+import { isTiff, planOverviews, withOverviews } from '../src/overviews.js';
 import { reduceSamples, reduceWindow, tileDecoder, windowsOf } from '../src/reduce.js';
 
 describe('withOverviews', () => {
@@ -67,6 +67,30 @@ describe('withOverviews keeps the file and appends the levels', () => {
     expect(image.getOrigin()).toEqual([135, 35, 0]);
     expect(image.getGeoKeys()?.GeographicTypeGeoKey).toBe(4326);
     expect(await image.getGDALMetadata(0)).toMatchObject({ STATISTICS_MINIMUM: '20', STATISTICS_MAXIMUM: '230' });
+  });
+});
+
+describe('planOverviews', () => {
+  it('gives the file to show until the overviews are made: the file itself, at its full resolution only', async () => {
+    const file = new Blob([plainGeoTiff(1100, 700)]);
+    const plan = await planOverviews(file);
+    expect(plan).not.toBeNull();
+    expect(plan!.raw).toBe(file);
+    expect([plan!.width, plan!.height]).toEqual([1100, 700]);
+    const tiff = await fromArrayBuffer(await (await plan!.build()).arrayBuffer());
+    expect(await tiff.getImageCount()).toBe(4);
+    expect(await planOverviews(new Blob([plainGeoTiff(300, 200)]))).toBeNull();
+  });
+
+  it('with `geo`, the file to show is already placed there, without levels', async () => {
+    const geo = { modelPixelScale: [0.001, 0.001, 0], modelTiepoint: [0, 0, 0, 135, 35, 0], geoKeyDirectory: [1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326] };
+    const plan = await planOverviews(new Blob([plainGeoTiff(1100, 700)]), { geo });
+    const tiff = await fromArrayBuffer(await plan!.raw.arrayBuffer());
+    expect(await tiff.getImageCount()).toBe(1);
+    const image = await tiff.getImage();
+    expect(image.getOrigin()).toEqual([135, 35, 0]);
+    const [r] = (await image.readRasters({ window: [0, 0, 2, 1] })) as unknown as Uint8Array[];
+    expect(Array.from(r)).toEqual([230, 20]);
   });
 });
 
