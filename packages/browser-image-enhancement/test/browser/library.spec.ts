@@ -172,6 +172,68 @@ test('sharpen in workers: strips with a margin give exactly the main-thread resu
   expect(r.graySame).toBe(true);
 });
 
+test('WebAssembly engine: same pixels as JS on the main thread and in workers, and faster', async ({ page }) => {
+  const r = await page.evaluate(async () => {
+    const { lib, helpers } = window;
+    lib.configureWorkers({ maxWorkers: 4 });
+    const status = lib.wasmStatus();
+    const img = helpers.noise(4000, 3000, 9);
+    const time = async (f: () => Promise<ImageData> | ImageData) => {
+      const t0 = performance.now();
+      const out = await f();
+      return { out, ms: Math.round(performance.now() - t0) };
+    };
+    const pipelines = {
+      tables: lib.pipeline().exposure(0.3).contrast(0.2).gamma(1.1),
+      saturation: lib.pipeline().temperature(0.2).saturation(0.3).contrast(0.2),
+      sharpen: lib.pipeline().temperature(0.2).saturation(0.3).sharpen({ amount: 1, radius: 1 }),
+    };
+    const rows: Record<string, { mainJs: number; mainWasm: number; workersJs: number; workersWasm: number; same: boolean }> = {};
+    for (const [name, p] of Object.entries(pipelines)) {
+      lib.configureWasm({ enabled: false });
+      const mainJs = await time(() => p.runSync(img));
+      const workersJs = await time(() => p.run(img));
+      lib.configureWasm({ enabled: true });
+      const mainWasm = await time(() => p.runSync(img));
+      const workersWasm = await time(() => p.run(img));
+      rows[name] = {
+        mainJs: mainJs.ms,
+        mainWasm: mainWasm.ms,
+        workersJs: workersJs.ms,
+        workersWasm: workersWasm.ms,
+        same: [mainWasm, workersJs, workersWasm].every((x) => helpers.same(x.out.data, mainJs.out.data)),
+      };
+    }
+    return { status, rows };
+  });
+  for (const [name, x] of Object.entries(r.rows)) {
+    console.log(`12MP ${name}: main thread JS ${x.mainJs} ms / WASM ${x.mainWasm} ms, workers JS ${x.workersJs} ms / WASM ${x.workersWasm} ms`);
+    expect(x.same).toBe(true);
+  }
+  // Compiled synchronously on the main thread (Chromium allows it for this size).
+  expect(r.status).toBe('ready');
+});
+
+test('falls back to JS when a CSP forbids WebAssembly', async ({ page }) => {
+  await open(page, `/test/browser/index.html?csp=${encodeURIComponent("script-src 'self' 'unsafe-inline'")}`);
+  const r = await page.evaluate(async () => {
+    const { lib, helpers } = window;
+    const img = helpers.noise(300, 200, 4);
+    const p = helpers.full().sharpen({ amount: 1, radius: 1 });
+    const out = await p.run(img);
+    const sync = p.runSync(img);
+    lib.configureWasm({ enabled: false });
+    return { status: lib.wasmStatus(), same: helpers.same(out.data, sync.data) && helpers.same(sync.data, p.runSync(img).data) };
+  });
+  expect(r.same).toBe(true);
+  expect(r.status).toBe('off');
+  const status = await page.evaluate(() => {
+    window.lib.configureWasm({ enabled: true });
+    return window.lib.wasmStatus();
+  });
+  expect(status).toBe('unavailable');
+});
+
 test('monochrome images are detected across strips and stay gray', async ({ page }) => {
   const r = await page.evaluate(async () => {
     const { lib, helpers } = window;

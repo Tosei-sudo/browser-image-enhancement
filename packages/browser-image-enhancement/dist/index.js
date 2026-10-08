@@ -1,4 +1,5 @@
 import { opInfo } from "./ops/info.js";
+import { configureWasm, wasmStatus } from "./core/wasm.js";
 import { isMonochrome } from "./core/process.js";
 import { mergeHistograms } from "./core/histogram.js";
 import { autoStretch, brightness, contrast, curve, exposure, gamma, highlights, levels, saturation, shadows, sharpen, stretch, temperature, tint, whiteBalance } from "./functional.js";
@@ -11,4 +12,4 @@ import { assignBands, isGraySelection, selectBands } from "./bands.js";
 import { autoEnhance, presets } from "./presets.js";
 import { createGpuRenderer } from "./gpu/renderer.js";
 import { createEditor } from "./editor.js";
-export { Pipeline, assignBands, autoEnhance, autoStretch, brightness, computeRasterStretch, computeStretch, configureWorkers, contrast, createEditor, createGpuRenderer, createPreviewRunner, curve, exposure, gamma, highlights, histogram, isGraySelection, isMonochrome, levels, mergeHistograms, mergeRasterHistograms, opInfo, panSharpen, pipeline, presets, rasterHistogram, rasterRange, rasterToImageData, sampleColor, sampleRasterHistogram, saturation, selectBands, shadows, sharpen, stretch, temperature, terminateWorkers, tint, whiteBalance };
+export { Pipeline, assignBands, autoEnhance, autoStretch, brightness, computeRasterStretch, computeStretch, configureWasm, configureWorkers, contrast, createEditor, createGpuRenderer, createPreviewRunner, curve, exposure, gamma, highlights, histogram, isGraySelection, isMonochrome, levels, mergeHistograms, mergeRasterHistograms, opInfo, panSharpen, pipeline, presets, rasterHistogram, rasterRange, rasterToImageData, sampleColor, sampleRasterHistogram, saturation, selectBands, shadows, sharpen, stretch, temperature, terminateWorkers, tint, wasmStatus, whiteBalance };

@@ -16,6 +16,7 @@ import { LUMA_B, LUMA_G, LUMA_R, linearToSrgb, quantize, SRGB_TO_LINEAR, srgbToL
 import { COLOR_ONLY_OPS, isIdentity, toStage, type PixelStage, type SpatialStage } from '../ops/index.js';
 import { sharpenPlanes, sharpenRows } from './filter.js';
 import { Quantizer } from './quantizer.js';
+import { runWasm } from './wasm.js';
 import type { ColorMode, OpSpec } from '../types.js';
 
 /** How pixels are computed: three channels, or one luminance channel. */
@@ -229,7 +230,8 @@ function applyChannel(stages: readonly PixelStage[], v: number): number {
 /**
  * Applies a program to RGBA pixels. `src` and `dst` must have the same length
  * and may be the same array. Alpha is copied unchanged. `width` (pixels per
- * row) is needed when the program has spatial steps.
+ * row) is needed when the program has spatial steps. Runs in WebAssembly
+ * when it can (core/wasm.ts), with the same result.
  */
 export function processPixels(src: Uint8ClampedArray, dst: Uint8ClampedArray, program: Program, width?: number): void {
   if (src.length !== dst.length) throw new RangeError('src and dst must have the same length');
@@ -238,8 +240,9 @@ export function processPixels(src: Uint8ClampedArray, dst: Uint8ClampedArray, pr
     if (width === undefined || !(width > 0) || pixels % width !== 0) {
       throw new RangeError(`A program with sharpen needs the image width (got ${String(width)} for ${pixels} pixels).`);
     }
-    processSpatial(src, dst, program, program.spatial, width);
-  } else if (program.mode === 'gray') processGray(src, dst, program);
+    if (!runWasm(src, dst, program, width)) processSpatial(src, dst, program, program.spatial, width);
+  } else if (runWasm(src, dst, program)) return;
+  else if (program.mode === 'gray') processGray(src, dst, program);
   else processRgb(src, dst, program);
 }
 

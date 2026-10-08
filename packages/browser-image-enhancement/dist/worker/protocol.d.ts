@@ -18,6 +18,8 @@ import { ResolvedMode } from "../core/process.js";
  *   its histogram, so the main thread can decide one mode and one stretch for
  *   the whole image. `process` carries the resolved ops.
  * - `release`: drop a strip held after `detect` (the job was cancelled).
+ *
+ * `wasm` passes on the main thread's `configureWasm` setting.
  */
 export type WorkerRequest = {
   type: 'run';
@@ -26,6 +28,7 @@ export type WorkerRequest = {
   width: number;
   ops: OpSpec[];
   colorMode: ColorMode;
+  wasm: boolean;
 } | {
   type: 'detect';
   id: number;
@@ -38,6 +41,7 @@ export type WorkerRequest = {
   id: number;
   ops: OpSpec[];
   mode: ResolvedMode;
+  wasm: boolean;
 } | {
   type: 'release';
   id: number;

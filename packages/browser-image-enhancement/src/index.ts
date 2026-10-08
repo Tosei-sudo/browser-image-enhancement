@@ -66,6 +66,7 @@ export {
 } from './ops/info.js';
 export { createGpuRenderer, type GpuImageSource, type GpuRenderer, type GpuRendererOptions } from './gpu/renderer.js';
 export { configureWorkers, terminateWorkers, type WorkerConfig, type WorkerLike } from './worker/pool.js';
+export { configureWasm, wasmStatus, type WasmStatus } from './core/wasm.js';
 export type { ImageInput } from './io.js';
 export type {
   AutoStretchOptions,

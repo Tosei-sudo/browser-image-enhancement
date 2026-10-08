@@ -48,6 +48,10 @@ function inverse(F, target) {
 	}
 	return fromKey(hi);
 }
+/**
+* The fields are read by the WebAssembly engine (core/wasm.ts), which copies
+* them into its own memory and runs the same `quantize`.
+*/
 var Quantizer = class {
 	/** thresholds[k] = s_k; thresholds[255] = +Infinity as a sentinel. */
 	thresholds = /* @__PURE__ */ new Float64Array(256);
