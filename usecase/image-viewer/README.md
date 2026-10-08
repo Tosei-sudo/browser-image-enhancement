@@ -110,6 +110,14 @@ COG は、サーバーが CORS と Range リクエストを許可している必
       "matrixSet": "GoogleMapsCompatible", "format": "image/jpeg" },                 // WMTS（matrixSet・format は任意）
     { "type": "wfs", "url": "https://example.com/wfs", "layer": "test:stations" },   // WFS
     { "type": "esri", "url": "https://example.com/arcgis/rest/services/X/FeatureServer", "layer": "0" } // Esri（layer はレイヤー ID）
+  ],
+  // ファイル名ごとの既定値（補正とバンド割り当て）。上から順に見て、最初に合ったものを使います
+  "imageRules": [
+    { "label": "Landsat 8/9", "match": "^LC0[89]_.*\\.tif$",                       // ファイル名の正規表現（大文字小文字は区別しない）
+      "preset": "satellite", "enhance": { "contrast": 0.1 }, "bands": [4, 3, 2] },  // プリセット＋値の上書き、バンド 4・3・2 を RGB に
+    { "label": "フォールスカラー", "match": "_MS\\.tif$", "bands": ["NIR", "Red", "Green"] }, // バンド名（GDAL の DESCRIPTION）でも指定可
+    { "label": "パンクロ", "match": "_PAN\\.tif$", "caseSensitive": true,
+      "enhance": { "autoStretch": { "lowPercent": 1, "highPercent": 1 }, "gamma": 1.2 } }
   ]
 }
 ```
@@ -117,6 +125,14 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 `layers` のレイヤーは `?url=`・`?service=` のリンクで指定したものより先に開きます。共有リンクには設定ファイルのサービスレイヤーも入りますが、同じレイヤーは 1 回だけ開きます。開けなかったレイヤーは状態欄に理由を出し、残りのレイヤーは開きます。`file` はサーバーが CORS を許可している必要があります（同じサイトに置くなら不要です）。
 
 背景地図の `type` は `xyz`（ラスタータイル）・`mvt`・`style`・`esri` のどれかで、書かなければ URL から決めます（`…/VectorTileServer` なら `esri`、`{z}` を含み `.pbf`・`.mvt` で終われば `mvt`、`{z}` を含むそれ以外は `xyz`、残りは `style`）。ベクタータイルは Web メルカトル（EPSG:3857）のものに対応します。ArcGIS のサービスは `?f=json` の情報とスタイル（`resources/styles/root.json`）を読み、タイルの `{z}/{y}/{x}` の並びとズーム範囲をサーバーの情報に合わせます。`token` はサーバーへのすべての要求（情報・スタイル・タイル・アイコン）に付けます。スタイルのアイコン（sprite）が読めないときはアイコンなしで表示し、読み込めない背景地図は理由を状態欄に出します。ラベルの文字は端末のフォントで描き、入っていないフォントは jsDelivr から取得を試みます（閉じたネットワークではその要求が失敗するだけで、代わりのフォントで描きます）。
+
+`imageRules` は、開いた画像のファイル名（URL なら最後の部分。`?` 以降は除く）を上から順に `match` の正規表現で調べ、最初に合ったルールの補正とバンド割り当てで開きます。合ったときは状態欄に「（設定「Landsat 8/9」を適用）」と出ます。開いたあとに補正パネルで変えた値がそのまま優先され、プロジェクトファイル（.ivproj）を開いたときは保存した補正・バンドに戻ります。
+
+- `match`: ファイル名に対する正規表現（JSON なので `\` は `\\` と書きます）。大文字小文字は区別しません。区別したいときは `"caseSensitive": true`
+- `label`: 状態欄に出す名前（省略すると `match`）
+- `preset`: 組み込みの補正 `auto`・`vivid`・`soft`・`satellite`・`document`・`blackAndWhite` のどれか
+- `enhance`: 補正の値。`{ "contrast": 0.2, "saturation": 0.1, "autoStretch": { "lowPercent": 1 } }` のように手順ごとに書くと `preset` の上に重ねます。プロジェクトファイルの `pipeline`（`{ "version": 1, "ops": [...] }`）をそのまま貼ることもできます（このときは `preset` を置き換えます）
+- `bands`: R・G・B に出すバンド。`[4, 3, 2]` のように 1 から数えた番号か、`["NIR", "Red", "Green"]` のようにバンド名（混ぜても可）。`2` や `[2]` の 1 つだけならそのバンドをグレーで出します。3 バンド以上の画像でだけ使い、足りないときは状態欄に理由を出して補正だけ使います
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 

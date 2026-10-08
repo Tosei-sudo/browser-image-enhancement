@@ -5,6 +5,7 @@
  * or a missing or invalid entry, falls back to the built-in default for that
  * entry, so the site always starts.
  */
+import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 
 /**
  * What a base map URL points to:
@@ -73,6 +74,24 @@ export interface ViewerConfig {
   projections: Record<string, string>;
   /** Layers opened at start, bottom first. */
   layers: LayerConfig[];
+  /** Defaults for images by file name; the first rule that matches applies. */
+  imageRules: ImageRule[];
+}
+
+/**
+ * What an image whose file name matches starts with when it opens: a
+ * correction and the bands shown. Changes made in the panel afterwards (and a
+ * project file's saved settings) take over as usual.
+ */
+export interface ImageRule {
+  /** Shown in the status line when the rule is applied; the pattern when `config.json` gives no `label`. */
+  label: string;
+  /** Tested against the file name (for a URL, the last part of its path). */
+  match: RegExp;
+  /** The correction to start with, from `preset` and `enhance`; null leaves the correction as it is. */
+  pipeline: Pipeline | null;
+  /** The bands shown as R, G and B, or one band in gray: 1-based numbers, or band names (GDAL's DESCRIPTION, e.g. "NIR"). */
+  bands: Array<number | string> | null;
 }
 
 const gsi = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
@@ -106,6 +125,7 @@ export const defaultConfig: ViewerConfig = {
   projectionLookup: 'https://spatialreference.org/ref/{authority}/{code}/ogcwkt/',
   projections: {},
   layers: [],
+  imageRules: [],
 };
 
 /** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
@@ -144,7 +164,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -189,7 +209,81 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     else problems.push('layers が配列ではありません');
   }
 
+  if ('imageRules' in json) {
+    if (Array.isArray(json.imageRules)) config.imageRules = json.imageRules.map((r, i) => imageRuleOf(r, problems, i)).filter((r): r is ImageRule => r !== null);
+    else problems.push('imageRules が配列ではありません');
+  }
+
   return { config, problems };
+}
+
+const isPreset = (name: unknown): name is PresetName => typeof name === 'string' && Object.hasOwn(presets, name);
+
+function imageRuleOf(value: unknown, problems: string[], index: number): ImageRule | null {
+  const at = `imageRules[${index}]`;
+  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  const { match, caseSensitive, label, preset, enhance, bands } = value;
+  if (typeof match !== 'string' || !match) return (problems.push(`${at} に match（ファイル名の正規表現）がありません`), null);
+  let pattern: RegExp;
+  try {
+    // File names on Windows and most servers ignore case, so the patterns do too unless told.
+    pattern = new RegExp(match, caseSensitive === true ? '' : 'i');
+  } catch (error) {
+    return (problems.push(`${at} の match は正規表現として読めません（${error instanceof Error ? error.message : String(error)}）`), null);
+  }
+
+  let pipeline: Pipeline | null = null;
+  if (preset !== undefined) {
+    if (isPreset(preset)) pipeline = presets[preset];
+    else problems.push(`${at} の preset「${String(preset)}」は ${Object.keys(presets).join('・')} のどれかにしてください`);
+  }
+  if (enhance !== undefined) pipeline = enhanceOf(enhance, pipeline, problems, at);
+
+  let shown: Array<number | string> | null = null;
+  if (bands !== undefined) {
+    const list = Array.isArray(bands) ? bands : [bands];
+    const valid = (b: unknown) => (typeof b === 'number' && Number.isInteger(b) && b >= 1) || (typeof b === 'string' && b.trim() !== '');
+    if ((list.length === 1 || list.length === 3) && list.every(valid)) shown = list as Array<number | string>;
+    else problems.push(`${at} の bands は [赤, 緑, 青] か 1 つのバンド（1 から数えた番号かバンド名）にしてください`);
+  }
+
+  if (!pipeline && !shown) return (problems.push(`${at} は補正（preset・enhance）もバンド（bands）も指定していないので無視しました`), null);
+  return { label: typeof label === 'string' && label ? label : match, match: pattern, pipeline, bands: shown };
+}
+
+/**
+ * The correction `enhance` gives: a saved pipeline (`{ "version": 1, "ops": [...] }`,
+ * as in a project file) or its steps alone used as they are, or values by
+ * step (`{ "contrast": 0.2, "autoStretch": { "lowPercent": 1 } }`) set on top of `base`.
+ */
+function enhanceOf(enhance: unknown, base: Pipeline | null, problems: string[], at: string): Pipeline | null {
+  if (Array.isArray(enhance) || (isRecord(enhance) && 'ops' in enhance)) {
+    try {
+      return Pipeline.fromJSON(Array.isArray(enhance) ? { version: 1, ops: enhance } : (enhance as never));
+    } catch (error) {
+      problems.push(`${at} の enhance は補正として読めません（${error instanceof Error ? error.message : String(error)}）`);
+      return base;
+    }
+  }
+  if (!isRecord(enhance)) return (problems.push(`${at} の enhance がオブジェクトではありません`), base);
+  let pipeline = base ?? new Pipeline();
+  for (const [op, params] of Object.entries(enhance)) {
+    if (typeof params !== 'number' && !isRecord(params)) {
+      problems.push(`${at} の enhance の「${op}」は数値か、パラメーターのオブジェクトにしてください`);
+      continue;
+    }
+    try {
+      pipeline = pipeline.set(op as never, params as never);
+    } catch (error) {
+      problems.push(`${at} の enhance の「${op}」は無視しました（${error instanceof Error ? error.message : String(error)}）`);
+    }
+  }
+  return pipeline;
+}
+
+/** The first rule whose pattern matches the file name `name` (the last part of a URL's path). */
+export function imageRuleFor(rules: readonly ImageRule[], name: string): ImageRule | undefined {
+  return rules.find((rule) => rule.match.test(name));
 }
 
 function layerOf(value: unknown, problems: string[], index: number): LayerConfig | null {

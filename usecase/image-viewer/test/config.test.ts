@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { baseMapType, defaultConfig, lookupUrl, parseConfig } from '../src/config.js';
+import { presets } from 'browser-image-enhancement';
+import { baseMapType, defaultConfig, imageRuleFor, lookupUrl, parseConfig } from '../src/config.js';
 import shipped from '../public/config.json' with { type: 'json' };
 
 describe('parseConfig', () => {
@@ -95,6 +96,60 @@ describe('layers', () => {
       { type: 'wmts', url: 'https://example.com/wmts', layer: 'photo', matrixSet: 'GoogleMapsCompatible' },
     ]);
     expect(problems).toHaveLength(3);
+  });
+});
+
+describe('imageRules', () => {
+  it('reads presets, values by step, saved pipelines and bands', () => {
+    const { config, problems } = parseConfig({
+      imageRules: [
+        { label: 'Landsat', match: '^LC0[89]_.*\\.tif$', preset: 'satellite', enhance: { contrast: 0.2 }, bands: [4, 3, 2] },
+        { match: '_pan\\.tif$', caseSensitive: true, enhance: { version: 1, ops: [{ op: 'gamma', gamma: 1.5 }] }, bands: 1 },
+        { match: 'nir', bands: ['NIR', 'Red', 'Green'] },
+        { match: 'steps', enhance: [{ op: 'brightness', amount: 0.1 }] },
+      ],
+    });
+    expect(problems).toEqual([]);
+    const [landsat, pan, nir, steps] = config.imageRules;
+    expect(landsat.label).toBe('Landsat');
+    expect(landsat.pipeline?.toJSON()).toEqual(presets.satellite.set('contrast', 0.2).toJSON());
+    expect(landsat.bands).toEqual([4, 3, 2]);
+    expect(pan.label).toBe('_pan\\.tif$');
+    expect(pan.pipeline?.toJSON()).toEqual({ version: 1, ops: [{ op: 'gamma', gamma: 1.5 }] });
+    expect(pan.bands).toEqual([1]);
+    expect(nir.pipeline).toBeNull();
+    expect(nir.bands).toEqual(['NIR', 'Red', 'Green']);
+    expect(steps.pipeline?.toJSON().ops).toEqual([{ op: 'brightness', amount: 0.1 }]);
+  });
+
+  it('takes the first rule that matches, ignoring case unless told', () => {
+    const { config } = parseConfig({
+      imageRules: [
+        { label: 'pan', match: '_pan\\.tif$', caseSensitive: true, bands: 1 },
+        { label: 'landsat', match: '^lc08_', preset: 'satellite' },
+        { label: 'any tif', match: '\\.tif$', preset: 'auto' },
+      ],
+    });
+    expect(imageRuleFor(config.imageRules, 'LC08_L1TP_107035.TIF')?.label).toBe('landsat');
+    expect(imageRuleFor(config.imageRules, 'LC08_x_pan.tif')?.label).toBe('pan');
+    expect(imageRuleFor(config.imageRules, 'scene_PAN.tif')?.label).toBe('any tif');
+    expect(imageRuleFor(config.imageRules, 'photo.png')).toBeUndefined();
+  });
+
+  it('drops broken rules and ignores broken parts, saying why', () => {
+    const { config, problems } = parseConfig({
+      imageRules: [
+        { match: '(', preset: 'auto' },
+        { preset: 'auto' },
+        { match: 'a', preset: 'nope' },
+        { match: 'b', preset: 'vivid', enhance: { contrast: 0.3, sparkle: 1, gamma: 'x' } },
+        { match: 'c', bands: [1, 2] },
+        { match: 'd', bands: [0, 1, 2], enhance: { version: 2, ops: [] } },
+      ],
+    });
+    expect(config.imageRules.map((r) => r.label)).toEqual(['b']);
+    expect(config.imageRules[0].pipeline?.toJSON()).toEqual(presets.vivid.set('contrast', 0.3).toJSON());
+    expect(problems).toHaveLength(11);
   });
 });
 
