@@ -133,6 +133,23 @@ describe('panSharpen', () => {
     expect(out.data[8 * 5 + 4]).toBe(255);
   });
 
+  it('sharpens pieces of an image with the model of the whole: the same as all at once', () => {
+    const whole = panSharpen(pan, ms, { method: 'gram-schmidt' });
+    const rows = H / 2;
+    const half = (data: ArrayLike<number> & { subarray?: unknown }, bands: number, k: number) =>
+      (data as Uint16Array).subarray(k * rows * W * bands, (k + 1) * rows * W * bands);
+    for (const k of [0, 1]) {
+      const piece = panSharpen(
+        { data: half(pan.data, 1, k), width: W, height: rows },
+        { data: half(ms.data, 4, k), width: W, height: rows, bands: 4 },
+        { method: 'gram-schmidt', model: whole.model },
+      );
+      expect(piece.model).toBe(whole.model);
+      expect(Array.from(piece.data)).toEqual(Array.from(half(whole.data, 4, k)));
+    }
+    expect(() => panSharpen(pan, ms, { model: { ...whole.model, gains: [1] } })).toThrow(RangeError);
+  });
+
   it('rejects rasters of different sizes and bad options', () => {
     expect(() => panSharpen({ data: new Uint8Array(4), width: 2, height: 2 }, ms)).toThrow(RangeError);
     expect(() => panSharpen(pan, ms, { bands: [4] })).toThrow(RangeError);
