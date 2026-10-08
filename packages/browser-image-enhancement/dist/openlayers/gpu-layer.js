@@ -22,6 +22,11 @@ import { listen, unlistenByKey } from "ol/events.js";
 * Sharpening, which looks at neighbouring pixels, works at screen resolution:
 * its radius is in screen pixels, so it looks the same at every zoom level.
 *
+* Over 16-bit (or float) imagery the source hands the layer the raw values
+* as float tiles (`gpuStretch`), and the layer's shader stretches them to
+* 0-255 before anything else: at full precision, and a new stretch (DRA)
+* only redraws the map.
+*
 * Over a source of ordinary pictures (`ol/source/ImageTile`: WMS, WMTS, XYZ
 * tiles, loaded with `crossOrigin` so WebGL may read them), the layer takes
 * its pipeline from a {@link TileCorrection} given as `correction`, and DRA
@@ -42,6 +47,20 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	disposed_ = false;
 	/** Small canvas the drawn map is read through for DRA statistics. */
 	sample_ = null;
+	/** The style given in the options, shown unless the shader stretches raw values. */
+	userStyle_;
+	/** Whether the raw-stretch style is set. */
+	stretching_ = false;
+	/** The raw-stretch style's variables, updated in place (the shader reads them on every draw). */
+	stretch_ = {
+		b0: 0,
+		b1: 0,
+		b2: 0,
+		s0: 0,
+		s1: 0,
+		s2: 0,
+		ready: 0
+	};
 	/** Frames corrected so far. */
 	frames = 0;
 	constructor(options = {}) {
@@ -50,6 +69,7 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 			className: "ol-layer gpu-corrected",
 			...layerOptions
 		});
+		this.userStyle_ = options.style ?? {};
 		this.correction_ = correction ?? null;
 		this.correctionKey_ = correction ? listen(correction, "change", () => this.changed()) : null;
 		this.useGpu_ = options.gpu !== false;
@@ -80,6 +100,7 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		return this.output_;
 	}
 	render(frameState, target) {
+		this.updateStretch_();
 		const drawn = super.render(frameState, target);
 		const source = this.getSource();
 		const gpu = this.gpu_;
@@ -98,6 +119,25 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		out.className = drawn.className;
 		out.style.cssText = drawn.style.cssText;
 		return out;
+	}
+	/** Sets the raw-stretch style while the source hands raw float tiles, and its variables from the source's stretch. */
+	updateStretch_() {
+		const source = this.getSource();
+		const stretching = source instanceof EnhancedGeoTIFF && source.stretchesOnGpu();
+		if (stretching !== this.stretching_) {
+			this.stretching_ = stretching;
+			this.setStyle(stretching ? rawStretchStyle(this.stretch_) : this.userStyle_);
+		}
+		if (!stretching) return;
+		const range = source.getRawStretch();
+		const v = this.stretch_;
+		v.ready = range ? 1 : 0;
+		if (!range) return;
+		for (let c = 0; c < 3; c++) {
+			const span = range.white[c] - range.black[c];
+			v[`b${c}`] = range.black[c];
+			v[`s${c}`] = span > 0 ? 1 / span : 0;
+		}
 	}
 	/** DRA statistics of the map as drawn (before correction), read through a canvas of at most 512 px. */
 	sampleStats_(drawn, target, frameState) {
@@ -136,6 +176,41 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		super.disposeInternal();
 	}
 };
+/**
+* The style that stretches raw float tiles (R, G, B, alpha) to 0-1: each band
+* linearly from its black to its white, clipped; transparent until the
+* stretch is known (`ready` 0).
+*/
+function rawStretchStyle(variables) {
+	const band = (c) => [
+		"clamp",
+		[
+			"*",
+			[
+				"-",
+				["band", c + 1],
+				["var", `b${c}`]
+			],
+			["var", `s${c}`]
+		],
+		0,
+		1
+	];
+	return {
+		variables,
+		color: [
+			"array",
+			band(0),
+			band(1),
+			band(2),
+			[
+				"*",
+				["band", 4],
+				["var", "ready"]
+			]
+		]
+	};
+}
 //#endregion
 export { GpuCorrectedTileLayer as default };
 

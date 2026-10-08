@@ -13,12 +13,17 @@
  * Sharpening, which looks at neighbouring pixels, works at screen resolution:
  * its radius is in screen pixels, so it looks the same at every zoom level.
  *
+ * Over 16-bit (or float) imagery the source hands the layer the raw values
+ * as float tiles (`gpuStretch`), and the layer's shader stretches them to
+ * 0-255 before anything else: at full precision, and a new stretch (DRA)
+ * only redraws the map.
+ *
  * Over a source of ordinary pictures (`ol/source/ImageTile`: WMS, WMTS, XYZ
  * tiles, loaded with `crossOrigin` so WebGL may read them), the layer takes
  * its pipeline from a {@link TileCorrection} given as `correction`, and DRA
  * takes its statistics from the map the layer has drawn.
  */
-import WebGLTileLayer, { type Options } from 'ol/layer/WebGLTile.js';
+import WebGLTileLayer, { type Options, type Style } from 'ol/layer/WebGLTile.js';
 import type { FrameState } from 'ol/Map.js';
 import { listen, unlistenByKey, type EventsKey } from 'ol/events.js';
 import { getIntersection, isEmpty } from 'ol/extent.js';
@@ -54,6 +59,12 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private disposed_ = false;
   /** Small canvas the drawn map is read through for DRA statistics. */
   private sample_: CanvasRenderingContext2D | null = null;
+  /** The style given in the options, shown unless the shader stretches raw values. */
+  private readonly userStyle_: Style;
+  /** Whether the raw-stretch style is set. */
+  private stretching_ = false;
+  /** The raw-stretch style's variables, updated in place (the shader reads them on every draw). */
+  private readonly stretch_ = { b0: 0, b1: 0, b2: 0, s0: 0, s1: 0, s2: 0, ready: 0 };
   /** Frames corrected so far. */
   frames = 0;
 
@@ -62,6 +73,7 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     // otherwise shares one canvas between neighbouring WebGL layers.
     const { correction, ...layerOptions } = options;
     super({ className: 'ol-layer gpu-corrected', ...layerOptions });
+    this.userStyle_ = options.style ?? {};
     this.correction_ = correction ?? null;
     this.correctionKey_ = correction ? listen(correction, 'change', () => this.changed()) : null;
     this.useGpu_ = options.gpu !== false;
@@ -100,6 +112,7 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   }
 
   override render(frameState: FrameState | null, target: HTMLElement): HTMLElement {
+    this.updateStretch_();
     const drawn = super.render(frameState, target);
     const source = this.getSource();
     const gpu = this.gpu_;
@@ -120,6 +133,26 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     out.className = drawn.className;
     out.style.cssText = drawn.style.cssText;
     return out;
+  }
+
+  /** Sets the raw-stretch style while the source hands raw float tiles, and its variables from the source's stretch. */
+  private updateStretch_(): void {
+    const source = this.getSource();
+    const stretching = source instanceof EnhancedGeoTIFF && source.stretchesOnGpu();
+    if (stretching !== this.stretching_) {
+      this.stretching_ = stretching;
+      this.setStyle(stretching ? rawStretchStyle(this.stretch_) : this.userStyle_);
+    }
+    if (!stretching) return;
+    const range = source.getRawStretch();
+    const v = this.stretch_;
+    v.ready = range ? 1 : 0;
+    if (!range) return;
+    for (let c = 0; c < 3; c++) {
+      const span = range.white[c] - range.black[c];
+      (v as Record<string, number>)[`b${c}`] = range.black[c];
+      (v as Record<string, number>)[`s${c}`] = span > 0 ? 1 / span : 0;
+    }
   }
 
   /** DRA statistics of the map as drawn (before correction), read through a canvas of at most 512 px. */
@@ -149,4 +182,14 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     this.gpu_ = null;
     super.disposeInternal();
   }
+}
+
+/**
+ * The style that stretches raw float tiles (R, G, B, alpha) to 0-1: each band
+ * linearly from its black to its white, clipped; transparent until the
+ * stretch is known (`ready` 0).
+ */
+function rawStretchStyle(variables: Record<string, number>): Style {
+  const band = (c: number) => ['clamp', ['*', ['-', ['band', c + 1], ['var', `b${c}`]], ['var', `s${c}`]], 0, 1];
+  return { variables, color: ['array', band(0), band(1), band(2), ['*', ['band', 4], ['var', 'ready']]] };
 }

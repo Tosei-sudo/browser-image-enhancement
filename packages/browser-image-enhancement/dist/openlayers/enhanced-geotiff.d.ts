@@ -27,6 +27,16 @@ export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
    */
   correctTiles?: boolean;
   /**
+   * With `correctTiles: false` and raw values (`normalize: false`, or
+   * `'auto'` on an image deeper than 8 bits): hand the layer the raw values
+   * as float tiles and let `GpuCorrectedTileLayer` stretch them to 0-255 in
+   * its shader, at full precision (default true). A new raw stretch then
+   * redraws the map instead of rebuilding every tile. Needs float textures
+   * that can be filtered (`OES_texture_float_linear`); without them, or with
+   * false, tiles are stretched to 8 bits here as they load.
+   */
+  gpuStretch?: boolean;
+  /**
    * With `normalize: false`: how raw values become 0-255 before the
    * pipeline. A fixed {@link RasterStretch}, or automatic stretch options
    * (default `{}`: percentClip, 0.5 % at each end, band by band) applied to
@@ -100,6 +110,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private effective_;
   private readonly worker_;
   private readonly correctTiles_;
+  /** Raw tiles go to the layer as floats, stretched in its shader, when the image has raw values (see `gpuStretch`). */
+  private readonly gpuStretch_;
   private readonly rawCacheSize_;
   private readonly draSampleSize_;
   private readonly draMaxTiles_;
@@ -139,10 +151,24 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** How many tiles were read and corrected, and the time it took. */
   readonly stats: TileStats;
   constructor(options: EnhancedGeoTIFFOptions);
-  /** The tile key: changes whenever tiles must be corrected again. */
+  /** The tile key: changes whenever tiles must be corrected again (or, on the GPU, the map drawn again). */
   private tileKey_;
   /** The part of the tile key that changes the tiles as read (bands, raw stretch), before the pipeline. */
   private contentKey_;
+  /** True when raw tiles go to the layer as floats and the layer stretches them (see `gpuStretch`). */
+  private get rawOnGpu_();
+  /**
+   * True when the tiles hold raw values (float RGBA, alpha last) for the
+   * layer to stretch in its shader with {@link EnhancedGeoTIFF.getRawStretch}
+   * (see the `gpuStretch` option). Known once the COG is read.
+   */
+  stretchesOnGpu(): boolean;
+  /**
+   * The raw stretch in use, one black and white value for each of R, G and
+   * B (a gray image's repeated); null until the statistics it is computed
+   * from are read, or when the image is not read raw.
+   */
+  getRawStretch(): RasterStretchRange | null;
   /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
   private get autoRaw_();
   /** The pipeline's `autoStretch` options, when it has one. */
