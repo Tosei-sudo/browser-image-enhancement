@@ -3,18 +3,21 @@
  * RPC model (from the GeoTIFF tag or a side file) and whether it is
  * georeferenced at all. An image with RPC but no georeferencing (a level-1
  * product) is placed where its RPC model puts it, at the model's height
- * offset, until it is orthorectified.
+ * offset, warped through the model as it is drawn (see
+ * sensor-projection.ts), until it is orthorectified.
  *
  * Ground control points (several ModelTiepoints and no pixel size, as in
  * ICEYE and other SAR GRD products) are not an affine georeferencing: map
  * libraries read them as one pixel per map unit at 0, 0. Such an image is
- * placed by its RPC model when it has one, else by a plane fitted to its
- * points.
+ * placed by its RPC model when it has one, else by a polynomial fitted to
+ * its points.
  */
 import { fromArrayBuffer, fromBlob, fromUrl, type GeoTIFF } from 'geotiff';
 import type { GeoTIFFRaster } from 'browser-image-enhancement/openlayers';
-import { rpcFromTag, rpcProjector, type Rpc } from './rpc.js';
+import { rpcFromTag, type Rpc } from './rpc.js';
 import { sensorViewFromText, type SensorView } from './simple-ortho.js';
+import { gcpModel, geoKeysCrs, rpcModel, sensorGeo, sensorProjection } from './sensor-projection.js';
+import type Projection from 'ol/proj/Projection.js';
 
 /** The RPC model and georeferencing state of a TIFF. */
 export interface TiffInfo {
@@ -23,6 +26,8 @@ export interface TiffInfo {
   georeferenced: boolean;
   /** For an image placed only by ground control points: the box they cover, north up, in their own coordinate system. */
   gcpGeo: GeoTIFFRaster['geo'] | null;
+  /** For such an image: its ModelTiepoint values (I, J, K, X, Y, Z for each point) and their CRS ('EPSG:n'; null when the GeoKeys name none). */
+  gcps: { tiepoints: number[]; crs: string | null } | null;
   /** Where the satellite looked from, when the GDAL metadata says. */
   view: SensorView | null;
   width: number;
@@ -58,13 +63,15 @@ export async function tiffInfo(from: Blob | string): Promise<TiffInfo> {
   const tiepoints = fd.hasTag(33922) ? Array.from((await fd.loadValue(33922)) as ArrayLike<number>, Number) : [];
   const georeferenced = fd.hasTag(34264) || (fd.hasTag(33550) && tiepoints.length >= 6);
   let gcpGeo: GeoTIFFRaster['geo'] | null = null;
+  let gcps: TiffInfo['gcps'] = null;
   if (!georeferenced && tiepoints.length >= 18) {
     const keys = fd.hasTag(34735) ? Array.from((await fd.loadValue(34735)) as ArrayLike<number>, Number) : undefined;
     const doubles = fd.hasTag(34736) ? Array.from((await fd.loadValue(34736)) as ArrayLike<number>, Number) : undefined;
     const ascii = fd.hasTag(34737) ? String(await fd.loadValue(34737)) : undefined;
     gcpGeo = gcpBox(tiepoints, width, height, { geoKeyDirectory: keys, geoDoubleParams: doubles, geoAsciiParams: ascii });
+    gcps = { tiepoints, crs: keys ? geoKeysCrs(keys) : 'EPSG:4326' };
   }
-  return { rpc, georeferenced, gcpGeo, view, width, height };
+  return { rpc, georeferenced, gcpGeo, gcps, view, width, height };
 }
 
 /**
@@ -121,24 +128,21 @@ export function gcpBox(tiepoints: readonly number[], width: number, height: numb
 }
 
 /**
- * Approximate georeferencing from an RPC model: the box of the image corners
- * on the ground at the model's height offset, north up, in WGS 84.
+ * Where an image without georeferencing goes on the map, from its RPC model
+ * (`rpc`, from the file or a side file) or its ground control points: a
+ * projection of its own pixels that the map warps through the model as it
+ * draws (see sensor-projection.ts), with the georeferencing that goes with
+ * it. When the points cannot be modelled (a CRS the viewer does not know),
+ * the box they cover, north up, without a projection of its own. Null for a
+ * georeferenced image, or one with neither.
  */
-export function rpcGeo(rpc: Rpc, width: number, height: number): GeoTIFFRaster['geo'] {
-  const p = rpcProjector(rpc);
-  const corners = [
-    [-0.5, -0.5],
-    [width - 0.5, -0.5],
-    [-0.5, height - 0.5],
-    [width - 0.5, height - 0.5],
-  ].map(([s, l]) => p.toGround(s, l, rpc.heightOff));
-  const lons = corners.map((c) => c[0]);
-  const lats = corners.map((c) => c[1]);
-  const west = Math.min(...lons);
-  const north = Math.max(...lats);
-  return {
-    modelPixelScale: [(Math.max(...lons) - west) / width, (north - Math.min(...lats)) / height, 0],
-    modelTiepoint: [0, 0, 0, west, north, 0],
-    geoKeyDirectory: [1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326],
-  };
+export function sensorPlacementOf(info: TiffInfo, rpc: Rpc | null): { geo: NonNullable<GeoTIFFRaster['geo']>; projection: Projection | null } | null {
+  if (info.georeferenced) return null;
+  if (rpc) {
+    return { geo: sensorGeo(), projection: sensorProjection(rpcModel(rpc), info.width, info.height, { kind: 'rpc', height: rpc.heightOff }) };
+  }
+  if (!info.gcps) return info.gcpGeo ? { geo: info.gcpGeo, projection: null } : null;
+  const fit = info.gcps.crs ? gcpModel(info.gcps.tiepoints, info.gcps.crs) : null;
+  if (!fit) return info.gcpGeo ? { geo: info.gcpGeo, projection: null } : null;
+  return { geo: sensorGeo(), projection: sensorProjection(fit.model, info.width, info.height, { kind: 'gcp', points: fit.points, order: fit.order, rms: fit.rms }) };
 }

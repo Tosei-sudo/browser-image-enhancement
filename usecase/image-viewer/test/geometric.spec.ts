@@ -27,9 +27,22 @@ async function choose(page: Page, files: Array<{ name: string; bytes: Uint8Array
 
 const names = (page: Page) => page.locator('#images .name').allTextContents();
 const LON = 139.75;
+
 const LAT = 35.65;
 /** The bright spot of the scene, on a 1500 m plateau. */
 const TARGET: [number, number] = [139.76, 35.64];
+
+/** Web Mercator x, y of a longitude and latitude. */
+function mercator(lon: number, lat: number): [number, number] {
+  const r = 6378137;
+  return [(lon * Math.PI * r) / 180, r * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))];
+}
+
+/** Longitude and latitude of a Web Mercator x, y. */
+function lonLat(x: number, y: number): [number, number] {
+  const r = 6378137;
+  return [(x / r) * (180 / Math.PI), (Math.atan(Math.exp(y / r)) * 360) / Math.PI - 90];
+}
 
 /** A 1000 × 1000 scene, dark with a bright spot where the satellite sees TARGET on the plateau (geoid there about 37 m). */
 function scene(): Uint8Array {
@@ -121,9 +134,10 @@ test('a satellite image is orthorectified onto the DEM, moved by hand and saved'
   await expect.poll(() => names(page)).toEqual(['RPCscene.tif', 'DEMplateau.dt0']);
   await expect(page.locator('#info')).toContainText('RPC');
   await expect(page.locator('#geometry')).toContainText('標高データ 1 枚の地形でオルソ補正します');
-  const placed = await page.evaluate(async () => (await window.viewer.images.list()[0].source.getView()).extent!);
-  expect(placed[0]).toBeCloseTo(139.7, 1);
-  expect(placed[3]).toBeCloseTo(35.7, 1);
+  // The map was fitted to where the model puts it (0.1° around LON, LAT).
+  const placed = lonLat(...(await page.evaluate(() => window.viewer.map.getView().getCenter()! as [number, number])));
+  expect(placed[0]).toBeCloseTo(LON, 2);
+  expect(placed[1]).toBeCloseTo(LAT, 2);
 
   await page.locator('#geometry [data-action=ortho]').click();
   await expect(page.locator('#status')).toContainText('scene_ortho.tif を作りました', { timeout: 30_000 });
@@ -244,19 +258,72 @@ test('an image with ground control points only (an ICEYE GRD) is placed by its R
   // A 5 × 5 grid of points: 0.1° square around LON, LAT, north up.
   const gcps: number[] = [];
   for (let j = 0; j <= 1000; j += 250) for (let i = 0; i <= 1000; i += 250) gcps.push(i, j, 0, LON + (i / 1000 - 0.5) * 0.1, LAT - (j / 1000 - 0.5) * 0.1, 0);
-  const extent = async () => page.evaluate(async () => (await window.viewer.images.list()[0].source.getView()).extent!);
+  // Where the map was fitted to the image, in longitude and latitude (the image is drawn in its own pixel coordinates, warped through its model).
+  const extent = async () => {
+    const [x0, y0, x1, y1] = await page.evaluate(() => {
+      const { map } = window.viewer;
+      return map.getView().calculateExtent(map.getSize());
+    });
+    return [...lonLat(x0, y0), ...lonLat(x1, y1)];
+  };
+  const centre = async () => {
+    const box = await extent();
+    return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+  };
 
   await choose(page, [{ name: 'ICEYE_GRD.tif', bytes: satelliteTiff(1000, 1000, (x, y) => (x + y) % 4000, rpcModel(LON, LAT), undefined, gcps) }]);
   await expect.poll(() => names(page)).toEqual(['RPCICEYE_GRD.tif']);
   // Where the RPC model puts it at its height offset, not 0, 0 to 1000, 1000 degrees (one pixel per degree, wrapped round the world in stripes).
-  let box = await extent();
-  [LON - 0.05, LAT - 0.05, LON + 0.05, LAT + 0.05].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 3));
+  let [lon, lat] = await centre();
+  expect(lon).toBeCloseTo(LON, 3);
+  expect(lat).toBeCloseTo(LAT, 3);
+  expect(await page.evaluate(() => window.viewer.images.list()[0].source.getProjection()?.getCode())).toMatch(/^SENSOR:/);
 
   await page.locator('#images li').first().locator('[data-action=remove]').click();
   await choose(page, [{ name: 'GCP_ONLY.tif', bytes: satelliteTiff(1000, 1000, (x, y) => (x + y) % 4000, undefined, undefined, gcps) }]);
   await expect.poll(() => names(page)).toEqual(['GCP_ONLY.tif']);
-  box = await extent();
-  [LON - 0.05, LAT - 0.05, LON + 0.05, LAT + 0.05].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 6));
+  [lon, lat] = await centre();
+  expect(lon).toBeCloseTo(LON, 4);
+  expect(lat).toBeCloseTo(LAT, 4);
+  const box = await extent();
+  expect(box[2] - box[0]).toBeGreaterThan(0.1);
+  await expect(page.locator('#info')).toContainText('GCP 25 点・3 次多項式');
+  expect(errors).toEqual([]);
+});
+
+test('an image placed by turned ground control points is drawn warped into place, with no orthorectification', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // Turned 30° (as a satellite's track crosses the meridians), 0.1° across: a north-up box would put the spot far from here.
+  const a = (30 * Math.PI) / 180;
+  const truth = (x: number, y: number): [number, number] => {
+    const u = x / 1000 - 0.5;
+    const v = y / 1000 - 0.5;
+    return [LON + 0.1 * (u * Math.cos(a) + v * Math.sin(a)), LAT + 0.1 * (u * Math.sin(a) - v * Math.cos(a))];
+  };
+  const gcps: number[] = [];
+  for (let j = 0; j <= 1000; j += 100) for (let i = 0; i <= 1000; i += 100) gcps.push(i, j, 0, ...truth(i, j), 0);
+  const spot = (x: number, y: number) => Math.abs(x - 750) <= 4 && Math.abs(y - 250) <= 4;
+  await choose(page, [{ name: 'TURNED.tif', bytes: satelliteTiff(1000, 1000, (x, y) => (spot(x, y) ? 4000 : 300 + ((x + y) % 50)), undefined, undefined, gcps) }]);
+  await expect.poll(() => names(page)).toEqual(['TURNED.tif']);
+  await expect(page.locator('#info')).toContainText('センサーモデルで投影');
+
+  const [centre, aside] = await page.evaluate(async (at) => {
+    const { map, images } = window.viewer;
+    const view = map.getView();
+    view.setCenter(at);
+    view.setResolution(1);
+    await new Promise<void>((resolve) => {
+      map.once('rendercomplete', () => resolve());
+      map.render();
+    });
+    const [w, h] = map.getSize()!;
+    const layer = images.list()[0].layer;
+    return [layer.getData([w / 2, h / 2]), layer.getData([w / 2 + 150, h / 2])].map((d) => Array.from(d as Uint8Array));
+  }, mercator(...truth(750.5, 250.5)));
+  // The spot (9 pixels of about 10 m: some 90 screen pixels across here) is in the middle of the map, where its ground control points put it.
+  expect(centre[0]).toBeGreaterThan(aside[0] + 100);
   expect(errors).toEqual([]);
 });
 
