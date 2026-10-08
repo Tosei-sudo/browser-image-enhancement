@@ -2,6 +2,7 @@ import { LUMA_B, LUMA_G, LUMA_R, SRGB_TO_LINEAR, linearToSrgb, quantize, srgbToL
 import { COLOR_ONLY_OPS, isIdentity, toStage } from "../ops/index.js";
 import { sharpenPlanes, sharpenRows } from "./filter.js";
 import { Quantizer } from "./quantizer.js";
+import { runWasm } from "./wasm.js";
 //#region src/core/process.ts
 /**
 * The pixel engine. DOM-free and synchronous, so the same code runs on the main
@@ -176,15 +177,17 @@ function applyChannel(stages, v) {
 /**
 * Applies a program to RGBA pixels. `src` and `dst` must have the same length
 * and may be the same array. Alpha is copied unchanged. `width` (pixels per
-* row) is needed when the program has spatial steps.
+* row) is needed when the program has spatial steps. Runs in WebAssembly
+* when it can (core/wasm.ts), with the same result.
 */
 function processPixels(src, dst, program, width) {
 	if (src.length !== dst.length) throw new RangeError("src and dst must have the same length");
 	if (program.spatial) {
 		const pixels = src.length >>> 2;
 		if (width === void 0 || !(width > 0) || pixels % width !== 0) throw new RangeError(`A program with sharpen needs the image width (got ${String(width)} for ${pixels} pixels).`);
-		processSpatial(src, dst, program, program.spatial, width);
-	} else if (program.mode === "gray") processGray(src, dst, program);
+		if (!runWasm(src, dst, program, width)) processSpatial(src, dst, program, program.spatial, width);
+	} else if (runWasm(src, dst, program)) return;
+	else if (program.mode === "gray") processGray(src, dst, program);
 	else processRgb(src, dst, program);
 }
 function processRgb(src, dst, p) {

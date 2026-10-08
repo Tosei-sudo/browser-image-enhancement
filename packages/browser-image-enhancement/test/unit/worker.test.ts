@@ -107,7 +107,7 @@ describe('worker message handler', () => {
     const { out, handle } = collect();
     const img = noiseImage(8, 8);
     const buffer = img.data.slice().buffer;
-    handle({ type: 'run', id: 1, buffer, width: 8, ops: OPS, colorMode: 'auto' });
+    handle({ type: 'run', id: 1, buffer, width: 8, ops: OPS, colorMode: 'auto', wasm: true });
     expect(out).toHaveLength(1);
     const done = out[0] as Extract<WorkerResponse, { type: 'done' }>;
     expect(done).toMatchObject({ type: 'done', id: 1, mode: 'rgb' });
@@ -116,7 +116,7 @@ describe('worker message handler', () => {
 
   it('run: detects monochrome strips', () => {
     const { out, handle } = collect();
-    handle({ type: 'run', id: 2, buffer: grayImage(4, 4).data.slice().buffer, width: 4, ops: OPS, colorMode: 'auto' });
+    handle({ type: 'run', id: 2, buffer: grayImage(4, 4).data.slice().buffer, width: 4, ops: OPS, colorMode: 'auto', wasm: true });
     expect(out[0]).toMatchObject({ type: 'done', mode: 'gray' });
   });
 
@@ -125,7 +125,7 @@ describe('worker message handler', () => {
     const img = grayImage(4, 4);
     handle({ type: 'detect', id: 3, buffer: img.data.slice().buffer, width: 4, core: [0, 4], stats: null });
     expect(out[0]).toEqual({ type: 'detected', id: 3, mono: true, stats: null });
-    handle({ type: 'process', id: 3, ops: OPS, mode: 'rgb' });
+    handle({ type: 'process', id: 3, ops: OPS, mode: 'rgb', wasm: true });
     expect(out[1]).toMatchObject({ type: 'done', id: 3, mode: 'rgb' });
   });
 
@@ -133,13 +133,13 @@ describe('worker message handler', () => {
     const { out, handle } = collect();
     handle({ type: 'detect', id: 4, buffer: new ArrayBuffer(16), width: 4, core: [0, 1], stats: null });
     handle({ type: 'release', id: 4 });
-    handle({ type: 'process', id: 4, ops: [], mode: 'rgb' });
+    handle({ type: 'process', id: 4, ops: [], mode: 'rgb', wasm: true });
     expect(out[1]).toMatchObject({ type: 'error', id: 4 });
   });
 
   it('reports errors instead of throwing', () => {
     const { out, handle } = collect();
-    handle({ type: 'run', id: 5, buffer: new ArrayBuffer(4), width: 1, ops: [{ op: 'bogus' } as any], colorMode: 'rgb' });
+    handle({ type: 'run', id: 5, buffer: new ArrayBuffer(4), width: 1, ops: [{ op: 'bogus' } as any], colorMode: 'rgb', wasm: true });
     expect(out[0]).toMatchObject({ type: 'error', id: 5 });
   });
 });

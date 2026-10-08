@@ -2,6 +2,7 @@ import { abortError, race, throwIfAborted } from "../workers/src/abort.js";
 import { WorkerUnavailableError } from "../workers/src/pool.js";
 import { splitRows, stripCount, yieldToEventLoop } from "../workers/src/strips.js";
 import { marginOf } from "../ops/index.js";
+import { wasmEnabled } from "../core/wasm.js";
 import { compile, processPixels, resolveMode } from "../core/process.js";
 import { grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps } from "../core/histogram.js";
 import { getPool } from "./pool.js";
@@ -98,7 +99,8 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 			buffer,
 			width,
 			ops,
-			colorMode
+			colorMode,
+			wasm: wasmEnabled()
 		}, [buffer]);
 		reply.catch(() => {});
 		sent.push(reply);
@@ -127,7 +129,8 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 			type: "process",
 			id,
 			ops: resolved,
-			mode
+			mode,
+			wasm: wasmEnabled()
 		}));
 	}
 	if (pending.length === 1) {

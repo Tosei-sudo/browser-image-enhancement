@@ -3,6 +3,7 @@
  */
 import { compile, isMonochrome, processPixels, resolveMode, type Program, type ResolvedMode } from '../core/process.js';
 import { countPixels, resolveForPixels } from '../core/histogram.js';
+import { configureWasm } from '../core/wasm.js';
 import type { OpSpec } from '../types.js';
 import type { Post as SharedPost } from '@browser-image/workers';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
@@ -24,7 +25,8 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
     return cached;
   }
 
-  function finish(id: number, buffer: ArrayBuffer, width: number, ops: OpSpec[], mode: ResolvedMode): void {
+  function finish(id: number, buffer: ArrayBuffer, width: number, ops: OpSpec[], mode: ResolvedMode, wasm: boolean): void {
+    configureWasm({ enabled: wasm });
     const pixels = new Uint8ClampedArray(buffer);
     processPixels(pixels, pixels, program(ops, mode), width);
     post({ type: 'done', id, buffer, mode }, [buffer]);
@@ -37,7 +39,7 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
         case 'run': {
           const pixels = new Uint8ClampedArray(request.buffer);
           const mode = resolveMode(pixels, request.colorMode);
-          finish(id, request.buffer, request.width, resolveForPixels(request.ops, pixels, mode), mode);
+          finish(id, request.buffer, request.width, resolveForPixels(request.ops, pixels, mode), mode, request.wasm);
           break;
         }
         case 'detect': {
@@ -53,7 +55,7 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
           const strip = held.get(id);
           if (!strip) throw new Error(`No strip held for job ${id}.`);
           held.delete(id);
-          finish(id, strip.buffer, strip.width, request.ops, request.mode);
+          finish(id, strip.buffer, strip.width, request.ops, request.mode, request.wasm);
           break;
         }
         case 'release':

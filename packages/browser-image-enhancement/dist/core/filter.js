@@ -219,6 +219,6 @@ function applyMask(rgba, row, at, width, lum, sn, sd, amount, threshold, q0, q1,
 	}
 }
 //#endregion
-export { sharpenPlanes, sharpenRows };
+export { gaussian, sharpenPlanes, sharpenRows };
 
 //# sourceMappingURL=filter.js.map

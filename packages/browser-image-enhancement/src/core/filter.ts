@@ -16,7 +16,7 @@ import { LUMA_B, LUMA_G, LUMA_R } from '../color/srgb.js';
 import { kernelRadius, type SpatialStage } from '../ops/index.js';
 
 /** Gaussian weights for offsets -r..r. They need not sum to 1; the blur divides by the weight it used. */
-function gaussian(radius: number): Float64Array {
+export function gaussian(radius: number): Float64Array {
   const r = kernelRadius(radius);
   const k = new Float64Array(2 * r + 1);
   const s = 2 * radius * radius;

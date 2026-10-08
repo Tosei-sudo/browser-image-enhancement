@@ -310,6 +310,20 @@ configureWorkers({
 terminateWorkers(); // 使い終わったら Worker を止める（次の run で再起動する）
 ```
 
+## WebAssembly
+
+- 重い計算（彩度など色を混ぜる補正、シャープ）は WebAssembly（SIMD）で動きます。結果は JS 版とビット単位で同じで、速さは 2〜3 倍です（12MP、Worker で彩度 0.25 → 0.15 秒、シャープ 0.4 → 0.19 秒）
+- 何もしなくても使われます。Worker の中でもメインスレッド（`runSync` や `worker: false`）でも同じです。表引きだけで済む補正（明るさ・コントラスト・ガンマなど）は JS のままでも同じ速さなので JS で処理します
+- WebAssembly が使えない環境（CSP に `'wasm-unsafe-eval'` がない、など）では自動で JS 版になります。結果は変わりません
+- 切り替えと状態の確認:
+
+```ts
+import { configureWasm, wasmStatus } from 'browser-image-enhancement';
+
+wasmStatus(); // 'ready' | 'loading' | 'unavailable' | 'off'
+configureWasm({ enabled: false }); // JS 版だけで処理する（Worker にも反映）
+```
+
 ## 色空間と制約
 
 - 入出力は sRGB です。Display P3 などの画像や `ImageData` は、パイプラインがブラウザの機能で sRGB に変換してから処理します（関数 API は sRGB の `ImageData` のみ受け付けます）
@@ -457,6 +471,8 @@ npm run example:olc    # 地図上の補正パネルと画像を開くボタン�
 ```
 
 このパッケージはモノレポの一部です。Worker プールなどの共通部分は [packages/workers](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/workers)（非公開）にあり、ビルド時に `dist/` に取り込まれます。
+
+WebAssembly の部分は [wasm/](https://github.com/Tosei-sudo/browser-image-enhancement/tree/HEAD/packages/browser-image-enhancement/wasm) の C で、`npm run build:wasm`（clang と wasm-ld が必要）で `src/core/wasm-bytes.ts` に書き出します。C を変えたら書き出したファイルも一緒にコミットしてください（ずれはユニットテストで検出します）。
 
 `dist/` はコミットしています（GitHub から CDN 配信するため）。`src/` や `packages/workers/src/` を変えたら `npm run build` して `dist/` も一緒にコミットしてください。CI でずれを検出します。
 
