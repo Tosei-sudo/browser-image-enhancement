@@ -29,7 +29,7 @@ export interface OverviewOptions {
    * Georeferencing to give the image instead of its own. The overviews are
    * then made whatever the image's size, with each band's range as
    * statistics so its 11 to 16-bit values are not crushed into a few gray
-   * levels (for a satellite image placed by its RPC model, see `rpcGeo`).
+   * levels (for a satellite image placed by its RPC model, see `sensorGeo`).
    */
   geo?: GeoTIFFRaster['geo'];
   /** Called as the image is read, with the part done (0 to 1). */

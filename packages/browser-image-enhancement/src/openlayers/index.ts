@@ -48,6 +48,7 @@ export {
   placeOverView,
   type ImagePlacement,
   type LoadedImage,
+  type LoadFileOptions,
   type LoadImageControlOptions,
   type LoadImageLabels,
 } from './load-image-control.js';

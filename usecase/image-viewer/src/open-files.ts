@@ -13,6 +13,7 @@
  * file chosen with it, or from its GDAL metadata.
  */
 import { isEmpty } from 'ol/extent.js';
+import type Projection from 'ol/proj/Projection.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './services/index.js';
 import { vectorLayer } from './services/vector.js';
@@ -27,7 +28,7 @@ import { geoEntries, isTiff, madeOverviews, planOverviews, type OverviewPlan } f
 import { isOvrName, ovrBelongsTo, withExternalOverviews } from './external-overviews.js';
 import { isDtedName } from './dted.js';
 import { isRpcName, parseRpcText, rpcBaseName, type Rpc } from './rpc.js';
-import { rpcGeo, tiffInfo } from './satellite.js';
+import { sensorPlacementOf, tiffInfo } from './satellite.js';
 import { isImdName, sensorViewFromText, type SensorView } from './simple-ortho.js';
 import type { GeometricMode } from './geometric.js';
 import { baseName } from './images.js';
@@ -171,14 +172,17 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
   let blob: Blob = file;
   let rpc: Rpc | null = null;
   let georeferenced = false;
+  let projection: Projection | undefined;
   if (await isTiff(file)) {
     say(`${file.name} を読み込んでいます…`);
     const info = await tiffInfo(file).catch(() => null);
     rpc = sideRpc ?? info?.rpc ?? null;
     georeferenced = !!info?.georeferenced;
     view ??= info?.view ?? null;
-    // A satellite image without georeferencing (or with ground control points only, like an ICEYE GRD) goes where its RPC model puts it, else where its points do.
-    const geo = info && !info.georeferenced ? (rpc ? rpcGeo(rpc, info.width, info.height) : (info.gcpGeo ?? undefined)) : undefined;
+    // A satellite image without georeferencing (or with ground control points only, like an ICEYE GRD) goes where its RPC model puts it, else where its points do: warped through the model as it is drawn.
+    const placement = info ? sensorPlacementOf(info, rpc) : null;
+    const geo = placement?.geo;
+    projection = placement?.projection ?? undefined;
     if (ovr) {
       try {
         blob = (await withExternalOverviews(file, ovr, { name: ovr.name, replace: geo ? geoEntries(geo) : [] })) ?? file;
@@ -189,17 +193,17 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
     const plan = blob === file ? await planOverviews(file, { geo }).catch(() => null) : null;
     if (plan && plan.width * plan.height > rsetSettings.showFirstAbove) {
-      const source = await loader.loadFile(plan.raw, file.name).catch(() => null);
+      const source = await loader.loadFile(plan.raw, file.name, { projection }).catch(() => null);
       if (!source) return null;
       context.onRsetBuilding?.(source);
       if (rpc) geometry.setSatellite(source, { rpc, from: file });
       else if (georeferenced) geometry.setGeoreferenced(source, file, view);
-      void buildLater(file.name, plan, source, context);
+      void buildLater(file.name, plan, source, context, projection);
       return source;
     }
     if (plan) blob = (await buildOverviews(file.name, plan, rset)) ?? file;
   }
-  const source = await loader.loadFile(blob, file.name).catch(() => null); // the loader's onError tells the user
+  const source = await loader.loadFile(blob, file.name, { projection }).catch(() => null); // the loader's onError tells the user
   const made = madeOverviews(blob);
   if (source && made) {
     markGenerated(source, made);
@@ -226,7 +230,7 @@ async function buildOverviews(name: string, plan: OverviewPlan, rset: RsetProgre
 }
 
 /** Makes the RSET of an image already shown as `shown`, then gives the source to show from then on to `onRsetMade`. */
-async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTIFF, { loader, say, rset, onRsetMade }: OpenFilesContext): Promise<void> {
+async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTIFF, { loader, say, rset, onRsetMade }: OpenFilesContext, projection?: Projection): Promise<void> {
   // The progress panel shows at once: the image is on the map, but zoomed out nothing is drawn yet.
   const job = rset?.start(name) ?? null;
   const blob = await Promise.resolve(rsetSettings.hold)
@@ -234,7 +238,7 @@ async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTI
     .catch(() => null)
     .finally(() => job?.end());
   const made = blob && madeOverviews(blob);
-  const source = blob && made ? await loader.createSource(blob).catch(() => null) : null;
+  const source = blob && made ? await loader.createSource(blob, { projection }).catch(() => null) : null;
   if (!source || !made) {
     say(`${name} の RSET を生成できませんでした。縮小表示でも生画素を読みます`);
     onRsetMade?.(shown, shown);

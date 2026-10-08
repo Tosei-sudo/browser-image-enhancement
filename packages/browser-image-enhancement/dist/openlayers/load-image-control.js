@@ -124,9 +124,9 @@ var LoadImageControl = class extends Control {
 	* Loads a GeoTIFF, or an ordinary picture placed over the view. Resolves
 	* with the new source once it is on the layer (and the map fitted to it).
 	*/
-	async loadFile(file, name = file instanceof File ? file.name : "image") {
+	async loadFile(file, name = file instanceof File ? file.name : "image", options = {}) {
 		return this.track_(name, async () => {
-			if (await isTiff(file)) return this.show_({ blob: file }, name, "geotiff");
+			if (await isTiff(file)) return this.show_({ blob: file }, name, "geotiff", options);
 			const map = this.getMap();
 			if (!map) throw new Error("Add the control to a map before loading an ordinary image (it is placed over the view).");
 			const image = await toImageData(file);
@@ -206,10 +206,10 @@ var LoadImageControl = class extends Control {
 	* the source of a layer of your own (a file the same image is read from in
 	* another way, say). Resolves once the GeoTIFF has been read.
 	*/
-	async createSource(file) {
-		return (await this.source_({ blob: file })).source;
+	async createSource(file, options = {}) {
+		return (await this.source_({ blob: file }, options)).source;
 	}
-	async source_(from) {
+	async source_(from, options = {}) {
 		const layer = this.options_.layer;
 		const previous = layer?.getSource();
 		const onGpu = layer instanceof GpuCorrectedTileLayer && layer.hasGpu();
@@ -223,6 +223,7 @@ var LoadImageControl = class extends Control {
 				highPercent: 2
 			},
 			...this.options_.sourceOptions,
+			...options.projection ? { projection: options.projection } : {},
 			sources: [from]
 		});
 		try {
@@ -235,9 +236,9 @@ var LoadImageControl = class extends Control {
 			throw error instanceof Error ? error : new Error(String(error));
 		}
 	}
-	async show_(from, name, kind) {
+	async show_(from, name, kind, options = {}) {
 		const layer = this.options_.layer;
-		const { source, view } = await this.source_(from);
+		const { source, view } = await this.source_(from, options);
 		if (layer) {
 			const current = layer.getSource();
 			layer.setSource(source);

@@ -1,5 +1,6 @@
 import EnhancedGeoTIFF, { EnhancedGeoTIFFOptions } from "./enhanced-geotiff.js";
 import { Extent } from "ol/extent.js";
+import { ProjectionLike } from "ol/proj.js";
 import Control from "ol/control/Control.js";
 import BaseEvent from "ol/events/Event.js";
 import OlMap from "ol/Map.js";
@@ -36,6 +37,15 @@ export interface ImagePlacement {
   extent: Extent;
   /** EPSG code of `extent`. */
   epsg: number;
+}
+/** Options for one file given to {@link LoadImageControl.loadFile} or {@link LoadImageControl.createSource}. */
+export interface LoadFileOptions {
+  /**
+   * The projection of the GeoTIFF's coordinates, instead of the one its
+   * GeoKeys name: for an image placed by a model of its own (a satellite
+   * image's RPC, say, as a custom projection with transforms to the map's).
+   */
+  projection?: ProjectionLike;
 }
 /** Texts of {@link LoadImageControl}, by key. */
 export type LoadImageLabels = Record<'open' | 'url' | 'urlPlaceholder' | 'load', string>;
@@ -129,7 +139,7 @@ export default class LoadImageControl extends Control {
    * Loads a GeoTIFF, or an ordinary picture placed over the view. Resolves
    * with the new source once it is on the layer (and the map fitted to it).
    */
-  loadFile(file: Blob, name?: string): Promise<EnhancedGeoTIFF>;
+  loadFile(file: Blob, name?: string, options?: LoadFileOptions): Promise<EnhancedGeoTIFF>;
   /** Loads a COG (or any GeoTIFF the server allows range requests on) from `url`. */
   loadUrl(url: string): Promise<EnhancedGeoTIFF>;
   setMap(map: OlMap | null): void;
@@ -143,7 +153,7 @@ export default class LoadImageControl extends Control {
    * the source of a layer of your own (a file the same image is read from in
    * another way, say). Resolves once the GeoTIFF has been read.
    */
-  createSource(file: Blob): Promise<EnhancedGeoTIFF>;
+  createSource(file: Blob, options?: LoadFileOptions): Promise<EnhancedGeoTIFF>;
   private source_;
   private show_;
 }

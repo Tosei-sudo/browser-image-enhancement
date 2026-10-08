@@ -13,6 +13,7 @@ import type { GeoTIFFImage } from 'geotiff';
 import type { ImageList, ViewerImage } from './images.js';
 import { safeName } from './export-dialog.js';
 import { getShift } from './shift.js';
+import { sensorPlacement, sensorWindowTransform, WGS84_KEYS } from './sensor-projection.js';
 
 /** What is saved: the map as drawn, or the selected image's samples. */
 export type ViewContent = 'view' | 'data';
@@ -297,6 +298,9 @@ export async function clipImage(map: OlMap, image: ViewerImage): Promise<Clip> {
   ]);
   const color = bands >= 3 ? 3 : 1;
   const extraSamples = bands > color ? Array.from({ length: bands - color }, (_, i) => Number((extra as ArrayLike<number> | undefined)?.[i] ?? 0)) : undefined;
+  // A satellite image drawn through its sensor model: the clip is placed by the plane that best fits the model over it.
+  const sensor = sensorPlacement(projection);
+  const fitted = sensor && sensorWindowTransform(sensor.model, w.x * kx, w.y * ky, w.w * kx, w.h * ky, [kx, ky]);
   const blob = rasterToGeoTIFF(
     {
       width: w.w,
@@ -306,13 +310,15 @@ export async function clipImage(map: OlMap, image: ViewerImage): Promise<Clip> {
       noData: full.getGDALNoData(),
       photometric: color === 3 ? 2 : 1,
       extraSamples,
-      geo: {
-        modelPixelScale: [Math.abs(resolution[0]) * kx, Math.abs(resolution[1]) * ky, 0],
-        modelTiepoint: [0, 0, 0, origin[0] + w.x * kx * resolution[0] + sx, origin[1] + w.y * ky * resolution[1] + sy, 0],
-        geoKeyDirectory: geoKeyDirectory ? Array.from(geoKeyDirectory as ArrayLike<number>) : undefined,
-        geoDoubleParams: geoDoubleParams ? Array.from(geoDoubleParams as ArrayLike<number>) : undefined,
-        geoAsciiParams: typeof geoAsciiParams === 'string' ? geoAsciiParams : undefined,
-      },
+      geo: fitted
+        ? { modelTransformation: fitted, geoKeyDirectory: WGS84_KEYS }
+        : {
+            modelPixelScale: [Math.abs(resolution[0]) * kx, Math.abs(resolution[1]) * ky, 0],
+            modelTiepoint: [0, 0, 0, origin[0] + w.x * kx * resolution[0] + sx, origin[1] + w.y * ky * resolution[1] + sy, 0],
+            geoKeyDirectory: geoKeyDirectory ? Array.from(geoKeyDirectory as ArrayLike<number>) : undefined,
+            geoDoubleParams: geoDoubleParams ? Array.from(geoDoubleParams as ArrayLike<number>) : undefined,
+            geoAsciiParams: typeof geoAsciiParams === 'string' ? geoAsciiParams : undefined,
+          },
     },
     { statistics: true },
   );

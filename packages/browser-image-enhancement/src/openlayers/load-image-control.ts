@@ -10,7 +10,7 @@ import BaseEvent from 'ol/events/Event.js';
 import type OlMap from 'ol/Map.js';
 import type Layer from 'ol/layer/Layer.js';
 import { getCenter, getHeight, getWidth, type Extent } from 'ol/extent.js';
-import { transformExtent } from 'ol/proj.js';
+import { transformExtent, type ProjectionLike } from 'ol/proj.js';
 import { unByKey } from 'ol/Observable.js';
 import { toImageData } from '../io.js';
 import EnhancedGeoTIFF, { type EnhancedGeoTIFFOptions } from './enhanced-geotiff.js';
@@ -49,6 +49,16 @@ export interface ImagePlacement {
   extent: Extent;
   /** EPSG code of `extent`. */
   epsg: number;
+}
+
+/** Options for one file given to {@link LoadImageControl.loadFile} or {@link LoadImageControl.createSource}. */
+export interface LoadFileOptions {
+  /**
+   * The projection of the GeoTIFF's coordinates, instead of the one its
+   * GeoKeys name: for an image placed by a model of its own (a satellite
+   * image's RPC, say, as a custom projection with transforms to the map's).
+   */
+  projection?: ProjectionLike;
 }
 
 /** Texts of {@link LoadImageControl}, by key. */
@@ -210,9 +220,9 @@ export default class LoadImageControl extends Control {
    * Loads a GeoTIFF, or an ordinary picture placed over the view. Resolves
    * with the new source once it is on the layer (and the map fitted to it).
    */
-  async loadFile(file: Blob, name = file instanceof File ? file.name : 'image'): Promise<EnhancedGeoTIFF> {
+  async loadFile(file: Blob, name = file instanceof File ? file.name : 'image', options: LoadFileOptions = {}): Promise<EnhancedGeoTIFF> {
     return this.track_(name, async () => {
-      if (await isTiff(file)) return this.show_({ blob: file }, name, 'geotiff');
+      if (await isTiff(file)) return this.show_({ blob: file }, name, 'geotiff', options);
       const map = this.getMap();
       if (!map) throw new Error('Add the control to a map before loading an ordinary image (it is placed over the view).');
       const image = await toImageData(file);
@@ -295,11 +305,11 @@ export default class LoadImageControl extends Control {
    * the source of a layer of your own (a file the same image is read from in
    * another way, say). Resolves once the GeoTIFF has been read.
    */
-  async createSource(file: Blob): Promise<EnhancedGeoTIFF> {
-    return (await this.source_({ blob: file })).source;
+  async createSource(file: Blob, options: LoadFileOptions = {}): Promise<EnhancedGeoTIFF> {
+    return (await this.source_({ blob: file }, options)).source;
   }
 
-  private async source_(from: { url: string } | { blob: Blob }): Promise<{ source: EnhancedGeoTIFF; view: Awaited<ReturnType<EnhancedGeoTIFF['getView']>> }> {
+  private async source_(from: { url: string } | { blob: Blob }, options: LoadFileOptions = {}): Promise<{ source: EnhancedGeoTIFF; view: Awaited<ReturnType<EnhancedGeoTIFF['getView']>> }> {
     const layer = this.options_.layer;
     const previous = layer?.getSource();
     const onGpu = layer instanceof GpuCorrectedTileLayer && layer.hasGpu();
@@ -310,6 +320,7 @@ export default class LoadImageControl extends Control {
       convertToRGB: 'auto',
       rawStretch: { lowPercent: 2, highPercent: 2 },
       ...this.options_.sourceOptions,
+      ...(options.projection ? { projection: options.projection } : {}),
       sources: [from],
     });
     try {
@@ -320,9 +331,9 @@ export default class LoadImageControl extends Control {
     }
   }
 
-  private async show_(from: { url: string } | { blob: Blob }, name: string, kind: LoadedImage['kind']): Promise<EnhancedGeoTIFF> {
+  private async show_(from: { url: string } | { blob: Blob }, name: string, kind: LoadedImage['kind'], options: LoadFileOptions = {}): Promise<EnhancedGeoTIFF> {
     const layer = this.options_.layer;
-    const { source, view } = await this.source_(from);
+    const { source, view } = await this.source_(from, options);
     if (layer) {
       // Read the source again: another load may have replaced it while this one was reading.
       const current = layer.getSource();

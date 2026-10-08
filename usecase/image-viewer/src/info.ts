@@ -1,6 +1,7 @@
 /** The information panel: what the selected layer is and where it lies. */
 import { get as getProjection } from 'ol/proj.js';
 import type { ViewerLayer } from './images.js';
+import { sensorPlacement } from './sensor-projection.js';
 
 /** Counts the calls: only the latest fills the panel (one for the same layer, with newer facts, may overtake it). */
 let calls = 0;
@@ -38,7 +39,19 @@ export async function showInfo(element: HTMLDListElement, image: ViewerLayer | n
   const names = await image.source.getBandNames().catch(() => []);
   if (call !== calls) return;
   if (names.some((n) => n)) rows.push(['バンド名', names.map((n, i) => n ?? `バンド ${i + 1}`).join(', ')]);
-  if (image.kind === 'geotiff') {
+  const sensor = sensorPlacement(projection);
+  if (image.kind === 'geotiff' && sensor) {
+    // Pixels warped through the sensor model as they are drawn: say how, and the ground size of a pixel.
+    rows.push(['座標系', 'WGS 84（センサーモデルで投影）']);
+    rows.push([
+      '投影',
+      sensor.kind === 'rpc'
+        ? `RPC・高さ ${formatNumber(sensor.height ?? 0)} m（地形の補正はオルソ補正で）`
+        : `GCP ${sensor.points} 点・${sensor.order} 次多項式（残差 ${(sensor.rms ?? 0).toFixed(2)} px）`,
+    ]);
+    const meters = projection?.getMetersPerUnit();
+    if (meters) rows.push(['解像度', `約 ${formatNumber(meters)} m/px`]);
+  } else if (image.kind === 'geotiff') {
     rows.push(['座標系', code]);
     if (finest) rows.push(['解像度', `${formatNumber(finest)} ${projection?.getUnits() === 'degrees' ? '度' : 'm'}/px`]);
     if (extent) rows.push(['範囲', extent.map(formatNumber).join(', ')]);
