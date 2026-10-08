@@ -13,6 +13,7 @@ import type OlMap from 'ol/Map.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { transform } from 'ol/proj.js';
 import { Pipeline } from 'browser-image-enhancement';
+import { dropImageRule, imageRuleOf } from './image-rules.js';
 import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
 import type { ImageList, ViewerLayer } from './images.js';
 import type { BaseMapSwitch } from './basemap.js';
@@ -304,7 +305,12 @@ export class ProjectControl {
             problems.push(`${saved.name} の補正（${error instanceof Error ? error.message : String(error)}）`);
           }
         }
+        // As saved, not as config.json's imageRules start the image.
+        const rule = l.type === 'image' ? imageRuleOf(l.source) : undefined;
+        if (l.type === 'image') dropImageRule(l.source);
+        if (l.type === 'image' && rule?.pipeline && !saved.pipeline) l.source.setPipeline(new Pipeline());
         if (l.type === 'image' && saved.bands) pending.push(l.source.setSelect(saved.bands).catch(() => void problems.push(`${saved.name} のバンド割り当て`)));
+        else if (l.type === 'image' && rule?.bands) pending.push(l.source.setSelect(null).catch(() => {}));
         if (l.type === 'service' && l.service.style && saved.style) l.service.style.set(normalizeSpec(saved.style, l.service.style.initial));
       });
       await Promise.all(pending);
