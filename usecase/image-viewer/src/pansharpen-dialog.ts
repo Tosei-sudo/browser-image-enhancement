@@ -1,19 +1,30 @@
 /**
  * The pan-sharpening dialog (from the processing dialog): a panchromatic
  * image, a multispectral image and a method. The result opens as a new layer
- * at the panchromatic resolution, with the multispectral image's band
- * assignment and correction, and can be saved as a GeoTIFF. Settings beyond
- * the method (resampling, strength, intensity weights) wait under 詳細設定.
+ * at the full panchromatic resolution, however large, with the
+ * multispectral image's band assignment and correction, and can be saved as
+ * a GeoTIFF. Settings beyond the method (resampling, strength, intensity
+ * weights) wait under 詳細設定.
+ *
+ * The result is made in blocks, a few at a time in workers, and written
+ * into the file as they come; it opens like a chosen file, with an RSET
+ * made for it (a large one is shown at once while the RSET is made).
  */
 import type OlMap from 'ol/Map.js';
 import type { GeoTIFFImage } from 'geotiff';
 import type { PanSharpenMethod, Pipeline } from 'browser-image-enhancement';
-import { rasterToGeoTIFF, type EnhancedGeoTIFF, type GeoTIFFSamples, type LoadImageControl } from 'browser-image-enhancement/openlayers';
+import type { EnhancedGeoTIFF, GeoTIFFSamples, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import type { Resample } from 'browser-image-geometry';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
-import { MAX_OVERVIEW_SAMPLES } from './overviews.js';
-import { planPanSharpen, type Grid, type PanSharpenJob, type PanSharpenOutput, type PanSharpenPlan, type ReadWindow } from './pansharpen.js';
-import type { PanSharpenReply } from './pansharpen-worker.js';
+import { ascii, gdalStatistics, geoEntries } from './overviews.js';
+import { blocksOf, planPanSharpen, sampleWindows, type Grid, type PanSharpenJob, type PanSharpenPlan, type ReadWindow } from './pansharpen.js';
+import type { PanSharpenBlock, PanSharpenReply, PanSharpenTask } from './pansharpen-worker.js';
+import { TiledTiffWriter, type TiffEntry } from './tiff-stream.js';
+
+/** Tile size of the result. */
+const TILE = 256;
+/** Results up to this many pixels have their weights and gains fitted on the whole of them; larger ones on windows spread over them. */
+const FIT_WHOLE = 2048 * 2048;
 
 const methods: Array<[PanSharpenMethod, string]> = [
   ['gram-schmidt', 'Gram-Schmidt（おすすめ・色を保つ）'],
@@ -25,6 +36,8 @@ export interface PanSharpenDialogOptions {
   say: (message: string) => void;
   /** Shows a new pipeline of the selected image in the correction panel. */
   onPipeline?: (pipeline: Pipeline) => void;
+  /** Opens the result like a chosen file (with its RSET); default: the loader opens it as it is. */
+  open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
 }
 
 /** A pan-sharpened layer: what it was made of, and its file. */
@@ -70,6 +83,8 @@ export class PanSharpenDialog {
   private readonly run_: HTMLButtonElement;
   private readonly made_ = new WeakMap<ViewerImage, Made>();
   private images_: ViewerImage[] = [];
+  /** Set while a run goes on; closing the dialog stops it. */
+  private running_: { cancelled: boolean } | null = null;
 
   constructor(
     private readonly map: OlMap,
@@ -113,6 +128,9 @@ export class PanSharpenDialog {
     this.run_.addEventListener('click', () => void this.run());
     this.pan_.addEventListener('change', () => this.describe_());
     this.ms_.addEventListener('change', () => this.describe_());
+    this.dialog.addEventListener('close', () => {
+      if (this.running_) this.running_.cancelled = true;
+    });
   }
 
   /** Opens the dialog with the finest one-band image as the panchromatic one and a color image as the multispectral one. */
@@ -160,49 +178,137 @@ export class PanSharpenDialog {
       return null;
     }
     this.run_.disabled = true;
+    const running = { cancelled: false };
+    this.running_ = running;
+    const workers: Worker[] = [];
     try {
-      const { plan, panTiff, msTiff } = this.plan_(pan, ms);
-      this.note_.textContent = '画像を読み込んでいます…';
-      const msBands = msTiff.getSamplesPerPixel();
-      const [panData, msData] = await Promise.all([readWindow(panTiff, plan.pan, [0]), readWindow(msTiff, plan.ms)]);
+      const { plan, panTiff, msTiff, at } = this.plan_(pan, ms);
       const alpha = await hasAlpha(msTiff);
-      const job: PanSharpenJob = {
-        pan: { width: plan.pan.width, height: plan.pan.height, bands: 1, data: panData, noData: panTiff.getGDALNoData() },
-        ms: { width: plan.ms.width, height: plan.ms.height, bands: msBands, data: msData, noData: msTiff.getGDALNoData() },
+      const settings = {
         alpha,
-        plan,
         method: form.get('method') as PanSharpenMethod,
         resample: form.get('resample') as Resample,
         strength: Math.max(0, Number(form.get('strength')) || 0) / 100,
-        weights: form.get('weights') === 'equal' ? 'equal' : 'auto',
+        weights: form.get('weights') === 'equal' ? ('equal' as const) : ('auto' as const),
       };
-      this.note_.textContent = 'パンシャープンしています…';
-      const output = await runInWorker(job);
+      /** Both images under a window of the output, read at full resolution. */
+      const read = async (window: readonly [number, number, number, number]): Promise<PanSharpenJob> => {
+        const p = at(window);
+        const [panData, msData] = await Promise.all([readWindow(panTiff, p.pan, [0]), readWindow(msTiff, p.ms)]);
+        return {
+          pan: { width: p.pan.width, height: p.pan.height, bands: 1, data: panData, noData: panTiff.getGDALNoData() },
+          ms: { width: p.ms.width, height: p.ms.height, bands: msTiff.getSamplesPerPixel(), data: msData, noData: msTiff.getGDALNoData() },
+          plan: p,
+          ...settings,
+        };
+      };
+      /** Set when a block failed: the others stop too. */
+      let failed = false;
+      const stop = () => {
+        if (running.cancelled) throw new Error('中止しました');
+        if (failed) throw new Error('ほかのブロックで失敗しました');
+      };
+      const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+      for (let i = 0; i < threads; i++) workers.push(new Worker(new URL('./pansharpen-worker.ts', import.meta.url), { type: 'module' }));
+
+      // The weights and gains, from the whole result when it is small, else from windows spread over it.
+      this.note_.textContent = '色の関係を調べています…';
+      const fitOn = plan.width * plan.height <= FIT_WHOLE ? [plan.pan.window] : sampleWindows(plan);
+      const fitJobs = await Promise.all(fitOn.map(read));
+      stop();
+      const fitted = await call(
+        workers[0],
+        { kind: 'fit', jobs: fitJobs },
+        fitJobs.flatMap((j) => [j.pan.data.buffer as ArrayBuffer, j.ms.data.buffer as ArrayBuffer]),
+      );
+      if (!('model' in fitted)) throw new Error('係数を求められませんでした');
+      const model = fitted.model;
+
+      // Then the blocks, a few at a time, each written into the file as it comes.
+      const blocks = blocksOf(plan);
+      const [x0, y0] = plan.pan.window;
+      const bands = msTiff.getSamplesPerPixel();
+      const min = new Array<number>(bands).fill(Infinity);
+      const max = new Array<number>(bands).fill(-Infinity);
+      let writer: TiledTiffWriter | null = null;
+      let next = 0;
+      let done = 0;
+      const note = this.note_;
+      /** Makes blocks in `worker` until none are left. */
+      async function lane(worker: Worker): Promise<void> {
+        while (next < blocks.length) {
+          stop();
+          const window = blocks[next++];
+          const job = await read(window);
+          stop();
+          const task: PanSharpenTask = { kind: 'block', job: { ...job, model }, tileSize: TILE, tx0: (window[0] - x0) / TILE, ty0: (window[1] - y0) / TILE };
+          const reply = await call(worker, task, [job.pan.data.buffer as ArrayBuffer, job.ms.data.buffer as ArrayBuffer]);
+          if (!('block' in reply)) throw new Error('ブロックを作れませんでした');
+          const block: PanSharpenBlock = reply.block;
+          writer ??= new TiledTiffWriter({
+            width: plan.width,
+            height: plan.height,
+            bands,
+            sample: block.sample,
+            tileSize: TILE,
+            ...colorOf(bands, alpha),
+          });
+          writer.add(block.tiles);
+          for (let b = 0; b < bands; b++) {
+            min[b] = Math.min(min[b], block.min[b]);
+            max[b] = Math.max(max[b], block.max[b]);
+          }
+          done++;
+          if (!running.cancelled) note.textContent = `パンシャープンしています… ${Math.floor((100 * done) / blocks.length)}%`;
+        }
+      }
+      note.textContent = 'パンシャープンしています… 0%';
+      await Promise.all(
+        workers.map(async (worker) => {
+          try {
+            await lane(worker);
+          } catch (error) {
+            failed = true;
+            throw error;
+          }
+        }),
+      );
+      stop();
+      const blob = (writer as TiledTiffWriter | null)!.finish(await tagsOf(plan, panTiff, msTiff, min, max));
 
       const name = `${baseName(ms.name)}_pansharpen.tif`;
-      const blob = await toGeoTIFF(output, plan, panTiff, alpha);
-      const source = await this.loader.loadFile(blob, name);
-      const image = this.images.find(source);
-      if (!image) return null;
+      this.note_.textContent = '結果を開いています…';
+      const file = new File([blob], name, { type: 'image/tiff' });
+      const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
+      const image = source && this.images.find(source);
+      if (!source || !image) return null;
       this.made_.set(image, { pan: pan.name, ms: ms.name, blob });
       this.images.setBadge(image, 'パンシャープン');
       await keepLook(ms.source, source);
       this.setPipeline_(image, ms.source.getPipeline());
       this.dialog.close();
-      this.options.say(
-        `${name} を作りました（${plan.width.toLocaleString()} × ${plan.height.toLocaleString()} px）` +
-          (plan.reduction > 1 ? `。大きい画像のため 1/${plan.reduction} の解像度で作りました` : ''),
-      );
+      this.options.say(`${name} を作りました（${plan.width.toLocaleString()} × ${plan.height.toLocaleString()} px）`);
       return image;
     } catch (error) {
-      this.note_.textContent = `パンシャープンできませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      const message = error instanceof Error ? error.message : String(error);
+      if (running.cancelled) this.options.say('パンシャープンを中止しました');
+      else this.note_.textContent = `パンシャープンできませんでした: ${message}`;
       return null;
     } finally {
+      for (const w of workers) w.terminate();
+      this.running_ = null;
       this.run_.disabled = false;
     }
   }
 
-  private plan_(pan: ViewerImage, ms: ViewerImage): { plan: PanSharpenPlan; panTiff: GeoTIFFImage; msTiff: GeoTIFFImage } {
+  /**
+   * The plan of the whole result, at full resolution, and the plan of a
+   * window of it (in panchromatic pixels).
+   */
+  private plan_(
+    pan: ViewerImage,
+    ms: ViewerImage,
+  ): { plan: PanSharpenPlan; panTiff: GeoTIFFImage; msTiff: GeoTIFFImage; at: (window: readonly [number, number, number, number]) => PanSharpenPlan } {
     const panTiff = tiffOf(pan);
     const msTiff = tiffOf(ms);
     if (!panTiff || !msTiff) throw new Error('画像を読み込み中です');
@@ -213,8 +319,12 @@ export class PanSharpenDialog {
       const b = crsOf(msTiff);
       if (a !== null && b !== null && a !== b) throw new Error(`座標系が違います（EPSG:${a} と EPSG:${b}）。同じ座標系の画像を選んでください`);
     }
-    const plan = planPanSharpen(gridOf(panTiff), gridOf(msTiff), { bands: msTiff.getSamplesPerPixel(), maxSamples: MAX_OVERVIEW_SAMPLES, sameGround });
-    return { plan, panTiff, msTiff };
+    const panGrid = gridOf(panTiff);
+    const msGrid = gridOf(msTiff);
+    const bands = msTiff.getSamplesPerPixel();
+    const plan = planPanSharpen(panGrid, msGrid, { bands, sameGround });
+    const at = (window: readonly [number, number, number, number]) => planPanSharpen(panGrid, msGrid, { bands, sameGround, window });
+    return { plan, panTiff, msTiff, at };
   }
 
   /** Says what will be made, or why it cannot. */
@@ -236,9 +346,10 @@ export class PanSharpenDialog {
       const ratio = (plan.ratio[0] + plan.ratio[1]) / 2;
       const warn = pan.source.getValueBandCount() > 1 ? ' パンクロ画像は 1 バンド目を使います。' : '';
       const finer = ratio < 1 ? ' マルチスペクトル画像の方が細かいようです。選び方を確かめてください。' : '';
+      const bytes = plan.width * plan.height * msTiff.getSamplesPerPixel() * Math.ceil(msTiff.getBitsPerSample() / 8);
       out.textContent =
         `解像度の比 1 : ${ratio.toFixed(ratio < 10 ? 2 : 1)}。結果は ${plan.width.toLocaleString()} × ${plan.height.toLocaleString()} px、${msTiff.getSamplesPerPixel()} バンド` +
-        (plan.reduction > 1 ? `（大きいため 1/${plan.reduction} に縮小）` : '') +
+        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、少し時間がかかります）` : '') +
         `。${warn}${finer}`;
     } catch (error) {
       out.textContent = error instanceof Error ? error.message : String(error);
@@ -274,40 +385,41 @@ async function keepLook(from: EnhancedGeoTIFF, to: EnhancedGeoTIFF): Promise<voi
   if (select) await to.setSelect(select);
 }
 
-function runInWorker(job: PanSharpenJob): Promise<PanSharpenOutput> {
-  const worker = new Worker(new URL('./pansharpen-worker.ts', import.meta.url), { type: 'module' });
-  return new Promise<PanSharpenOutput>((resolve, reject) => {
-    worker.onmessage = (e: MessageEvent<PanSharpenReply>) => (e.data.ok ? resolve(e.data.output) : reject(new Error(e.data.message)));
+/** Sends `task` to `worker` and waits for its answer. */
+function call(worker: Worker, task: PanSharpenTask, transfer: Transferable[]): Promise<Exclude<PanSharpenReply, { ok: false }>> {
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (e: MessageEvent<PanSharpenReply>) => (e.data.ok ? resolve(e.data) : reject(new Error(e.data.message)));
     worker.onerror = (e) => reject(new Error(e.message || 'パンシャープンの処理が止まりました'));
-    worker.postMessage(job, [job.pan.data.buffer as ArrayBuffer, job.ms.data.buffer as ArrayBuffer]);
-  }).finally(() => worker.terminate());
+    worker.postMessage(task, transfer);
+  });
 }
 
-/** The result as a GeoTIFF in the panchromatic image's CRS. */
-async function toGeoTIFF({ raster }: PanSharpenOutput, plan: PanSharpenPlan, panTiff: GeoTIFFImage, alpha: boolean): Promise<Blob> {
+/** PhotometricInterpretation and ExtraSamples of the result: RGB (or gray) and the rest, the last being alpha when the multispectral image has it. */
+function colorOf(bands: number, alpha: boolean): { photometric: number; extraSamples?: number[] } {
+  const color = bands - (alpha ? 1 : 0) >= 3 ? 3 : 1;
+  return {
+    photometric: color === 3 ? 2 : 1,
+    extraSamples: bands > color ? Array.from({ length: bands - color }, (_, i) => (alpha && i === bands - color - 1 ? 2 : 0)) : undefined,
+  };
+}
+
+/** The result's georeferencing (the panchromatic image's CRS), no-data value and each band's range. */
+async function tagsOf(plan: PanSharpenPlan, panTiff: GeoTIFFImage, msTiff: GeoTIFFImage, min: number[], max: number[]): Promise<TiffEntry[]> {
   const fd = panTiff.fileDirectory;
   const tag = async (id: number) => (fd.hasTag(id) ? await fd.loadValue(id) : undefined);
   const numbers = (v: unknown) => (v === undefined ? undefined : Array.from(v as ArrayLike<number>, Number));
-  const ascii = await tag(34737);
-  const color = raster.bands - (alpha ? 1 : 0) >= 3 ? 3 : 1;
-  return rasterToGeoTIFF(
-    {
-      width: raster.width,
-      height: raster.height,
-      bands: raster.bands,
-      data: raster.data as GeoTIFFSamples,
-      noData: raster.noData ?? null,
-      photometric: color === 3 ? 2 : 1,
-      extraSamples: raster.bands > color ? Array.from({ length: raster.bands - color }, (_, i) => (alpha && i === raster.bands - color - 1 ? 2 : 0)) : undefined,
-      geo: {
-        modelPixelScale: [plan.resolution[0], -plan.resolution[1], 0],
-        modelTiepoint: [0, 0, 0, plan.origin[0], plan.origin[1], 0],
-        geoKeyDirectory: numbers(await tag(34735)),
-        geoDoubleParams: numbers(await tag(34736)),
-        geoAsciiParams: typeof ascii === 'string' ? ascii : undefined,
-      },
-    },
-    { statistics: true },
-  );
+  const text = await tag(34737);
+  const entries: TiffEntry[] = geoEntries({
+    modelPixelScale: [plan.resolution[0], -plan.resolution[1], 0],
+    modelTiepoint: [0, 0, 0, plan.origin[0], plan.origin[1], 0],
+    geoKeyDirectory: numbers(await tag(34735)),
+    geoDoubleParams: numbers(await tag(34736)),
+    geoAsciiParams: typeof text === 'string' ? text : undefined,
+  });
+  const statistics = gdalStatistics(min, max);
+  if (statistics) entries.push({ tag: 42112, type: 2, values: ascii(statistics) }); // GDAL_METADATA
+  // The no-data value panSharpen gives the result: the multispectral one, else NaN for floats or 0 for integers.
+  const noData = msTiff.getGDALNoData() ?? (msTiff.getSampleFormat() === 3 ? NaN : 0);
+  entries.push({ tag: 42113, type: 2, values: ascii(String(noData)) }); // GDAL_NODATA
+  return entries;
 }
-

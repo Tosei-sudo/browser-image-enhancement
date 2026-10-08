@@ -125,6 +125,87 @@ test('pan-sharpens a multispectral image with a panchromatic one and saves the r
   expect(errors).toEqual([]);
 });
 
+test('makes a large result at full resolution, in blocks that join without seams', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // 2400 × 2200 panchromatic pixels: more than one block (2048) each way, and fitted on windows spread over it.
+  const W = 2400;
+  const H = 2200;
+  const truth = (x: number, y: number) => 600 + ((x * 3 + y * 2) % 1600) + ((x >> 4) % 2) * 300;
+  const pan = new Uint16Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) pan[y * W + x] = truth(x, y);
+  const w = W / F;
+  const h = H / F;
+  const ms = new Uint16Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let j = 0; j < F; j++) for (let i = 0; i < F; i++) s += truth(x * F + i, y * F + j);
+      for (let b = 0; b < 4; b++) ms[(y * w + x) * 4 + b] = Math.round((s / (F * F)) * (1 + b * 0.25));
+    }
+  }
+  const tiff = (values: Uint16Array, width: number, height: number, bands: number, pixel: number) =>
+    new Uint8Array(
+      writeArrayBuffer(values, {
+        width,
+        height,
+        SamplesPerPixel: bands,
+        BitsPerSample: new Array(bands).fill(16),
+        SampleFormat: new Array(bands).fill(1),
+        PhotometricInterpretation: bands >= 3 ? 2 : 1,
+        ...(bands > 3 ? { ExtraSamples: new Array(bands - 3).fill(0) } : {}),
+        ModelPixelScale: [pixel, pixel, 0],
+        ModelTiepoint: [0, 0, 0, ORIGIN[0], ORIGIN[1], 0],
+        ProjectedCSTypeGeoKey: 32654,
+        GTModelTypeGeoKey: 1,
+        GTRasterTypeGeoKey: 1,
+      }),
+    );
+  await choose(page, [
+    { name: 'big_pan.tif', bytes: tiff(pan, W, H, 1, 1) },
+    { name: 'big_ms.tif', bytes: tiff(ms, w, h, 4, F) },
+  ]);
+  await expect(page.locator('#images .name')).toHaveCount(2, { timeout: 30_000 });
+
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#processing').click();
+  await page.locator('.processing-dialog').first().getByLabel('処理').selectOption('pansharpen');
+  const dialog = page.locator('.pansharpen-dialog');
+  await expect(dialog.locator('.pansharpen-plan')).toContainText('結果は 2,400 × 2,200 px、4 バンド');
+  await expect(dialog.locator('.pansharpen-plan')).not.toContainText('縮小');
+  await dialog.getByRole('button', { name: '実行' }).click();
+  await expect(page.locator('#status')).toContainText('big_ms_pansharpen.tif を作りました（2,400 × 2,200 px）', { timeout: 90_000 });
+  // It opened like a chosen file: with an RSET made for it.
+  await expect(page.locator('#images li').first()).toContainText('RSET');
+
+  // The saved file: full resolution, and smooth across the block edges at x = 2048 and y = 2048.
+  await page.locator('#images .name').first().click();
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#processing').click();
+  await page.locator('.processing-dialog').first().getByLabel('処理').selectOption('pansharpen');
+  const download = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '選択中の結果を GeoTIFF 保存' }).click();
+  const chunks: Buffer[] = [];
+  for await (const chunk of await (await download).createReadStream()) chunks.push(chunk as Buffer);
+  const bytes = Buffer.concat(chunks);
+  const image = await (await fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length))).getImage();
+  expect([image.getWidth(), image.getHeight(), image.getSamplesPerPixel(), image.getBitsPerSample()]).toEqual([W, H, 4, 16]);
+  expect(image.getResolution().slice(0, 2)).toEqual([1, -1]);
+  const data = (await image.readRasters({ interleave: true, window: [2040, 2040, 2056, 2056] })) as unknown as Uint16Array;
+  // Sharpened: the pan's detail is in every band, close to the truth scaled by the band's brightness, on both sides of the seams.
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      for (let b = 0; b < 4; b++) {
+        const expected = truth(2040 + x, 2040 + y) * (1 + b * 0.25);
+        expect(Math.abs(data[(y * 16 + x) * 4 + b] - expected)).toBeLessThan(0.08 * expected);
+      }
+    }
+  }
+  expect(errors).toEqual([]);
+});
+
 /** The value of the option of select `label` whose text starts with `name`. */
 async function optionValue(page: Page, label: string, name: string): Promise<string> {
   return page

@@ -17,6 +17,23 @@ export interface PanSharpenOptions {
   panBand?: number;
   /** How much of the detail to add, 0 to 1 (or more). Default 1. */
   strength?: number;
+  /**
+   * Weights and gains fitted before (a result's `model`), used instead of
+   * fitting them to this image; `weights` is then ignored. For sharpening
+   * a large image piece by piece.
+   */
+  model?: PanSharpenModel;
+}
+/** What {@link panSharpen} fitted to the image: everything it needs to sharpen another piece of it the same way. */
+export interface PanSharpenModel {
+  /** Intensity weights of the sharpened bands. */
+  weights: number[];
+  /** Detail gains of the sharpened bands. */
+  gains: number[];
+  /** Gain of the panchromatic band matched to the intensity: `panGain · pan + panOffset`. */
+  panGain: number;
+  /** Offset of the panchromatic band matched to the intensity. */
+  panOffset: number;
 }
 /** A pan-sharpened raster: the multispectral bands at the panchromatic resolution. */
 export interface PanSharpenResult<T extends ArrayLike<number> = ArrayLike<number>> {
@@ -34,6 +51,8 @@ export interface PanSharpenResult<T extends ArrayLike<number> = ArrayLike<number
   weights: number[];
   /** Detail gains of the sharpened bands (1 for `ihs`, varying for `gram-schmidt`, 0 for `brovey`). */
   gains: number[];
+  /** The fitted weights and gains, to sharpen other pieces of the same image with (see `options.model`). */
+  model: PanSharpenModel;
 }
 /**
  * Pan-sharpens `ms` with `pan`. Both must have the same width and height:

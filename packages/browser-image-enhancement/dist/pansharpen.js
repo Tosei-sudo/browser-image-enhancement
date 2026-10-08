@@ -66,39 +66,10 @@ function panSharpen(pan, ms, options = {}) {
 		}
 		return true;
 	};
-	const step = Math.max(1, Math.floor(pixels / SAMPLES));
-	const k = n + 1;
-	const sum = new Float64Array(k);
-	const cross = new Float64Array(k * k);
-	const row = new Float64Array(k);
-	let count = 0;
-	for (let i = 0; i < pixels; i += step) {
-		if (!valid(i)) continue;
-		for (let j = 0; j < n; j++) row[j] = M[i * msBands + bands[j]];
-		row[n] = P[i * panBands + panBand];
-		for (let a = 0; a < k; a++) {
-			sum[a] += row[a];
-			for (let b = a; b < k; b++) cross[a * k + b] += row[a] * row[b];
-		}
-		count++;
-	}
-	const mean = Array.from(sum, (s) => count ? s / count : 0);
-	/** Covariance of variables `a` and `b` (bands 0..n-1, pan n). */
-	const cov = (a, b) => count ? cross[Math.min(a, b) * k + Math.max(a, b)] / count - mean[a] * mean[b] : 0;
-	const weights = intensityWeights(options.weights ?? "auto", n, cov);
-	const meanI = weights.reduce((s, w, j) => s + w * mean[j], 0);
-	let varI = 0;
-	for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) varI += weights[a] * weights[b] * cov(a, b);
-	const varP = cov(n, n);
-	const gainP = varP > 0 && varI > 0 ? Math.sqrt(varI / varP) : 1;
-	const offsetP = meanI - gainP * mean[n];
-	const gains = bands.map((_, j) => {
-		if (method === "ihs") return 1;
-		if (method === "brovey") return 0;
-		let c = 0;
-		for (let b = 0; b < n; b++) c += weights[b] * cov(j, b);
-		return varI > 0 ? c / varI : 1;
-	});
+	let model = options.model;
+	if (model && (model.weights.length !== bands.length || model.gains.length !== bands.length)) throw new RangeError(`model must have ${bands.length} weights and gains, one per sharpened band.`);
+	model ??= fitModel(pixels, n, valid, (i, j) => j < n ? M[i * msBands + bands[j]] : P[i * panBands + panBand], method, options.weights ?? "auto");
+	const { weights, gains, panGain: gainP, panOffset: offsetP } = model;
 	const range = integerRange(M);
 	const noData = msNoData ?? (range ? 0 : NaN);
 	const out = outputArray(M, pixels * msBands);
@@ -134,7 +105,51 @@ function panSharpen(pan, ms, options = {}) {
 		bands: msBands,
 		noData,
 		weights,
-		gains
+		gains,
+		model
+	};
+}
+/**
+* Fits the weights and gains on about {@link SAMPLES} valid pixels evenly
+* spread: `value(i, j)` is pixel `i` of sharpened band `j`, or of pan for `j = n`.
+*/
+function fitModel(pixels, n, valid, value, method, choice) {
+	const step = Math.max(1, Math.floor(pixels / SAMPLES));
+	const k = n + 1;
+	const sum = new Float64Array(k);
+	const cross = new Float64Array(k * k);
+	const row = new Float64Array(k);
+	let count = 0;
+	for (let i = 0; i < pixels; i += step) {
+		if (!valid(i)) continue;
+		for (let j = 0; j <= n; j++) row[j] = value(i, j);
+		for (let a = 0; a < k; a++) {
+			sum[a] += row[a];
+			for (let b = a; b < k; b++) cross[a * k + b] += row[a] * row[b];
+		}
+		count++;
+	}
+	const mean = Array.from(sum, (s) => count ? s / count : 0);
+	/** Covariance of variables `a` and `b` (bands 0..n-1, pan n). */
+	const cov = (a, b) => count ? cross[Math.min(a, b) * k + Math.max(a, b)] / count - mean[a] * mean[b] : 0;
+	const weights = intensityWeights(choice, n, cov);
+	const meanI = weights.reduce((s, w, j) => s + w * mean[j], 0);
+	let varI = 0;
+	for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) varI += weights[a] * weights[b] * cov(a, b);
+	const varP = cov(n, n);
+	const gainP = varP > 0 && varI > 0 ? Math.sqrt(varI / varP) : 1;
+	const offsetP = meanI - gainP * mean[n];
+	return {
+		weights,
+		gains: Array.from({ length: n }, (_, j) => {
+			if (method === "ihs") return 1;
+			if (method === "brovey") return 0;
+			let c = 0;
+			for (let b = 0; b < n; b++) c += weights[b] * cov(j, b);
+			return varI > 0 ? c / varI : 1;
+		}),
+		panGain: gainP,
+		panOffset: offsetP
 	};
 }
 /** The intensity weights (summing to 1): fitted, equal or given. */
