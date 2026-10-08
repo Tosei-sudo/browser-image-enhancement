@@ -27,12 +27,7 @@ test('a 16-bit GeoTIFF is stretched from its own values, band by band', async ({
   // Each band has its own range: the brighter band 2 does not share band 0's.
   expect(stretch.black[2]).toBeGreaterThan(8400);
 
-  const [left, right] = await page.evaluate(() => {
-    const { map, images } = window.viewer;
-    const [w, h] = map.getSize()!;
-    const layer = images.list()[0].layer;
-    return [0.35, 0.65].map((f) => Array.from(layer.getData([w * f, h / 2]) as Uint8Array));
-  });
+  const [left, right] = await shown(page, [0.35, 0.65]);
   // Band 0 uses the 8-bit range (0-65535 scaled to 0-255 would leave it between 23 and 39).
   expect(right[0] - left[0]).toBeGreaterThan(60);
   expect(errors).toEqual([]);
@@ -58,11 +53,25 @@ async function openAndRead(page: Page, url: string, xs: number[]): Promise<numbe
         window.viewer.map.render();
       }),
   );
+  return shown(page, xs);
+}
+
+/**
+ * The image's pixels as drawn, across the middle row. Not the layer's tile
+ * data: 16-bit tiles hold the raw values there, stretched by the layer's shader.
+ */
+function shown(page: Page, xs: number[]): Promise<number[][]> {
   return page.evaluate((fs) => {
-    const { map, images } = window.viewer;
+    const { map } = window.viewer;
     const [w, h] = map.getSize()!;
-    const layer = images.list()[0].layer;
-    return fs.map((f) => Array.from(layer.getData([w * f, h / 2]) as Uint8Array));
+    const canvas = document.querySelector<HTMLCanvasElement>('.ol-layers canvas.gpu-corrected')!;
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(canvas, 0, 0);
+    const ratio = canvas.width / w;
+    return fs.map((f) => Array.from(ctx.getImageData(Math.floor(w * f * ratio), Math.floor((h / 2) * ratio), 1, 1).data));
   }, xs);
 }
 

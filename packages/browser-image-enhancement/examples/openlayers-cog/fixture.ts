@@ -4,6 +4,7 @@
  * EPSG:4326 with a smooth color gradient and a few stripes.
  */
 import { writeArrayBuffer } from 'geotiff';
+import { rasterToGeoTIFF } from '../../src/openlayers/index.js';
 
 export const FIXTURE_EXTENT = [139.6, 35.6, 139.9, 35.75] as const;
 
@@ -115,4 +116,35 @@ export function fixtureRgbaBlob(width = 768, height = 384): Blob {
     GTRasterTypeGeoKey: 1,
   });
   return new Blob([buffer], { type: 'image/tiff' });
+}
+
+/** A larger fixture as a tiled GeoTIFF with overviews (`?size=4096`), noisy like a photo, for timing. */
+export function bigFixtureBlob(size: number, sixteenBit: boolean): Blob {
+  const width = size;
+  const height = size / 2;
+  const data = sixteenBit ? new Uint16Array(width * height * 3) : new Uint8Array(width * height * 3);
+  let s = 1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      s = (s * 1103515245 + 12345) >>> 0;
+      const n = (s >>> 24) & 15;
+      const i = (y * width + x) * 3;
+      const to = (v: number) => (sixteenBit ? 3000 + v * 20 : v);
+      data[i] = to(Math.round((x / (width - 1)) * 200) + n);
+      data[i + 1] = to(Math.round((y / (height - 1)) * 200) + n);
+      data[i + 2] = to(60 + n * 4);
+    }
+  }
+  const [minX, minY, maxX, maxY] = FIXTURE_EXTENT;
+  return rasterToGeoTIFF({
+    width,
+    height,
+    bands: 3,
+    data,
+    geo: {
+      modelPixelScale: [(maxX - minX) / width, (maxY - minY) / height, 0],
+      modelTiepoint: [0, 0, 0, minX, maxY, 0],
+      geoKeyDirectory: [1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326],
+    },
+  });
 }

@@ -28,6 +28,12 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private disposed_;
   /** Small canvas the drawn map is read through for DRA statistics. */
   private sample_;
+  /** The style given in the options, shown unless the shader stretches raw values. */
+  private readonly userStyle_;
+  /** Whether the raw-stretch style is set. */
+  private stretching_;
+  /** The raw-stretch style's variables, updated in place (the shader reads them on every draw). */
+  private readonly stretch_;
   /** Frames corrected so far. */
   frames: number;
   constructor(options?: GpuCorrectedTileLayerOptions);
@@ -38,6 +44,8 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   /** The canvas the corrected map is shown on (for reading pixels in tests). */
   getOutputCanvas(): HTMLCanvasElement;
   render(frameState: FrameState | null, target: HTMLElement): HTMLElement;
+  /** Sets the raw-stretch style while the source hands raw float tiles, and its variables from the source's stretch. */
+  private updateStretch_;
   /** DRA statistics of the map as drawn (before correction), read through a canvas of at most 512 px. */
   private sampleStats_;
   protected disposeInternal(): void;
