@@ -153,11 +153,20 @@ export function csvLayer(csv: ReturnType<typeof readCsv>): ServiceLayer {
 }
 
 /**
+ * Opens one picture or GeoTIFF made in the viewer (a pan-sharpened image)
+ * the way a chosen file opens, RSET and all; its source, or null when it
+ * could not be opened.
+ */
+export function openImageFile(file: File, context: OpenFilesContext): Promise<EnhancedGeoTIFF | null> {
+  return openImage(file, context);
+}
+
+/**
  * Opens a picture or GeoTIFF; a GeoTIFF without overviews gets them first,
  * from its .ovr file when there is one. A large one without an .ovr is
  * shown at once (only zoomed in near its raw pixels) while they are made.
  */
-async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null): Promise<void> {
+async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null): Promise<EnhancedGeoTIFF | null> {
   const { loader, say, geometry, rset, onRsetMade } = context;
   let blob: Blob = file;
   let rpc: Rpc | null = null;
@@ -181,12 +190,12 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
     const plan = blob === file ? await planOverviews(file, { geo }).catch(() => null) : null;
     if (plan && plan.width * plan.height > rsetSettings.showFirstAbove) {
       const source = await loader.loadFile(plan.raw, file.name).catch(() => null);
-      if (!source) return;
+      if (!source) return null;
       context.onRsetBuilding?.(source);
       if (rpc) geometry.setSatellite(source, { rpc, from: file });
       else if (georeferenced) geometry.setGeoreferenced(source, file, view);
       void buildLater(file.name, plan, source, context);
-      return;
+      return source;
     }
     if (plan) blob = (await buildOverviews(file.name, plan, rset)) ?? file;
   }
@@ -198,6 +207,7 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
   }
   if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
   else if (source && georeferenced) geometry.setGeoreferenced(source, file, view);
+  return source;
 }
 
 /** Makes the overviews of `plan`, with its progress in `rset`; null when they cannot be made. */

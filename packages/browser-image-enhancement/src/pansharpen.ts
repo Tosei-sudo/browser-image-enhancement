@@ -17,6 +17,11 @@
  * With `weights: 'auto'` (default) the intensity weights are fitted to the
  * panchromatic band by least squares, so a near-infrared band counts as much
  * as the sensor's panchromatic response says it should.
+ *
+ * The weights and gains come from statistics of the whole image. To sharpen
+ * an image too large to hold at once piece by piece, fit them once (on the
+ * whole image, or on pieces of it spread over the image) and pass the
+ * result's `model` to every piece: the pieces then join without seams.
  */
 import type { Raster } from './raster.js';
 
@@ -38,6 +43,24 @@ export interface PanSharpenOptions {
   panBand?: number;
   /** How much of the detail to add, 0 to 1 (or more). Default 1. */
   strength?: number;
+  /**
+   * Weights and gains fitted before (a result's `model`), used instead of
+   * fitting them to this image; `weights` is then ignored. For sharpening
+   * a large image piece by piece.
+   */
+  model?: PanSharpenModel;
+}
+
+/** What {@link panSharpen} fitted to the image: everything it needs to sharpen another piece of it the same way. */
+export interface PanSharpenModel {
+  /** Intensity weights of the sharpened bands. */
+  weights: number[];
+  /** Detail gains of the sharpened bands. */
+  gains: number[];
+  /** Gain of the panchromatic band matched to the intensity: `panGain · pan + panOffset`. */
+  panGain: number;
+  /** Offset of the panchromatic band matched to the intensity. */
+  panOffset: number;
 }
 
 /** A pan-sharpened raster: the multispectral bands at the panchromatic resolution. */
@@ -56,6 +79,8 @@ export interface PanSharpenResult<T extends ArrayLike<number> = ArrayLike<number
   weights: number[];
   /** Detail gains of the sharpened bands (1 for `ihs`, varying for `gram-schmidt`, 0 for `brovey`). */
   gains: number[];
+  /** The fitted weights and gains, to sharpen other pieces of the same image with (see `options.model`). */
+  model: PanSharpenModel;
 }
 
 type NumericArray = ArrayLike<number> & { [i: number]: number };
@@ -135,43 +160,12 @@ export function panSharpen<T extends ArrayLike<number>>(pan: Raster, ms: Raster 
     return true;
   };
 
-  // Statistics on a sample of the valid pixels: means, and the cross products of pan and the bands.
-  const step = Math.max(1, Math.floor(pixels / SAMPLES));
-  const k = n + 1; // bands, then pan
-  const sum = new Float64Array(k);
-  const cross = new Float64Array(k * k);
-  const row = new Float64Array(k);
-  let count = 0;
-  for (let i = 0; i < pixels; i += step) {
-    if (!valid(i)) continue;
-    for (let j = 0; j < n; j++) row[j] = M[i * msBands + bands[j]];
-    row[n] = P[i * panBands + panBand];
-    for (let a = 0; a < k; a++) {
-      sum[a] += row[a];
-      for (let b = a; b < k; b++) cross[a * k + b] += row[a] * row[b];
-    }
-    count++;
+  let model = options.model;
+  if (model && (model.weights.length !== bands.length || model.gains.length !== bands.length)) {
+    throw new RangeError(`model must have ${bands.length} weights and gains, one per sharpened band.`);
   }
-  const mean = Array.from(sum, (s) => (count ? s / count : 0));
-  /** Covariance of variables `a` and `b` (bands 0..n-1, pan n). */
-  const cov = (a: number, b: number): number => (count ? cross[Math.min(a, b) * k + Math.max(a, b)] / count - mean[a] * mean[b] : 0);
-
-  const weights = intensityWeights(options.weights ?? 'auto', n, cov);
-  // Intensity statistics from the band statistics: I = Σ w_j band_j.
-  const meanI = weights.reduce((s, w, j) => s + w * mean[j], 0);
-  let varI = 0;
-  for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) varI += weights[a] * weights[b] * cov(a, b);
-  const varP = cov(n, n);
-  // Pan matched to the intensity: same mean and standard deviation.
-  const gainP = varP > 0 && varI > 0 ? Math.sqrt(varI / varP) : 1;
-  const offsetP = meanI - gainP * mean[n];
-  const gains = bands.map((_, j) => {
-    if (method === 'ihs') return 1;
-    if (method === 'brovey') return 0;
-    let c = 0;
-    for (let b = 0; b < n; b++) c += weights[b] * cov(j, b);
-    return varI > 0 ? c / varI : 1;
-  });
+  model ??= fitModel(pixels, n, valid, (i, j) => (j < n ? M[i * msBands + bands[j]] : P[i * panBands + panBand]), method, options.weights ?? 'auto');
+  const { weights, gains, panGain: gainP, panOffset: offsetP } = model;
 
   const range = integerRange(M);
   const noData = msNoData ?? (range ? 0 : NaN);
@@ -205,7 +199,58 @@ export function panSharpen<T extends ArrayLike<number>>(pan: Raster, ms: Raster 
       out[o + bands[j]] = v;
     }
   }
-  return { data: out as unknown as T, width, height, bands: msBands, noData, weights, gains };
+  return { data: out as unknown as T, width, height, bands: msBands, noData, weights, gains, model };
+}
+
+/**
+ * Fits the weights and gains on about {@link SAMPLES} valid pixels evenly
+ * spread: `value(i, j)` is pixel `i` of sharpened band `j`, or of pan for `j = n`.
+ */
+function fitModel(
+  pixels: number,
+  n: number,
+  valid: (i: number) => boolean,
+  value: (i: number, j: number) => number,
+  method: PanSharpenMethod,
+  choice: NonNullable<PanSharpenOptions['weights']>,
+): PanSharpenModel {
+  // Statistics on a sample of the valid pixels: means, and the cross products of pan and the bands.
+  const step = Math.max(1, Math.floor(pixels / SAMPLES));
+  const k = n + 1; // bands, then pan
+  const sum = new Float64Array(k);
+  const cross = new Float64Array(k * k);
+  const row = new Float64Array(k);
+  let count = 0;
+  for (let i = 0; i < pixels; i += step) {
+    if (!valid(i)) continue;
+    for (let j = 0; j <= n; j++) row[j] = value(i, j);
+    for (let a = 0; a < k; a++) {
+      sum[a] += row[a];
+      for (let b = a; b < k; b++) cross[a * k + b] += row[a] * row[b];
+    }
+    count++;
+  }
+  const mean = Array.from(sum, (s) => (count ? s / count : 0));
+  /** Covariance of variables `a` and `b` (bands 0..n-1, pan n). */
+  const cov = (a: number, b: number): number => (count ? cross[Math.min(a, b) * k + Math.max(a, b)] / count - mean[a] * mean[b] : 0);
+
+  const weights = intensityWeights(choice, n, cov);
+  // Intensity statistics from the band statistics: I = Σ w_j band_j.
+  const meanI = weights.reduce((s, w, j) => s + w * mean[j], 0);
+  let varI = 0;
+  for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) varI += weights[a] * weights[b] * cov(a, b);
+  const varP = cov(n, n);
+  // Pan matched to the intensity: same mean and standard deviation.
+  const gainP = varP > 0 && varI > 0 ? Math.sqrt(varI / varP) : 1;
+  const offsetP = meanI - gainP * mean[n];
+  const gains = Array.from({ length: n }, (_, j) => {
+    if (method === 'ihs') return 1;
+    if (method === 'brovey') return 0;
+    let c = 0;
+    for (let b = 0; b < n; b++) c += weights[b] * cov(j, b);
+    return varI > 0 ? c / varI : 1;
+  });
+  return { weights, gains, panGain: gainP, panOffset: offsetP };
 }
 
 /** The intensity weights (summing to 1): fitted, equal or given. */

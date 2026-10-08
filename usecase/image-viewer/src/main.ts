@@ -34,7 +34,7 @@ import { CoordinateMenu } from './coordinate-menu.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
 import { glVector } from './gl-vector.js';
-import { acceptFiles, openFiles, type OpenFilesContext } from './open-files.js';
+import { acceptFiles, openFiles, openImageFile, type OpenFilesContext } from './open-files.js';
 import { endBuilding, markBuilding, rsetOf, RsetIndicator, RsetProgress, rsetSettings, rsetText } from './rset.js';
 import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
@@ -440,7 +440,11 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
 });
 
 // Pan-sharpening (from the processing dialog): a panchromatic and a multispectral image make a new layer.
-const panSharpen = new PanSharpenDialog(map, images, loader, { say, onPipeline: (p) => enhance.setPipeline(p) });
+const panSharpen = new PanSharpenDialog(map, images, loader, {
+  say,
+  onPipeline: (p) => enhance.setPipeline(p),
+  open: (file) => openImageFile(file, fileContext()),
+});
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
 function fileContext(): OpenFilesContext {

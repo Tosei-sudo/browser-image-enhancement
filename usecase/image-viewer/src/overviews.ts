@@ -344,7 +344,7 @@ function fileBytes(a: GeoTIFFSamples, le: boolean): Uint8Array {
 }
 
 /** GDAL metadata XML with each band's lowest and highest value, or null when every sample is no-data. */
-function gdalStatistics(min: number[], max: number[]): string | null {
+export function gdalStatistics(min: number[], max: number[]): string | null {
   if (!(min[0] <= max[0])) return null;
   const items = min.flatMap((_, b) =>
     min[b] <= max[b] ? [`<Item name="STATISTICS_MINIMUM" sample="${b}">${min[b]}</Item>`, `<Item name="STATISTICS_MAXIMUM" sample="${b}">${max[b]}</Item>`] : [],
@@ -352,7 +352,8 @@ function gdalStatistics(min: number[], max: number[]): string | null {
   return `<GDALMetadata>${items.join('')}</GDALMetadata>`;
 }
 
-function ascii(text: string): number[] {
+/** Text as TIFF ASCII values (character codes, ending in 0). */
+export function ascii(text: string): number[] {
   const codes = Array.from(text, (c) => c.charCodeAt(0) & 0x7f);
   if (codes[codes.length - 1] !== 0) codes.push(0);
   return codes;

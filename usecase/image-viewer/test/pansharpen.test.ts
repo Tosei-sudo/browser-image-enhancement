@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planPanSharpen, runPanSharpen, type Grid } from '../src/pansharpen.js';
+import { blocksOf, fitPanSharpen, planPanSharpen, runPanSharpen, sampleWindows, type Grid } from '../src/pansharpen.js';
 
 const pan: Grid = { width: 400, height: 400, origin: [1000, 5000], resolution: [1, -1] };
 const ms: Grid = { width: 100, height: 100, origin: [1000, 5000], resolution: [4, -4] };
@@ -90,5 +90,87 @@ describe('runPanSharpen', () => {
       expect(at(30, b) - at(29, b)).toBeGreaterThan(1500 * (1 + b * 0.2));
       expect(Math.abs(at(26, b) - at(29, b))).toBeLessThan(200);
     }
+  });
+});
+
+describe('pan-sharpening in blocks', () => {
+  /** A 600 × 520 panchromatic image and a 4-band one at a quarter of its resolution, with edges and gradients. */
+  const W = 600;
+  const H = 520;
+  const F = 4;
+  const panGrid: Grid = { width: W, height: H, origin: [0, H], resolution: [1, -1] };
+  const msGrid: Grid = { width: W / F, height: H / F, origin: [0, H], resolution: [F, -F] };
+  const truth = (x: number, y: number) => 800 + 3 * x + 2 * y + ((x >> 5) % 2) * 900 + ((y * 7 + x * 3) % 41) * 5;
+  const panData = new Uint16Array(W * H).map((_, i) => truth(i % W, Math.floor(i / W)));
+  const msData = new Uint16Array((W / F) * (H / F) * 4);
+  for (let y = 0; y < H / F; y++) {
+    for (let x = 0; x < W / F; x++) {
+      let s = 0;
+      for (let j = 0; j < F; j++) for (let i = 0; i < F; i++) s += truth(x * F + i, y * F + j);
+      for (let b = 0; b < 4; b++) msData[(y * (W / F) + x) * 4 + b] = Math.round((s / (F * F)) * (0.7 + 0.2 * b));
+    }
+  }
+  const settings = { alpha: false, method: 'gram-schmidt' as const, resample: 'bicubic' as const, strength: 1, weights: 'auto' as const };
+  /** The job for a window, read as the dialog reads it. */
+  const jobOf = (window?: readonly [number, number, number, number]) => {
+    const plan = planPanSharpen(panGrid, msGrid, { bands: 4, window });
+    const [px0, py0, px1, py1] = plan.pan.window;
+    const [mx0, my0, mx1, my1] = plan.ms.window;
+    const pan = new Uint16Array((px1 - px0) * (py1 - py0));
+    for (let y = py0; y < py1; y++) pan.set(panData.subarray(y * W + px0, y * W + px1), (y - py0) * (px1 - px0));
+    const ms = new Uint16Array((mx1 - mx0) * (my1 - my0) * 4);
+    for (let y = my0; y < my1; y++) ms.set(msData.subarray((y * (W / F) + mx0) * 4, (y * (W / F) + mx1) * 4), (y - my0) * (mx1 - mx0) * 4);
+    return { pan: { width: px1 - px0, height: py1 - py0, bands: 1, data: pan }, ms: { width: mx1 - mx0, height: my1 - my0, bands: 4, data: ms }, plan, ...settings };
+  };
+
+  it('splits the output into blocks on whole tiles, and spreads fitting windows over it', () => {
+    const plan = planPanSharpen(panGrid, msGrid, { bands: 4 });
+    expect(blocksOf(plan, 256)).toEqual([
+      [0, 0, 256, 256], [256, 0, 512, 256], [512, 0, 600, 256],
+      [0, 256, 256, 512], [256, 256, 512, 512], [512, 256, 600, 512],
+      [0, 512, 256, 520], [256, 512, 512, 520], [512, 512, 600, 520],
+    ]);
+    expect(sampleWindows(plan, 8, 256)).toEqual([
+      [0, 0, 256, 256], [344, 0, 600, 256],
+      [0, 264, 256, 520], [344, 264, 600, 520],
+    ]);
+  });
+
+  it('plans a window like the whole: the same multispectral pixels under the same output pixels', () => {
+    const whole = planPanSharpen(panGrid, msGrid, { bands: 4 });
+    const part = planPanSharpen(panGrid, msGrid, { bands: 4, window: [256, 256, 512, 512] });
+    expect(part.pan.window).toEqual([256, 256, 512, 512]);
+    expect(part.origin).toEqual([256, H - 256]);
+    expect(part.reduction).toBe(1);
+    // Output pixel (u, v) of the part is output pixel (256 + u, 256 + v) of the whole: same multispectral position.
+    const ms = (p: typeof whole, u: number) => (u - p.msToOutput[2]) / p.msToOutput[0] + p.ms.window[0];
+    expect(ms(part, 10)).toBeCloseTo(ms(whole, 266), 9);
+  });
+
+  it('gives the same result in blocks, with the model fitted on the whole, as all at once', () => {
+    const whole = runPanSharpen(jobOf());
+    const model = fitPanSharpen([jobOf()]);
+    expect(model.weights).toEqual(whole.model.weights);
+    const plan = planPanSharpen(panGrid, msGrid, { bands: 4 });
+    for (const window of blocksOf(plan, 256)) {
+      const block = runPanSharpen({ ...jobOf(window), model });
+      const [x0, y0, x1, y1] = window;
+      for (let y = y0; y < y1; y += 7) {
+        for (let x = x0; x < x1; x += 5) {
+          for (let b = 0; b < 4; b++) expect(block.raster.data[((y - y0) * (x1 - x0) + x - x0) * 4 + b]).toBe(whole.raster.data[(y * W + x) * 4 + b]);
+        }
+      }
+    }
+  });
+
+  it('fits nearly the same model on windows spread over the image as on the whole', () => {
+    const plan = planPanSharpen(panGrid, msGrid, { bands: 4 });
+    const whole = fitPanSharpen([jobOf()]);
+    const spread = fitPanSharpen(sampleWindows(plan, 8, 128).map((w) => jobOf(w)));
+    for (let j = 0; j < 4; j++) {
+      expect(spread.weights[j]).toBeCloseTo(whole.weights[j], 1);
+      expect(spread.gains[j]).toBeCloseTo(whole.gains[j], 1);
+    }
+    expect(spread.panGain).toBeCloseTo(whole.panGain, 1);
   });
 });
