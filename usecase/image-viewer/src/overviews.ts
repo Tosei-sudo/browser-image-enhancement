@@ -88,10 +88,11 @@ export async function planOverviews(file: Blob, options: Pick<OverviewOptions, '
   if (!Type) return null;
   const extraSamples = numbers(await tag(338));
   const noData = image.getGDALNoData();
+  const metadata = fd.hasTag(42112) ? String(await fd.loadValue(42112)) : null;
   const layout = await readLayout(file);
   const raw = options.geo ? compose(file, layout, geoEntries(options.geo), []) : file;
   const build = (onProgress?: (done: number) => void) =>
-    buildOverviews(file, image, layout, { bands, bits, photometric, format, Type, extraSamples, noData, geo: options.geo, onProgress });
+    buildOverviews(file, image, layout, { bands, bits, photometric, format, Type, extraSamples, noData, geo: options.geo, metadata, onProgress });
   return { raw, width, height, build };
 }
 
@@ -105,6 +106,8 @@ interface ImageFacts {
   extraSamples: number[] | undefined;
   noData: number | null;
   geo?: GeoTIFFRaster['geo'];
+  /** The image's own GDAL metadata, kept beside the statistics. */
+  metadata: string | null;
   onProgress?: (done: number) => void;
 }
 
@@ -151,7 +154,7 @@ async function buildOverviews(file: Blob, image: GeoTIFFImage, layout: Layout, f
   // New georeferencing and statistics replace the image's own.
   const replace = facts.geo ? geoEntries(facts.geo) : [];
   if (facts.geo) {
-    const statistics = gdalStatistics(first.min, first.max);
+    const statistics = gdalStatistics(first.min, first.max, facts.metadata);
     if (statistics) replace.push({ tag: 42112, type: ASCII, values: ascii(statistics) });
   }
   const blob = compose(file, layout, replace, ifds);
@@ -343,13 +346,18 @@ function fileBytes(a: GeoTIFFSamples, le: boolean): Uint8Array {
   return out;
 }
 
-/** GDAL metadata XML with each band's lowest and highest value, or null when every sample is no-data. */
-export function gdalStatistics(min: number[], max: number[]): string | null {
+/**
+ * GDAL metadata XML with each band's lowest and highest value, or null when
+ * every sample is no-data. The items of `own` (the image's GDAL metadata),
+ * but its statistics, are kept.
+ */
+export function gdalStatistics(min: number[], max: number[], own: string | null = null): string | null {
   if (!(min[0] <= max[0])) return null;
   const items = min.flatMap((_, b) =>
     min[b] <= max[b] ? [`<Item name="STATISTICS_MINIMUM" sample="${b}">${min[b]}</Item>`, `<Item name="STATISTICS_MAXIMUM" sample="${b}">${max[b]}</Item>`] : [],
   );
-  return `<GDALMetadata>${items.join('')}</GDALMetadata>`;
+  const kept = own ? [...own.matchAll(/<Item\b[^>]*>[\s\S]*?<\/Item>/g)].map((m) => m[0]).filter((item) => !/name="STATISTICS_(MINIMUM|MAXIMUM)"/.test(item)) : [];
+  return `<GDALMetadata>${[...kept, ...items].join('')}</GDALMetadata>`;
 }
 
 /** Text as TIFF ASCII values (character codes, ending in 0). */
