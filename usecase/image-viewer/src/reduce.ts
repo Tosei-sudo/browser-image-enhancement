@@ -5,6 +5,8 @@
  */
 import { getDecoder, type BaseDecoder, type GeoTIFFImage } from 'geotiff';
 import type { GeoTIFFSamples } from 'browser-image-enhancement/openlayers';
+// SICD and complex NITF pixels read as amplitude, here and in the overview workers.
+import './complex-decoder.js';
 
 /** A rectangle of the full-resolution image, in pixels. */
 export interface ReduceWindow {

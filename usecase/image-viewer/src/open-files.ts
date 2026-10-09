@@ -10,7 +10,8 @@
  * file chosen with a GeoTIFF (`a.tif.ovr` or `a.ovr`) is its RSET, used
  * instead of making one. A georeferenced GeoTIFF without an RPC model can be
  * orthorectified more simply; the satellite's direction comes from an .IMD
- * file chosen with it, or from its GDAL metadata.
+ * file chosen with it, or from its GDAL metadata. A NITF file (or SICD,
+ * shown as amplitude) opens as a GeoTIFF read in place (see nitf-tiff.ts).
  */
 import { isEmpty } from 'ol/extent.js';
 import type Projection from 'ol/proj/Projection.js';
@@ -35,6 +36,8 @@ import { baseName } from './images.js';
 import { handleOf } from './recent-files.js';
 import { isEditable, localTarget } from './local-edit.js';
 import { markGenerated, rsetSettings, type RsetJob, type RsetProgress } from './rset.js';
+import { isNitf } from './nitf.js';
+import { copyFileInfo, nitfAsTiff, setFileInfo, type NitfAsTiff } from './nitf-tiff.js';
 
 export interface OpenFilesContext {
   loader: LoadImageControl;
@@ -58,8 +61,8 @@ export interface OpenFilesContext {
   onRsetBuilding?: (source: EnhancedGeoTIFF) => void;
 }
 
-/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), Shapefiles (and their .qml style), GeoJSON, GeoPackages, CSV, DTED, RPC and IMD files, and project files (opened by project.ts). */
-export const acceptFiles = '.ivproj,.tif,.tiff,.ovr,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
+/** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), NITF and SICD, Shapefiles (and their .qml style), GeoJSON, GeoPackages, CSV, DTED, RPC and IMD files, and project files (opened by project.ts). */
+export const acceptFiles = '.ivproj,.tif,.tiff,.ovr,.ntf,.nitf,.nsf,.r0,.sicd,image/*,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   const vectors = files.filter((f) => isVectorName(f.name));
@@ -173,6 +176,19 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
   let rpc: Rpc | null = null;
   let georeferenced = false;
   let projection: Projection | undefined;
+  let nitf: NitfAsTiff | null = null;
+  if (await isNitf(file)) {
+    try {
+      nitf = await nitfAsTiff(file);
+    } catch (error) {
+      say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+    for (const note of nitf.notes) say(`${file.name}: ${note}`);
+    // From here on it is a GeoTIFF whose pixels are the NITF's.
+    file = nitf.file;
+    blob = file;
+  }
   if (await isTiff(file)) {
     say(`${file.name} を読み込んでいます…`);
     const info = await tiffInfo(file).catch(() => null);
@@ -195,6 +211,7 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
     if (plan && plan.width * plan.height > rsetSettings.showFirstAbove) {
       const source = await loader.loadFile(plan.raw, file.name, { projection }).catch(() => null);
       if (!source) return null;
+      if (nitf) setFileInfo(source, nitf.info);
       context.onRsetBuilding?.(source);
       if (rpc) geometry.setSatellite(source, { rpc, from: file });
       else if (georeferenced) geometry.setGeoreferenced(source, file, view);
@@ -204,6 +221,7 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
     if (plan) blob = (await buildOverviews(file.name, plan, rset)) ?? file;
   }
   const source = await loader.loadFile(blob, file.name, { projection }).catch(() => null); // the loader's onError tells the user
+  if (source && nitf) setFileInfo(source, nitf.info);
   const made = madeOverviews(blob);
   if (source && made) {
     markGenerated(source, made);
@@ -245,6 +263,7 @@ async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTI
     return;
   }
   markGenerated(source, made);
+  copyFileInfo(shown, source);
   onRsetMade?.(source, shown);
 }
 

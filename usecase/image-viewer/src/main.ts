@@ -40,6 +40,7 @@ import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, Recent
 import { GeometricMode } from './geometric.js';
 import { tiffInfo } from './satellite.js';
 import { showInfo } from './info.js';
+import { fileInfoOf } from './nitf-tiff.js';
 import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
@@ -491,7 +492,7 @@ function showRset(image: ViewerImage): void {
 /** Rows the information panel adds for an image: its RSET, and what the geometric mode knows of it. */
 function layerInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (layer?.type !== 'image') return geometryInfo(layer);
-  return [['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
+  return [...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
 }
 
 /** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */
