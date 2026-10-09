@@ -8,7 +8,7 @@ import { register } from 'ol/proj/proj4.js';
 import proj4 from 'proj4';
 import { pipeline } from '../../src/index.js';
 import { EnhancedGeoTIFF, GpuCorrectedTileLayer } from '../../src/openlayers/index.js';
-import { fixture16Blob, fixtureBlob } from './fixture.js';
+import { bigFixtureBlob, fixture16Blob, fixtureBlob } from './fixture.js';
 
 // Sentinel-2 true color, Tokyo area, 2024-01-12 (cloud cover 0.1%). 8-bit RGB COG, public, CORS enabled.
 const DEFAULT_URL =
@@ -100,7 +100,15 @@ function load() {
   const url = $<HTMLInputElement>('url').value.trim();
   source?.dispose(); // frees its GPU renderer
   source = new EnhancedGeoTIFF({
-    sources: [useFixture16 ? { blob: fixture16Blob() } : useFixture || !url ? { blob: fixtureBlob() } : { url }],
+    sources: [
+      params.has('size')
+        ? { blob: bigFixtureBlob(Number(params.get('size')), useFixture16) }
+        : useFixture16
+          ? { blob: fixture16Blob() }
+          : useFixture || !url
+            ? { blob: fixtureBlob() }
+            : { url },
+    ],
     pipeline: current(),
     // 16-bit fixture: raw values, stretched by the source from their own statistics.
     normalize: !useFixture16,
@@ -111,6 +119,8 @@ function load() {
     loadMissingProjection: true,
     // `?glReprojection`: OpenLayers' WebGL reprojection instead of the CPU one, to compare.
     cpuReprojection: !params.has('glReprojection'),
+    // `?cpuStretch`: 16-bit tiles stretched to 8 bits as they load instead of in the layer's shader, to compare.
+    gpuStretch: !params.has('cpuStretch'),
   });
   cogLayer.setSource(source);
   source.getView().then(

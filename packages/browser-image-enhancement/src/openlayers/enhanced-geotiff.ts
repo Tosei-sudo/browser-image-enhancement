@@ -31,7 +31,9 @@
  * With `correctTiles: false` tiles are left as read (raw values stretched to
  * 0-255) and only the pipeline is kept (DRA included): `GpuCorrectedTileLayer`
  * then corrects the drawn map on the GPU, so a new pipeline needs no tile to
- * be reloaded (only a new raw stretch does).
+ * be reloaded. Raw tiles then go to the layer as they are, as float values,
+ * and the layer stretches them in its shader (see `gpuStretch`): a new raw
+ * stretch (DRA over 16-bit imagery) only redraws the map too.
  *
  * Band assignment: `select` (or `setSelect`) picks the bands R, G and B show,
  * for example `[3, 2, 1]` for a false-color composite of a 4-band image.
@@ -50,6 +52,7 @@ import { isGraySelection, type BandSelection } from '../bands.js';
 import { histogram, mergeHistograms, pipeline, type AutoStretchOptions, type ColorMode, type Histogram, type OpSpec, type Pipeline } from '../index.js';
 import {
   computeRasterStretch,
+  rasterToFloatRGBA,
   rasterToImageData,
   sampleRasterHistogram,
   type Raster,
@@ -62,6 +65,7 @@ import { cropMargin, withMargin } from './margin.js';
 import { reprojectOnCpu } from './cpu-reproject.js';
 import { readBandNames, type TiffImageLike } from './tiff-metadata.js';
 import { floatNoData, isEightBit, keepEightBitRange } from './geotiff-samples.js';
+import { floatTexturesFilterable } from './float-textures.js';
 import { colorModeFor, maskNoData, selectRGBA, toRgb, toRGBA, toSelectedTile, fromRGBA } from './tile-pixels.js';
 
 /** The part of geotiff.js's `ImageFileDirectory` used to preload the tile index. */
@@ -89,6 +93,16 @@ export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'
    * `GpuCorrectedTileLayer`.
    */
   correctTiles?: boolean;
+  /**
+   * With `correctTiles: false` and raw values (`normalize: false`, or
+   * `'auto'` on an image deeper than 8 bits): hand the layer the raw values
+   * as float tiles and let `GpuCorrectedTileLayer` stretch them to 0-255 in
+   * its shader, at full precision (default true). A new raw stretch then
+   * redraws the map instead of rebuilding every tile. Needs float textures
+   * that can be filtered (`OES_texture_float_linear`); without them, or with
+   * false, tiles are stretched to 8 bits here as they load.
+   */
+  gpuStretch?: boolean;
   /**
    * With `normalize: false`: how raw values become 0-255 before the
    * pipeline. A fixed {@link RasterStretch}, or automatic stretch options
@@ -166,6 +180,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private effective_: Pipeline;
   private readonly worker_: boolean;
   private readonly correctTiles_: boolean;
+  /** Raw tiles go to the layer as floats, stretched in its shader, when the image has raw values (see `gpuStretch`). */
+  private readonly gpuStretch_: boolean;
   private readonly rawCacheSize_: number;
   private readonly draSampleSize_: number;
   private readonly draMaxTiles_: number;
@@ -222,6 +238,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.pipeline_ = options.pipeline ?? pipeline();
     this.worker_ = options.worker ?? true;
     this.correctTiles_ = options.correctTiles ?? true;
+    this.gpuStretch_ = (options.gpuStretch ?? true) && !this.correctTiles_ && floatTexturesFilterable();
     this.rawCacheSize_ = options.rawCacheSize ?? 256;
     this.draSampleSize_ = options.draSampleSize ?? 1024;
     this.draMaxTiles_ = options.draMaxTiles ?? 64;
@@ -232,15 +249,41 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     if (options.cpuReprojection ?? true) reprojectOnCpu(this);
   }
 
-  /** The tile key: changes whenever tiles must be corrected again. */
+  /** The tile key: changes whenever tiles must be corrected again (or, on the GPU, the map drawn again). */
   private tileKey_(): string {
-    return `${keyFor(this.effective_)}${this.contentKey_()}`;
+    return `${keyFor(this.effective_)}${this.contentKey_()}${this.rawOnGpu_ ? `:gpuraw${JSON.stringify(this.rawStretch_)}` : ''}`;
   }
 
   /** The part of the tile key that changes the tiles as read (bands, raw stretch), before the pipeline. */
   private contentKey_(): string {
     const select = this.remap_();
-    return `${select ? `:bands${select.join(',')}` : ''}${this.rawValues_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ''}`;
+    return `${select ? `:bands${select.join(',')}` : ''}${this.rawValues_ && !this.rawOnGpu_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ''}`;
+  }
+
+  /** True when raw tiles go to the layer as floats and the layer stretches them (see `gpuStretch`). */
+  private get rawOnGpu_(): boolean {
+    return this.gpuStretch_ && this.rawValues_;
+  }
+
+  /**
+   * True when the tiles hold raw values (float RGBA, alpha last) for the
+   * layer to stretch in its shader with {@link EnhancedGeoTIFF.getRawStretch}
+   * (see the `gpuStretch` option). Known once the COG is read.
+   */
+  stretchesOnGpu(): boolean {
+    return this.getState() === 'ready' && this.rawOnGpu_;
+  }
+
+  /**
+   * The raw stretch in use, one black and white value for each of R, G and
+   * B (a gray image's repeated); null until the statistics it is computed
+   * from are read, or when the image is not read raw.
+   */
+  getRawStretch(): RasterStretchRange | null {
+    const s = this.rawStretch_;
+    if (!this.rawValues_ || !s) return null;
+    const rgb = (v: number | readonly number[]) => [0, 1, 2].map((c) => (typeof v === 'number' ? v : (v[c] ?? v[0])));
+    return { black: rgb(s.black), white: rgb(s.white) };
   }
 
   /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
@@ -674,7 +717,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     // OpenLayers composes the tiles it reads from `bandCount` and `hasAlpha`: it is given the layout as read.
     const host = this as unknown as { composeTile_?: (...args: unknown[]) => Data };
     const compose = host.composeTile_;
-    this.packed_ = typeof compose === 'function' && (bands > 4 || (bands === 4 && !this.rawAlpha_));
+    // Raw tiles for the GPU are always RGBA: the layer's shader reads R, G, B and alpha.
+    this.packed_ = typeof compose === 'function' && (this.rawOnGpu_ || bands > 4 || (bands === 4 && !this.rawAlpha_));
     if (!this.packed_) return;
     this.bandCount = 4;
     this.hasAlpha = true;
@@ -716,6 +760,14 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   }
 
   private async loadEnhanced_(loader: Loader, z: number, x: number, y: number, options: LoaderOptions): Promise<Data> {
+    if (this.rawOnGpu_) {
+      // The layer stretches: the tile can be drawn before the stretch is known (it shows once it is).
+      if (!this.rawStretch_) void this.rawReady_().then(() => this.changed(), () => {});
+      const raw = await this.rawTile_(loader, z, x, y, options);
+      const [width, height] = this.getTileSize(z);
+      const r = this.raster_(raw, width, height);
+      return r ? rasterToFloatRGBA(r) : raw;
+    }
     const [raw] = await Promise.all([this.rawTile_(loader, z, x, y, options), this.rawReady_()]);
     const p = this.effective_;
     const remap = this.remap_() !== null;

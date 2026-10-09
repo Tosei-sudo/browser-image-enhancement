@@ -44,6 +44,7 @@ import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add
 import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
+import { applyImageRule } from './image-rules.js';
 import { ExportDialog } from './export-dialog.js';
 import { StyleDialog } from './style-dialog.js';
 import { MetadataDialog } from './metadata.js';
@@ -364,8 +365,10 @@ const loader = new LoadImageControl({
   // With the File System Access API the files are chosen as handles, remembered for 「最近」.
   onOpen: hasFileAccess() ? () => void pickAndOpen() : undefined,
   onLoad: (loaded: LoadedImage) => {
+    // config.json's imageRules: the correction and bands an image starts with, by its file name.
+    const rule = applyImageRule(config.imageRules, loaded.name, loaded.source, say);
     showRset(images.add(loaded));
-    status.textContent = `${loaded.name} を開きました`;
+    status.textContent = rule ? `${loaded.name} を開きました（設定「${rule.label}」を適用）` : `${loaded.name} を開きました`;
     // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
       void tiffInfo(loaded.name)

@@ -1,3 +1,4 @@
+import { configureWasm } from "../core/wasm.js";
 import { compile, isMonochrome, processPixels, resolveMode } from "../core/process.js";
 import { countPixels, resolveForPixels } from "../core/histogram.js";
 //#region src/worker/handler.ts
@@ -16,7 +17,8 @@ function createWorkerHandler(post) {
 		}
 		return cached;
 	}
-	function finish(id, buffer, width, ops, mode) {
+	function finish(id, buffer, width, ops, mode, wasm) {
+		configureWasm({ enabled: wasm });
 		const pixels = new Uint8ClampedArray(buffer);
 		processPixels(pixels, pixels, program(ops, mode), width);
 		post({
@@ -33,7 +35,7 @@ function createWorkerHandler(post) {
 				case "run": {
 					const pixels = new Uint8ClampedArray(request.buffer);
 					const mode = resolveMode(pixels, request.colorMode);
-					finish(id, request.buffer, request.width, resolveForPixels(request.ops, pixels, mode), mode);
+					finish(id, request.buffer, request.width, resolveForPixels(request.ops, pixels, mode), mode, request.wasm);
 					break;
 				}
 				case "detect": {
@@ -62,7 +64,7 @@ function createWorkerHandler(post) {
 					const strip = held.get(id);
 					if (!strip) throw new Error(`No strip held for job ${id}.`);
 					held.delete(id);
-					finish(id, strip.buffer, strip.width, request.ops, request.mode);
+					finish(id, strip.buffer, strip.width, request.ops, request.mode, request.wasm);
 					break;
 				}
 				case "release": held.delete(id);

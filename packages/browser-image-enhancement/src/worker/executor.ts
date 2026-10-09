@@ -15,6 +15,7 @@
 import { abortError, race, splitRows, stripCount, throwIfAborted, yieldToEventLoop } from '@browser-image/workers';
 import { grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps } from '../core/histogram.js';
 import { compile, processPixels, resolveMode, type ResolvedMode } from '../core/process.js';
+import { wasmEnabled } from '../core/wasm.js';
 import { marginOf } from '../ops/index.js';
 import type { ColorMode, Histogram, ImageDataLike, OpSpec } from '../types.js';
 import { getPool, WorkerUnavailableError, type Slot, type WorkerPool } from './pool.js';
@@ -120,7 +121,7 @@ async function runInWorkers(
     const buffer = image.data.slice(from * rowBytes, to * rowBytes).buffer;
     const reply = twoPhase
       ? pool.request(slots[i], { type: 'detect', id: ids[i], buffer, width, core, stats: statsMode }, [buffer])
-      : pool.request(slots[i], { type: 'run', id: ids[i], buffer, width, ops, colorMode }, [buffer]);
+      : pool.request(slots[i], { type: 'run', id: ids[i], buffer, width, ops, colorMode, wasm: wasmEnabled() }, [buffer]);
     // A strip may fail while later strips are still being sent; it is handled
     // by the Promise.all below, so don't let it surface as an unhandled rejection.
     reply.catch(() => {});
@@ -147,7 +148,7 @@ async function runInWorkers(
       const merged = mergeHistograms(reports.map((r) => r.stats as Histogram));
       resolved = resolveOps(ops, mode === 'gray' ? grayFromRgb(merged) : merged);
     }
-    pending = ids.map((id, i) => pool.request(slots[i], { type: 'process', id, ops: resolved, mode }));
+    pending = ids.map((id, i) => pool.request(slots[i], { type: 'process', id, ops: resolved, mode, wasm: wasmEnabled() }));
   }
 
   if (pending.length === 1) {

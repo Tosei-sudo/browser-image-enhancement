@@ -57,17 +57,21 @@ function inverse(F: (v: number) => number, target: number): number {
   return fromKey(hi);
 }
 
+/**
+ * The fields are read by the WebAssembly engine (core/wasm.ts), which copies
+ * them into its own memory and runs the same `quantize`.
+ */
 export class Quantizer {
   /** thresholds[k] = s_k; thresholds[255] = +Infinity as a sentinel. */
-  private readonly thresholds = new Float64Array(256);
+  readonly thresholds = new Float64Array(256);
   /** Code for inputs below the first finite threshold (count of -Infinity thresholds). */
-  private readonly floor: number;
+  readonly floor: number;
   /** Code for inputs at or above the last finite threshold. */
-  private readonly lo: number;
-  private readonly hi: number;
-  private readonly ceil: number;
-  private readonly scale: number;
-  private readonly base = new Uint8Array(BUCKETS);
+  readonly lo: number;
+  readonly hi: number;
+  readonly ceil: number;
+  readonly scale: number;
+  readonly base = new Uint8Array(BUCKETS);
 
   /** `F` must be non-decreasing. Omit it for plain linear -> 8-bit rounding. */
   constructor(F?: (v: number) => number) {

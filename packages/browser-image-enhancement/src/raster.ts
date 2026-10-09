@@ -391,6 +391,28 @@ function perBand(v: number | readonly number[], n: number, name: string): number
 }
 
 /**
+ * The picture bands as float RGBA, unstretched: R, G, B the raw values (one
+ * band repeated for gray), A 1, or all 0 where the pixel is hidden. For
+ * drawing raw values on the GPU, which stretches them itself.
+ * @internal
+ */
+export function rasterToFloatRGBA(raster: Raster): Float32Array {
+  const l = layout(raster);
+  const pixels = raster.width * raster.height;
+  const out = new Float32Array(pixels * 4);
+  const d = raster.data;
+  const [r, g, b] = l.picture.length === 1 ? [l.picture[0], l.picture[0], l.picture[0]] : l.picture;
+  for (let i = 0, p = 0, o = 0; i < pixels; i++, p += l.bands, o += 4) {
+    if (hidden(d, p, l)) continue;
+    out[o] = d[p + r];
+    out[o + 1] = d[p + g];
+    out[o + 2] = d[p + b];
+    out[o + 3] = 1;
+  }
+  return out;
+}
+
+/**
  * Stretches a raster to an 8-bit sRGB image (`ImageData`) that pipelines can
  * correct: raw values from black to white map linearly onto 0-255, values
  * outside are clipped, and transparent, no-data and NaN pixels become
