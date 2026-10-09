@@ -92,18 +92,8 @@ test('multipatch buildings stand on the relief and are picked like features', as
     { name: 'buildings.dbf', bytes: dbf([{ name: 'NAME', length: 8 }], [[ascii('tower')], [ascii('hall')]]) },
   ]);
   await expect(page.locator('#globe-section')).toContainText('buildings: 2 件');
-  await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.501, lat: 35.242, height: 1150, heading: 0, pitch: -8 }));
-  const probe = setInterval(() => {
-    void page
-      .evaluate(() => {
-        const g = window.viewer.globe.globe()! as unknown as { imagery_: Array<{ imageryProvider: { waiting_: number; blocks_: Map<string, unknown> } }>; widget: { scene: { globe: { tilesLoaded: boolean } } } };
-        return JSON.stringify({ p: g.imagery_.map((l) => `${l.imageryProvider.waiting_}/${l.imageryProvider.blocks_.size}`), loaded: g.widget.scene.globe.tilesLoaded, text: document.querySelector('.globe-loading')!.textContent });
-      })
-      .then((t) => console.log(t))
-      .catch(() => {});
-  }, 5000);
+  await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.501, lat: 35.2455, height: 1500, heading: 0, pitch: -30 }));
   await settled(page, 'with the buildings');
-  clearInterval(probe);
   await page.screenshot({ path: 'test-results/globe-buildings.png' });
   // A click on the tower selects it in the attribute table.
   const tower = await page.evaluate(() => {

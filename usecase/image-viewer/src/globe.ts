@@ -147,10 +147,12 @@ class MapImageryProvider {
     const n = level === 0 ? 1 : BLOCK;
     const bx = x - (x % n);
     const by = y - (y % n);
+    // Replaced by a newer drawing of the map: nothing more is drawn here, the tiles it has stay until it goes.
+    if (this.disposed_) return Promise.resolve(emptyTile());
     const key = `${level}/${bx}/${by}`;
     let block = this.blocks_.get(key);
     if (!block) {
-      if (this.waiting_ >= MAX_WAITING || this.disposed_) return undefined;
+      if (this.waiting_ >= MAX_WAITING) return undefined;
       const first = tileExtent(bx, by, level);
       const size = first[2] - first[0];
       const blockExtent: Extent = [first[0], first[3] - size * n, first[0] + size * n, first[3]];
@@ -239,6 +241,7 @@ export class Globe {
   private imagery_: ImageryLayer[] = [];
   private natural_: ImageryLayer | null = null;
   private refreshTimer_ = 0;
+  private dropTimer_ = 0;
   /** {@link layerSignature} when the layers were last drawn. */
   private drawn_ = '';
   /** The layers changed while tiles were being drawn. */
@@ -247,7 +250,7 @@ export class Globe {
   private cells_: Dted[] = [];
   private terrainOn_ = true;
   private heightMode_: HeightMode = 'auto';
-  private patches_: Primitive[] = [];
+  private patches_: Array<{ primitive: Primitive; ids: Array<{ layer: ViewerService; feature: Feature }> }> = [];
   private patchesKey_ = '';
   private readonly tilesets_: TilesetEntry[] = [];
   private viewshed_: ViewshedEntry | null = null;
@@ -377,6 +380,10 @@ export class Globe {
     this.drawn_ = layerSignature(this.context.map);
     const provider = new MapImageryProvider(this.renderer, dataExtent(this.context.map), () => scene.requestRender());
     const layer = new ImageryLayer(provider as unknown as ImageryProvider, {});
+    // The older drawings stop drawing, and go once the new one has loaded the view (or after a few seconds).
+    for (const old of this.imagery_) (old.imageryProvider as unknown as MapImageryProvider).dispose();
+    clearTimeout(this.dropTimer_);
+    this.dropTimer_ = window.setTimeout(() => this.dropOldImagery_(), 5000);
     scene.imageryLayers.add(layer);
     this.imagery_.push(layer);
     void this.updateTerrain_();
@@ -547,7 +554,7 @@ export class Globe {
     if (!force && key === this.patchesKey_) return;
     this.patchesKey_ = key;
     const primitives = this.widget.scene.primitives;
-    for (const p of this.patches_.splice(0)) primitives.remove(p);
+    for (const p of this.patches_.splice(0)) primitives.remove(p.primitive);
     for (const { layer } of layers) {
       const instances: GeometryInstance[] = [];
       const opacity = layer.layer.getOpacity();
@@ -565,7 +572,7 @@ export class Globe {
         // Geometries made here cannot go to Cesium's workers.
         asynchronous: false,
       });
-      this.patches_.push(primitives.add(primitive));
+      this.patches_.push({ primitive: primitives.add(primitive), ids: instances.map((i) => i.id as { layer: ViewerService; feature: Feature }) });
     }
     this.widget.scene.requestRender();
   }
@@ -614,10 +621,10 @@ export class Globe {
 
   /** Selected features in yellow. */
   private highlight_(): void {
-    for (const primitive of this.patches_) {
+    // The primitive lets its instances go once built: the ids are kept here.
+    for (const { primitive, ids } of this.patches_) {
       if (!primitive.ready) continue;
-      for (const instance of primitive.geometryInstances as GeometryInstance[]) {
-        const id = instance.id as { layer: ViewerService; feature: Feature };
+      for (const id of ids) {
         const attributes = primitive.getGeometryInstanceAttributes(id);
         if (!attributes) continue;
         const color = (this.context.selection.has(id.feature) ? SELECTED : PATCH_COLOR).withAlpha(id.layer.layer.getOpacity());
