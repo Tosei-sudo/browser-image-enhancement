@@ -402,11 +402,21 @@ export function rasterToFloatRGBA(raster: Raster): Float32Array {
   const out = new Float32Array(pixels * 4);
   const d = raster.data;
   const [r, g, b] = l.picture.length === 1 ? [l.picture[0], l.picture[0], l.picture[0]] : l.picture;
-  for (let i = 0, p = 0, o = 0; i < pixels; i++, p += l.bands, o += 4) {
-    if (hidden(d, p, l)) continue;
-    out[o] = d[p + r];
-    out[o + 1] = d[p + g];
-    out[o + 2] = d[p + b];
+  const bands = l.bands;
+  const alpha = l.alpha;
+  // NaN stands for "no no-data value": no value equals it.
+  const noData = l.noData ?? NaN;
+  // The checks of `hidden`, inlined: this runs on every tile drawn on the GPU.
+  for (let i = 0, p = 0, o = 0; i < pixels; i++, p += bands, o += 4) {
+    if (alpha >= 0 && d[p + alpha] === 0) continue;
+    const vr = d[p + r];
+    const vg = d[p + g];
+    const vb = d[p + b];
+    // NaN and ±Infinity count as no data (v - v is NaN for both).
+    if (vr - vr !== 0 || vg - vg !== 0 || vb - vb !== 0 || vr === noData || vg === noData || vb === noData) continue;
+    out[o] = vr;
+    out[o + 1] = vg;
+    out[o + 2] = vb;
     out[o + 3] = 1;
   }
   return out;

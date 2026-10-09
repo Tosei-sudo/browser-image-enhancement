@@ -303,11 +303,18 @@ function rasterToFloatRGBA(raster) {
 		l.picture[0],
 		l.picture[0]
 	] : l.picture;
-	for (let i = 0, p = 0, o = 0; i < pixels; i++, p += l.bands, o += 4) {
-		if (hidden(d, p, l)) continue;
-		out[o] = d[p + r];
-		out[o + 1] = d[p + g];
-		out[o + 2] = d[p + b];
+	const bands = l.bands;
+	const alpha = l.alpha;
+	const noData = l.noData ?? NaN;
+	for (let i = 0, p = 0, o = 0; i < pixels; i++, p += bands, o += 4) {
+		if (alpha >= 0 && d[p + alpha] === 0) continue;
+		const vr = d[p + r];
+		const vg = d[p + g];
+		const vb = d[p + b];
+		if (vr - vr !== 0 || vg - vg !== 0 || vb - vb !== 0 || vr === noData || vg === noData || vb === noData) continue;
+		out[o] = vr;
+		out[o + 1] = vg;
+		out[o + 2] = vb;
 		out[o + 3] = 1;
 	}
 	return out;

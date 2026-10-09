@@ -5,6 +5,7 @@ import { normalizeOp } from '../../src/ops/index.js';
 import type { OpSpec } from '../../src/types.js';
 import { execute, executeOnMainThread, splitRows } from '../../src/worker/executor.js';
 import { createWorkerHandler } from '../../src/worker/handler.js';
+import { drawTriangles } from '../../src/openlayers/reproject-kernel.js';
 import { configureWorkers, getPool, terminateWorkers, WorkerPool, type WorkerLike } from '../../src/worker/pool.js';
 import type { WorkerRequest, WorkerResponse } from '../../src/worker/protocol.js';
 import { grayImage, image, isGrayPixels, noiseImage, pixel } from '../helpers.js';
@@ -135,6 +136,20 @@ describe('worker message handler', () => {
     handle({ type: 'release', id: 4 });
     handle({ type: 'process', id: 4, ops: [], mode: 'rgb', wasm: true });
     expect(out[1]).toMatchObject({ type: 'error', id: 4 });
+  });
+
+  it('reproject: draws the triangles as on the main thread', () => {
+    const { out, handle } = collect();
+    const stitch = new Float32Array(10 * 8 * 2).map((_, i) => i * 0.5);
+    // Two triangles covering a 6 × 4 tile, mapped onto a scaled and shifted part of the stitch.
+    const corners = new Float64Array([0, 0, 6, 0, 0, 4, 1, 1, 8, 1, 1, 7, 6, 0, 6, 4, 0, 4, 8, 1, 8, 7, 1, 7]);
+    const job = { stitch, sw: 10, sh: 8, bands: 2, width: 6, height: 4, corners, bounds: [0, 10, 0, 8], linear: true };
+    const want = drawTriangles({ ...job, stitch: stitch.slice(), corners: corners.slice() });
+    handle({ type: 'reproject', id: -1, job: { ...job, stitch: stitch.buffer, corners: corners.buffer, float: true } });
+    const done = out[0] as Extract<WorkerResponse, { type: 'reprojected' }>;
+    expect(done).toMatchObject({ type: 'reprojected', id: -1 });
+    expect(Array.from(new Float32Array(done.buffer))).toEqual(Array.from(want));
+    expect(Array.from(want).some((v) => v > 0)).toBe(true);
   });
 
   it('reports errors instead of throwing', () => {

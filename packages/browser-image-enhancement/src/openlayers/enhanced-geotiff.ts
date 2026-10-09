@@ -66,6 +66,7 @@ import { reprojectOnCpu } from './cpu-reproject.js';
 import { readBandNames, type TiffImageLike } from './tiff-metadata.js';
 import { floatNoData, isEightBit, keepEightBitRange } from './geotiff-samples.js';
 import { floatTexturesFilterable } from './float-textures.js';
+import { fastReadRasters } from './fast-read.js';
 import { colorModeFor, maskNoData, selectRGBA, toRgb, toRGBA, toSelectedTile, fromRGBA } from './tile-pixels.js';
 
 /** The part of geotiff.js's `ImageFileDirectory` used to preload the tile index. */
@@ -698,6 +699,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.packTiles_();
     super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
     this.preloadTileIndex_();
+    const self = this as unknown as { sourceImagery_?: unknown[][]; sourceMasks_?: unknown[][] };
+    for (const list of [self.sourceImagery_, self.sourceMasks_]) list?.forEach((levels) => levels?.forEach(fastReadRasters));
   }
 
   /**

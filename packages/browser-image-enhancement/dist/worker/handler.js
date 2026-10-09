@@ -1,6 +1,7 @@
 import { configureWasm } from "../core/wasm.js";
 import { compile, isMonochrome, processPixels, resolveMode } from "../core/process.js";
 import { countPixels, resolveForPixels } from "../core/histogram.js";
+import { drawTriangles } from "../openlayers/reproject-kernel.js";
 //#region src/worker/handler.ts
 /**
 * Worker-side message handling, kept free of worker globals so it can be tested directly.
@@ -67,7 +68,23 @@ function createWorkerHandler(post) {
 					finish(id, strip.buffer, strip.width, request.ops, request.mode, request.wasm);
 					break;
 				}
-				case "release": held.delete(id);
+				case "release":
+					held.delete(id);
+					break;
+				case "reproject": {
+					const { stitch, corners, float, ...rest } = request.job;
+					const out = drawTriangles({
+						...rest,
+						stitch: float ? new Float32Array(stitch) : new Uint8ClampedArray(stitch),
+						corners: new Float64Array(corners)
+					});
+					post({
+						type: "reprojected",
+						id,
+						buffer: out.buffer
+					}, [out.buffer]);
+					break;
+				}
 			}
 		} catch (e) {
 			post({
