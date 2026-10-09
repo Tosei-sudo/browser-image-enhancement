@@ -29,6 +29,8 @@
         </div>
         <button type="button" id="add-service" class="bar-button">サービスを追加</button>
         <div id="basemap"></div>
+        <!-- The 3D view (CesiumJS, loaded on first use): src/globe-panel.ts, src/globe.ts. -->
+        <button type="button" id="globe-toggle" class="bar-button" aria-pressed="false" data-key="3" aria-keyshortcuts="3" title="立体（3D）表示に切り替えます（3）">3D</button>
         <form id="jump" class="jump" role="search">
           <input type="text" name="coordinate" placeholder="緯度経度・MGRS・UTM" aria-label="座標へ移動" autocomplete="off" />
           <button type="submit" class="bar-button">移動</button>
@@ -68,6 +70,10 @@
             左上のボタンでローカルの画像・GeoTIFF・Shapefile・GeoJSON・GeoPackage・CSV を選ぶか、COG の URL を入力してください。表示エリアへのドラッグ＆ドロップでも開けます。「サービスを追加」で WMS・WMTS・WFS・Esri フィーチャーサービスのレイヤーも重ねられます。
           </p>
         </section>
+        <details class="fold" data-fold="globe" id="globe-section" open hidden>
+          <summary><h2 id="globe-title">3D</h2></summary>
+          <div id="globe" class="globe-panel"></div>
+        </details>
         <details class="fold" data-fold="points" open>
           <summary><h2 id="points-title">ポイント</h2></summary>
           <ol id="points" class="points"></ol>

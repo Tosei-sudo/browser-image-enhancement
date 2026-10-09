@@ -14,12 +14,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@cesium/core": "^0.1.0",
+    "@cesium/engine": "^26.4.0",
     "@sqlite.org/sqlite-wasm": "^3.53.4-build2",
     "browser-image-enhancement": "0.1.0",
     "browser-image-geometry": "0.1.0",
     "but-unzip": "^0.1.10",
     "coordinate-notation": "0.1.0",
     "d3-delaunay": "^6.0.4",
+    "earcut": "^3.2.4",
     "geographiclib-geodesic": "^2.2.0",
     "geotiff": "^3.1.0-beta.0",
     "jsts": "^2.12.1",

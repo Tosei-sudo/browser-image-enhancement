@@ -22,6 +22,78 @@ export function shp(points: Array<[number, number]>): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+/** One patch of a multipatch: Esri's part type (0 strip, 1 fan, 2 outer ring, 3 inner ring…) and x, y, z points. */
+export type PatchFixture = { type: number; points: Array<[number, number, number]> };
+
+/** A MultiPatch Shapefile's .shp (shape type 31) with one shape per entry. */
+export function multipatchShp(shapes: PatchFixture[][]): Uint8Array<ArrayBuffer> {
+  const records = shapes.map((parts) => {
+    const n = parts.reduce((k, p) => k + p.points.length, 0);
+    const length = 44 + 8 * parts.length + 16 * n + 16 + 8 * n;
+    const bytes = new Uint8Array(length);
+    const v = new DataView(bytes.buffer);
+    const all = parts.flatMap((p) => p.points);
+    v.setInt32(0, 31, true);
+    const xs = all.map((p) => p[0]);
+    const ys = all.map((p) => p[1]);
+    const zs = all.map((p) => p[2]);
+    [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].forEach((b, i) => v.setFloat64(4 + i * 8, b, true));
+    v.setInt32(36, parts.length, true);
+    v.setInt32(40, n, true);
+    let first = 0;
+    parts.forEach((p, i) => {
+      v.setInt32(44 + 4 * i, first, true);
+      v.setInt32(44 + 4 * parts.length + 4 * i, p.type, true);
+      first += p.points.length;
+    });
+    const xyAt = 44 + 8 * parts.length;
+    all.forEach(([x, y], i) => {
+      v.setFloat64(xyAt + 16 * i, x, true);
+      v.setFloat64(xyAt + 16 * i + 8, y, true);
+    });
+    const zAt = xyAt + 16 * n;
+    v.setFloat64(zAt, Math.min(...zs), true);
+    v.setFloat64(zAt + 8, Math.max(...zs), true);
+    zs.forEach((z, i) => v.setFloat64(zAt + 16 + 8 * i, z, true));
+    return bytes;
+  });
+  const total = 100 + records.reduce((k, r) => k + 8 + r.length, 0);
+  const bytes = new Uint8Array(total);
+  const v = new DataView(bytes.buffer);
+  v.setInt32(0, 9994);
+  v.setInt32(24, total / 2);
+  v.setInt32(28, 1000, true);
+  v.setInt32(32, 31, true);
+  let at = 100;
+  records.forEach((r, i) => {
+    v.setInt32(at, i + 1);
+    v.setInt32(at + 4, r.length / 2);
+    bytes.set(r, at + 8);
+    at += 8 + r.length;
+  });
+  return bytes;
+}
+
+/**
+ * A box building as Esri writes one: the walls as one triangle strip around
+ * it, the roof and the floor as outer rings. `x`, `y` is its south-west
+ * corner, `w` × `d` its size and `z0`, `z1` its floor and roof heights.
+ */
+export function boxBuilding(x: number, y: number, w: number, d: number, z0: number, z1: number): PatchFixture[] {
+  const corners: Array<[number, number]> = [
+    [x, y],
+    [x + w, y],
+    [x + w, y + d],
+    [x, y + d],
+    [x, y],
+  ];
+  return [
+    { type: 0, points: corners.flatMap(([cx, cy]) => [[cx, cy, z0] as [number, number, number], [cx, cy, z1] as [number, number, number]]) },
+    { type: 2, points: corners.map(([cx, cy]) => [cx, cy, z1]) },
+    { type: 2, points: corners.map(([cx, cy]) => [cx, cy, z0]) },
+  ];
+}
+
 /** A .dbf with character fields; `values` are the raw bytes of each cell. */
 export function dbf(fields: Array<{ name: string; type?: string; length: number }>, rows: number[][][], ldid = 0): Uint8Array<ArrayBuffer> {
   const headerLength = 32 + fields.length * 32 + 1;

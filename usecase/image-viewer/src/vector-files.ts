@@ -14,6 +14,7 @@ import proj4 from 'proj4';
 import { readGeoPackage, type GeoPackageTable } from './geopackage.js';
 import { epsgCode } from './services/common.js';
 import { wgs84, type TargetCrs } from './vector-write.js';
+import { footprintOf, MULTIPATCH_SHAPE_TYPE, readMultiPatches, setMultiPatch, transformMultiPatch, type MultiPatch } from './multipatch.js';
 
 /** A file by name, as bytes: chosen, dropped, or found in a .zip. */
 export interface NamedBytes {
@@ -167,7 +168,23 @@ export function dbfEncoding(dbf: Uint8Array, cpg?: string): string {
 export function readShapefile(title: string, parts: { shp: Uint8Array; dbf?: Uint8Array; prj?: string; cpg?: string }): VectorFile {
   let geometries: Array<{ type: string } | null>;
   let crs = 'WGS 84（.prj なし）';
-  if (parts.prj) {
+  let patches: Array<MultiPatch | null> = [];
+  const rawType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true);
+  if (rawType === MULTIPATCH_SHAPE_TYPE) {
+    // 3D shapes: their footprints on the map, their triangles for the 3D view.
+    let toLonLat = (xy: [number, number]): number[] => xy;
+    if (parts.prj) {
+      try {
+        const forward = proj4(parts.prj, 'EPSG:4326').forward;
+        toLonLat = (xy) => forward(xy);
+        crs = /^\s*\w+\["([^"]+)"/.exec(parts.prj)?.[1] ?? '.prj';
+      } catch {
+        throw new Error(`${title}.prj の座標系を読めませんでした`);
+      }
+    }
+    patches = readMultiPatches(parts.shp).map((p) => p && transformMultiPatch(p, toLonLat));
+    geometries = patches.map((p) => p && { type: 'MultiPolygon', coordinates: footprintOf(p) });
+  } else if (parts.prj) {
     try {
       geometries = parseShp(parts.shp, parts.prj);
       crs = /^\s*\w+\["([^"]+)"/.exec(parts.prj)?.[1] ?? '.prj';
@@ -197,12 +214,14 @@ export function readShapefile(title: string, parts: { shp: Uint8Array; dbf?: Uin
     }),
   };
   const features = format.readFeatures(collection) as Feature[];
+  patches.forEach((p, i) => p && features[i] && setMultiPatch(features[i], p));
   if (!parts.prj && !inLonLat(features)) {
     throw new Error(`${title}.prj（座標系）がありません。.shp と一緒に .prj も選んでください`);
   }
   const fields = fieldsOf(features).map((f) => (dates.has(f.name) ? { ...f, type: 'date' as const } : f));
   const shapeType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true) % 10;
-  const geometryType = ({ 1: 'Point', 3: 'LineString', 5: 'Polygon', 8: 'MultiPoint' } as const)[shapeType as 1 | 3 | 5 | 8] ?? null;
+  // A multipatch is written back as its footprint.
+  const geometryType = rawType === MULTIPATCH_SHAPE_TYPE ? 'Polygon' : (({ 1: 'Point', 3: 'LineString', 5: 'Polygon', 8: 'MultiPoint' } as const)[shapeType as 1 | 3 | 5 | 8] ?? null);
   return { title, format: 'Shapefile', features: toWebMercator(features), fields, crs, encoding, geometryType, writeCrs: parts.prj ? prjCrs(parts.prj, crs) : wgs84 };
 }
 

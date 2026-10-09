@@ -1,7 +1,8 @@
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, extname, join, relative } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 /** Short hash of the commit being built, or '' outside a git checkout. */
@@ -51,8 +52,47 @@ function serviceWorker(): Plugin {
   };
 }
 
+/** CesiumJS's workers, WebAssembly and assets (the 3D view loads them at run time from `cesium/`). */
+const cesiumBuild = join(dirname(createRequire(import.meta.url).resolve('@cesium/engine/package.json')), 'Build');
+
+const contentTypes: Record<string, string> = {
+  '.js': 'text/javascript',
+  '.json': 'application/json',
+  '.wasm': 'application/wasm',
+  '.css': 'text/css',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.xml': 'application/xml',
+};
+
+/**
+ * Puts CesiumJS's run-time files into the build under `cesium/` (and serves
+ * them there in development), so the 3D view needs no CDN or network: it
+ * works in a closed network and offline like the rest of the site.
+ */
+function cesiumAssets(): Plugin {
+  return {
+    name: 'image-viewer-cesium-assets',
+    configureServer(server) {
+      server.middlewares.use('/cesium/', (req, res, next) => {
+        const path = join(cesiumBuild, decodeURIComponent((req.url ?? '').split('?')[0]));
+        if (!path.startsWith(cesiumBuild) || !statSync(path, { throwIfNoEntry: false })?.isFile()) return next();
+        res.setHeader('Content-Type', contentTypes[extname(path)] ?? 'application/octet-stream');
+        res.end(readFileSync(path));
+      });
+    },
+    generateBundle() {
+      for (const file of filesOf(cesiumBuild)) {
+        if (file.endsWith('.map')) continue;
+        this.emitFile({ type: 'asset', fileName: `cesium/${file}`, source: readFileSync(join(cesiumBuild, file)) });
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [serviceWorker()],
+  plugins: [cesiumAssets(), serviceWorker()],
   // Shown at the bottom of the side panel (src/build-info.ts).
   define: {
     __BUILD_INFO__: JSON.stringify({
