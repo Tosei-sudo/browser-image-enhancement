@@ -53,6 +53,23 @@ const GEOID_STEP = 0.5;
 const GEOID_COLUMNS = 360 / GEOID_STEP;
 const GEOID_ROWS = 180 / GEOID_STEP + 1;
 
+let geoid: Promise<GeoidGrid> | null = null;
+
+/** The EGM96 geoid grid (fetched once, from the site). */
+export function loadGeoid(): Promise<GeoidGrid> {
+  geoid ??= fetch(new URL('./egm96.bin', import.meta.url))
+    .then((r) => {
+      if (!r.ok) throw new Error('ジオイドのデータを読み込めませんでした');
+      return r.arrayBuffer();
+    })
+    .then((b) => new Int16Array(b))
+    .catch((error) => {
+      geoid = null;
+      throw error;
+    });
+  return geoid;
+}
+
 /** Height of the EGM96 geoid above the WGS 84 ellipsoid in metres (bilinear on the 0.5° grid: within about 0.1 m, rarely 3 m). */
 export function geoidHeight(grid: GeoidGrid, lon: number, lat: number): number {
   const x = ((((lon + 180) % 360) + 360) % 360) / GEOID_STEP;

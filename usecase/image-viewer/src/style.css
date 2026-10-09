@@ -1540,3 +1540,147 @@ body {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+
+/* The 3D view (globe.ts): over the map's layers, under its controls. */
+.globe {
+  position: absolute;
+  inset: 0;
+  background: #0b1020;
+}
+.globe[hidden] {
+  display: none;
+}
+.globe .cesium-widget,
+.globe .cesium-widget canvas {
+  width: 100%;
+  height: 100%;
+}
+.globe.picking canvas {
+  cursor: crosshair;
+}
+/* The 2D view's own zoom and rotate buttons, and what tells about the 2D view, step aside in 3D. */
+.globe-open .ol-zoom,
+.globe-open .ol-rotate,
+.globe-open .rset-shown,
+.globe-open .swipe-bar {
+  display: none;
+}
+#globe-toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.globe-panel {
+  font-size: 13px;
+}
+.globe-panel h3 {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.globe-panel p {
+  margin: 0 0 6px;
+}
+.globe-hint,
+.globe-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.globe-loading {
+  color: var(--accent);
+  font-size: 12px;
+}
+.globe-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.globe-range,
+.globe-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.globe-range input {
+  flex: 1;
+  min-width: 0;
+}
+.globe-field select {
+  min-width: 0;
+  max-width: 11em;
+}
+.globe-field input {
+  width: 4.5em;
+}
+.globe-panel input[type='number'],
+.globe-panel input[type='url'],
+.globe-panel select {
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+}
+.globe-panel button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.globe-panel button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.globe-panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.globe-tileset {
+  display: flex;
+  gap: 4px;
+}
+.globe-tileset input {
+  flex: 1;
+  min-width: 0;
+}
+.globe-tilesets {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.globe-tilesets li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.globe-panel .globe-tileset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border: none;
+  padding: 2px 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.globe-more summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.globe-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}

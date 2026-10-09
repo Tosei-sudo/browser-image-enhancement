@@ -25,7 +25,7 @@ import { rasterToGeoTIFF, type EnhancedGeoTIFF, type GeoTIFFSamples, type LoadIm
 import { pipeline, type Pipeline } from 'browser-image-enhancement';
 import type { Raster, Resample } from 'browser-image-geometry';
 import { readDted, type Dted } from './dted.js';
-import { coversAny, elevationAt, elevationRange, type GeoidGrid } from './dem.js';
+import { coversAny, elevationAt, elevationRange, loadGeoid, type GeoidGrid } from './dem.js';
 import { dtedToGeoTIFF } from './dem-layer.js';
 import { ContourLayer } from './contour-layer.js';
 import { gridOfDted, niceInterval } from './contours.js';
@@ -89,7 +89,6 @@ export class GeometricMode {
   private readonly geoImages_ = new WeakMap<ViewerImage, GeoImage>();
   private shifting_ = false;
   private busy_ = false;
-  private geoidGrid_: Promise<GeoidGrid> | null = null;
   private readonly drag_: PointerInteraction;
 
   constructor(
@@ -643,13 +642,7 @@ export class GeometricMode {
   }
 
   private geoid_(): Promise<GeoidGrid> {
-    this.geoidGrid_ ??= fetch(new URL('./egm96.bin', import.meta.url))
-      .then((r) => {
-        if (!r.ok) throw new Error('ジオイドのデータを読み込めませんでした');
-        return r.arrayBuffer();
-      })
-      .then((b) => new Int16Array(b));
-    return this.geoidGrid_;
+    return loadGeoid();
   }
 }
 

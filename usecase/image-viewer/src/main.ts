@@ -65,6 +65,7 @@ import { SwipeTool } from './swipe.js';
 import { HistogramPanel } from './histogram-panel.js';
 import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
+import { GlobeToggle } from './globe-panel.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -135,6 +136,7 @@ bindShortcuts({
   d: press('measure-distance'),
   a: press('measure-area'),
   p: press('add-point'),
+  '3': press('globe-toggle'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -424,13 +426,18 @@ const project = new ProjectControl({
 });
 new ToolMenu(document.getElementById('project-menu')!);
 document.getElementById('project-open')!.addEventListener('click', () => void project.choose());
-document.getElementById('project-save')!.addEventListener('click', () => void project.save());
-document.getElementById('project-save-as')!.addEventListener('click', () => void project.save(true));
+/** Saves the project; in 3D the view saved is where the camera looks. */
+const saveProject = (as = false) => {
+  const globe = globeToggle.globe();
+  return globe ? globe.withTwoDView(() => project.save(as)) : project.save(as);
+};
+document.getElementById('project-save')!.addEventListener('click', () => void saveProject());
+document.getElementById('project-save-as')!.addEventListener('click', () => void saveProject(true));
 // Ctrl+S (⌘S): save the project rather than the page; with Shift, under another name.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
     e.preventDefault();
-    void project.save(e.shiftKey);
+    void saveProject(e.shiftKey);
   }
 });
 
@@ -439,6 +446,7 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
   say,
   onChange: (image) => {
     if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+    geometryChanged();
   },
   onPipeline: (p) => enhance.setPipeline(p),
 });
@@ -514,6 +522,42 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (ortho) return [['オルソ補正', `${ortho.sourceName} から`]];
   return [];
 }
+
+// The 3D view: the 2D layers draped over a WGS 84 globe, DEM relief, 3D Tiles, multipatches and the viewshed.
+// The tools that work on the 2D view wait while it is open.
+const twoDOnly = ['measure-distance', 'measure-area', 'add-point', 'save-view', 'swipe', 'histogram-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
+const globeToggle = new GlobeToggle(map, {
+  button: document.getElementById('globe-toggle') as HTMLButtonElement,
+  section: document.getElementById('globe-section')!,
+  panel: document.getElementById('globe')!,
+  context: {
+    map,
+    images,
+    selection,
+    cells: () => geometry.cells(),
+    showFeature: (layer, feature) => {
+      if (images.selectedLayer() !== layer) images.select(layer);
+      selection.set([feature]);
+      table.scrollTo(feature);
+    },
+    say,
+  },
+  onToggle: (open) => {
+    if (open) {
+      measure.setMode(null);
+      points.setAdding(false);
+      if (swipe.isActive()) swipe.setActive(false);
+      if (histogramPanel.isOpen()) histogramPanel.setOpen(false);
+    }
+    for (const b of twoDOnly) {
+      b.disabled = open;
+      if (open) b.dataset.title2d ??= b.title;
+      b.title = open ? '3D 表示では使えません（「3D」でもとに戻します）' : (b.dataset.title2d ?? b.title);
+    }
+  },
+});
+// A DEM opened or closed changes the relief.
+const geometryChanged = () => globeToggle.globe()?.scheduleRefresh();
 
 // DRA follows the view for every image; the panel already does it for the selected one.
 map.on('moveend', () => {
@@ -610,7 +654,8 @@ declare global {
       viewExport: ViewExportDialog;
       project: ProjectControl;
       rset: typeof rsetSettings;
+      globe: GlobeToggle;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle };
