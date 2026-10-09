@@ -416,7 +416,7 @@ slider.oninput = () => source.setPipeline(current());
 - `normalize: false` にすると、16bit や float の COG を元の値のまま読み、元の値の統計でバンドごとに 0〜255 に引き伸ばしてから補正します（QGIS と同じ考え方）。`normalize: true`（OpenLayers の既定）は 0〜65535 全体を 0〜255 に縮めるので、値が狭い範囲に集まる衛星画像（Landsat など）は数十段階に潰れ、あとから DRA を掛けてもまだらになります。`normalize: 'auto'` は 8bit 画像だけ従来どおり、それより深い画像は元の値で読みます（`LoadImageControl` の既定）。
   - パイプラインに `autoStretch`（DRA）がないときは `rawStretch` の設定で画像全体の統計から引き伸ばします。範囲を固定するときは `rawStretch: { black, white }`、自動ストレッチの設定を変えるときは `rawStretch: { lowPercent: 2, highPercent: 2 }` のように渡します。
   - `autoStretch` があるときは、その設定（方式・クリップ・RGB 連動）で元の値を表示範囲の統計（`updateDra(map)`）から引き伸ばし、8bit での `autoStretch` は掛けません。
-  - `correctTiles: false`（GPU で描画時に補正）とも組み合わせられます。タイルは引き伸ばした 8bit で持ち、引き伸ばしが変わったときだけ読み直します。
+  - `correctTiles: false`（GPU で描画時に補正）では、タイルを元の値のまま float でレイヤーに渡し、`GpuCorrectedTileLayer` のシェーダで引き伸ばします（`gpuStretch`、既定 true）。8bit に丸めるのは描くときの 1 回だけで、DRA や `rawStretch` を変えてもタイルは作り直さず、地図を描き直すだけです。float テクスチャを補間できないブラウザ（`OES_texture_float_linear` がない）や `gpuStretch: false` では、これまでどおり読み込み時に 8bit へ引き伸ばします。このときレイヤーの `getData()` は元の値を返します。表示した色が要るときは描いた canvas を読んでください
 
 WMS・WMTS・XYZ など普通の画像のタイルも、`ol/source/ImageTile`（`crossOrigin: 'anonymous'`）と `TileCorrection` で同じように GPU 補正できます。補正と DRA の統計は `TileCorrection` が持ち、DRA は描いた地図から統計を取ります。
 

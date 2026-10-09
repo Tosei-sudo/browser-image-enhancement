@@ -366,23 +366,30 @@ function range(a: number, b: number): number[] {
   return Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
 }
 
-test('16-bit raw values on the GPU: tiles hold the raw stretch, DRA stretches the raw values', async ({ page }) => {
+test('16-bit raw values on the GPU: the layer stretches the raw values, DRA only redraws the map', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page, '16');
   const [w, h] = await page.evaluate(() => window.example.map.getSize()!);
   const gpu = await page.evaluate(() => window.example.layer.hasGpu());
   expect(await page.evaluate(() => window.example.source.correctsTiles())).toBe(!gpu);
+  const onGpu = await page.evaluate(() => window.example.source.stretchesOnGpu());
+  // With float textures the tiles hold the raw values, as float RGBA.
+  if (onGpu) expect(await page.evaluate(() => window.example.layer.getData([300, 300]) instanceof Float32Array)).toBe(true);
+  const at = (x: number) => shown(page, [[w * x, h * 0.5]]).then((p) => p[0]);
 
   // Without DRA: the whole image's statistics, band by band.
   const whole = await page.evaluate(() => window.example.source.getDraInfo()!.rawStretch!);
   expect(whole.black[0]).toBeGreaterThanOrEqual(3000);
   expect(whole.white[0]).toBeLessThanOrEqual(7480);
-  const left = await sample(page, w * 0.3, h * 0.5);
-  const right = await sample(page, w * 0.7, h * 0.5);
+  if (onGpu) expect(await page.evaluate(() => window.example.source.getRawStretch())).toEqual({ black: whole.black, white: whole.white });
+  const left = await at(0.3);
+  const right = await at(0.7);
   expect(right[0] - left[0]).toBeGreaterThan(60);
+  expect(left[3]).toBe(255);
 
   // DRA on: its options stretch the raw values, and the 8-bit pipeline has no autoStretch left.
+  const key = await page.evaluate(() => window.example.source.getKey());
   await page.evaluate(async () => {
     const { source, map } = window.example;
     source.setPipeline(source.getPipeline().autoStretch({ lowPercent: 20, highPercent: 20 }));
@@ -393,7 +400,9 @@ test('16-bit raw values on the GPU: tiles hold the raw stretch, DRA stretches th
   expect(dra.black[0]).toBeGreaterThan(whole.black[0]);
   expect(dra.white[0]).toBeLessThan(whole.white[0]);
   expect(await page.evaluate(() => window.example.source.getEffectivePipeline().get('autoStretch'))).toBeUndefined();
-  const contrasty = await sample(page, w * 0.7, h * 0.5);
+  // The shader stretches: no tile was rebuilt for the new stretch.
+  if (onGpu) expect(await page.evaluate(() => window.example.source.getKey())).toBe(key);
+  const contrasty = await at(0.7);
   expect(contrasty[0]).toBeGreaterThan(right[0]);
 
   // DRA off again: back to the whole image's stretch.
@@ -402,8 +411,24 @@ test('16-bit raw values on the GPU: tiles hold the raw stretch, DRA stretches th
     source.setPipeline(source.getPipeline().remove('autoStretch'));
   });
   await settle(page);
-  expect(await sample(page, w * 0.7, h * 0.5)).toEqual(right);
+  const back = await at(0.7);
+  for (let c = 0; c < 4; c++) expect(Math.abs(back[c] - right[c])).toBeLessThanOrEqual(1);
   expect(errors).toEqual([]);
+});
+
+test('16-bit raw values stretched in the shader match tiles stretched on the CPU', async ({ page }) => {
+  const [w, h] = [800, 600];
+  await page.setViewportSize({ width: w + 320, height: h });
+  const points = Array.from({ length: 30 }, (_, i): [number, number] => [w * (0.2 + i * 0.02), h * (0.3 + (i % 5) * 0.1)]);
+  await open(page, '16');
+  test.skip(!(await page.evaluate(() => window.example.source.stretchesOnGpu())), 'float textures cannot be filtered in this browser');
+  const gpu = await shown(page, points);
+  await open(page, '16&cpuStretch');
+  expect(await page.evaluate(() => window.example.source.stretchesOnGpu())).toBe(false);
+  const cpu = await shown(page, points);
+  for (let i = 0; i < points.length; i++) {
+    for (let c = 0; c < 4; c++) expect(Math.abs(gpu[i][c] - cpu[i][c])).toBeLessThanOrEqual(2);
+  }
 });
 
 test('16-bit raw values (normalize: false) are stretched from their own statistics, then corrected', async ({ page }) => {
