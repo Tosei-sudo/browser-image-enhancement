@@ -9,6 +9,7 @@ import { reprojectOnCpu } from "./cpu-reproject.js";
 import { readBandNames } from "./tiff-metadata.js";
 import { floatNoData, isEightBit, keepEightBitRange } from "./geotiff-samples.js";
 import { floatTexturesFilterable } from "./float-textures.js";
+import { fastReadRasters } from "./fast-read.js";
 import { colorModeFor, fromRGBA, maskNoData, selectRGBA, toRGBA, toRgb, toSelectedTile } from "./tile-pixels.js";
 import GeoTIFF from "ol/source/GeoTIFF.js";
 import { getHeight, getIntersection, getWidth, isEmpty } from "ol/extent.js";
@@ -587,6 +588,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		this.packTiles_();
 		super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
 		this.preloadTileIndex_();
+		const self = this;
+		for (const list of [self.sourceImagery_, self.sourceMasks_]) list?.forEach((levels) => levels?.forEach(fastReadRasters));
 	}
 	/**
 	* Hands the layer 4-band tiles (R, G, B, alpha) when the bands as read
