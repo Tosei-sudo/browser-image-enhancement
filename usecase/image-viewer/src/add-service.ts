@@ -3,6 +3,7 @@
  * token for secured Esri services, then the service's layers to tick and
  * add. WMTS layers also pick their tile matrix set and image format.
  */
+import { settingsOf } from './services/esri-rules.js';
 import { readService, serviceNames, type LayerChoice, type OpenContext, type ServiceCatalog, type ServiceKind, type ServiceLayer, type ServiceRef } from './services/index.js';
 
 export interface AddServiceOptions {
@@ -32,7 +33,7 @@ export class AddServiceDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="add-service-title">サービスを追加</h2>
-        <label class="wide">URL<input name="url" type="url" required placeholder="https://…/wms、…/FeatureServer など" aria-label="サービスの URL" /></label>
+        <label class="wide">URL<input name="url" type="url" required placeholder="https://…/wms、…/FeatureServer、…/MapServer、…/ImageServer など" aria-label="サービスの URL" /></label>
         <label>種類<select name="kind" aria-label="サービスの種類">
           <option value="auto">自動判定</option>
           ${(Object.entries(serviceNames) as Array<[ServiceKind, string]>).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}
@@ -159,7 +160,7 @@ export async function openRef(ref: ServiceRef, context: OpenContext): Promise<Se
   const catalog = await readService(ref.url, ref.kind);
   const choice = catalog.choices.find((c) => c.name === ref.layer);
   if (!choice) throw new Error(`レイヤー ${ref.layer} が見つかりません`);
-  return catalog.open(choice, context, { matrixSet: ref.matrixSet, format: ref.format });
+  return catalog.open(choice, context, { matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
 }
 
 /** A layer as a `service` URL parameter, and back. */
@@ -175,7 +176,11 @@ export function refKey(ref: ServiceRef): string {
 export function paramToRef(param: string): ServiceRef | null {
   try {
     const ref = JSON.parse(param) as ServiceRef;
-    return ref && typeof ref.url === 'string' && typeof ref.layer === 'string' && Object.hasOwn(serviceNames, ref.kind) ? ref : null;
+    if (!ref || typeof ref.url !== 'string' || typeof ref.layer !== 'string' || !Object.hasOwn(serviceNames, ref.kind)) return null;
+    const settings = settingsOf(ref.settings);
+    if (settings) ref.settings = settings;
+    else delete ref.settings;
+    return ref;
   } catch {
     return null;
   }

@@ -13,6 +13,8 @@ import type Projection from 'ol/proj/Projection.js';
 import { fromEPSGCode } from 'ol/proj/proj4.js';
 import type { TileCorrection } from 'browser-image-enhancement/openlayers';
 import type { EsriLayerInfo } from './esri.js';
+import type { EsriRaster } from './esri-raster.js';
+import type { EsriRasterSettings, ServiceRule } from './esri-rules.js';
 import type { EditTarget } from '../edit-session.js';
 import type { TargetCrs } from '../vector-write.js';
 import type { LayerStyle } from '../vector-style.js';
@@ -25,7 +27,7 @@ export const serviceNames: Record<ServiceKind, string> = {
   wms: 'WMS',
   wmts: 'WMTS',
   wfs: 'WFS',
-  esri: 'Esri フィーチャーサービス',
+  esri: 'Esri（Feature・Map・Image サーバー）',
 };
 
 /** One attribute of a vector layer. */
@@ -63,6 +65,8 @@ export interface ServiceRef {
   /** WMTS: tile matrix set and image format. */
   matrixSet?: string;
   format?: string;
+  /** Esri image and map services: what is drawn (attribute conditions, order, raster function, layers). */
+  settings?: EsriRasterSettings;
 }
 
 /** A layer of a service, added to the viewer. */
@@ -83,6 +87,8 @@ export interface ServiceLayer {
   styleKey?: string;
   /** Esri layer description, for Esri layers. */
   esri?: EsriLayerInfo;
+  /** Esri image services and map service maps: their display rules, for the rules dialog. */
+  raster?: EsriRaster;
   /** Where edits go, for an editable layer read from a file (Esri layers edit through `esri`). */
   editTarget?: EditTarget;
   /** The CRS of the file a layer was read from, offered when exporting. */
@@ -135,6 +141,8 @@ export interface OpenContext {
   gpu: boolean;
   /** Esri: token for secured services. */
   token?: string;
+  /** Esri image and map services: config.json's named display rules. */
+  rules?: readonly ServiceRule[];
   /** Shows a message to the user. */
   say: (message: string) => void;
 }
@@ -146,7 +154,7 @@ export interface ServiceCatalog {
   title: string;
   choices: LayerChoice[];
   /** Opens one layer; `matrixSet` and `format` pick among a WMTS layer's. */
-  open: (choice: LayerChoice, context: OpenContext, pick?: { matrixSet?: string; format?: string }) => Promise<ServiceLayer>;
+  open: (choice: LayerChoice, context: OpenContext, pick?: { matrixSet?: string; format?: string; settings?: EsriRasterSettings }) => Promise<ServiceLayer>;
 }
 
 /** The most features read from one vector layer. */

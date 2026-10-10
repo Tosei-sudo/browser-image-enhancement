@@ -54,7 +54,9 @@ import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { AttributeTable, type TableData } from './table.js';
-import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
+import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from './services/index.js';
+import { IMAGE_CHOICE, isImageServerUrl, isMapServerUrl, MAP_CHOICE } from './services/esri-raster.js';
+import { RasterRulesDialog } from './raster-rules-dialog.js';
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
@@ -241,6 +243,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onExport: (layer) => exporter.open(layer),
   onStyle: (layer) => styler.open(layer),
+  onRules: (layer) => rasterRules.open(layer),
 });
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
 const timeline: Timeline = new Timeline(images, {
@@ -290,6 +293,18 @@ dashboard.on('change', () => {
 });
 const exporter = new ExportDialog(selection, { say });
 const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
+// Esri image and map services: which images (attribute conditions, order) and raster function, or which layers, are drawn.
+const rasterRules = new RasterRulesDialog({
+  map,
+  say,
+  onChange: (layer) => {
+    updateLink();
+    if (images.selectedLayer() === layer) void showInfo(info, layer, layerInfo(layer));
+  },
+  openImage: async (blob, name) => {
+    await loader.loadFile(blob, name);
+  },
+});
 const metadata = new MetadataDialog({ say });
 // Comparison and analysis, tucked under the information: the selected layer on one side of a line, and its histogram.
 const swipe = new SwipeTool(map, { button: document.getElementById('swipe') as HTMLButtonElement, say });
@@ -378,7 +393,7 @@ boxSelect.on('boxend', () => {
 });
 map.addInteraction(boxSelect);
 
-const serviceContext = (): OpenContext => ({ gpu: onGpu, say });
+const serviceContext = (): OpenContext => ({ gpu: onGpu, say, rules: config.serviceRules });
 
 /** Adds a layer of a service (or a vector file) and zooms to it. */
 function addService(service: ServiceLayer): void {
@@ -422,7 +437,9 @@ baseMap.select.addEventListener('change', updateLink);
 
 const loader = new LoadImageControl({
   target: 'open',
-  labels: loadImageLabelsJa,
+  labels: { ...loadImageLabelsJa, url: 'URL を開く（COG・Esri ImageServer）', urlPlaceholder: 'https://…/image.tif、…/ImageServer' },
+  // An Esri image (or map) service URL opens as its picture layer.
+  onUrl: (url) => openEsriUrl(url),
   sourceOptions: { loadMissingProjection: true, correctTiles: !onGpu },
   // An ordinary picture goes at the origin, one unit per pixel, wherever the view is.
   placement: ({ width, height }) => ({ extent: [-width / 2, -height / 2, width / 2, height / 2], epsg: 3857 }),
@@ -731,11 +748,31 @@ baseMap.set(start.get('base') ?? config.defaultBaseMap);
 const vectorGl = start.get('vectorgl');
 if (vectorGl === 'always' || vectorGl === 'never') glVector.mode = vectorGl;
 
+/**
+ * A URL typed in the open box (or given as `?url=`) that is an Esri image
+ * service or map service: opened as its picture layer. False for any other URL.
+ */
+async function openEsriUrl(url: string): Promise<boolean> {
+  if (!isImageServerUrl(url) && !isMapServerUrl(url)) return false;
+  say(`${url} を読み込んでいます…`);
+  try {
+    const catalog = await readService(url, 'esri');
+    const choice = catalog.choices.find((c) => c.name === IMAGE_CHOICE || c.name === MAP_CHOICE)!;
+    addService(await catalog.open(choice, serviceContext()));
+  } catch (error) {
+    say(`${url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}（トークンが必要なサービスは「サービスを追加」から開いてください）`);
+    throw error;
+  }
+  return true;
+}
+
 /** Opens one layer at start; failures are reported in the status line and the rest still open. */
 async function openAtStart(layer: LayerConfig): Promise<void> {
   say(`${layer.url} を読み込んでいます…`);
   try {
-    if (layer.type === 'cog') await loader.loadUrl(layer.url);
+    if (layer.type === 'cog') {
+      if (!(await openEsriUrl(layer.url).catch(() => true))) await loader.loadUrl(layer.url);
+    }
     else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
     else {
       const { type: kind, ...ref } = layer;
@@ -753,7 +790,7 @@ const started = (async () => {
   // A shared link lists the service layers in config.json too: open those once.
   const fromConfig = new Set(config.layers.filter((l) => l.type !== 'cog' && l.type !== 'file').map((l) => refKey({ ...l, kind: l.type })));
   for (const ref of start.getAll('service').map(paramToRef)) {
-    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format });
+    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
   }
   for (const layer of opening) await openAtStart(layer);
   // The temporary layers of earlier visits, on top.
@@ -814,7 +851,8 @@ declare global {
       timeline: Timeline;
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
+      rasterRules: RasterRulesDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules };

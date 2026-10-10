@@ -49,5 +49,6 @@
   "layers": [],
   "imageRules": [],
   "imageCatalogs": [],
-  "pathMappings": []
+  "pathMappings": [],
+  "serviceRules": []
 }

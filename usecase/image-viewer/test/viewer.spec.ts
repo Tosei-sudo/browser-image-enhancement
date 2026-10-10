@@ -62,8 +62,8 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
   await expect(page.locator('#info')).toContainText('64 × 48 px');
 
   // A COG by URL, through the URL form.
-  await page.getByRole('button', { name: 'COG の URL を開く' }).click();
-  await page.getByRole('textbox', { name: 'COG の URL を開く' }).fill(new URL('/fixture.tif', page.url()).href);
+  await page.getByRole('button', { name: 'URL を開く（COG・Esri ImageServer）' }).click();
+  await page.getByRole('textbox', { name: 'URL を開く（COG・Esri ImageServer）' }).fill(new URL('/fixture.tif', page.url()).href);
   await page.getByRole('button', { name: '開く', exact: true }).click();
   await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
   expect(await names(page)).toEqual(['fixture.tif', 'photo.png']); // newest on top
