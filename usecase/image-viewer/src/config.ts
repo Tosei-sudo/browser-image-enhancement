@@ -7,6 +7,7 @@
  */
 import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 import { catalogOf, type CatalogConfig } from './catalog.js';
+import { satelliteCatalogOf, type SatelliteCatalogConfig } from './imaging-plan.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 
 /**
@@ -82,6 +83,8 @@ export interface ViewerConfig {
   imageCatalogs: CatalogConfig[];
   /** What local path prefixes in catalogs stand for: a URL, or a folder allowed in the browser (local-paths.ts). */
   pathMappings: PathMapping[];
+  /** Esri layers (or tables) of satellites with their TLEs and specifications, for the 「撮像計画」 panel (imaging-plan.ts). */
+  satelliteCatalogs: SatelliteCatalogConfig[];
 }
 
 /**
@@ -134,6 +137,7 @@ export const defaultConfig: ViewerConfig = {
   imageRules: [],
   imageCatalogs: [],
   pathMappings: [],
+  satelliteCatalogs: [],
 };
 
 /** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
@@ -172,7 +176,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -230,6 +234,12 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('pathMappings' in json) {
     if (Array.isArray(json.pathMappings)) config.pathMappings = json.pathMappings.map((m, i) => pathMappingOf(m, problems, i)).filter((m): m is PathMapping => m !== null);
     else problems.push('pathMappings が配列ではありません');
+  }
+
+  if ('satelliteCatalogs' in json) {
+    if (Array.isArray(json.satelliteCatalogs)) {
+      config.satelliteCatalogs = json.satelliteCatalogs.map((c, i) => satelliteCatalogOf(c, problems, i)).filter((c): c is SatelliteCatalogConfig => c !== null);
+    } else problems.push('satelliteCatalogs が配列ではありません');
   }
 
   return { config, problems };

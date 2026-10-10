@@ -1801,7 +1801,8 @@ body {
 }
 
 /* Image catalog panel (in the add-a-service dialog's style): non-modal, at the right, so the map stays usable. */
-.catalog-dialog[open] {
+.catalog-dialog[open],
+.plan-dialog[open] {
   position: fixed;
   inset: 56px 16px auto auto;
   z-index: 20;
@@ -2253,4 +2254,96 @@ body {
   justify-content: space-between;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Imaging plan panel (src/imaging-plan-panel.ts): the catalog panel's layout, with a satellite checklist under 「詳細条件」. */
+.plan-form {
+  grid-template-columns: minmax(10em, 1.4fr) auto auto auto;
+  margin-top: 10px;
+}
+.plan-form .plan-more {
+  grid-column: 1 / 4;
+}
+.plan-form .catalog-search {
+  grid-column: 4;
+  align-self: start;
+}
+.plan-form input[name='maxOffNadir'] {
+  width: 7em;
+}
+.plan-more-body {
+  display: grid;
+  grid-template-columns: minmax(12em, 1fr) minmax(14em, 1.2fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+.plan-sats {
+  min-width: 0;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.plan-sats legend {
+  color: var(--muted);
+}
+.plan-sats legend button {
+  padding: 0 6px;
+  font-size: 11px;
+}
+.plan-sats-list {
+  display: grid;
+  gap: 2px;
+  max-height: 10rem;
+  overflow: auto;
+}
+.plan-sats-list label.check {
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+.plan-sats-list small {
+  flex-basis: 100%;
+  padding-left: 20px;
+  color: var(--muted);
+}
+.plan-old {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #f59e0b33;
+  color: #b45309;
+  font-size: 11px;
+}
+.plan-old-cell::after {
+  content: ' ⚠';
+  color: #b45309;
+}
+.plan-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-content: start;
+}
+.plan-options textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: 11px ui-monospace, monospace;
+}
+.plan-pasted {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.plan-pasted input[type='number'] {
+  width: 6em;
+}
+.plan-first {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+.plan-first[hidden] {
+  display: none;
 }

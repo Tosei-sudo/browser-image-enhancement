@@ -29,6 +29,7 @@
     "ol": "^10.10.0",
     "ol-mapbox-style": "^13.5.1",
     "proj4": "^2.22.0",
+    "satellite.js": "^7.1.0",
     "shpjs": "^6.2.0"
   },
   "devDependencies": {
