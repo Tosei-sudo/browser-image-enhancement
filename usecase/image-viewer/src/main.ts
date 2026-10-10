@@ -67,6 +67,8 @@ import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
+import type { CatalogConfig, CatalogRecord } from './catalog.js';
+import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
@@ -525,17 +527,41 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
   open: (file) => openImageFile(file, fileContext()),
 });
 
-// Image catalogs (config.json's imageCatalogs): search by date, sensor and angle, open the COGs found.
+// Image catalogs (config.json's imageCatalogs): search by date, sensor and angle, open the images found:
+// COGs by URL, local paths through pathMappings (a URL, or a folder allowed in the browser).
 /** What the catalog said of the images opened from it, for the information panel. */
-const fromCatalog = new WeakMap<object, Array<[string, string]>>();
+const fromCatalog = new WeakMap<ViewerImage, Array<[string, string]>>();
+const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
+const openCatalogUrl = async (url: string, record: CatalogRecord, catalog: CatalogConfig) => {
+  const image = images.find(await loader.loadUrl(url));
+  if (!image) return;
+  fromCatalog.set(image, catalogInfo(record, catalog));
+  if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+};
 const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as HTMLButtonElement, map, config.imageCatalogs, {
   say,
-  openUrl: async (url, record, catalog) => {
-    const source = await loader.loadUrl(url);
-    fromCatalog.set(source, catalogInfo(record, catalog));
-    const image = images.find(source);
-    if (image && images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
-  },
+  openUrl: openCatalogUrl,
+  openPath: config.pathMappings.length
+    ? async (path, record, catalog) => {
+        const where = await localPaths.resolve(path);
+        if (!where) return false;
+        if (where.kind === 'url') {
+          await openCatalogUrl(where.url, record, catalog);
+          return true;
+        }
+        const files = await Promise.all(where.handles.map(fileOf));
+        void recent?.remember(where.handles);
+        const before = new Set(images.list());
+        await project.openFiles(files);
+        const image = images.list().find((i) => !before.has(i));
+        if (image) {
+          fromCatalog.set(image, catalogInfo(record, catalog));
+          if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+        }
+        return true;
+      }
+    : undefined,
+  forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
 });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
@@ -580,7 +606,7 @@ function showRset(image: ViewerImage): void {
 /** Rows the information panel adds for an image: its RSET, and what the geometric mode knows of it. */
 function layerInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (layer?.type !== 'image') return geometryInfo(layer);
-  return [...(fromCatalog.get(layer.source) ?? []), ...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
+  return [...(fromCatalog.get(layer) ?? []), ...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
 }
 
 /** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */

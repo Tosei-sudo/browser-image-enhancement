@@ -2,8 +2,8 @@
  * The 「画像カタログ」 panel: searches an image catalog (catalog.ts) by when
  * the images were taken, sensor, angle and the map's view, lists them with
  * their footprints on the map, and opens the chosen ones. COGs open by URL;
- * images the catalog knows only by a local path are listed but cannot be
- * opened from here yet (their path can be copied).
+ * images the catalog knows only by a local path open through config.json's
+ * pathMappings (local-paths.ts), and their paths can be copied.
  *
  * The everyday search is the first lines of the form; registration dates and
  * a free SQL condition wait under 「詳細条件」, and the list sorts by any column.
@@ -32,6 +32,14 @@ import {
 export interface CatalogPanelOptions {
   /** Opens a COG of the catalog; rejects (having said why) when it cannot. */
   openUrl: (url: string, record: CatalogRecord, catalog: CatalogConfig) => Promise<void>;
+  /**
+   * Opens an image known by a local path (config.json's pathMappings); false
+   * when the person cancelled, and throws with the reason when it cannot.
+   * Without it, local paths can only be copied.
+   */
+  openPath?: (path: string, record: CatalogRecord, catalog: CatalogConfig) => Promise<boolean>;
+  /** Forgets the folders allowed for local paths (shown when given). */
+  forgetFolders?: () => Promise<void>;
   say: (message: string) => void;
 }
 
@@ -100,6 +108,7 @@ export class CatalogPanel {
           <div class="catalog-more-body">
             <label class="catalog-days">登録日<span><input name="registeredFrom" type="date" aria-label="登録日（から）" /> 〜 <input name="registeredTo" type="date" aria-label="登録日（まで）" /></span></label>
             <label class="wide">条件（SQL）<input name="where" type="text" placeholder="例: CLOUD &lt; 20" autocomplete="off" /></label>
+            <button type="button" class="catalog-forget" hidden title="ローカルパスの画像のために許可したフォルダを忘れます。次に開くときに選び直します">フォルダの許可を消去</button>
           </div>
         </details>
         <button type="submit" class="primary catalog-search">検索</button>
@@ -134,6 +143,11 @@ export class CatalogPanel {
     this.open_.addEventListener('click', () => void this.openChosen());
     this.zoom_.addEventListener('click', () => this.zoomToChosen());
     this.copy_.addEventListener('click', () => void this.copyPaths());
+    const forget = this.dialog.querySelector<HTMLButtonElement>('.catalog-forget')!;
+    forget.hidden = !options.forgetFolders;
+    forget.addEventListener('click', () => {
+      void options.forgetFolders?.().then(() => options.say('フォルダの許可を消去しました。次にローカルパスの画像を開くときに選び直します'));
+    });
     this.table_.tBodies[0].addEventListener('keydown', (e) => {
       if (e.key === 'Enter') void this.openChosen();
     });
@@ -327,7 +341,7 @@ export class CatalogPanel {
         const badge = document.createElement('span');
         badge.className = `catalog-kind ${record.source?.kind ?? 'none'}`;
         badge.textContent = record.source?.kind === 'url' ? 'COG' : record.source?.kind === 'path' ? 'ローカル' : 'なし';
-        badge.title = record.source?.kind === 'url' ? record.source.url : record.source?.kind === 'path' ? `${record.source.path}（ローカルパスはまだ開けません）` : '画像の場所がありません';
+        badge.title = record.source?.kind === 'url' ? record.source.url : record.source?.kind === 'path' ? `${record.source.path}${this.options.openPath ? '' : '（ローカルパスは開けません。パスをコピーできます）'}` : '画像の場所がありません';
         kind.append(badge);
         row.append(kind);
         row.addEventListener('click', (e) => {
@@ -375,32 +389,37 @@ export class CatalogPanel {
       r.feature.setStyle(on ? chosenStyle(r.id) : undefined);
     });
     const chosen = this.chosen();
-    this.open_.disabled = !chosen.some((r) => r.source?.kind === 'url');
-    this.open_.textContent = chosen.length > 1 ? `開く（${chosen.filter((r) => r.source?.kind === 'url').length}）` : '開く';
+    const openable = chosen.filter((r) => r.source?.kind === 'url' || (r.source?.kind === 'path' && this.options.openPath)).length;
+    this.open_.disabled = openable === 0;
+    this.open_.textContent = chosen.length > 1 ? `開く（${openable}）` : '開く';
     this.zoom_.disabled = chosen.length === 0;
     this.copy_.disabled = !chosen.some((r) => r.source?.kind === 'path');
   }
 
-  /** Opens the chosen COGs one after another; images known only by a local path are reported. */
+  /**
+   * Opens the chosen images one after another: COGs by URL, local paths
+   * through config.json's pathMappings (where the browser can open them).
+   */
   async openChosen(): Promise<void> {
-    const chosen = this.chosen();
-    const urls = chosen.filter((r) => r.source?.kind === 'url');
-    const local = chosen.filter((r) => r.source?.kind === 'path');
-    if (!urls.length) {
-      if (local.length) this.options.say(`ローカルパスの画像はまだ開けません（${local.map((r) => r.id || (r.source as { path: string }).path).join('、')}）。「パスをコピー」でパスを控えられます`);
-      return;
-    }
+    const chosen = this.chosen().filter((r) => r.source && (r.source.kind === 'url' || this.options.openPath));
     let opened = 0;
-    for (const record of urls) {
+    let failed = '';
+    for (const record of chosen) {
+      const source = record.source!;
       this.options.say(`${record.id || '画像'} を開いています…`);
       try {
-        await this.options.openUrl((record.source as { url: string }).url, record, this.catalog_);
+        if (source.kind === 'url') await this.options.openUrl(source.url, record, this.catalog_);
+        else if (!(await this.options.openPath!(source.path, record, this.catalog_))) {
+          this.options.say('キャンセルしました');
+          return;
+        }
         opened++;
-      } catch {
-        // openUrl has said why.
+      } catch (error) {
+        // openUrl has said why; a local path says it here.
+        if (source.kind === 'path') this.options.say((failed = `${record.id || source.path} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`));
       }
     }
-    if (local.length) this.options.say(`${opened} 件を開きました。ローカルパスの ${local.length} 件はまだ開けません`);
+    if (failed && chosen.length > 1) this.options.say(`${opened} / ${chosen.length} 件を開きました。${failed}`);
   }
 
   /** Fits the view to the chosen footprints. */

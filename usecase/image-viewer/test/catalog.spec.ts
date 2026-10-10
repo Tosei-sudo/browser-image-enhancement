@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { plainGeoTiff } from './fixtures.js';
 
 /*
  * The image catalog panel against a stand-in Esri feature layer whose
@@ -27,9 +28,9 @@ const features = [
 ];
 
 /** Serves the stand-in catalog; returns the `where` of each search. */
-async function serveCatalog(page: Page): Promise<string[]> {
+async function serveCatalog(page: Page, list = features, settings: object = config): Promise<string[]> {
   const searches: string[] = [];
-  await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config) }));
+  await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settings) }));
   await page.route(`${layerUrl}**`, async (route) => {
     const request = route.request();
     const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
@@ -50,11 +51,11 @@ async function serveCatalog(page: Page): Promise<string[]> {
       });
     }
     const form = new URLSearchParams(request.postData() ?? '');
-    if (form.get('returnDistinctValues') === 'true') return json({ features: [{ attributes: { SENSOR: 'S1' } }, { attributes: { SENSOR: 'S2' } }] });
+    if (form.get('returnDistinctValues') === 'true') return json({ features: [...new Set(list.map((f) => f.attributes.SENSOR))].map((SENSOR) => ({ attributes: { SENSOR } })) });
     const where = form.get('where') ?? '';
     const sensor = /SENSOR = '([^']*)'/.exec(where)?.[1];
     const angle = /OFF_NADIR <= ([\d.]+)/.exec(where)?.[1];
-    const found = features.filter((f) => (!sensor || f.attributes.SENSOR === sensor) && (!angle || f.attributes.OFF_NADIR <= Number(angle)));
+    const found = list.filter((f) => (!sensor || f.attributes.SENSOR === sensor) && (!angle || f.attributes.OFF_NADIR <= Number(angle)));
     if (form.get('returnCountOnly') === 'true') return json({ count: found.length });
     searches.push(where);
     return json({ geometryType: 'esriGeometryPolygon', spatialReference: { wkid: 4326 }, features: found });
@@ -116,5 +117,75 @@ test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
   await page.locator('#images li .name').first().click();
   await expect(page.locator('#info')).toContainText('IMG-A');
   await expect(page.locator('#info')).toContainText('テストカタログ');
+  expect(errors).toEqual([]);
+});
+
+test('local paths open from a folder allowed once, or through a URL', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // The folder picker gives a folder of the origin's private file system, which IndexedDB can keep.
+  await page.addInitScript(() => {
+    (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () =>
+      (await navigator.storage.getDirectory()).getDirectoryHandle('img');
+  });
+  const local = [
+    { attributes: { ...features[1].attributes, IMG_ID: 'IMG-L', FILE_PATH: '\\\\NAS\\img\\2026\\Scene.TIF' }, geometry: features[1].geometry },
+    { attributes: { ...features[2].attributes, IMG_ID: 'IMG-U', COG_URL: '', FILE_PATH: 'Z:\\cog\\fixture16.tif' }, geometry: features[2].geometry },
+  ];
+  const settings = {
+    ...config,
+    pathMappings: [
+      { prefix: '\\\\nas\\img', label: '画像NAS' },
+      { prefix: 'Z:/cog', url: 'http://localhost:4175/' },
+    ],
+  };
+  await serveCatalog(page, local, settings);
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.evaluate(async (bytes) => {
+    const root = await navigator.storage.getDirectory();
+    const dir = await (await root.getDirectoryHandle('img', { create: true })).getDirectoryHandle('2026', { create: true });
+    for (const name of ['scene.tif', 'other.tif']) {
+      const writable = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await writable.write(new Uint8Array(bytes));
+      await writable.close();
+    }
+  }, Array.from(plainGeoTiff(300, 200)));
+
+  await page.locator('#catalog-open').click();
+  const dialog = page.locator('.catalog-dialog');
+  const rows = dialog.locator('tbody tr');
+  await expect(rows).toHaveCount(2);
+
+  // A path under a URL mapping opens as a COG.
+  await rows.filter({ hasText: 'IMG-U' }).dblclick();
+  await expect(page.locator('#images .name')).toHaveText(['fixture16.tif']);
+
+  // The first path under the NAS asks for its folder, once; the file is found whatever its case.
+  await rows.filter({ hasText: 'IMG-L' }).click();
+  await dialog.locator('button[value=open]').click();
+  const ask = page.locator('dialog.folder-ask');
+  await expect(ask).toContainText('「画像NAS」のフォルダ');
+  await ask.getByRole('button', { name: 'フォルダを選ぶ…' }).click();
+  await expect(page.locator('#images .name')).toHaveText(['scene.tif', 'fixture16.tif']);
+  await page.locator('#images .name', { hasText: 'scene.tif' }).click();
+  await expect(page.locator('#info')).toContainText('IMG-L');
+  await expect(page.locator('#info')).toContainText('300 × 200 px');
+
+  // After a reload the folder is remembered.
+  await page.reload();
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.locator('#catalog-open').click();
+  await rows.filter({ hasText: 'IMG-L' }).dblclick();
+  await expect(page.locator('#images .name')).toHaveText(['scene.tif']);
+  await expect(ask).toHaveCount(0);
+
+  // Forgotten, it asks again; cancelling opens nothing.
+  await dialog.locator('summary').click();
+  await dialog.getByRole('button', { name: 'フォルダの許可を消去' }).click();
+  await rows.filter({ hasText: 'IMG-L' }).dblclick();
+  await ask.getByRole('button', { name: 'キャンセル' }).click();
+  await expect(page.locator('#status')).toHaveText('キャンセルしました');
+  await expect(page.locator('#images .name')).toHaveCount(1);
   expect(errors).toEqual([]);
 });

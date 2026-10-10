@@ -48,5 +48,6 @@
   "projections": {},
   "layers": [],
   "imageRules": [],
-  "imageCatalogs": []
+  "imageCatalogs": [],
+  "pathMappings": []
 }
