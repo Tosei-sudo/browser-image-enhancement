@@ -336,6 +336,40 @@ test('table: several features selected with Ctrl, Shift, check boxes, Ctrl+A and
   expect(errors).toEqual([]);
 });
 
+test('the highlight of the selection hides with its layer, and comes back with it', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await addService(page, `${base}/svc/wfs`);
+  await rows(page).filter({ hasText: '東京' }).click();
+  await expect(page.locator('.table-count')).toContainText('選択 1 件');
+  const highlighted = () =>
+    page.evaluate(() => {
+      const h = window.viewer.map.getAllLayers().find((l) => l.getZIndex() === 20_000)!;
+      return h.getVisible() && (h.getSource() as import('ol/source/Vector.js').default).getFeatures().length;
+    });
+  expect(await highlighted()).toBe(1);
+
+  // Hidden: the highlight goes with the layer; the selection stays (the table still shows it).
+  const visible = page.getByRole('checkbox', { name: '駅 を表示', exact: true });
+  await visible.uncheck();
+  expect(await highlighted()).toBe(false);
+  await expect(page.locator('.table-count')).toContainText('選択 1 件');
+  await visible.check();
+  expect(await highlighted()).toBe(1);
+
+  // Another layer selected: the highlight follows that one (here, an empty selection of a hidden layer stays hidden).
+  await addService(page, `${base}/svc/arcgis/rest/services/Test/FeatureServer`);
+  await page.getByRole('checkbox', { name: '公園 を表示', exact: true }).uncheck();
+  await page.locator('#images .name', { hasText: '公園' }).click();
+  await rows(page).nth(0).click();
+  expect(await highlighted()).toBe(false);
+  await page.locator('#images .name', { hasText: '駅' }).click();
+  await rows(page).nth(0).click();
+  expect(await highlighted()).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test('Esri: the row menu deletes the selected features, starting editing; saved with the others', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
