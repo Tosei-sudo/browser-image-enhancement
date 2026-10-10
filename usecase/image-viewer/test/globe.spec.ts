@@ -6,6 +6,9 @@ import { boxBuilding, dbf, ascii, dted, multipatchShp, toBase64 } from './fixtur
  * over DEM relief, multipatches as solids, and the viewshed.
  */
 
+// Each test takes minutes on the software renderer: CI spreads them over runners one by one.
+test.describe.configure({ mode: 'parallel' });
+
 async function open(page: Page) {
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
