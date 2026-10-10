@@ -204,3 +204,57 @@ test('the viewshed counts buildings and 3D Tiles from a folder, and project file
   expect(camera.height).toBeCloseTo(kept.camera.height, -1);
   expect(errors).toEqual([]);
 });
+
+test('Esri multipatch layers stand as blocks, and scene services (I3S) open in 3D', async ({ page }) => {
+  test.setTimeout(600_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // A multipatch feature service: footprints in 2D, blocks of their height range in 3D.
+  await page.getByRole('button', { name: 'サービスを追加' }).click();
+  const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
+  await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill('http://localhost:4175/svc/arcgis/rest/services/Town/FeatureServer');
+  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await expect(dialog.locator('.service-layer')).toHaveCount(1);
+  await dialog.locator('.service-layer input[type=checkbox]').first().check();
+  await dialog.getByRole('button', { name: '追加', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const shapes = await page.evaluate(() => {
+    const layer = window.viewer.images.layers().find((l) => l.name === '建物');
+    if (layer?.type !== 'service') return null;
+    return layer.service.vector!.source.getFeatures().map((f) => [f.get('NAME'), f.getGeometry()!.getType()]);
+  });
+  expect(shapes?.sort()).toEqual([
+    ['タワー', 'Polygon'],
+    ['ホール', 'Polygon'],
+  ]);
+  await page.locator('#globe-toggle').click();
+  await expect(page.locator('#globe-section')).toContainText('建物: 2 件');
+
+  // A scene service, by URL in the 3D section, lifted from the geoid onto the ellipsoid.
+  await page.locator('#globe [name=url]').fill('http://localhost:4175/i3s/SceneServer');
+  await page.locator('#globe .globe-tileset button').click();
+  await expect(page.locator('#status')).toContainText('シーンサービスを追加しました: i3s');
+  await expect(page.locator('.globe-tilesets li')).toContainText('i3s');
+  await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.757, lat: 35.677, height: 300, heading: 40, pitch: -20 }));
+  await settled(page, 'with the blocks and the scene layer');
+  await page.screenshot({ path: 'test-results/globe-esri.png' });
+  // The blue cube of the scene layer is drawn, standing about 37 m of geoid above the ellipsoid.
+  const blue = await page.evaluate(() => {
+    const canvas = window.viewer.globe.globe()!.widget.scene.canvas;
+    const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl'))!;
+    const px = new Uint8Array(canvas.width * canvas.height * 4);
+    gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let count = 0;
+    for (let i = 0; i < px.length; i += 4) if (px[i + 2] > px[i] + 60 && px[i + 2] > px[i + 1] + 30) count++;
+    return count / (canvas.width * canvas.height);
+  });
+  expect(blue).toBeGreaterThan(0.005);
+  const top = await page.evaluate(() => {
+    const scene = window.viewer.globe.globe()!.widget.scene;
+    return scene.sampleHeight({ longitude: (139.76 * Math.PI) / 180, latitude: (35.68 * Math.PI) / 180, height: 0 } as never);
+  });
+  expect(top).toBeGreaterThan(70);
+  expect(top).toBeLessThan(85);
+  expect(errors).toEqual([]);
+});
