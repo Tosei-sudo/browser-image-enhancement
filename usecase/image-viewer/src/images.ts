@@ -53,6 +53,8 @@ export interface ImageListOptions {
   onExport?: (layer: ViewerService) => void;
   /** Called by the style button of a vector layer. */
   onStyle?: (layer: ViewerService) => void;
+  /** Called by the display rules button of an Esri image or map service layer. */
+  onRules?: (layer: ViewerService) => void;
 }
 
 export class ImageList {
@@ -341,6 +343,12 @@ export class ImageList {
       button('style', '◐', 'スタイル・ラベル', () => {
         this.select(image);
         this.options.onStyle!(image);
+      });
+    }
+    if (image.type === 'service' && image.service.raster && this.options.onRules) {
+      button('rules', '⚙', image.service.raster.kind === 'image' ? '表示ルール（属性の条件・並び順・ラスター関数）' : '表示ルール（レイヤーの表示と条件）', () => {
+        this.select(image);
+        this.options.onRules!(image);
       });
     }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));

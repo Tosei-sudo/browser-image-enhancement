@@ -5,8 +5,9 @@
 // {z}/{x}/{y}.pbf tiles). All of them
 // allow CORS and live under /svc/.
 import { Buffer } from 'node:buffer';
-import { URLSearchParams } from 'node:url';
+import { URL, URLSearchParams } from 'node:url';
 import { deflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 
 /** A solid PNG of `width` × `height` in the color [r, g, b, a]. */
 export function png(width, height, [r, g, b, a = 255]) {
@@ -186,7 +187,41 @@ const parksLayer = {
 
 let parks;
 let nextId;
+/** The requests made of the stand-in image and map services (exportImage, export, tiles), with their parameters. */
+export const rasterRequests = [];
+
+/** The catalog of the stand-in image service: three scenes near Tokyo Station. */
+const scenes = [
+  { OBJECTID: 1, Name: 'S1', AcquisitionDate: Date.UTC(2024, 0, 10), CloudCover: 0.1, Sensor: 'WV3' },
+  { OBJECTID: 2, Name: 'S2', AcquisitionDate: Date.UTC(2024, 2, 5), CloudCover: 0.5, Sensor: 'WV2' },
+  { OBJECTID: 3, Name: 'S3', AcquisitionDate: Date.UTC(2024, 5, 20), CloudCover: 0.05, Sensor: 'WV3' },
+];
+
+/** Scenes meeting a `where` of `Field op value` conditions joined by AND; null when it cannot be read. */
+function sceneWhere(where) {
+  if (!where || where.trim() === '1=1') return scenes;
+  const parts = where.replace(/[()]/g, '').split(/\s+AND\s+/i);
+  const tests = [];
+  for (const part of parts) {
+    const m = /^\s*(\w+)\s*(<=|>=|<>|=|<|>)\s*(.+?)\s*$/.exec(part);
+    if (!m || !(m[1] in scenes[0])) return null;
+    const [, field, op, raw] = m;
+    const date = /^(?:DATE|TIMESTAMP)\s+'([^']+)'$/i.exec(raw);
+    const value = date ? Date.parse(`${date[1].replace(' ', 'T')}Z`) : /^'.*'$/.test(raw) ? raw.slice(1, -1) : Number(raw);
+    const cmp = { '=': (a, b) => a === b, '<>': (a, b) => a !== b, '<': (a, b) => a < b, '>': (a, b) => a > b, '<=': (a, b) => a <= b, '>=': (a, b) => a >= b }[op];
+    tests.push((s) => cmp(s[field], value));
+  }
+  return scenes.filter((s) => tests.every((t) => t(s)));
+}
+
+const tokyoBox = () => {
+  const [xmin, ymin] = mercator(139.74, 35.66);
+  const [xmax, ymax] = mercator(139.8, 35.7);
+  return { xmin, ymin, xmax, ymax, spatialReference: { wkid: 102100, latestWkid: 3857 } };
+};
+
 export function resetServices() {
+  rasterRequests.length = 0;
   parks = new Map(
     [
       ['日比谷公園', 139.7559, 35.6739, 1, 161.6],
@@ -419,6 +454,89 @@ export async function serveService(req, res, url, base) {
     if (p.REQUEST === 'GetCapabilities') return send('text/xml', wfsCapabilities(base));
     if (p.REQUEST === 'DescribeFeatureType') return send('text/xml', describeStations);
     if (p.REQUEST === 'GetFeature') return json(stationsJson());
+  }
+
+  if (path === '/svc/raster-requests') return json(rasterRequests);
+  const image = /^\/svc\/arcgis\/rest\/services\/Scenes\/ImageServer(?:\/(exportImage|query|identify))?$/.exec(path);
+  if (image) {
+    const op = image[1];
+    const q = Object.fromEntries(form);
+    if (!op) {
+      return json({
+        currentVersion: 11.1,
+        name: 'Scenes',
+        extent: tokyoBox(),
+        pixelType: 'U16',
+        bandCount: 4,
+        capabilities: 'Image,Metadata,Catalog,Mensuration',
+        fields: [
+          { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' },
+          { name: 'Name', type: 'esriFieldTypeString', alias: '名前', length: 50 },
+          { name: 'AcquisitionDate', type: 'esriFieldTypeDate', alias: '撮像日' },
+          { name: 'CloudCover', type: 'esriFieldTypeDouble', alias: '雲量' },
+          { name: 'Sensor', type: 'esriFieldTypeString', alias: 'センサー', length: 10 },
+          { name: 'Shape', type: 'esriFieldTypeGeometry', alias: 'Shape' },
+        ],
+        rasterFunctionInfos: [{ name: 'None', description: '' }, { name: 'Natural Color', description: 'トゥルーカラー' }, { name: 'NDVI', description: '植生指標' }],
+        allowedMosaicMethods: 'NorthWest,Center,LockRaster,ByAttribute,Nadir,Viewpoint,Seamline,None',
+        defaultMosaicMethod: 'Northwest',
+        mosaicOperator: 'First',
+        maxImageWidth: 4100,
+        maxImageHeight: 4100,
+      });
+    }
+    if (op === 'exportImage') {
+      rasterRequests.push({ service: 'Scenes', op, ...q });
+      if (q.format === 'tiff') return send('image/tiff', readFileSync(new URL('./data/gray16.tif', import.meta.url)));
+      return send('image/png', tile);
+    }
+    if (op === 'query') {
+      const found = sceneWhere(q.where);
+      if (!found) return json({ error: { code: 400, message: 'Unable to complete operation.', details: ['Invalid where clause'] } });
+      if (q.returnCountOnly === 'true') return json({ count: found.length });
+      const field = q.outFields;
+      const values = [...new Set(found.map((s) => s[field]))];
+      return json({ features: values.map((v) => ({ attributes: { [field]: v } })) });
+    }
+    if (op === 'identify') {
+      rasterRequests.push({ service: 'Scenes', op, ...q });
+      const box = tokyoBox();
+      const ring = [[box.xmin, box.ymin], [box.xmin, box.ymax], [box.xmax, box.ymax], [box.xmax, box.ymin], [box.xmin, box.ymin]];
+      return json({
+        objectId: 0,
+        name: 'Pixel',
+        value: '120, 80, 60, 200',
+        catalogItems: { objectIdFieldName: 'OBJECTID', spatialReference: box.spatialReference, geometryType: 'esriGeometryPolygon', features: scenes.map((s) => ({ attributes: s, geometry: { rings: [ring] } })) },
+        catalogItemVisibilities: [1, 0, 0],
+      });
+    }
+  }
+  const map = /^\/svc\/arcgis\/rest\/services\/Base\/MapServer(?:\/(export|identify))?$/.exec(path);
+  if (map) {
+    const op = map[1];
+    const q = Object.fromEntries(form);
+    if (!op) {
+      return json({
+        currentVersion: 11.1,
+        mapName: 'Base',
+        layers: [
+          { id: 0, name: '道路', parentLayerId: -1, defaultVisibility: true, subLayerIds: null, geometryType: 'esriGeometryPolyline', type: 'Feature Layer' },
+          { id: 1, name: '建物', parentLayerId: -1, defaultVisibility: false, subLayerIds: null, geometryType: 'esriGeometryPolygon', type: 'Feature Layer' },
+        ],
+        fullExtent: tokyoBox(),
+        singleFusedMapCache: false,
+      });
+    }
+    if (op === 'export') {
+      rasterRequests.push({ service: 'Base', op, ...q });
+      return send('image/png', tile);
+    }
+    if (op === 'identify') {
+      rasterRequests.push({ service: 'Base', op, ...q });
+      const [x1, y1] = mercator(139.765, 35.68);
+      const [x2, y2] = mercator(139.77, 35.683);
+      return json({ results: [{ layerId: 0, layerName: '道路', displayFieldName: 'NAME', attributes: { NAME: '中央通り' }, geometryType: 'esriGeometryPolyline', geometry: { paths: [[[x1, y1], [x2, y2]]] } }] });
+    }
   }
 
   const esri = /^\/svc\/arcgis\/rest\/services\/(Test|Secure|Town)\/FeatureServer(?:\/(\d+))?(?:\/(query|applyEdits))?$/.exec(path);

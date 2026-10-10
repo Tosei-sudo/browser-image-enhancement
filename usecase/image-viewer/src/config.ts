@@ -9,6 +9,7 @@ import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 import { catalogOf, type CatalogConfig } from './catalog.js';
 import { satelliteCatalogOf, type SatelliteCatalogConfig } from './imaging-plan.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
+import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
 
 /**
  * What a base map URL points to:
@@ -59,7 +60,7 @@ const baseMapTypes: readonly BaseMapType[] = ['xyz', 'mvt', 'style', 'esri'];
 export type LayerConfig =
   | { type: 'cog'; url: string }
   | { type: 'file'; url: string }
-  | { type: 'wms' | 'wmts' | 'wfs' | 'esri'; url: string; layer: string; matrixSet?: string; format?: string };
+  | { type: 'wms' | 'wmts' | 'wfs' | 'esri'; url: string; layer: string; matrixSet?: string; format?: string; settings?: EsriRasterSettings };
 
 export interface ViewerConfig {
   /** Base maps in the order of the switch (after "none"). */
@@ -85,6 +86,12 @@ export interface ViewerConfig {
   pathMappings: PathMapping[];
   /** Esri layers (or tables) of satellites with their TLEs and specifications, for the 「撮像計画」 panel (imaging-plan.ts). */
   satelliteCatalogs: SatelliteCatalogConfig[];
+  /**
+   * Named display rules of Esri image and map services (attribute conditions,
+   * stacking order, raster function, layers shown), for the services whose URL
+   * matches; one marked `default` applies when a layer opens.
+   */
+  serviceRules: ServiceRule[];
 }
 
 /**
@@ -138,6 +145,7 @@ export const defaultConfig: ViewerConfig = {
   imageCatalogs: [],
   pathMappings: [],
   satelliteCatalogs: [],
+  serviceRules: [],
 };
 
 /** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
@@ -176,7 +184,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], serviceRules: [...defaultConfig.serviceRules] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -235,6 +243,8 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.pathMappings)) config.pathMappings = json.pathMappings.map((m, i) => pathMappingOf(m, problems, i)).filter((m): m is PathMapping => m !== null);
     else problems.push('pathMappings が配列ではありません');
   }
+
+  if ('serviceRules' in json) config.serviceRules = serviceRulesOf(json.serviceRules, problems);
 
   if ('satelliteCatalogs' in json) {
     if (Array.isArray(json.satelliteCatalogs)) {
@@ -316,7 +326,7 @@ export function imageRuleFor(rules: readonly ImageRule[], name: string): ImageRu
 
 function layerOf(value: unknown, problems: string[], index: number): LayerConfig | null {
   if (!isRecord(value)) return (problems.push(`layers[${index}] がオブジェクトではありません`), null);
-  const { type, url, layer, matrixSet, format } = value;
+  const { type, url, layer, matrixSet, format, settings } = value;
   if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
   if (type === 'cog' || type === 'file') return { type, url };
   if (type === 'wms' || type === 'wmts' || type === 'wfs' || type === 'esri') {
@@ -327,6 +337,7 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
       layer,
       ...(typeof matrixSet === 'string' && matrixSet ? { matrixSet } : {}),
       ...(typeof format === 'string' && format ? { format } : {}),
+      ...(type === 'esri' && settings !== undefined ? { settings: settingsOf(settings, problems, `layers[${index}].settings`) } : {}),
     };
   }
   problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri のどれかにしてください`);

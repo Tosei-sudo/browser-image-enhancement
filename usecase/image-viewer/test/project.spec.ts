@@ -56,8 +56,8 @@ const state = (page: Page) =>
   );
 
 async function openCogAndStations(page: Page) {
-  await page.getByRole('button', { name: 'COG の URL を開く' }).click();
-  await page.getByRole('textbox', { name: 'COG の URL を開く' }).fill(new URL('/fixture.tif', page.url()).href);
+  await page.getByRole('button', { name: 'URL を開く（COG・Esri ImageServer）' }).click();
+  await page.getByRole('textbox', { name: 'URL を開く（COG・Esri ImageServer）' }).fill(new URL('/fixture.tif', page.url()).href);
   await page.getByRole('button', { name: '開く', exact: true }).click();
   await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
   await page.locator('#open .ol-load-image button').first().click();

@@ -107,7 +107,8 @@ var LoadImageControl = class extends Control {
 			form.addEventListener("submit", (e) => {
 				e.preventDefault();
 				const url = input.value.trim();
-				if (url) this.loadUrl(url).then(() => form.hidden = true, () => {});
+				if (!url) return;
+				Promise.resolve(options.onUrl ? options.onUrl(url) : false).then((handled) => handled ? void 0 : this.loadUrl(url)).then(() => form.hidden = true, () => {});
 			});
 			element.append(toggle, form);
 		}
