@@ -18,6 +18,7 @@ import type ImageStyle from 'ol/style/Image.js';
 import type { StyleFunction, StyleLike } from 'ol/style/Style.js';
 import { asArray } from 'ol/color.js';
 import { drawsOnGpu, GlVector } from './gl-vector.js';
+import type { TimeFilter } from './time.js';
 
 /** Shapes of point symbols. */
 export type PointShape = 'circle' | 'square' | 'triangle' | 'diamond' | 'star' | 'cross' | 'x';
@@ -636,6 +637,8 @@ export class LayerStyle {
   private key_: string | null = null;
   private gl_: GlVector | null = null;
   private waiting_ = false;
+  private time_: TimeFilter | null = null;
+  private filter_: ((feature: FeatureLike) => boolean) | null = null;
 
   /**
    * @param layer The layer drawn.
@@ -691,6 +694,55 @@ export class LayerStyle {
     if (this.key_) this.store.delete(this.key_);
   }
 
+  /**
+   * Draws only the features whose time span meets the window (the
+   * timeline's filter), or all of them with null. The same `span` function
+   * with another window only moves the window: cheap enough for every frame
+   * of a drag or of playing.
+   */
+  setTimeFilter(time: TimeFilter | null): void {
+    const before = this.time_;
+    this.time_ = time;
+    if (!before !== !time) return this.apply_();
+    if (this.gl_) this.gl_.setTime(time);
+    // The canvas style reads the window as it draws.
+    else this.layer.changed();
+  }
+
+  /**
+   * Draws only the features `filter` passes (the dashboard's choice of
+   * values), or all of them with null; the timeline's filter applies too.
+   */
+  setFilter(filter: ((feature: FeatureLike) => boolean) | null): void {
+    if (filter === this.filter_) return;
+    this.filter_ = filter;
+    if (this.gl_) this.gl_.setFilter(filter);
+    else this.layer.changed();
+  }
+
+  /** Whether any filter (the timeline's or the dashboard's) leaves features out. */
+  isFiltered(): boolean {
+    return !!this.time_ || !!this.filter_;
+  }
+
+  /** Whether `feature` passes the dashboard's filter (the timeline's aside). */
+  passesFilter(feature: FeatureLike): boolean {
+    return !this.filter_ || this.filter_(feature);
+  }
+
+  /** Whether `feature` is drawn under the timeline's and the dashboard's filters. */
+  shows(feature: FeatureLike): boolean {
+    return this.inTime(feature) && (!this.filter_ || this.filter_(feature));
+  }
+
+  /** Whether `feature` is shown under the timeline's filter (always, without one). */
+  inTime(feature: FeatureLike): boolean {
+    const time = this.time_;
+    if (!time) return true;
+    const span = time.span(feature);
+    return !!span && span[0] <= time.window[1] && span[1] >= time.window[0];
+  }
+
   /** Whether the symbols are drawn on the GPU (a layer of many features); clicks then go to {@link featureAt}. */
   onGpu(): boolean {
     return this.gl_ !== null;
@@ -726,19 +778,26 @@ export class LayerStyle {
     }
     const count = this.layer.getSource()?.getFeatures().length ?? 0;
     if (drawsOnGpu(spec, count)) {
-      if (this.gl_) this.gl_.setSpec(spec);
-      else this.gl_ = new GlVector(this.layer, spec);
+      if (this.gl_) {
+        this.gl_.setTime(this.time_);
+        this.gl_.setSpec(spec);
+      } else this.gl_ = new GlVector(this.layer, spec, this.time_, this.filter_);
       // The canvas layer draws only the labels.
-      this.layer.setStyle(spec.label.field ? styleFunction(spec, this.own, latitude, false) : null);
+      this.layer.setStyle(spec.label.field ? this.timed_(styleFunction(spec, this.own, latitude, false)) : null);
     } else {
       this.gl_?.dispose();
       this.gl_ = null;
-      this.layer.setStyle(styleFunction(spec, this.own, latitude));
+      this.layer.setStyle(this.timed_(styleFunction(spec, this.own, latitude)));
     }
     // Shown between the two scales: a larger scale denominator is a larger resolution.
     this.layer.setMaxResolution(spec.minScale ? resolutionOfScale(spec.minScale, latitude) : Infinity);
     this.layer.setMinResolution(spec.maxScale ? resolutionOfScale(spec.maxScale, latitude) : 0);
     // Labels that would overlap are left out; point symbols are always drawn (their declutterMode is `obstacle`).
     this.layer.setDeclutter(!!spec.label.field && !spec.label.overlap);
+  }
+
+  /** `style`, leaving out the features the timeline and the dashboard filter out (read as it draws). */
+  private timed_(style: StyleFunction): StyleFunction {
+    return (feature, resolution) => (this.shows(feature) ? style(feature, resolution) : undefined);
   }
 }

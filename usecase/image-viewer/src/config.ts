@@ -6,6 +6,8 @@
  * entry, so the site always starts.
  */
 import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
+import { catalogOf, type CatalogConfig } from './catalog.js';
+import { pathMappingOf, type PathMapping } from './local-paths.js';
 
 /**
  * What a base map URL points to:
@@ -76,6 +78,10 @@ export interface ViewerConfig {
   layers: LayerConfig[];
   /** Defaults for images by file name; the first rule that matches applies. */
   imageRules: ImageRule[];
+  /** Esri feature layers of images to search and open (catalog.ts); none hides the 「画像カタログ」 button. */
+  imageCatalogs: CatalogConfig[];
+  /** What local path prefixes in catalogs stand for: a URL, or a folder allowed in the browser (local-paths.ts). */
+  pathMappings: PathMapping[];
 }
 
 /**
@@ -126,6 +132,8 @@ export const defaultConfig: ViewerConfig = {
   projections: {},
   layers: [],
   imageRules: [],
+  imageCatalogs: [],
+  pathMappings: [],
 };
 
 /** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
@@ -164,7 +172,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -212,6 +220,16 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('imageRules' in json) {
     if (Array.isArray(json.imageRules)) config.imageRules = json.imageRules.map((r, i) => imageRuleOf(r, problems, i)).filter((r): r is ImageRule => r !== null);
     else problems.push('imageRules が配列ではありません');
+  }
+
+  if ('imageCatalogs' in json) {
+    if (Array.isArray(json.imageCatalogs)) config.imageCatalogs = json.imageCatalogs.map((c, i) => catalogOf(c, problems, i)).filter((c): c is CatalogConfig => c !== null);
+    else problems.push('imageCatalogs が配列ではありません');
+  }
+
+  if ('pathMappings' in json) {
+    if (Array.isArray(json.pathMappings)) config.pathMappings = json.pathMappings.map((m, i) => pathMappingOf(m, problems, i)).filter((m): m is PathMapping => m !== null);
+    else problems.push('pathMappings が配列ではありません');
   }
 
   return { config, problems };

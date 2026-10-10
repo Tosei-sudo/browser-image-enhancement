@@ -66,6 +66,12 @@ import { HistogramPanel } from './histogram-panel.js';
 import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
+import { CatalogPanel, catalogInfo } from './catalog-panel.js';
+import type { CatalogConfig, CatalogRecord } from './catalog.js';
+import { askDialog, LocalPaths } from './local-paths.js';
+import { Timeline } from './timeline.js';
+import { Dashboard } from './dashboard.js';
+import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -137,6 +143,8 @@ bindShortcuts({
   a: press('measure-area'),
   p: press('add-point'),
   '3': press('globe-toggle'),
+  t: press('timeline-open'),
+  b: press('dashboard-open'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -164,12 +172,19 @@ function showTable(layer: ViewerLayer | null): void {
   const service = layer?.type === 'service' ? layer.service : null;
   const vector = service?.vector;
   if (layer?.type === 'service' && vector && service) {
+    const notes = [
+      vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : '',
+      timeline.filters(layer) ? 'タイムラインの期間内のみ' : '',
+      dashboard.filters(layer) ? 'ダッシュボードで絞り込み中' : '',
+    ].filter(Boolean);
+    const style = service.style;
     table.show({
       title: layer.name,
       fields: vector.fields,
-      features: () => vector.source.getFeatures(),
-      note: vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : undefined,
-      watch: [vector.source, ...(editor.session() ? [editor.session()!] : [])],
+      // What the map shows: the timeline's window and the dashboard's filter.
+      features: () => (style?.isFiltered() ? vector.source.getFeatures().filter((f) => style.shows(f)) : vector.source.getFeatures()),
+      note: notes.length ? notes.join('・') : undefined,
+      watch: [vector.source, timeline, dashboard, ...(editor.session() ? [editor.session()!] : [])],
       // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
       onDelete: editTargetOf(service)?.canDelete
         ? (features) => {
@@ -196,6 +211,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     mapElement.querySelector('.ol-enhance')?.classList.toggle('inactive', !target);
     selection.clear();
     showTable(layer);
+    dashboard?.refresh();
     void showInfo(info, layer, layerInfo(layer));
     // Our own TIFFs of plain pictures have nothing to tell: only GeoTIFFs get the dialog.
     metadataButton.hidden = layer?.type !== 'image' || layer.kind !== 'geotiff';
@@ -212,6 +228,8 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     } else if (editor.editing() === layer) editor.stop();
   },
   onChange: (list) => {
+    timeline?.refresh();
+    dashboard?.refresh();
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
     updateLink();
@@ -221,6 +239,52 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onExport: (layer) => exporter.open(layer),
   onStyle: (layer) => styler.open(layer),
+});
+// The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
+const timeline: Timeline = new Timeline(images, {
+  element: document.getElementById('timeline')!,
+  button: document.getElementById('timeline-open') as HTMLButtonElement,
+  say,
+  onToggle: () => requestAnimationFrame(() => map.updateSize()),
+});
+// The dashboard: counts, values of attributes, numbers and times of a layer, and a heatmap; its charts filter the viewer too.
+const dashboard: Dashboard = new Dashboard(map, images, {
+  element: document.getElementById('dashboard')!,
+  button: document.getElementById('dashboard-open') as HTMLButtonElement,
+  timeline,
+  selection,
+  say,
+  onToggle: () => requestAnimationFrame(() => map.updateSize()),
+});
+makeResizer({
+  handle: document.getElementById('dashboard-resize')!,
+  target: document.querySelector<HTMLElement>('.app')!,
+  property: '--dash-width',
+  axis: 'x',
+  reverse: true,
+  size: () => dashboard.element.getBoundingClientRect().width,
+  min: () => 220,
+  max: () => Math.max(220, window.innerWidth * 0.5),
+  key: 'image-viewer.dash-width',
+  label: 'ダッシュボードの幅',
+  onResize: () => map.updateSize(),
+});
+/** The panels a project keeps the layout of. */
+const layoutParts: LayoutParts = { app: document.querySelector<HTMLElement>('.app')!, side, table, timeline, dashboard, onResize: () => requestAnimationFrame(() => map.updateSize()) };
+// The table's note says whether it is filtered; the 3D view drapes the map as filtered.
+let tableNote = '';
+const filtersChanged = () => {
+  const layer = images.selectedLayer();
+  const note = layer ? `${timeline.filters(layer)}${dashboard.filters(layer)}` : '';
+  if (layer && note !== tableNote) showTable(layer);
+  tableNote = note;
+  globeToggle?.globe()?.scheduleRefresh();
+};
+timeline.on('change', filtersChanged);
+dashboard.on('change', () => {
+  filtersChanged();
+  // The timeline's chart counts what the dashboard leaves.
+  timeline.refresh();
 });
 const exporter = new ExportDialog(selection, { say });
 const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
@@ -427,6 +491,11 @@ const project = new ProjectControl({
   restoreGlobe: (state) => globeToggle.restore(state),
   isDem: (layer) => layer.type === 'image' && geometry.isGeoTiffDem(layer),
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
+  layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
+  layout: {
+    collect: (indexOf) => collectLayout(layoutParts, indexOf),
+    apply: (layout, listIndexOf) => applyLayout(layoutParts, layout, listIndexOf),
+  },
 });
 new ToolMenu(document.getElementById('project-menu')!);
 document.getElementById('project-open')!.addEventListener('click', () => void project.choose());
@@ -460,6 +529,43 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
   say,
   onPipeline: (p) => enhance.setPipeline(p),
   open: (file) => openImageFile(file, fileContext()),
+});
+
+// Image catalogs (config.json's imageCatalogs): search by date, sensor and angle, open the images found:
+// COGs by URL, local paths through pathMappings (a URL, or a folder allowed in the browser).
+/** What the catalog said of the images opened from it, for the information panel. */
+const fromCatalog = new WeakMap<ViewerImage, Array<[string, string]>>();
+const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
+const openCatalogUrl = async (url: string, record: CatalogRecord, catalog: CatalogConfig) => {
+  const image = images.find(await loader.loadUrl(url));
+  if (!image) return;
+  fromCatalog.set(image, catalogInfo(record, catalog));
+  if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+};
+const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as HTMLButtonElement, map, config.imageCatalogs, {
+  say,
+  openUrl: openCatalogUrl,
+  openPath: config.pathMappings.length
+    ? async (path, record, catalog) => {
+        const where = await localPaths.resolve(path);
+        if (!where) return false;
+        if (where.kind === 'url') {
+          await openCatalogUrl(where.url, record, catalog);
+          return true;
+        }
+        const files = await Promise.all(where.handles.map(fileOf));
+        void recent?.remember(where.handles);
+        const before = new Set(images.list());
+        await project.openFiles(files);
+        const image = images.list().find((i) => !before.has(i));
+        if (image) {
+          fromCatalog.set(image, catalogInfo(record, catalog));
+          if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+        }
+        return true;
+      }
+    : undefined,
+  forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
 });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
@@ -504,7 +610,7 @@ function showRset(image: ViewerImage): void {
 /** Rows the information panel adds for an image: its RSET, and what the geometric mode knows of it. */
 function layerInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (layer?.type !== 'image') return geometryInfo(layer);
-  return [...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
+  return [...(fromCatalog.get(layer) ?? []), ...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
 }
 
 /** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */
@@ -689,7 +795,10 @@ declare global {
       project: ProjectControl;
       rset: typeof rsetSettings;
       globe: GlobeToggle;
+      catalog: CatalogPanel;
+      timeline: Timeline;
+      dashboard: Dashboard;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard };

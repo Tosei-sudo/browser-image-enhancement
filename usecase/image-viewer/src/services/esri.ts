@@ -31,6 +31,8 @@ export interface EsriLayerInfo {
   /** Attributes a new feature starts with (from the layer's first template). */
   template: Record<string, unknown>;
   token?: string;
+  /** The attributes the layer's `timeInfo` names as its start and end times. */
+  time?: { start?: string; end?: string };
 }
 
 interface EsriField {
@@ -55,6 +57,7 @@ interface EsriLayerJson {
   extent?: { xmin: number; ymin: number; xmax: number; ymax: number; spatialReference?: { wkid?: number; latestWkid?: number } };
   drawingInfo?: { renderer?: EsriRenderer };
   editFieldsInfo?: Record<string, string> | null;
+  timeInfo?: { startTimeField?: string | null; endTimeField?: string | null } | null;
   templates?: Array<{ prototype?: { attributes?: Record<string, unknown> } }>;
   types?: Array<{ templates?: Array<{ prototype?: { attributes?: Record<string, unknown> } }> }>;
 }
@@ -127,6 +130,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
     canDelete: editing && caps.has('delete'),
     template: json.templates?.[0]?.prototype?.attributes ?? json.types?.[0]?.templates?.[0]?.prototype?.attributes ?? {},
     token,
+    ...(json.timeInfo?.startTimeField ? { time: { start: json.timeInfo.startTimeField, end: json.timeInfo.endTimeField ?? undefined } } : {}),
   };
   // Editing (Create, Update or Delete) given without the finer capabilities means all three.
   if (editing && !info.canCreate && !info.canUpdate && !info.canDelete) info.canCreate = info.canUpdate = info.canDelete = true;

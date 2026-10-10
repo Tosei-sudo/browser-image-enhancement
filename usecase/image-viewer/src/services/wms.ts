@@ -22,7 +22,9 @@ import {
   type OpenContext,
   type ServiceCatalog,
   type ServiceLayer,
+  type ServiceTime,
 } from './common.js';
+import { wmsTimes, wmsTimeText } from '../time.js';
 import { pictureTiles } from './raster.js';
 
 interface WmsLayer {
@@ -35,6 +37,8 @@ interface WmsLayer {
   EX_GeographicBoundingBox?: Extent;
   LatLonBoundingBox?: Extent | { extent: Extent };
   Layer?: WmsLayer[];
+  /** WMS 1.3.0 dimensions (inherited from parent layers by the reader). */
+  Dimension?: Array<{ name?: string; default?: string | null; values?: string }>;
 }
 
 const JSON_INFO = ['application/json', 'application/geo+json', 'application/vnd.geo+json', 'application/geojson'];
@@ -98,6 +102,8 @@ async function openLayer(layer: WmsLayer, ep: Endpoint, context: OpenContext): P
   const gridExtent = projection.getExtent() ?? (geo ? transformExtent(geo, 'EPSG:4326', projection) : null);
   if (!gridExtent) throw new ServiceError(`${crs} の範囲が分からないため表示できません`);
   const tileGrid = createXYZ({ extent: gridExtent, maxZoom: 22, tileSize: 256 });
+  // The time asked for (none: the server's default), set by the timeline.
+  let time: string | null = null;
   const base = { SERVICE: 'WMS', VERSION: ep.version, LAYERS: name, STYLES: '', FORMAT: ep.format, TRANSPARENT: 'TRUE', [v13 ? 'CRS' : 'SRS']: crs };
   const bbox = (e: Extent) => (flip ? [e[1], e[0], e[3], e[2]] : e).join(',');
 
@@ -118,13 +124,40 @@ async function openLayer(layer: WmsLayer, ep: Endpoint, context: OpenContext): P
   };
   const tiles = pictureTiles({
     url: (z, x, y) =>
-      withParams(ep.getMap, { ...base, REQUEST: 'GetMap', WIDTH: 256, HEIGHT: 256, BBOX: bbox(tileGrid.getTileCoordExtent([z, x, y])) }),
+      withParams(ep.getMap, { ...base, ...(time ? { TIME: time } : {}), REQUEST: 'GetMap', WIDTH: 256, HEIGHT: 256, BBOX: bbox(tileGrid.getTileCoordExtent([z, x, y])) }),
     tileGrid,
     projection,
     gpu: context.gpu,
     onNoCors: () => context.say(`${service.title}: サーバーが CORS を許可していないため、補正せずに表示します`),
   });
   service.layer = tiles.layer;
+  const dimension = layer.Dimension?.find((d) => d.name?.toLowerCase() === 'time');
+  if (dimension) {
+    const { times, dateOnly } = wmsTimes(dimension.values ?? '');
+    const timeDimension: ServiceTime = {
+      values: times,
+      default: dimension.default ?? undefined,
+      current: () => time,
+      set: (t) => {
+        let next: string | null = null;
+        if (t !== null) {
+          // The latest time offered that is not after t (the first one before them all).
+          let pick = t;
+          if (times.length) {
+            let i = times.length - 1;
+            while (i > 0 && times[i] > t) i--;
+            pick = times[i];
+          }
+          next = wmsTimeText(pick, dateOnly);
+        }
+        if (next === time) return;
+        time = next;
+        tiles.refresh();
+      },
+    };
+    service.time = timeDimension;
+    service.info.push(['時間', times.length ? `${wmsTimeText(times[0], dateOnly)} 〜 ${wmsTimeText(times[times.length - 1], dateOnly)}（${times.length} 時点）` : (dimension.values ?? '')]);
+  }
   Object.defineProperty(service, 'correction', { get: tiles.correction });
 
   if (layer.queryable && ep.infoFormat) {
@@ -137,6 +170,7 @@ async function openLayer(layer: WmsLayer, ep: Endpoint, context: OpenContext): P
       const half = 50 * res;
       const url = withParams(ep.getInfo, {
         ...base,
+        ...(time ? { TIME: time } : {}),
         REQUEST: 'GetFeatureInfo',
         QUERY_LAYERS: name,
         INFO_FORMAT: infoFormat,

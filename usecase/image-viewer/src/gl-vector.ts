@@ -13,6 +13,10 @@
  *
  * Clicks are matched to features by their geometry ({@link GlVector.featureAt}),
  * with the same tolerance as the canvas layers.
+ *
+ * The timeline's filter ({@link TimeFilter}) is a filter of the WebGL style:
+ * each stand-in carries the time span of its feature, and moving the window
+ * only updates two style variables, so the buffers are not built again.
  */
 import Feature from 'ol/Feature.js';
 import type Map from 'ol/Map.js';
@@ -23,11 +27,25 @@ import type Geometry from 'ol/geom/Geometry.js';
 import type VectorLayer from 'ol/layer/Vector.js';
 import WebGLVectorLayer from 'ol/layer/WebGLVector.js';
 import VectorSource, { type VectorSourceEvent } from 'ol/source/Vector.js';
-import type { FlatStyle } from 'ol/style/flat.js';
+import type { FlatStyle, FlatStyleLike } from 'ol/style/flat.js';
 import type { Pixel } from 'ol/pixel.js';
 import { asArray } from 'ol/color.js';
 import type RegularShape from 'ol/style/RegularShape.js';
 import { isLine, styleFunction, type LineDash, type VectorStyleSpec } from './vector-style.js';
+import type { TimeFilter } from './time.js';
+
+/** Times on the GPU: minutes since 2000 (32-bit floats keep minutes exact for decades either side). */
+const TIME_ORIGIN = Date.UTC(2000, 0, 1);
+const NEVER = 1e9;
+function glMinutes(t: number): number {
+  if (t === -Infinity) return -NEVER;
+  if (t === Infinity) return NEVER;
+  return (t - TIME_ORIGIN) / 60_000;
+}
+/** The style variables of a time window. */
+function timeVariables(window: TimeFilter['window']): { timeStart: number; timeEnd: number } {
+  return { timeStart: Math.floor(glMinutes(window[0])), timeEnd: Math.ceil(glMinutes(window[1])) };
+}
 
 /** When vector layers are drawn on the GPU. */
 export const glVector = {
@@ -173,11 +191,17 @@ export class GlVector {
   private style_: FlatStyle;
   private radius_: number;
   private readonly keys_: EventsKey[];
+  private time_: TimeFilter | null;
+  private filter_: ((feature: Feature) => boolean) | null;
 
   constructor(
     readonly layer: VectorLayer,
     spec: VectorStyleSpec,
+    time: TimeFilter | null = null,
+    filter: ((feature: Feature) => boolean) | null = null,
   ) {
+    this.time_ = time;
+    this.filter_ = filter;
     this.paint_ = painter(spec);
     this.style_ = glStyle(spec);
     this.radius_ = spec.symbol.size / 2;
@@ -207,12 +231,47 @@ export class GlVector {
     this.paint_ = painter(spec);
     this.style_ = glStyle(spec);
     this.radius_ = spec.symbol.size / 2;
-    // A new style drops the buffers, which are built again from the stand-ins on the next frame.
-    this.gl_?.setStyle(this.style_);
+    this.rebuild_();
+  }
+
+  /**
+   * Draws only the features whose time span meets the window (null: all).
+   * The same `span` function with another window only moves the window.
+   */
+  setTime(time: TimeFilter | null): void {
+    const same = !!time && !!this.time_ && time.span === this.time_.span;
+    this.time_ = time;
+    if (same) this.gl_?.updateStyleVariables(timeVariables(time.window));
+    else this.rebuild_();
+  }
+
+  /** Draws only the features `filter` passes (null: all); they get stand-ins again. */
+  setFilter(filter: ((feature: Feature) => boolean) | null): void {
+    this.filter_ = filter;
+    this.rebuild_();
+  }
+
+  /** A new style or new stand-ins: the buffers are built again from the stand-ins on the next frame. */
+  private rebuild_(): void {
+    this.gl_?.setStyle(this.styleLike_());
+    if (this.time_) this.gl_?.updateStyleVariables(timeVariables(this.time_.window));
     const features = this.source_().getFeatures();
     this.proxies_.clear();
     this.drawn_.clear(true);
     this.drawn_.addFeatures(this.proxiesOf_(features));
+  }
+
+  /** The style, under the time filter when there is one. */
+  private styleLike_(): FlatStyleLike {
+    if (!this.time_) return this.style_;
+    return [{ filter: ['all', ['<=', ['get', 't0'], ['var', 'timeEnd']], ['>=', ['get', 't1'], ['var', 'timeStart']]], style: this.style_ }];
+  }
+
+  /** The time attributes of a stand-in. */
+  private timeOf_(feature: Feature): { t0: number; t1: number } | null {
+    if (!this.time_) return null;
+    const span = this.time_.span(feature);
+    return span ? { t0: glMinutes(span[0]), t1: glMinutes(span[1]) } : { t0: NEVER, t1: -NEVER };
   }
 
   /**
@@ -267,7 +326,13 @@ export class GlVector {
     const map = this.layer.getMapInternal();
     if (!map) return this.detach_();
     if (!this.gl_) {
-      this.gl_ = new WebGLVectorLayer({ source: this.drawn_, style: this.style_, disableHitDetection: true, className: 'ol-layer gl-vector' });
+      this.gl_ = new WebGLVectorLayer({
+        source: this.drawn_,
+        style: this.styleLike_(),
+        variables: timeVariables(this.time_?.window ?? [-Infinity, Infinity]),
+        disableHitDetection: true,
+        className: 'ol-layer gl-vector',
+      });
       for (const key of followed) {
         const value = this.layer.get(key);
         if (value !== undefined) this.gl_.set(key, value);
@@ -288,9 +353,10 @@ export class GlVector {
   private proxiesOf_(features: Feature[]): Feature[] {
     const out: Feature[] = [];
     for (const feature of features) {
+      if (this.filter_ && !this.filter_(feature)) continue;
       const paint = this.paint_(feature);
       if (!paint) continue;
-      const proxy = new Feature({ geometry: feature.getGeometry(), ...paint });
+      const proxy = new Feature({ geometry: feature.getGeometry(), ...paint, ...this.timeOf_(feature) });
       this.proxies_.set(feature, proxy);
       out.push(proxy);
     }
@@ -311,15 +377,16 @@ export class GlVector {
   /** A feature reshaped, given another geometry or other values (its category may change). */
   private changed_(feature: Feature): void {
     const proxy = this.proxies_.get(feature);
-    const paint = this.paint_(feature);
+    const paint = this.filter_ && !this.filter_(feature) ? null : this.paint_(feature);
     if (!paint) return this.removed_(feature);
     if (!proxy) return this.added_(feature);
     const geometry = feature.getGeometry();
-    const same = proxy.getGeometry() === geometry && samePaint(proxy, paint);
+    const time = this.timeOf_(feature);
+    const same = proxy.getGeometry() === geometry && samePaint(proxy, paint) && (!time || (proxy.get('t0') === time.t0 && proxy.get('t1') === time.t1));
     // A geometry changed in place has moved its stand-in already.
     if (same) return;
     proxy.setGeometry(geometry);
-    for (const [key, value] of Object.entries(paint)) proxy.set(key, value, true);
+    for (const [key, value] of Object.entries({ ...paint, ...time })) proxy.set(key, value, true);
     proxy.changed();
   }
 }
