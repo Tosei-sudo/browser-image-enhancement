@@ -66,6 +66,7 @@ import { HistogramPanel } from './histogram-panel.js';
 import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
+import { Timeline } from './timeline.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -137,6 +138,7 @@ bindShortcuts({
   a: press('measure-area'),
   p: press('add-point'),
   '3': press('globe-toggle'),
+  t: press('timeline-open'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -164,12 +166,14 @@ function showTable(layer: ViewerLayer | null): void {
   const service = layer?.type === 'service' ? layer.service : null;
   const vector = service?.vector;
   if (layer?.type === 'service' && vector && service) {
+    const timed = timeline.filters(layer);
+    const notes = [vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : '', timed ? 'タイムラインの期間内のみ' : ''].filter(Boolean);
     table.show({
       title: layer.name,
       fields: vector.fields,
-      features: () => vector.source.getFeatures(),
-      note: vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : undefined,
-      watch: [vector.source, ...(editor.session() ? [editor.session()!] : [])],
+      features: () => timeline.featuresInWindow(layer, vector.source.getFeatures()),
+      note: notes.length ? notes.join('・') : undefined,
+      watch: [vector.source, timeline, ...(editor.session() ? [editor.session()!] : [])],
       // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
       onDelete: editTargetOf(service)?.canDelete
         ? (features) => {
@@ -212,6 +216,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     } else if (editor.editing() === layer) editor.stop();
   },
   onChange: (list) => {
+    timeline?.refresh();
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
     updateLink();
@@ -221,6 +226,21 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onExport: (layer) => exporter.open(layer),
   onStyle: (layer) => styler.open(layer),
+});
+// The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
+const timeline: Timeline = new Timeline(images, {
+  element: document.getElementById('timeline')!,
+  button: document.getElementById('timeline-open') as HTMLButtonElement,
+  say,
+  onToggle: () => requestAnimationFrame(() => map.updateSize()),
+});
+let timelineFiltered = false;
+timeline.on('change', () => {
+  // The table's note says whether it is filtered.
+  const layer = images.selectedLayer();
+  if (layer && timeline.filters(layer) !== timelineFiltered) showTable(layer);
+  timelineFiltered = !!layer && timeline.filters(layer);
+  globeToggle?.globe()?.scheduleRefresh();
 });
 const exporter = new ExportDialog(selection, { say });
 const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
@@ -655,7 +675,8 @@ declare global {
       project: ProjectControl;
       rset: typeof rsetSettings;
       globe: GlobeToggle;
+      timeline: Timeline;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, timeline };

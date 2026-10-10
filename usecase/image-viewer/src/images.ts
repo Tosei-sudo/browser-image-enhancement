@@ -59,6 +59,8 @@ export class ImageList {
   /** Top first, as listed. */
   private images_: ViewerLayer[] = [];
   private selected_: ViewerLayer | null = null;
+  /** Layers the timeline hides (outside its window), whatever their check box says. */
+  private readonly timeHidden_ = new Set<ViewerLayer>();
 
   constructor(
     private readonly element: HTMLOListElement,
@@ -201,6 +203,7 @@ export class ImageList {
     const index = this.images_.indexOf(image);
     if (index < 0) return;
     this.images_.splice(index, 1);
+    this.timeHidden_.delete(image);
     if (this.selected_ === image) this.select(this.images_[Math.min(index, this.images_.length - 1)] ?? null);
     this.options.onRemove?.(image);
     this.map.removeLayer(image.layer);
@@ -232,8 +235,23 @@ export class ImageList {
 
   /** Shows or hides a layer, as its check box does. */
   setVisible(image: ViewerLayer, visible: boolean): void {
-    image.layer.setVisible(visible);
     image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked = visible;
+    image.layer.setVisible(visible && !this.timeHidden_.has(image));
+  }
+
+  /** Whether a layer's check box is on (it may still be hidden by the timeline). */
+  isVisible(image: ViewerLayer): boolean {
+    return image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked;
+  }
+
+  /** Hides a layer outside the timeline's window (its check box stays as the user left it), or shows it again. */
+  setTimeHidden(image: ViewerLayer, hidden: boolean): void {
+    if (hidden === this.timeHidden_.has(image)) return;
+    if (hidden) this.timeHidden_.add(image);
+    else this.timeHidden_.delete(image);
+    image.row.classList.toggle('time-out', hidden);
+    image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.title = hidden ? '表示（タイムラインの期間外のため隠れています）' : '表示';
+    image.layer.setVisible(this.isVisible(image) && !hidden);
   }
 
   /** Sets a layer's opacity (0–1), as its slider does. */
@@ -279,7 +297,7 @@ export class ImageList {
     visible.checked = true;
     visible.title = '表示';
     visible.setAttribute('aria-label', `${image.name} を表示`);
-    visible.addEventListener('change', () => layer.setVisible(visible.checked));
+    visible.addEventListener('change', () => layer.setVisible(visible.checked && !this.timeHidden_.has(image)));
 
     const name = document.createElement('button');
     name.type = 'button';
