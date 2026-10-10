@@ -192,13 +192,16 @@ export class GlVector {
   private radius_: number;
   private readonly keys_: EventsKey[];
   private time_: TimeFilter | null;
+  private filter_: ((feature: Feature) => boolean) | null;
 
   constructor(
     readonly layer: VectorLayer,
     spec: VectorStyleSpec,
     time: TimeFilter | null = null,
+    filter: ((feature: Feature) => boolean) | null = null,
   ) {
     this.time_ = time;
+    this.filter_ = filter;
     this.paint_ = painter(spec);
     this.style_ = glStyle(spec);
     this.radius_ = spec.symbol.size / 2;
@@ -240,6 +243,12 @@ export class GlVector {
     this.time_ = time;
     if (same) this.gl_?.updateStyleVariables(timeVariables(time.window));
     else this.rebuild_();
+  }
+
+  /** Draws only the features `filter` passes (null: all); they get stand-ins again. */
+  setFilter(filter: ((feature: Feature) => boolean) | null): void {
+    this.filter_ = filter;
+    this.rebuild_();
   }
 
   /** A new style or new stand-ins: the buffers are built again from the stand-ins on the next frame. */
@@ -344,6 +353,7 @@ export class GlVector {
   private proxiesOf_(features: Feature[]): Feature[] {
     const out: Feature[] = [];
     for (const feature of features) {
+      if (this.filter_ && !this.filter_(feature)) continue;
       const paint = this.paint_(feature);
       if (!paint) continue;
       const proxy = new Feature({ geometry: feature.getGeometry(), ...paint, ...this.timeOf_(feature) });
@@ -367,7 +377,7 @@ export class GlVector {
   /** A feature reshaped, given another geometry or other values (its category may change). */
   private changed_(feature: Feature): void {
     const proxy = this.proxies_.get(feature);
-    const paint = this.paint_(feature);
+    const paint = this.filter_ && !this.filter_(feature) ? null : this.paint_(feature);
     if (!paint) return this.removed_(feature);
     if (!proxy) return this.added_(feature);
     const geometry = feature.getGeometry();

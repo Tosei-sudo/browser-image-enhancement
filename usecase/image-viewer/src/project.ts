@@ -39,6 +39,7 @@ import {
   type Project,
   type ProjectLayer,
 } from './project-file.js';
+import type { ProjectLayout } from './layout.js';
 
 /** Files opened together, as the viewer opened them. */
 export interface OpenedSet {
@@ -63,6 +64,13 @@ export interface ProjectOptions {
   remember?: (handles: FileSystemFileHandle[]) => void;
   /** Called when the layers have changed (to update the link). */
   onChange?: () => void;
+  /** Each layer's timeline settings. */
+  layerTime?: { get: (layer: ViewerLayer) => ProjectLayer['time']; set: (layer: ViewerLayer, saved: NonNullable<ProjectLayer['time']>) => void };
+  /** The screen layout (panels, timeline, dashboard); indexes are of the project's layers. */
+  layout?: {
+    collect: (indexOf: (listIndex: number) => number) => ProjectLayout;
+    apply: (layout: ProjectLayout, listIndexOf: (projectIndex: number) => number) => void;
+  };
 }
 
 interface PermissionHandle extends FileSystemFileHandle {
@@ -156,6 +164,8 @@ export class ProjectControl {
       }
       if (correction?.isDraLocked()) layer.draLocked = true;
       if (l.type === 'service' && l.service.style) layer.style = l.service.style.get();
+      const time = this.options.layerTime?.get(l);
+      if (time) layer.time = time;
       layers.push(layer);
       listed.push(l);
     }
@@ -178,6 +188,7 @@ export class ProjectControl {
         fileSets,
         layers,
         selected: index < 0 ? null : index,
+        ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
       },
       left,
     };
@@ -312,6 +323,7 @@ export class ProjectControl {
         if (l.type === 'image' && saved.bands) pending.push(l.source.setSelect(saved.bands).catch(() => void problems.push(`${saved.name} のバンド割り当て`)));
         else if (l.type === 'image' && rule?.bands) pending.push(l.source.setSelect(null).catch(() => {}));
         if (l.type === 'service' && l.service.style && saved.style) l.service.style.set(normalizeSpec(saved.style, l.service.style.initial));
+        if (saved.time) this.options.layerTime?.set(l, saved.time);
       });
       await Promise.all(pending);
       this.restoreView_(project);
@@ -319,6 +331,11 @@ export class ProjectControl {
       const selected = project.selected !== null ? found[project.selected] : found.find((l) => l);
       images.select(null);
       images.select(selected ?? images.layers()[0] ?? null);
+      // The screen as it was (an older project, without one: the timeline and the dashboard closed).
+      this.options.layout?.apply(project.layout ?? {}, (i) => {
+        const l = found[i];
+        return l ? images.layers().indexOf(l) : -1;
+      });
       // Locked DRA ranges are taken again, of the area saved.
       for (const [i, saved] of project.layers.entries()) {
         const l = found[i];
