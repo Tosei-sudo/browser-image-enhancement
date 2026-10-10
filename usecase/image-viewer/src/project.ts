@@ -37,6 +37,7 @@ import {
   type FileRef,
   type FileSetRef,
   type Project,
+  type ProjectGlobe,
   type ProjectLayer,
 } from './project-file.js';
 import type { ProjectLayout } from './layout.js';
@@ -64,6 +65,14 @@ export interface ProjectOptions {
   remember?: (handles: FileSystemFileHandle[]) => void;
   /** Called when the layers have changed (to update the link). */
   onChange?: () => void;
+  /** The 3D view's state to save (null: it has not been opened). */
+  globeState?: () => ProjectGlobe | null;
+  /** Brings back the 3D view of a project (null: the project has none); resolves to whether 3D is open. */
+  restoreGlobe?: (state: ProjectGlobe | null) => Promise<boolean>;
+  /** Whether a layer is a GeoTIFF used as elevation data. */
+  isDem?: (layer: ViewerLayer) => boolean;
+  /** Makes a layer elevation data again. */
+  useAsDem?: (layer: ViewerLayer) => Promise<unknown>;
   /** Each layer's timeline settings. */
   layerTime?: { get: (layer: ViewerLayer) => ProjectLayer['time']; set: (layer: ViewerLayer, saved: NonNullable<ProjectLayer['time']>) => void };
   /** The screen layout (panels, timeline, dashboard); indexes are of the project's layers. */
@@ -164,6 +173,7 @@ export class ProjectControl {
       }
       if (correction?.isDraLocked()) layer.draLocked = true;
       if (l.type === 'service' && l.service.style) layer.style = l.service.style.get();
+      if (this.options.isDem?.(l)) layer.dem = true;
       const time = this.options.layerTime?.get(l);
       if (time) layer.time = time;
       layers.push(layer);
@@ -175,6 +185,7 @@ export class ProjectControl {
     const selected = images.selectedLayer();
     const index = selected ? listed.indexOf(selected) : -1;
     const fileSets: FileSetRef[] = sets.map((s) => ({ files: s.files.map(fileRef), ...(s.url ? { url: s.url } : {}) }));
+    const globe = this.options.globeState?.() ?? null;
     this.id_ ??= crypto.randomUUID();
     return {
       project: {
@@ -188,6 +199,7 @@ export class ProjectControl {
         fileSets,
         layers,
         selected: index < 0 ? null : index,
+        ...(globe ? { globe } : {}),
         ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
       },
       left,
@@ -326,7 +338,17 @@ export class ProjectControl {
         if (saved.time) this.options.layerTime?.set(l, saved.time);
       });
       await Promise.all(pending);
-      this.restoreView_(project);
+      // GeoTIFFs used as elevation data.
+      for (const [i, saved] of project.layers.entries()) {
+        const l = found[i];
+        if (l && saved.dem && !this.options.isDem?.(l)) await this.options.useAsDem?.(l);
+      }
+      // The 3D view as saved; the 2D view is where it was, unless 3D is open (its camera is).
+      const threeD = await (this.options.restoreGlobe?.(project.globe ?? null) ?? Promise.resolve(false)).catch((error: unknown) => {
+        problems.push(`3D 表示（${error instanceof Error ? error.message : String(error)}）`);
+        return false;
+      });
+      if (!threeD) this.restoreView_(project);
       // The correction panel shows the selected layer's correction as it is now.
       const selected = project.selected !== null ? found[project.selected] : found.find((l) => l);
       images.select(null);

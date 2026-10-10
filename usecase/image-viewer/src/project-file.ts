@@ -75,6 +75,8 @@ export interface ProjectLayer {
   draLocked?: boolean;
   /** Symbols and labels, for vector layers. */
   style?: VectorStyleSpec;
+  /** A GeoTIFF used as elevation data. */
+  dem?: true;
   /** The timeline's settings of the layer: whether it follows the window, its time attributes, a typed time. */
   time?: { on: boolean; start?: string | null; end?: string | null; time?: number };
 }
@@ -85,6 +87,19 @@ export interface ProjectView {
   center: [number, number];
   resolution: number;
   rotation: number;
+}
+
+/** The 3D view: whether it was open, the camera, and its settings. */
+export interface ProjectGlobe {
+  open: boolean;
+  /** Degrees, metres above the ellipsoid, heading and pitch in degrees. */
+  camera: { lon: number; lat: number; height: number; heading: number; pitch: number };
+  terrain: boolean;
+  exaggeration: number;
+  heightMode: 'auto' | 'orthometric' | 'ground' | 'ellipsoid';
+  natural: boolean;
+  /** 3D Tiles by URL. */
+  tilesets: Array<{ url: string; show: boolean }>;
 }
 
 /** A project file. */
@@ -104,6 +119,8 @@ export interface Project {
   layers: ProjectLayer[];
   /** Index in `layers` of the selected layer. */
   selected: number | null;
+  /** The 3D view, once it has been opened. */
+  globe?: ProjectGlobe;
   /** The screen: panel sizes, open sections, the timeline and the dashboard. */
   layout?: ProjectLayout;
 }
@@ -163,6 +180,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       : null;
 
   const selected = isNumber(json.selected) && Number.isInteger(json.selected) && json.selected >= 0 && json.selected < layers.length ? json.selected : null;
+  const globe = readGlobe(json.globe);
   return {
     project: {
       format: PROJECT_FORMAT,
@@ -176,6 +194,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       layers,
       // A layer left out moves the others: keep the selection only when nothing was.
       selected: skipped ? null : selected,
+      ...(globe ? { globe } : {}),
       ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
     },
     skipped,
@@ -197,6 +216,7 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
   if (Array.isArray(raw.bands) && raw.bands.length === 3 && raw.bands.every((b) => Number.isInteger(b) && (b as number) >= 0)) layer.bands = raw.bands as [number, number, number];
   if (raw.draLocked === true) layer.draLocked = true;
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
+  if (raw.dem === true) layer.dem = true;
   if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
     const t = raw.time;
     const name = (v: unknown) => (typeof v === 'string' ? v : v === null ? null : undefined);
@@ -206,6 +226,25 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
     if (isNumber(t.time)) layer.time.time = t.time;
   }
   return layer;
+}
+
+const heightModes = ['auto', 'orthometric', 'ground', 'ellipsoid'] as const;
+
+function readGlobe(g: unknown): ProjectGlobe | null {
+  if (!isObject(g) || !isObject(g.camera)) return null;
+  const c = g.camera;
+  if (![c.lon, c.lat, c.height].every(isNumber)) return null;
+  return {
+    open: g.open === true,
+    camera: { lon: c.lon as number, lat: c.lat as number, height: c.height as number, heading: isNumber(c.heading) ? c.heading : 0, pitch: isNumber(c.pitch) ? c.pitch : -90 },
+    terrain: g.terrain !== false,
+    exaggeration: isNumber(g.exaggeration) ? Math.min(10, Math.max(1, g.exaggeration)) : 1,
+    heightMode: heightModes.includes(g.heightMode as never) ? (g.heightMode as ProjectGlobe['heightMode']) : 'auto',
+    natural: g.natural !== false,
+    tilesets: Array.isArray(g.tilesets)
+      ? g.tilesets.filter((t): t is Record<string, unknown> => isObject(t) && typeof t.url === 'string' && /^https?:/i.test(t.url)).map((t) => ({ url: t.url as string, show: t.show !== false }))
+      : [],
+  };
 }
 
 /** The layout part, as far as it can be read; the timeline and the dashboard check theirs as they take it. */

@@ -8,7 +8,7 @@
 import type Feature from 'ol/Feature.js';
 import EsriJSON from 'ol/format/EsriJSON.js';
 import type Geometry from 'ol/geom/Geometry.js';
-import { transformExtent } from 'ol/proj.js';
+import { toLonLat, transformExtent } from 'ol/proj.js';
 import type { FeatureLike } from 'ol/Feature.js';
 import { Circle, Fill, Icon, RegularShape, Stroke, Style } from 'ol/style.js';
 import { LayerStyle, ownSpec } from '../vector-style.js';
@@ -16,13 +16,14 @@ import type ImageStyle from 'ol/style/Image.js';
 import type { Extent } from 'ol/extent.js';
 import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer } from './common.js';
 import { vectorLayer } from './vector.js';
+import { extentHeights, raiseFootprints } from './esri-multipatch.js';
 
 /** What the viewer keeps of an Esri layer's description. */
 export interface EsriLayerInfo {
   /** The layer's URL (`…/FeatureServer/0`). */
   url: string;
   name: string;
-  /** `esriGeometryPoint`, `esriGeometryMultipoint`, `esriGeometryPolyline` or `esriGeometryPolygon`. */
+  /** `esriGeometryPoint`, `esriGeometryMultipoint`, `esriGeometryPolyline`, `esriGeometryPolygon` or `esriGeometryMultiPatch`. */
   geometryType: string;
   objectIdField: string;
   canCreate: boolean;
@@ -114,6 +115,7 @@ const geometryNames: Record<string, string> = {
   esriGeometryMultipoint: 'マルチポイント',
   esriGeometryPolyline: 'ライン',
   esriGeometryPolygon: 'ポリゴン',
+  esriGeometryMultiPatch: 'マルチパッチ（3D）',
 };
 
 async function openLayer(url: string, mapServer: boolean, token?: string): Promise<ServiceLayer> {
@@ -137,7 +139,15 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
 
   const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
   const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
-  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token);
+  const multipatch = info.geometryType === 'esriGeometryMultiPatch';
+  // Multipatches: their footprints on the map, raised in 3D from their lowest to highest height.
+  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, multipatch ? { multipatchOption: 'xyFootprint' } : {});
+  let raised: number | null = null;
+  if (multipatch) {
+    if (editing) info.canCreate = info.canUpdate = info.canDelete = false;
+    const heights = await multipatchHeights(url, info.objectIdField, features.map((f) => f.getId() as number), json.maxRecordCount ?? 1000, token).catch(() => new Map<unknown, [number, number]>());
+    raised = raiseFootprints(features, heights, (p) => toLonLat(p, 'EPSG:3857'));
+  }
   const own = rendererStyle(json.drawingInfo?.renderer, url);
   const layer = vectorLayer(features, own);
   const extent = json.extent ? await extentOf(json.extent) : null;
@@ -158,6 +168,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
       ['ジオメトリ', geometryNames[info.geometryType] ?? info.geometryType],
       ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
+      ...(raised !== null ? [['3D', raised ? `${raised.toLocaleString()} 件を高さの範囲で立ち上げ（3D 表示）` : '高さを取得できません（ArcGIS Enterprise 10.9 以降の extent が必要）'] as [string, string]] : []),
     ],
   };
 }
@@ -195,14 +206,14 @@ const format = new EsriJSON();
 const WEB_MERCATOR = { wkid: 102100, latestWkid: 3857 };
 
 /** Every feature of the layer (up to MAX_FEATURES): the object ids first, then the features in batches. */
-export async function queryAll(url: string, oid: string, maxRecords: number, token?: string): Promise<{ features: Feature[]; truncated: boolean }> {
+export async function queryAll(url: string, oid: string, maxRecords: number, token?: string, extra: Record<string, string> = {}): Promise<{ features: Feature[]; truncated: boolean }> {
   const ids = await esriJson<{ objectIds?: number[] | null }>(`${url}/query`, { where: '1=1', returnIdsOnly: 'true' }, token, true);
   const all = (ids.objectIds ?? []).sort((a, b) => a - b);
   const truncated = all.length > MAX_FEATURES;
   const wanted = all.slice(0, MAX_FEATURES);
   const batch = Math.max(1, Math.min(maxRecords, 1000));
   const parts: Array<Promise<Feature[]>> = [];
-  for (let i = 0; i < wanted.length; i += batch) parts.push(queryIds(url, oid, wanted.slice(i, i + batch), token));
+  for (let i = 0; i < wanted.length; i += batch) parts.push(queryIds(url, oid, wanted.slice(i, i + batch), token, extra));
   // A few requests at a time.
   const features: Feature[] = [];
   for (let i = 0; i < parts.length; i += 4) for (const p of await Promise.all(parts.slice(i, i + 4))) features.push(...p);
@@ -210,17 +221,36 @@ export async function queryAll(url: string, oid: string, maxRecords: number, tok
 }
 
 /** The features with these object ids, in Web Mercator, each with its object id as feature id. */
-export async function queryIds(url: string, oid: string, ids: number[], token?: string): Promise<Feature[]> {
+export async function queryIds(url: string, oid: string, ids: number[], token?: string, extra: Record<string, string> = {}): Promise<Feature[]> {
   if (ids.length === 0) return [];
   const json = await esriJson<object>(
     `${url}/query`,
-    { objectIds: ids.join(','), outFields: '*', returnGeometry: 'true', outSR: JSON.stringify(WEB_MERCATOR) },
+    { objectIds: ids.join(','), outFields: '*', returnGeometry: 'true', outSR: JSON.stringify(WEB_MERCATOR), ...extra },
     token,
     true,
   );
   const features = format.readFeatures(json, { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' }) as Feature[];
   for (const f of features) f.setId(f.get(oid));
   return features;
+}
+
+/** The lowest and highest height of each multipatch (by object id), from its 3D extent. */
+async function multipatchHeights(url: string, oid: string, ids: number[], maxRecords: number, token?: string): Promise<Map<unknown, [number, number]>> {
+  const heights = new Map<unknown, [number, number]>();
+  const batch = Math.max(1, Math.min(maxRecords, 1000));
+  for (let i = 0; i < ids.length; i += batch) {
+    const json = await esriJson<{ features?: Array<{ attributes?: Record<string, unknown>; geometry?: unknown }> }>(
+      `${url}/query`,
+      { objectIds: ids.slice(i, i + batch).join(','), outFields: oid, returnGeometry: 'true', returnZ: 'true', multipatchOption: 'extent' },
+      token,
+      true,
+    );
+    for (const f of json.features ?? []) {
+      const range = extentHeights(f.geometry);
+      if (range) heights.set(f.attributes?.[oid], range);
+    }
+  }
+  return heights;
 }
 
 /** A geometry as Esri JSON in Web Mercator (outer rings clockwise, as the REST API expects). */

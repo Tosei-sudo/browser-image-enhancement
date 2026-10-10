@@ -95,20 +95,23 @@ test('multipatch buildings stand on the relief and are picked like features', as
   await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.501, lat: 35.2455, height: 1500, heading: 0, pitch: -30 }));
   await settled(page, 'with the buildings');
   await page.screenshot({ path: 'test-results/globe-buildings.png' });
-  // A click on the tower selects it in the attribute table.
-  const tower = await page.evaluate(() => {
+  // A click on the tower selects it in the attribute table. Scanned until found:
+  // a busy machine may still be placing the buildings on the relief.
+  const findTower = () => page.evaluate(() => {
     const globe = window.viewer.globe.globe()!;
     const canvas = globe.widget.scene.canvas;
-    // Scan the middle row for the first pixel that picks a shape.
-    for (let x = 0; x < canvas.clientWidth; x += 4) {
-      for (let y = Math.round(canvas.clientHeight * 0.3); y < canvas.clientHeight * 0.7; y += 8) {
+    // A frame with the shapes as they are now, then a coarse scan (each pick draws the scene once).
+    globe.widget.scene.render();
+    for (let x = 0; x < canvas.clientWidth; x += 12) {
+      for (let y = Math.round(canvas.clientHeight * 0.3); y < canvas.clientHeight * 0.9; y += 12) {
         const picked = globe.widget.scene.pick({ x, y } as never) as { id?: { feature?: { get(k: string): string } } } | undefined;
         if (picked?.id?.feature?.get('NAME') === 'tower') return [x, y];
       }
     }
     return null;
   });
-  expect(tower).not.toBeNull();
+  let tower: number[] | null = null;
+  await expect.poll(async () => (tower = await findTower()), { timeout: 120_000, intervals: [2000] }).not.toBeNull();
   const box = (await page.locator('.globe canvas').boundingBox())!;
   await page.mouse.click(box.x + tower![0], box.y + tower![1]);
   await expect.poll(() => page.evaluate(() => window.viewer.selection.list().map((f) => f.get('NAME')))).toEqual(['tower']);
@@ -158,8 +161,10 @@ test('3D Tiles open by URL, and the 2D-only tools wait in 3D', async ({ page }) 
   await open(page);
   await page.locator('#globe-toggle').click();
   await expect(page.locator('#globe-section')).toBeVisible();
-  await expect(page.locator('#measure-distance')).toBeDisabled();
-  await expect(page.locator('#save-view')).toBeDisabled();
+  await expect(page.locator('#add-point')).toBeDisabled();
+  await expect(page.locator('#swipe')).toBeDisabled();
+  // Measuring and saving the view work on the globe instead (globe-tools.spec.ts).
+  await expect(page.locator('#measure-distance')).toBeEnabled();
   await page.locator('#globe [name=url]').fill('http://localhost:4175/tiles/tileset.json');
   await page.locator('#globe .globe-tileset button').click();
   await expect(page.locator('#status')).toContainText('3D タイルを追加しました');
@@ -181,6 +186,6 @@ test('3D Tiles open by URL, and the 2D-only tools wait in 3D', async ({ page }) 
   await page.locator('.globe-tilesets li button[aria-label$=を閉じる]').click();
   await expect(page.locator('.globe-tilesets li')).toHaveCount(0);
   await page.locator('#globe-toggle').click();
-  await expect(page.locator('#measure-distance')).toBeEnabled();
+  await expect(page.locator('#add-point')).toBeEnabled();
   expect(errors).toEqual([]);
 });

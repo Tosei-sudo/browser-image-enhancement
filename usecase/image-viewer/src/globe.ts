@@ -6,9 +6,14 @@
  *   (globe-tiles.ts: corrections, styles, labels, base maps…);
  * - the relief of the DEMs that are open (DTED, heights above mean sea level
  *   plus the EGM96 geoid), with a vertical exaggeration;
- * - 3D Tiles tilesets by URL;
+ * - the relief of GeoTIFF DEMs used as elevation data (geometric.ts);
+ * - 3D Tiles tilesets by URL, or from a folder (local-tiles.ts);
  * - multipatch layers (multipatch.ts) as solid shapes;
- * - the viewshed from a clicked point (viewshed.ts), as a layer of the map.
+ * - the viewshed from a clicked point (viewshed.ts), as a layer of the map,
+ *   with buildings (multipatches, 3D Tiles) in the way if wished;
+ * - measuring distances (with a profile and the line of sight) and areas on
+ *   whatever is drawn (globe-measure.ts);
+ * - a picture of the view (PNG), and its state for project files.
  *
  * Everything CesiumJS needs at run time is part of the site (vite.config.ts),
  * so the view works without a network.
@@ -35,6 +40,7 @@ import {
   buildModuleUrl,
   Cesium3DTileset,
   CesiumWidget,
+  I3SDataProvider,
   CustomHeightmapTerrainProvider,
   EllipsoidTerrainProvider,
   GeographicTilingScheme,
@@ -70,7 +76,11 @@ import { dataExtent, layerSignature, MapTileRenderer, tileHasData, type DataExte
 import { coversAny, elevationAt, geoidHeight, loadGeoid, type GeoidGrid } from './dem.js';
 import type { Dted } from './dted.js';
 import { heightRange, multiPatchOf, trianglesOf, type MultiPatch } from './multipatch.js';
-import { gridAround, runViewshed, viewshedPixels, visibleArea, type ViewshedOptions } from './viewshed.js';
+import { gridAround, raiseByTriangles, runViewshed, viewshedPixels, visibleArea, type ViewshedGrid, type ViewshedOptions } from './viewshed.js';
+import { GlobeMeasure, type GlobeMeasureMode, type MeasureResult } from './globe-measure.js';
+import { drawProfile, profileCsv } from './profile-chart.js';
+import { isLocalTiles, serveFolder } from './local-tiles.js';
+import { isSceneServer, openSceneService } from './i3s.js';
 import type { ImageList, ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 
@@ -84,6 +94,8 @@ export interface GlobeContext {
   /** Shows a feature picked in 3D in the attribute table. */
   showFeature: (layer: ViewerService, feature: Feature) => void;
   say: (message: string) => void;
+  /** Called when measuring starts or stops. */
+  onMeasure?: (mode: 'distance' | 'area' | null) => void;
 }
 
 /** A camera position: degrees, metres above the ellipsoid, heading and pitch in degrees. */
@@ -97,6 +109,19 @@ export interface CameraPlace {
 
 /** How multipatch heights are placed. */
 export type HeightMode = 'auto' | 'orthometric' | 'ground' | 'ellipsoid';
+
+/** What a project file keeps of the 3D view. */
+export interface GlobeState {
+  /** Whether the 3D view was open. */
+  open: boolean;
+  camera: CameraPlace;
+  terrain: boolean;
+  exaggeration: number;
+  heightMode: HeightMode;
+  natural: boolean;
+  /** 3D Tiles by URL (folders on the computer are not kept). */
+  tilesets: Array<{ url: string; show: boolean }>;
+}
 
 const WEB_MERCATOR_HALF = 20037508.342789244;
 /** Tiles of the 2D map are drawn in 2 × 2 blocks: one draw for four tiles. */
@@ -222,11 +247,22 @@ function demTerrain(cells: readonly Dted[], geoid: GeoidGrid): TerrainProvider {
   });
 }
 
-/** One 3D Tiles tileset added by URL. */
+/** One 3D Tiles tileset (by URL or from a folder) or scene service (I3S). */
 interface TilesetEntry {
   url: string;
-  tileset: Cesium3DTileset;
+  name: string;
+  tileset: Cesium3DTileset | I3SDataProvider;
   row: HTMLLIElement;
+}
+
+/** The 3D Tiles tilesets of an entry (a scene service has one per layer). */
+function tilesetsOf(entry: TilesetEntry): Cesium3DTileset[] {
+  return entry.tileset instanceof Cesium3DTileset ? [entry.tileset] : entry.tileset.layers.map((l) => l.tileset).filter((t): t is Cesium3DTileset => !!t);
+}
+
+/** Where an entry is, as a rectangle (radians). */
+function rectangleOf(entry: TilesetEntry): Rectangle {
+  return entry.tileset instanceof Cesium3DTileset ? Rectangle.fromBoundingSphere(entry.tileset.boundingSphere) : entry.tileset.extent;
 }
 
 /** A viewshed shown on the map. */
@@ -257,6 +293,7 @@ export class Globe {
   private picking_ = false;
   private geoid_: GeoidGrid | null = null;
   private readonly panel_: GlobePanel;
+  private readonly measure_: GlobeMeasure;
   private readonly unwatch_: Array<() => void> = [];
 
   constructor(
@@ -303,6 +340,21 @@ export class Globe {
       if (/^(Arrow\w+|\+|-|=)$/.test(e.key)) e.stopPropagation();
     });
     this.panel_ = new GlobePanel(panel, this);
+    this.measure_ = new GlobeMeasure({
+      widget: this.widget,
+      groundAt: (lon, lat) => (this.hasRelief() ? elevationAt(this.cells_, lon, lat) : null),
+      geoidAt: (lon, lat) => (this.geoid_ ? geoidHeight(this.geoid_, lon, lat) : 0),
+      refraction: () => this.panel_.viewshedSettings().refraction,
+      onChange: (result) => this.panel_.showMeasure(result),
+      say: context.say,
+    });
+    // Esc clears a measurement, or stops picking the observer.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !this.open_) return;
+      if (this.measure_.result()) this.measure_.clear();
+      else if (this.measure_.active()) this.setMeasure(null);
+      if (this.picking_) this.setPicking(false);
+    });
     scene.globe.tileLoadProgressEvent.addEventListener((queued: number) => {
       // The newest layer of the 2D map has loaded what is in view: the ones it replaces can go.
       if (queued === 0) this.dropOldImagery_();
@@ -347,6 +399,7 @@ export class Globe {
     for (const layer of this.imagery_.splice(0)) this.removeImagery_(layer);
     this.container.hidden = true;
     this.picking_ = false;
+    this.setMeasure(null);
     this.panel_.update();
     await this.renderer.end(at ?? undefined);
   }
@@ -407,6 +460,7 @@ export class Globe {
 
   /** Puts the camera at `place`. */
   setCamera(place: CameraPlace): void {
+    this.widget.camera.cancelFlight();
     this.widget.camera.setView({
       destination: Cartesian3.fromDegrees(place.lon, place.lat, place.height),
       orientation: { heading: CesiumMath.toRadians(place.heading), pitch: CesiumMath.toRadians(place.pitch), roll: 0 },
@@ -492,7 +546,13 @@ export class Globe {
 
   setExaggeration(value: number): void {
     this.widget.scene.verticalExaggeration = value;
+    // Multipatches are drawn here, not by CesiumJS's exaggeration: they follow it so they stay on the ground.
+    this.updatePatches_(true);
     this.widget.scene.requestRender();
+  }
+
+  exaggeration(): number {
+    return this.widget.scene.verticalExaggeration;
   }
 
   /** Whether the relief of open DEMs is shown. */
@@ -577,21 +637,30 @@ export class Globe {
     this.widget.scene.requestRender();
   }
 
-  /** Triangles of a shape at their heights, with a normal each (flat shaded). */
-  private patchGeometry_(shape: MultiPatch): Geometry | null {
+  /** Triangles of a shape (longitude, latitude, height above the ellipsoid; nine numbers a triangle), placed as the height mode says. */
+  private placedTriangles_(shape: MultiPatch): Float64Array | null {
     const t = trianglesOf(shape);
     if (t.length < 9) return null;
     const [low] = heightRange(shape);
     const mode = this.heightMode_ === 'auto' ? (this.hasRelief() ? 'orthometric' : 'ground') : this.heightMode_;
     // Ground mode: the shape's lowest point on the ground under its first point.
     const base = mode === 'ground' ? this.groundAt_(t[0], t[1]) - low : 0;
+    for (let i = 0; i < t.length; i += 3) {
+      t[i + 2] += base;
+      if (mode === 'orthometric' && this.geoid_) t[i + 2] += geoidHeight(this.geoid_, t[i], t[i + 1]);
+    }
+    return t;
+  }
+
+  /** Triangles of a shape at their heights, with a normal each (flat shaded). */
+  private patchGeometry_(shape: MultiPatch): Geometry | null {
+    const t = this.placedTriangles_(shape);
+    if (!t) return null;
     const positions = new Float64Array(t.length);
     const scratch = new Cartesian3();
+    const e = this.widget.scene.verticalExaggeration;
     for (let i = 0; i < t.length; i += 3) {
-      const [lon, lat, z] = [t[i], t[i + 1], t[i + 2]];
-      let h = z + base;
-      if (mode === 'orthometric') h += this.geoid_ ? geoidHeight(this.geoid_, lon, lat) : 0;
-      Cartesian3.fromDegrees(lon, lat, h, undefined, scratch);
+      Cartesian3.fromDegrees(t[i], t[i + 1], t[i + 2] * e, undefined, scratch);
       positions[i] = scratch.x;
       positions[i + 1] = scratch.y;
       positions[i + 2] = scratch.z;
@@ -636,17 +705,25 @@ export class Globe {
 
   // ----- 3D Tiles -------------------------------------------------------------
 
-  /** Adds a 3D Tiles tileset (the URL of its tileset.json) and flies to it. */
-  async addTileset(url: string): Promise<void> {
+  /**
+   * Adds a 3D Tiles tileset (the URL of its tileset.json) or an Esri scene
+   * service (`…/SceneServer`, I3S) and flies to it, unless `fly` is false.
+   */
+  async addTileset(url: string, options: { name?: string; show?: boolean; fly?: boolean } = {}): Promise<boolean> {
     const { say } = this.context;
-    say(`${url} を読み込んでいます…`);
+    const scene = isSceneServer(url);
+    const name = options.name ?? (scene ? /([^/]+)\/SceneServer/i.exec(url)?.[1] : null) ?? (url.replace(/\/tileset\.json(\?.*)?$/i, '').split('/').pop() || url);
+    say(`${name} を読み込んでいます…`);
     try {
-      const tileset = await Cesium3DTileset.fromUrl(url);
+      const tileset = scene ? await openSceneService(url, this.geoid_ ?? (this.geoid_ = await loadGeoid())) : await Cesium3DTileset.fromUrl(url);
+      tileset.show = options.show ?? true;
       this.widget.scene.primitives.add(tileset);
-      const entry: TilesetEntry = { url, tileset, row: document.createElement('li') };
+      const entry: TilesetEntry = { url, name, tileset, row: document.createElement('li') };
       this.tilesets_.push(entry);
-      this.panel_.tilesetRow(entry, {
-        zoom: () => void this.widget.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 0.8 }),
+      // Scene services give an extent only; viewed as a sphere, the camera stays outside small ones.
+      const zoom = () => this.widget.camera.flyToBoundingSphere(tileset instanceof Cesium3DTileset ? tileset.boundingSphere : BoundingSphere.fromRectangle3D(tileset.extent), { duration: 0.8 });
+      this.panel_.tilesetRow(entry, tileset.show, {
+        zoom,
         remove: () => {
           this.widget.scene.primitives.remove(tileset);
           this.tilesets_.splice(this.tilesets_.indexOf(entry), 1);
@@ -658,10 +735,23 @@ export class Globe {
           this.widget.scene.requestRender();
         },
       });
-      void this.widget.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 0.8 });
-      say(`3D タイルを追加しました: ${url}`);
+      if (options.fly !== false) zoom();
+      say(`${scene ? 'シーンサービス' : '3D タイル'}を追加しました: ${name}`);
+      return true;
     } catch (error) {
       say(`3D タイルを開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
+  /** Adds the 3D Tiles of a folder on the computer (its files, each with its path in the folder). */
+  async addTilesetFolder(files: readonly File[]): Promise<boolean> {
+    try {
+      const { url, name } = await serveFolder(files);
+      return await this.addTileset(url, { name });
+    } catch (error) {
+      this.context.say(`3D タイルを開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
     }
   }
 
@@ -669,9 +759,93 @@ export class Globe {
     return this.tilesets_.map((t) => t.url);
   }
 
+  // ----- measuring --------------------------------------------------------------
+
+  /** Measures distances or areas in 3D (null: stops). */
+  setMeasure(mode: GlobeMeasureMode | null): void {
+    if (mode && this.picking_) this.setPicking(false);
+    this.measure_.setMode(mode);
+    this.panel_.update();
+    this.context.onMeasure?.(mode);
+  }
+
+  measureMode(): GlobeMeasureMode | null {
+    // Asked by the panel before the tool is made.
+    return (this.measure_ as GlobeMeasure | undefined)?.mode() ?? null;
+  }
+
+  /** The measurement made, for the tests. */
+  measureResult(): MeasureResult | null {
+    return this.measure_.result();
+  }
+
+  /** The measuring tool, for the tests. */
+  get measure(): GlobeMeasure {
+    return this.measure_;
+  }
+
+  // ----- pictures and project files --------------------------------------------
+
+  /** The view as a PNG. */
+  async picture(): Promise<Blob> {
+    const scene = this.widget.scene;
+    scene.render();
+    return new Promise<Blob>((resolve, reject) => scene.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('画像を作れませんでした'))), 'image/png'));
+  }
+
+  /** Saves the view as a PNG file (a download). */
+  async savePicture(): Promise<void> {
+    try {
+      const blob = await this.picture();
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `3d-${stamp}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+      this.context.say(`3D 表示を ${a.download} として保存しました`);
+    } catch (error) {
+      this.context.say(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** What a project file keeps of the 3D view. */
+  state(): GlobeState {
+    return {
+      open: this.open_,
+      camera: this.getCamera(),
+      terrain: this.terrainOn_,
+      exaggeration: this.widget.scene.verticalExaggeration,
+      heightMode: this.heightMode_,
+      natural: this.panel_.natural.checked,
+      tilesets: this.tilesets_.filter((t) => !isLocalTiles(t.url)).map((t) => ({ url: t.url, show: t.tileset.show })),
+    };
+  }
+
+  /** Brings back the settings and tilesets of a project file, and its camera unless `camera` is false (not whether it is open, which the caller decides). */
+  async setState(state: GlobeState, camera = true): Promise<void> {
+    this.panel_.setTerrain(state.terrain);
+    this.setTerrain(state.terrain);
+    this.panel_.setExaggeration(state.exaggeration);
+    this.setExaggeration(state.exaggeration);
+    this.panel_.setHeightMode(state.heightMode);
+    this.setHeightMode(state.heightMode);
+    this.panel_.natural.checked = state.natural;
+    this.setNaturalEarth(state.natural);
+    // The tilesets of the project replace those open.
+    for (const t of [...this.tilesets_]) {
+      this.widget.scene.primitives.remove(t.tileset);
+      t.row.remove();
+    }
+    this.tilesets_.splice(0);
+    await Promise.all(state.tilesets.map((t) => this.addTileset(t.url, { show: t.show, fly: false })));
+    if (camera) this.setCamera(state.camera);
+  }
+
   // ----- clicks and the viewshed ---------------------------------------------
 
   setPicking(on: boolean): void {
+    if (on && this.measure_.active()) this.setMeasure(null);
     this.picking_ = on;
     this.container.classList.toggle('picking', on);
     this.panel_.update();
@@ -683,6 +857,7 @@ export class Globe {
 
   private click_(position: Cartesian2): void {
     const scene = this.widget.scene;
+    if (this.measure_.active()) return;
     if (this.picking_) {
       const ray = this.widget.camera.getPickRay(position);
       const hit = ray && scene.globe.pick(ray, scene);
@@ -701,7 +876,7 @@ export class Globe {
   async runViewshed(lon: number, lat: number): Promise<void> {
     const { say, cells } = this.context;
     const settings = this.panel_.viewshedSettings();
-    const options: ViewshedOptions = { lon, lat, ...settings };
+    const options: ViewshedOptions = { lon, lat, observerHeight: settings.observerHeight, targetHeight: settings.targetHeight, radius: settings.radius, refraction: settings.refraction };
     const open = cells();
     if (!open.length) {
       say('可視解析には標高データ（DTED）が必要です。先に開いてください');
@@ -710,16 +885,93 @@ export class Globe {
     say('可視解析: 標高を読み取っています…');
     try {
       const grid = gridAround(open, options);
+      const obstacles = settings.obstacles ? await this.addObstacles_(grid) : null;
       const started = performance.now();
       const result = await runViewshed(grid, options, (done) => say(`可視解析: ${Math.round(done * 100)}%`));
       const area = visibleArea(grid, result);
       this.showViewshed_(grid, result, options);
       say(
-        `可視解析: 観測点 ${lat.toFixed(5)}, ${lon.toFixed(5)}、見える範囲 ${(area / 1e6).toFixed(2)} km²（半径 ${(options.radius / 1000).toFixed(1)} km、${grid.width}×${grid.height} 点、${((performance.now() - started) / 1000).toFixed(1)} 秒）`,
+        `可視解析: 観測点 ${lat.toFixed(5)}, ${lon.toFixed(5)}、見える範囲 ${(area / 1e6).toFixed(2)} km²（半径 ${(options.radius / 1000).toFixed(1)} km、${grid.width}×${grid.height} 点、${((performance.now() - started) / 1000).toFixed(1)} 秒` +
+          (obstacles ? `、遮蔽物: ${obstacles}` : '') +
+          '）',
       );
     } catch (error) {
       say(`可視解析できませんでした: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * Raises the grid's heights to the buildings standing on it: the shapes of
+   * visible multipatch layers, and the 3D Tiles shown (their heights read from
+   * what is drawn now, at up to {@link MAX_TILE_SAMPLES} points). Returns what
+   * was counted in, for the message, or null when nothing was.
+   */
+  private async addObstacles_(grid: ViewshedGrid): Promise<string | null> {
+    const found: string[] = [];
+    const geoid = this.geoid_ ?? (this.geoid_ = await loadGeoid());
+    // Multipatches: their triangles, at heights above sea level.
+    let shapes = 0;
+    let raised = 0;
+    for (const { layer } of this.patchLayers()) {
+      if (!layer.layer.getVisible()) continue;
+      for (const f of layer.service.vector!.source.getFeatures() as Feature[]) {
+        const shape = multiPatchOf(f);
+        const t = shape && this.placedTriangles_(shape);
+        if (!t) continue;
+        for (let i = 0; i < t.length; i += 3) t[i + 2] -= geoidHeight(geoid, t[i], t[i + 1]);
+        raised += raiseByTriangles(grid, t);
+        shapes++;
+      }
+    }
+    if (shapes) found.push(`マルチパッチ ${shapes.toLocaleString()} 件（${raised.toLocaleString()} 点）`);
+    // 3D Tiles: the height of what is drawn over each point, where it stands above the ground.
+    const scene = this.widget.scene;
+    const shown = this.tilesets_.filter((t) => t.tileset.show);
+    if (shown.length && scene.sampleHeightSupported) {
+      const rects = shown.map(rectangleOf);
+      const inside = (lon: number, lat: number) => rects.some((r) => Rectangle.contains(r, Cartographic.fromDegrees(lon, lat)));
+      // Every `step`-th point of the grid, so there are at most MAX_TILE_SAMPLES.
+      let cells = 0;
+      for (let r = 0; r < grid.height; r++) for (let c = 0; c < grid.width; c++) if (inside(grid.west + c * grid.dLon, grid.north - r * grid.dLat)) cells++;
+      const step = Math.max(1, Math.ceil(Math.sqrt(cells / MAX_TILE_SAMPLES)));
+      const exclude = this.tilesets_.filter((t) => !t.tileset.show).flatMap(tilesetsOf);
+      const e = scene.verticalExaggeration || 1;
+      const ellipsoid = scene.globe.show;
+      // Only objects: the ground is the DEM's.
+      scene.globe.show = false;
+      let samples = 0;
+      let higher = 0;
+      try {
+        for (let r = 0; r < grid.height; r += step) {
+          for (let c = 0; c < grid.width; c += step) {
+            const lon = grid.west + c * grid.dLon;
+            const lat = grid.north - r * grid.dLat;
+            if (!inside(lon, lat)) continue;
+            const h = scene.sampleHeight(Cartographic.fromDegrees(lon, lat), [...exclude, ...this.patches_.map((p) => p.primitive)]);
+            samples++;
+            if (h === undefined) continue;
+            const top = h / e - geoidHeight(geoid, lon, lat);
+            // The block of points this sample stands for.
+            for (let rr = r; rr < Math.min(grid.height, r + step); rr++) {
+              for (let cc = c; cc < Math.min(grid.width, c + step); cc++) {
+                const k = rr * grid.width + cc;
+                if (top > grid.heights[k] || Number.isNaN(grid.heights[k])) {
+                  grid.heights[k] = top;
+                  higher++;
+                }
+              }
+            }
+          }
+          // Let the page breathe on big grids.
+          if (r % (step * 64) === 0) await new Promise((resolve) => setTimeout(resolve));
+        }
+      } finally {
+        scene.globe.show = ellipsoid;
+        scene.requestRender();
+      }
+      if (samples) found.push(`3D タイル ${samples.toLocaleString()} 点${step > 1 ? `（${step} 点おき）` : ''}、${higher.toLocaleString()} 点が地面より高い`);
+    }
+    return found.length ? found.join('、') : null;
   }
 
   /** The result as a layer of the 2D map (so it shows in both views) and the observer as a marker. */
@@ -790,6 +1042,8 @@ export class Globe {
   }
 }
 
+/** 3D Tiles heights read for a viewshed at most. */
+const MAX_TILE_SAMPLES = 40_000;
 const PATCH_COLOR = Color.fromCssColorString('#e8e2d6');
 const SELECTED = Color.fromCssColorString('#ffd400');
 
@@ -810,6 +1064,14 @@ class GlobePanel {
   private readonly radius_: HTMLInputElement;
   private readonly refraction_: HTMLInputElement;
   private readonly progress_: HTMLElement;
+  private readonly obstacles_: HTMLInputElement;
+  private readonly distance_: HTMLButtonElement;
+  private readonly area_: HTMLButtonElement;
+  private readonly measure_: HTMLElement;
+  private readonly measureLines_: HTMLElement;
+  private readonly profile_: HTMLElement;
+  private readonly csv_: HTMLButtonElement;
+  private csvText_ = '';
 
   constructor(
     private readonly element: HTMLElement,
@@ -834,19 +1096,34 @@ class GlobePanel {
       </label>
       <h3>3D タイル</h3>
       <form class="globe-tileset">
-        <input type="url" name="url" placeholder="tileset.json の URL" aria-label="3D タイルの URL" required />
+        <input type="url" name="url" placeholder="tileset.json か SceneServer の URL" aria-label="3D タイルかシーンサービスの URL" title="3D Tiles の tileset.json、または Esri のシーンサービス（…/SceneServer、I3S）" required />
         <button type="submit">追加</button>
       </form>
+      <div class="globe-buttons">
+        <button type="button" name="tiles-folder" title="tileset.json のあるフォルダを、パソコンから開きます">フォルダから開く…</button>
+        <input type="file" name="tiles-files" webkitdirectory multiple hidden />
+      </div>
       <ul class="globe-tilesets"></ul>
+      <h3>計測</h3>
+      <div class="globe-buttons">
+        <button type="button" name="measure-distance" aria-pressed="false" title="点の間の斜距離・水平距離・高低差と断面図（D）">距離・断面</button>
+        <button type="button" name="measure-area" aria-pressed="false" title="水平面積と周長（A）">面積</button>
+      </div>
+      <div class="globe-measure" hidden>
+        <p class="globe-measure-lines"></p>
+        <div class="globe-profile"></div>
+        <div class="globe-buttons"><button type="button" name="profile-csv" hidden>断面を CSV で保存</button></div>
+      </div>
       <h3>可視解析</h3>
       <div class="globe-viewshed">
         <label class="globe-field">観測者の高さ <span><input type="number" name="observer" value="1.6" min="0" step="0.1" /> m</span></label>
         <label class="globe-field">対象の高さ <span><input type="number" name="target" value="0" min="0" step="0.1" /> m</span></label>
         <label class="globe-field">半径 <span><input type="number" name="radius" value="5" min="0.1" max="100" step="0.1" /> km</span></label>
+        <label class="globe-check" title="マルチパッチの建物と、表示中の 3D タイルの高さを地形に加えて判定します"><input type="checkbox" name="obstacles" checked /> 建物（マルチパッチ・3D タイル）も遮る</label>
         <details class="globe-more">
           <summary>詳細</summary>
           <label class="globe-field">大気差係数 <span><input type="number" name="refraction" value="0.13" min="0" max="1" step="0.01" /></span></label>
-          <p class="globe-note">標高データ（DTED）の全点について、観測点からの視線をそのまま辿って判定します（R3 法）。距離は WGS 84 楕円体上、地球の丸みと大気の屈折を考慮します。</p>
+          <p class="globe-note">標高データの全点について、観測点からの視線をそのまま辿って判定します（R3 法）。距離は WGS 84 楕円体上、地球の丸みと大気の屈折を考慮します。3D タイルの高さは、いま表示されている詳しさで最大 4 万点読み取ります。</p>
         </details>
         <div class="globe-buttons">
           <button type="button" name="pick" aria-pressed="false">観測点をクリック</button>
@@ -855,6 +1132,7 @@ class GlobePanel {
       </div>
       <h3>表示</h3>
       <label class="globe-check"><input type="checkbox" name="natural" checked /> 地球全体の背景画像（Natural Earth）</label>
+      <div class="globe-buttons"><button type="button" name="save-picture" title="いまの 3D 表示を PNG で保存します">画像として保存（PNG）</button></div>
     `;
     const q = <T extends Element>(selector: string) => element.querySelector<T & Element>(selector)!;
     this.natural = q<HTMLInputElement>('[name=natural]');
@@ -872,6 +1150,13 @@ class GlobePanel {
     this.radius_ = q<HTMLInputElement>('[name=radius]');
     this.refraction_ = q<HTMLInputElement>('[name=refraction]');
     this.progress_ = q<HTMLElement>('.globe-loading');
+    this.obstacles_ = q<HTMLInputElement>('[name=obstacles]');
+    this.distance_ = q<HTMLButtonElement>('[name=measure-distance]');
+    this.area_ = q<HTMLButtonElement>('[name=measure-area]');
+    this.measure_ = q<HTMLElement>('.globe-measure');
+    this.measureLines_ = q<HTMLElement>('.globe-measure-lines');
+    this.profile_ = q<HTMLElement>('.globe-profile');
+    this.csv_ = q<HTMLButtonElement>('[name=profile-csv]');
 
     this.natural.addEventListener('change', () => globe.setNaturalEarth(this.natural.checked));
     this.terrain_.addEventListener('change', () => globe.setTerrain(this.terrain_.checked));
@@ -889,15 +1174,33 @@ class GlobePanel {
       input.value = '';
       void globe.addTileset(url);
     });
+    const folder = q<HTMLInputElement>('[name=tiles-files]');
+    q<HTMLButtonElement>('[name=tiles-folder]').addEventListener('click', () => folder.click());
+    folder.addEventListener('change', () => {
+      const files = [...(folder.files ?? [])];
+      folder.value = '';
+      if (files.length) void globe.addTilesetFolder(files);
+    });
+    this.distance_.addEventListener('click', () => globe.setMeasure(globe.measureMode() === 'distance' ? null : 'distance'));
+    this.area_.addEventListener('click', () => globe.setMeasure(globe.measureMode() === 'area' ? null : 'area'));
+    this.csv_.addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([this.csvText_], { type: 'text/csv' }));
+      a.download = 'profile.csv';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    });
+    q<HTMLButtonElement>('[name=save-picture]').addEventListener('click', () => void globe.savePicture());
     this.pick_.addEventListener('click', () => globe.setPicking(!globe.isPicking()));
     this.clear_.addEventListener('click', () => globe.clearViewshed());
     this.update();
   }
 
   /** The viewshed's settings as typed (metres). */
-  viewshedSettings(): Omit<ViewshedOptions, 'lon' | 'lat'> {
+  viewshedSettings(): Omit<ViewshedOptions, 'lon' | 'lat'> & { obstacles: boolean } {
     const n = (input: HTMLInputElement, fallback: number) => (Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : fallback);
     return {
+      obstacles: this.obstacles_.checked,
       observerHeight: Math.max(0, n(this.observer_, 1.6)),
       targetHeight: Math.max(0, n(this.target_, 0)),
       radius: Math.min(100, Math.max(0.1, n(this.radius_, 5))) * 1000,
@@ -911,19 +1214,43 @@ class GlobePanel {
     this.progress_.textContent = `読み込み中…（残り ${queued} タイル）`;
   }
 
+  setTerrain(on: boolean): void {
+    this.terrain_.checked = on;
+  }
+
+  setExaggeration(value: number): void {
+    this.exaggeration_.value = String(value);
+    this.exaggerationText_.textContent = `×${value}`;
+  }
+
+  setHeightMode(mode: HeightMode): void {
+    this.heightMode_.value = mode;
+  }
+
+  /** Shows a measurement (null: none yet). */
+  showMeasure(result: MeasureResult | null): void {
+    this.measure_.hidden = !result;
+    this.measureLines_.textContent = result?.lines.join('\n') ?? '';
+    const profile = result?.profile;
+    if (profile) drawProfile(this.profile_, profile);
+    else this.profile_.replaceChildren();
+    this.csv_.hidden = !profile;
+    this.csvText_ = profile ? profileCsv(profile) : '';
+  }
+
   /** A row of the tileset list. */
-  tilesetRow(entry: { url: string; row: HTMLLIElement }, actions: { zoom: () => void; remove: () => void; show: (on: boolean) => void }): void {
+  tilesetRow(entry: { url: string; name: string; row: HTMLLIElement }, shown: boolean, actions: { zoom: () => void; remove: () => void; show: (on: boolean) => void }): void {
     const { row } = entry;
     const show = document.createElement('input');
     show.type = 'checkbox';
-    show.checked = true;
+    show.checked = shown;
     show.title = '表示';
     show.addEventListener('change', () => actions.show(show.checked));
     const name = document.createElement('button');
     name.type = 'button';
     name.className = 'globe-tileset-name';
-    name.textContent = entry.url.replace(/\/tileset\.json(\?.*)?$/i, '').split('/').pop() || entry.url;
-    name.title = `${entry.url}（クリックで移動）`;
+    name.textContent = entry.name;
+    name.title = `${isLocalTiles(entry.url) ? 'パソコンのフォルダ' : entry.url}（クリックで移動）`;
     name.addEventListener('click', actions.zoom);
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -939,7 +1266,7 @@ class GlobePanel {
     const cells = this.globe.context.cells();
     this.terrainText_.textContent = cells.length
       ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）`
-      : '標高データなし（DTED .dt0〜.dt2 を開くと起伏を表示します）';
+      : '標高データなし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を幾何補正の「標高データとして使う」にすると起伏を表示します）';
     const patches = this.globe.patchLayers();
     this.patchText_.textContent = patches.length
       ? patches.map(({ layer, count }) => `${layer.name}: ${count.toLocaleString()} 件`).join('、')
@@ -947,5 +1274,8 @@ class GlobePanel {
     this.pick_.setAttribute('aria-pressed', String(this.globe.isPicking()));
     this.pick_.textContent = this.globe.isPicking() ? '地図をクリックしてください（もう一度で中止）' : '観測点をクリック';
     this.clear_.disabled = !this.globe.hasViewshed();
+    const mode = this.globe.measureMode();
+    this.distance_.setAttribute('aria-pressed', String(mode === 'distance'));
+    this.area_.setAttribute('aria-pressed', String(mode === 'area'));
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gridAround, HIDDEN, metresPerDegree, OUTSIDE, VISIBLE, viewshed, visibleArea, type ViewshedOptions } from '../src/viewshed.js';
+import { gridAround, HIDDEN, lineOfSight, metresPerDegree, OUTSIDE, raiseByTriangles, sightLineHeight, VISIBLE, viewshed, visibleArea, type ViewshedOptions } from '../src/viewshed.js';
 import type { Dted } from '../src/dted.js';
 
 /** A 1° DTED cell from (139°E, 35°N) at 1″ posts, heights `f(lon, lat)`. */
@@ -81,5 +81,46 @@ describe('viewshed', () => {
 
   it('cannot run without elevation data at the observer', () => {
     expect(() => gridAround([cell(() => 0)], { lon: 141, lat: 35.5, radius: 1000 })).toThrow('観測点に標高データがありません');
+  });
+});
+
+describe('the line of sight of a profile', () => {
+  const flat = (n: number, length: number, h: (d: number) => number) => Array.from({ length: n + 1 }, (_, i) => ({ distance: (length * i) / n, height: h((length * i) / n) }));
+
+  it('clears flat ground between two points on it, nearby', () => {
+    expect(lineOfSight(flat(100, 1000, () => 0), 0, 0)).toBeNull();
+  });
+
+  it('is blocked by a ridge, and says where', () => {
+    const ridge = flat(100, 1000, (d) => (Math.abs(d - 400) < 15 ? 30 : 0));
+    expect(lineOfSight(ridge, 1.6, 1.6)).toBeCloseTo(390, -1);
+    // Seen over it from high enough.
+    expect(lineOfSight(ridge, 100, 0)).toBeNull();
+  });
+
+  it('is blocked by the Earth over a long flat distance, less with refraction', () => {
+    // Two eyes 10 m up over 30 km of sea: the bulge in the middle is about 15 m (no refraction).
+    const sea = flat(300, 30_000, () => 0);
+    expect(lineOfSight(sea, 10, 10, 0)).not.toBeNull();
+    expect(lineOfSight(sea, 20, 20, 0)).toBeNull();
+    // Drawn in true heights the line sags under the middle by L² / 8R (the bulge of the Earth it passes over).
+    expect(sightLineHeight(15_000, 30_000, 10, 10, 0) - 10).toBeCloseTo(-(30_000 ** 2) / (8 * 6371000), 3);
+  });
+});
+
+describe('buildings in the grid', () => {
+  it('raise the cells under their roofs, not those beside', () => {
+    const grid = { west: 0, north: 1, dLon: 0.1, dLat: 0.1, width: 11, height: 11, heights: new Float32Array(121).fill(5) };
+    // A roof at 20 m over the square 0.3–0.6 × 0.3–0.6 (two triangles), and a wall (no area from above).
+    const roof = [0.3, 0.3, 20, 0.6, 0.3, 20, 0.6, 0.6, 20, 0.3, 0.3, 20, 0.6, 0.6, 20, 0.3, 0.6, 20, 0.3, 0.3, 0, 0.6, 0.3, 0, 0.6, 0.3, 20];
+    const raised = raiseByTriangles(grid, roof);
+    // Cells at 0.3, 0.4, 0.5 and 0.6 in each direction.
+    expect(raised).toBe(16);
+    const at = (lon: number, lat: number) => grid.heights[Math.round((1 - lat) / 0.1) * 11 + Math.round(lon / 0.1)];
+    expect(at(0.4, 0.5)).toBe(20);
+    expect(at(0.2, 0.5)).toBe(5);
+    expect(at(0.7, 0.4)).toBe(5);
+    // Lower shapes leave higher ground alone.
+    expect(raiseByTriangles(grid, roof.map((v, i) => (i % 3 === 2 ? 1 : v)))).toBe(0);
   });
 });
