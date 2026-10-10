@@ -225,6 +225,47 @@ export function satellitesFromText(text: string, spec: SatelliteDefaults & { loo
   return found;
 }
 
+/** What samples are called in `source`, so the list can tell them apart. */
+export const SAMPLE_SOURCE = 'サンプル';
+
+/**
+ * Two made-up satellites for trying the panel when `config.json` has no
+ * satellite catalog: a sun-synchronous optical one like Sentinel-2 (about
+ * 786 km, 10:30 descending, 290 km reach) and a right-looking SAR one like
+ * Sentinel-1 (about 693 km, 18:00 ascending). Their elements are fixed, not
+ * real TLEs, so they only show how planning works.
+ */
+export function sampleSatellites(): SatelliteSpec[] {
+  const base = { minOffNadir: 0, source: SAMPLE_SOURCE };
+  return [
+    {
+      ...base,
+      name: 'サンプル光学衛星',
+      id: 'SAMPLE-OPT',
+      tle1: '1 90001U 26901A   26280.50000000  .00000100  00000-0  40000-4 0  9990',
+      tle2: '2 90001  98.5700 350.5000 0001100  90.0000 270.0000 14.30820000    13',
+      maxOffNadir: 20,
+      swath: 30,
+      length: 30,
+      lookSide: 'both',
+      sar: false,
+    },
+    {
+      ...base,
+      name: 'サンプルSAR衛星',
+      id: 'SAMPLE-SAR',
+      tle1: '1 90002U 26902A   26280.50000000  .00000100  00000-0  40000-4 0  9992',
+      tle2: '2 90002  98.1800 283.0000 0001300  90.0000 270.0000 14.59200000    16',
+      maxOffNadir: 45,
+      minOffNadir: 20,
+      swath: 50,
+      length: 50,
+      lookSide: 'right',
+      sar: true,
+    },
+  ];
+}
+
 // --- Geometry -------------------------------------------------------------------------------------------------
 
 type Vec = [number, number, number];

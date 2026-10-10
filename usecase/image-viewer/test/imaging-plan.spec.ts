@@ -105,18 +105,20 @@ test('plans the passes over a layer from a satellite catalog', async ({ page }) 
   expect(errors).toEqual([]);
 });
 
-test('without a catalog, plans pasted TLEs over a clicked point', async ({ page }) => {
+test('without a catalog, plans the samples and pasted TLEs over a clicked point', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
   await openPanel(page);
   const dialog = page.locator('.plan-dialog');
-  await expect(dialog.locator('.service-status')).toContainText('satelliteCatalogs');
+  await expect(dialog.locator('.service-status')).toContainText('サンプル衛星 2 機');
+  await expect(dialog.locator('.plan-sats-count')).toHaveText('（2 / 2）');
   await expect(dialog.locator('select[name=target]')).toHaveValue('click');
+  await dialog.locator('.plan-more summary').click();
   await dialog.locator('textarea[name=tle]').fill(`ISS (ZARYA)\n${line1}\n${line2}`);
   await dialog.locator('textarea[name=tle]').dispatchEvent('change');
-  await expect(dialog.locator('.plan-sats-count')).toHaveText('（1 / 1）');
+  await expect(dialog.locator('.plan-sats-count')).toHaveText('（3 / 3）');
 
   await dialog.getByRole('button', { name: '計算' }).click();
   await expect(dialog.locator('.service-status')).toContainText('地図をクリック');

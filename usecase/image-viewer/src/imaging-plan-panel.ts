@@ -26,6 +26,8 @@ import { field, type ProcessingResult } from './processing/common.js';
 import { wgs84 } from './vector-write.js';
 import {
   builtInDefaults,
+  SAMPLE_SOURCE,
+  sampleSatellites,
   passShapes,
   satelliteOf,
   satellitesFromText,
@@ -239,6 +241,8 @@ export class ImagingPlanPanel {
     private readonly options: PlanPanelOptions,
   ) {
     this.catalog_ = catalogs[0] ?? null;
+    // Without a catalog in config.json, two fixed sample satellites stand in, so the panel can be tried at once.
+    if (!this.catalog_) this.catalogSats_ = sampleSatellites();
     this.dialog = document.createElement('dialog');
     this.dialog.className = 'add-service plan-dialog';
     this.dialog.setAttribute('aria-labelledby', 'plan-title');
@@ -344,9 +348,11 @@ export class ImagingPlanPanel {
     this.listTargets();
     this.dialog.show();
     if (!this.catalog_) {
-      // Without a catalog, satellites come from pasted TLEs only.
-      this.dialog.querySelector<HTMLDetailsElement>('.plan-more')!.open = true;
-      if (!this.listed_.length) this.status_.textContent = 'config.json に衛星カタログ（satelliteCatalogs）がありません。「詳細条件」に TLE を貼り付けると計算できます';
+      if (!this.listed_.length) this.listSats();
+      if (!this.plan_) {
+        this.status_.textContent =
+          'config.json に衛星カタログ（satelliteCatalogs）がないので、サンプル衛星 2 機（光学・SAR。実在の衛星ではありません）で計算します。「詳細条件」で TLE を貼り付けて追加できます';
+      }
     } else void this.loadCatalog();
   }
 
@@ -416,9 +422,9 @@ export class ImagingPlanPanel {
           .join('・');
         const note = document.createElement('small');
         note.textContent = facts;
-        label.title = `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
+        label.title = sat.source === SAMPLE_SOURCE ? 'サンプル（決め打ちの軌道。実在の衛星ではありません）' : `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
         label.append(box, document.createTextNode(sat.name), note);
-        if (Math.abs(age) > OLD_TLE) {
+        if (sat.source !== SAMPLE_SOURCE && Math.abs(age) > OLD_TLE) {
           const old = document.createElement('span');
           old.className = 'plan-old';
           old.textContent = 'TLE 古い';
@@ -580,7 +586,7 @@ export class ImagingPlanPanel {
         key: 'satellite',
         label: '衛星',
         text: (op) => plan.sats[op.satellite].name,
-        title: (op) => `${plan.sats[op.satellite].source}・TLE ${round(op.tleAge, 0)} 日${Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれることがあります）' : ''}`,
+        title: (op) => `${plan.sats[op.satellite].source}・TLE ${round(op.tleAge, 0)} 日${plan.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれることがあります）' : ''}`,
       },
       ...(many ? [{ key: 'target' as const, label: '対象', text: (op: Opportunity) => plan.targets[op.target].label }] : []),
       { key: 'offNadir', label: 'オフナディア角', text: (op) => `${round(op.offNadir)}°`, title: (op) => `入射角 ${round(op.incidence)}°・距離 ${round(op.range, 0)} km` },
@@ -655,7 +661,7 @@ export class ImagingPlanPanel {
           const td = document.createElement('td');
           td.textContent = column.text(op);
           if (column.title) td.title = column.title(op);
-          if (column.key === 'satellite' && Math.abs(op.tleAge) > OLD_TLE) td.classList.add('plan-old-cell');
+          if (column.key === 'satellite' && this.plan_!.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE) td.classList.add('plan-old-cell');
           row.append(td);
         }
         row.addEventListener('click', () => {

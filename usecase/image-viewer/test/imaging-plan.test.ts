@@ -4,6 +4,7 @@ import {
   lookSideOf,
   passShapes,
   planAccess,
+  sampleSatellites,
   satelliteCatalogOf,
   satelliteOf,
   satellitesFromText,
@@ -167,5 +168,22 @@ describe('planning', () => {
     // 30° off nadir from 500 km: about 295 km away on the ground.
     expect(groundRange(30, 6371 + 500)).toBeGreaterThan(280);
     expect(groundRange(30, 6371 + 500)).toBeLessThan(310);
+  });
+
+  it('has two sample satellites that find passes over Tokyo', () => {
+    const samples = sampleSatellites();
+    expect(samples.map((s) => [s.name, s.sar, s.lookSide])).toEqual([
+      ['サンプル光学衛星', false, 'both'],
+      ['サンプルSAR衛星', true, 'right'],
+    ]);
+    const { opportunities, problems } = planAccess(samples, [{ label: 'tokyo', center: [139.7, 35.68], points: [] }], { start: epoch, end: epoch + 14 * 86400000, maxOffNadir: null, daylight: 'optical', minSunElevation: 10 });
+    expect(problems).toEqual([]);
+    const optical = opportunities.filter((o) => o.satellite === 0);
+    const sar = opportunities.filter((o) => o.satellite === 1);
+    expect(optical.length).toBeGreaterThan(0);
+    expect(sar.length).toBeGreaterThan(0);
+    // The optical one only by day, the SAR one only looking right within its angles.
+    for (const o of optical) expect(o.sunElevation).toBeGreaterThanOrEqual(10);
+    for (const o of sar) expect([o.side, o.offNadir >= 20, o.offNadir <= 45]).toEqual(['right', true, true]);
   });
 });
