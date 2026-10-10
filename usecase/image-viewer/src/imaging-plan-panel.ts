@@ -45,6 +45,7 @@ import {
   type SatelliteSpec,
 } from './imaging-plan.js';
 import type { PlanJob } from './imaging-plan-worker.js';
+import { satellitePass3d, type SatellitePass3d } from './imaging-plan-3d.js';
 
 export interface PlanPanelOptions {
   /** The layers of the viewer, for the target. */
@@ -53,6 +54,10 @@ export interface PlanPanelOptions {
   say: (message: string) => void;
   /** Adds the planned scenes as a layer. */
   onLayer: (result: ProcessingResult, made: string) => void;
+  /** Called when the chosen opportunity changes (for the 3D view). */
+  onChosen?: () => void;
+  /** Shows the chosen pass in the 3D view (`right` pixels covered by the panel) instead of fitting the map; false when the 3D view is closed. */
+  view3d?: (right: number) => boolean;
 }
 
 /** The most features planned one by one. */
@@ -709,6 +714,7 @@ export class ImagingPlanPanel {
     // A column the view does not have sorts by time instead.
     if (combining ? this.sort_.key === 'cover' : this.sort_.key === 'gain' || this.sort_.key === 'cumulative') this.sort_ = { key: 'time', descending: false };
     this.chosen_ = null;
+    this.options.onChosen?.();
     this.render();
     const { sats, targets, result } = plan;
     const problems = result.problems.length ? `（計算できなかった衛星: ${result.problems.join('、')}）` : '';
@@ -845,6 +851,22 @@ export class ImagingPlanPanel {
     this.chosen_ = op;
     this.showTargets();
     this.update();
+    this.options.onChosen?.();
+  }
+
+  /** The chosen pass for the 3D view, and in a combination the other passes over the same target. */
+  chosenPasses(): SatellitePass3d[] {
+    const op = this.chosen_;
+    const plan = this.plan_;
+    if (!op || !plan) return [];
+    const passes = [satellitePass3d(plan.sats[op.satellite], plan.targets[op.target], op, true)];
+    if (this.combining()) {
+      for (const step of this.coverPlans()[op.target]?.steps ?? []) {
+        if (step.time === op.time && step.satellite === op.satellite) continue;
+        passes.push(satellitePass3d(plan.sats[step.satellite], plan.targets[step.target], step, false));
+      }
+    }
+    return passes.filter((p): p is SatellitePass3d => p !== null);
   }
 
   private update(): void {
@@ -896,6 +918,11 @@ export class ImagingPlanPanel {
   zoomToChosen(): void {
     const op = this.chosen_;
     if (!op || !this.plan_) return;
+    // The panel covers the right of the map: keep what is shown to the left of it.
+    const map = this.map.getTargetElement().getBoundingClientRect();
+    const panel = this.dialog.getBoundingClientRect();
+    const right = this.dialog.open && panel.left > map.left + 200 ? Math.max(60, map.right - panel.left + 40) : 60;
+    if (this.options.view3d?.(right - 60)) return;
     const extent = createEmpty();
     for (const f of this.overlay.getSource()!.getFeatures()) {
       const kind = f.get('kind');
@@ -904,10 +931,6 @@ export class ImagingPlanPanel {
       if (shown) extend(extent, f.getGeometry()!.getExtent());
     }
     if (isEmpty(extent)) return;
-    // The panel covers the right of the map: keep what is shown to the left of it.
-    const map = this.map.getTargetElement().getBoundingClientRect();
-    const panel = this.dialog.getBoundingClientRect();
-    const right = this.dialog.open && panel.left > map.left + 200 ? Math.max(60, map.right - panel.left + 40) : 60;
     this.map.getView().fit(extent, { padding: [60, right, 60, 60], maxZoom: 13, duration: 250 });
   }
 

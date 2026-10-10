@@ -189,3 +189,73 @@ test('combines passes of several satellites to cover a wide polygon', async ({ p
   expect(file.suggestedFilename()).toMatch(/\.csv$/);
   expect(errors).toEqual([]);
 });
+
+test('in 3D, the chosen pass stands up: the orbit at its height, the satellite and its beam to the target', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page);
+  await openSites(page);
+  await openPanel(page);
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+
+  // 3D: the chosen pass (the first) is drawn with the satellite at its orbit's height.
+  await page.locator('#globe-toggle').click();
+  await expect(page.locator('#globe-section')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.viewer.globe.globe()?.satellites.passes().length ?? 0)).toBe(1);
+  const pass = await page.evaluate(() => {
+    const p = window.viewer.globe.globe()!.satellites.passes()[0];
+    return { chosen: p.chosen, name: p.name, heights: [Math.min(...p.heights), Math.max(...p.heights)], scenes: p.scenes.length };
+  });
+  expect(pass.chosen).toBe(true);
+  expect(pass.heights[0]).toBeGreaterThan(380_000);
+  expect(pass.heights[1]).toBeLessThan(460_000);
+  expect(pass.scenes).toBeGreaterThan(0);
+
+  // 「範囲へ移動」 in 3D looks at the pass from the side: the satellite and its target both in view, left of the panel.
+  await dialog.locator('button[value=zoom]').click();
+  await page.waitForTimeout(1500);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const globe = window.viewer.globe.globe()!;
+        const scene = globe.widget.scene;
+        const p = globe.satellites.passes()[0];
+        const free = document.querySelector('.plan-dialog')!.getBoundingClientRect().left - scene.canvas.getBoundingClientRect().left;
+        const inView = (xyz: number[]) => {
+          const w = scene.cartesianToCanvasCoordinates({ x: xyz[0], y: xyz[1], z: xyz[2] } as never);
+          return !!w && w.x > 0 && w.y > 0 && w.x < free && w.y < scene.canvas.clientHeight;
+        };
+        return inView(p.position) && inView(p.aim);
+      }),
+    )
+    .toBe(true);
+  await page.evaluate(() => window.viewer.globe.globe()!.widget.scene.render());
+  await page.screenshot({ path: 'test-results/globe-imaging-pass.png' });
+  // The orbit (sky blue) and the beam (amber) are drawn.
+  const colours = await page.evaluate(() => {
+    const canvas = window.viewer.globe.globe()!.widget.scene.canvas;
+    const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl'))!;
+    const px = new Uint8Array(canvas.width * canvas.height * 4);
+    gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let orbit = 0;
+    let beam = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
+      if (b > 180 && g > 140 && r < 140) orbit++;
+      if (r > 180 && g > 120 && b < 90) beam++;
+    }
+    return { orbit, beam };
+  });
+  expect(colours.orbit).toBeGreaterThan(50);
+  expect(colours.beam).toBeGreaterThan(50);
+
+  const first = await page.evaluate(() => window.viewer.globe.globe()!.satellites.passes()[0].time);
+  await dialog.locator('tbody tr').nth(1).click();
+  await expect.poll(() => page.evaluate(() => window.viewer.globe.globe()!.satellites.passes()[0]?.time)).not.toBe(first);
+  expect(errors).toEqual([]);
+});

@@ -72,6 +72,7 @@ import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
+import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
@@ -581,6 +582,9 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
     images.addService(tempLayer(record, tempStore));
     say(`${made} をレイヤーとして追加しました`);
   },
+  // In 3D the chosen pass stands up: its orbit, the satellite and its beam.
+  onChosen: (): void => globeToggle.globe()?.updateSatellites(),
+  view3d: (right): boolean => (globeToggle.isOpen() ? (globeToggle.globe()?.viewSatellite(right) ?? false) : false),
 });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
@@ -695,6 +699,7 @@ const globeToggle = new GlobeToggle(map, {
     onMeasure: (now) => {
       for (const [id, mode] of Object.entries(threeDMeasure)) document.getElementById(id)!.setAttribute('aria-pressed', String(now === mode));
     },
+    satellitePasses: (): SatellitePass3d[] => imagingPlan.chosenPasses(),
   },
   onToggle: (open) => {
     if (open) {
