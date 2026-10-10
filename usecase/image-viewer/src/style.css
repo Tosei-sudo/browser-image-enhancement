@@ -29,7 +29,7 @@ body {
 .app {
   display: grid;
   height: 100%;
-  grid-template: 'bar bar' auto 'side map' 1fr 'side timeline' auto 'side table' auto / min(var(--side-width), 60vw) minmax(0, 1fr);
+  grid-template: 'bar bar bar' auto 'side map dash' 1fr 'side timeline dash' auto 'side table dash' auto / min(var(--side-width), 60vw) minmax(0, 1fr) auto;
   --side-width: 17rem;
 }
 
@@ -1930,4 +1930,212 @@ body {
 .image.time-out .name {
   opacity: 0.5;
   text-decoration: line-through dotted;
+}
+
+/* The dashboard (src/dashboard.ts): a column right of the map. */
+.dashboard {
+  grid-area: dash;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--dash-width, 22rem), 50vw);
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  font-size: 12px;
+}
+.dashboard[hidden],
+.dashboard[hidden] + .dashboard-resize {
+  display: none;
+}
+.dashboard-resize {
+  grid-area: dash;
+  justify-self: start;
+  z-index: 2;
+  width: 7px;
+  margin-left: -4px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.dashboard-resize:hover,
+.dashboard-resize:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.dashboard-head {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.dashboard-head h2 {
+  margin: 0;
+  font-size: 13px;
+}
+.dashboard-close {
+  margin-left: auto;
+}
+.dashboard button,
+.dashboard select {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.dashboard-body {
+  display: grid;
+  gap: 10px;
+  padding: 8px 10px 16px;
+  overflow: auto;
+}
+.dashboard-body h3 {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.dashboard-overview {
+  display: grid;
+  gap: 2px;
+}
+.dashboard-overview-head,
+.dashboard-note,
+.dashboard-empty {
+  margin: 0;
+  color: var(--muted);
+}
+.dashboard .dashboard-overview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  padding: 2px 6px;
+  border-color: transparent;
+  text-align: left;
+}
+.dashboard .dashboard-overview-row:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.dashboard .dashboard-overview-row.current {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.dashboard-overview-row .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dashboard-overview-row .what,
+.dashboard-overview-row .count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-layer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dashboard-layer select {
+  flex: 1;
+  min-width: 0;
+}
+.dashboard-detail {
+  display: grid;
+  gap: 10px;
+}
+.dashboard-detail[hidden] {
+  display: none;
+}
+.dashboard-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: 6px;
+}
+.dashboard-tile {
+  display: grid;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.dashboard-tile strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-tile span {
+  color: var(--muted);
+}
+.dashboard-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.dashboard-controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.dashboard-controls select {
+  min-width: 0;
+}
+.dashboard-categories {
+  display: grid;
+  gap: 1px;
+}
+.dashboard .dashboard-bar {
+  display: grid;
+  grid-template-columns: minmax(4em, 38%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px;
+  border-color: transparent;
+  text-align: left;
+}
+.dashboard-bar .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dashboard-bar .track {
+  height: 10px;
+}
+.dashboard-bar .fill {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.dashboard-bar .value {
+  font-variant-numeric: tabular-nums;
+}
+.dashboard .chosen {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.dashboard .dimmed {
+  opacity: 0.45;
+}
+.dashboard-columns {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 64px;
+}
+.dashboard .dashboard-column {
+  flex: 1;
+  min-width: 2px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: linear-gradient(to top, var(--accent) var(--h), transparent var(--h));
+}
+.dashboard .dashboard-column.chosen {
+  background: linear-gradient(to top, var(--accent) var(--h), var(--accent-bg) var(--h));
+}
+.dashboard-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }

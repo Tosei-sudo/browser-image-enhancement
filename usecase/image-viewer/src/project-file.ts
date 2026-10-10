@@ -15,6 +15,7 @@ import type { PipelineJSON } from 'browser-image-enhancement';
 import { serviceNames, type Field, type ServiceRef } from './services/index.js';
 import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
+import type { ProjectLayout } from './layout.js';
 
 /** The extension of project files. */
 export const PROJECT_EXTENSION = '.ivproj';
@@ -74,6 +75,8 @@ export interface ProjectLayer {
   draLocked?: boolean;
   /** Symbols and labels, for vector layers. */
   style?: VectorStyleSpec;
+  /** The timeline's settings of the layer: whether it follows the window, its time attributes, a typed time. */
+  time?: { on: boolean; start?: string | null; end?: string | null; time?: number };
 }
 
 /** The area shown. */
@@ -101,6 +104,8 @@ export interface Project {
   layers: ProjectLayer[];
   /** Index in `layers` of the selected layer. */
   selected: number | null;
+  /** The screen: panel sizes, open sections, the timeline and the dashboard. */
+  layout?: ProjectLayout;
 }
 
 /** Whether a file name is a project file's. */
@@ -171,6 +176,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       layers,
       // A layer left out moves the others: keep the selection only when nothing was.
       selected: skipped ? null : selected,
+      ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
     },
     skipped,
   };
@@ -191,7 +197,27 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
   if (Array.isArray(raw.bands) && raw.bands.length === 3 && raw.bands.every((b) => Number.isInteger(b) && (b as number) >= 0)) layer.bands = raw.bands as [number, number, number];
   if (raw.draLocked === true) layer.draLocked = true;
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
+  if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
+    const t = raw.time;
+    const name = (v: unknown) => (typeof v === 'string' ? v : v === null ? null : undefined);
+    layer.time = { on: t.on as boolean };
+    if (name(t.start) !== undefined) layer.time.start = name(t.start);
+    if (name(t.end) !== undefined) layer.time.end = name(t.end);
+    if (isNumber(t.time)) layer.time.time = t.time;
+  }
   return layer;
+}
+
+/** The layout part, as far as it can be read; the timeline and the dashboard check theirs as they take it. */
+function readLayout(raw: Record<string, unknown>, layersSkipped: boolean): ProjectLayout {
+  const layout: ProjectLayout = {};
+  for (const key of ['sideWidth', 'dashboardWidth', 'tableHeight'] as const) if (isNumber(raw[key]) && raw[key] > 0) layout[key] = raw[key];
+  if (typeof raw.tableCollapsed === 'boolean') layout.tableCollapsed = raw.tableCollapsed;
+  if (isObject(raw.folds)) layout.folds = Object.fromEntries(Object.entries(raw.folds).filter((e): e is [string, boolean] => typeof e[1] === 'boolean'));
+  if (isObject(raw.timeline)) layout.timeline = raw.timeline;
+  // The dashboard's layer is an index: not when layers were left out.
+  if (isObject(raw.dashboard)) layout.dashboard = layersSkipped ? { ...raw.dashboard, layer: null } : raw.dashboard;
+  return layout;
 }
 
 function readSource(s: Record<string, unknown>, sets: number): LayerSource | null {

@@ -69,7 +69,7 @@ export class AttributeTable {
   private readonly empty_: HTMLElement;
 
   constructor(
-    private readonly element: HTMLElement,
+    readonly element: HTMLElement,
     private readonly map: OlMap,
     private readonly selection: Selection,
     private readonly options: { say: (message: string) => void },

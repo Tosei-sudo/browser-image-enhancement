@@ -68,6 +68,8 @@ import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
 import { Timeline } from './timeline.js';
+import { Dashboard } from './dashboard.js';
+import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -140,6 +142,7 @@ bindShortcuts({
   p: press('add-point'),
   '3': press('globe-toggle'),
   t: press('timeline-open'),
+  b: press('dashboard-open'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -167,14 +170,19 @@ function showTable(layer: ViewerLayer | null): void {
   const service = layer?.type === 'service' ? layer.service : null;
   const vector = service?.vector;
   if (layer?.type === 'service' && vector && service) {
-    const timed = timeline.filters(layer);
-    const notes = [vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : '', timed ? 'タイムラインの期間内のみ' : ''].filter(Boolean);
+    const notes = [
+      vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : '',
+      timeline.filters(layer) ? 'タイムラインの期間内のみ' : '',
+      dashboard.filters(layer) ? 'ダッシュボードで絞り込み中' : '',
+    ].filter(Boolean);
+    const style = service.style;
     table.show({
       title: layer.name,
       fields: vector.fields,
-      features: () => timeline.featuresInWindow(layer, vector.source.getFeatures()),
+      // What the map shows: the timeline's window and the dashboard's filter.
+      features: () => (style?.isFiltered() ? vector.source.getFeatures().filter((f) => style.shows(f)) : vector.source.getFeatures()),
       note: notes.length ? notes.join('・') : undefined,
-      watch: [vector.source, timeline, ...(editor.session() ? [editor.session()!] : [])],
+      watch: [vector.source, timeline, dashboard, ...(editor.session() ? [editor.session()!] : [])],
       // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
       onDelete: editTargetOf(service)?.canDelete
         ? (features) => {
@@ -201,6 +209,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     mapElement.querySelector('.ol-enhance')?.classList.toggle('inactive', !target);
     selection.clear();
     showTable(layer);
+    dashboard?.refresh();
     void showInfo(info, layer, layerInfo(layer));
     // Our own TIFFs of plain pictures have nothing to tell: only GeoTIFFs get the dialog.
     metadataButton.hidden = layer?.type !== 'image' || layer.kind !== 'geotiff';
@@ -218,6 +227,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onChange: (list) => {
     timeline?.refresh();
+    dashboard?.refresh();
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
     updateLink();
@@ -235,13 +245,44 @@ const timeline: Timeline = new Timeline(images, {
   say,
   onToggle: () => requestAnimationFrame(() => map.updateSize()),
 });
-let timelineFiltered = false;
-timeline.on('change', () => {
-  // The table's note says whether it is filtered.
+// The dashboard: counts, values of attributes, numbers and times of a layer, and a heatmap; its charts filter the viewer too.
+const dashboard: Dashboard = new Dashboard(map, images, {
+  element: document.getElementById('dashboard')!,
+  button: document.getElementById('dashboard-open') as HTMLButtonElement,
+  timeline,
+  selection,
+  say,
+  onToggle: () => requestAnimationFrame(() => map.updateSize()),
+});
+makeResizer({
+  handle: document.getElementById('dashboard-resize')!,
+  target: document.querySelector<HTMLElement>('.app')!,
+  property: '--dash-width',
+  axis: 'x',
+  reverse: true,
+  size: () => dashboard.element.getBoundingClientRect().width,
+  min: () => 220,
+  max: () => Math.max(220, window.innerWidth * 0.5),
+  key: 'image-viewer.dash-width',
+  label: 'ダッシュボードの幅',
+  onResize: () => map.updateSize(),
+});
+/** The panels a project keeps the layout of. */
+const layoutParts: LayoutParts = { app: document.querySelector<HTMLElement>('.app')!, side, table, timeline, dashboard, onResize: () => requestAnimationFrame(() => map.updateSize()) };
+// The table's note says whether it is filtered; the 3D view drapes the map as filtered.
+let tableNote = '';
+const filtersChanged = () => {
   const layer = images.selectedLayer();
-  if (layer && timeline.filters(layer) !== timelineFiltered) showTable(layer);
-  timelineFiltered = !!layer && timeline.filters(layer);
+  const note = layer ? `${timeline.filters(layer)}${dashboard.filters(layer)}` : '';
+  if (layer && note !== tableNote) showTable(layer);
+  tableNote = note;
   globeToggle?.globe()?.scheduleRefresh();
+};
+timeline.on('change', filtersChanged);
+dashboard.on('change', () => {
+  filtersChanged();
+  // The timeline's chart counts what the dashboard leaves.
+  timeline.refresh();
 });
 const exporter = new ExportDialog(selection, { say });
 const styler = new StyleDialog({ say, resolution: () => map.getView().getResolution() });
@@ -444,6 +485,11 @@ const project = new ProjectControl({
   say,
   remember: (handles) => void recent?.remember(handles),
   onChange: updateLink,
+  layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
+  layout: {
+    collect: (indexOf) => collectLayout(layoutParts, indexOf),
+    apply: (layout, listIndexOf) => applyLayout(layoutParts, layout, listIndexOf),
+  },
 });
 new ToolMenu(document.getElementById('project-menu')!);
 document.getElementById('project-open')!.addEventListener('click', () => void project.choose());
@@ -691,7 +737,8 @@ declare global {
       globe: GlobeToggle;
       catalog: CatalogPanel;
       timeline: Timeline;
+      dashboard: Dashboard;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard };

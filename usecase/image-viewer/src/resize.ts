@@ -16,6 +16,8 @@ export interface ResizerOptions {
   property: string;
   /** 'x': dragging right grows the panel; 'y': dragging up grows it. */
   axis: 'x' | 'y';
+  /** The panel is on the other side of its handle: dragging left (or down) grows it. */
+  reverse?: boolean;
   /** The size now, in pixels. */
   size: () => number;
   /** The smallest and largest sizes, in pixels, asked when needed. */
@@ -76,7 +78,8 @@ export function makeResizer(options: ResizerOptions): () => void {
     let last = size;
     let frame = 0;
     const move = (m: PointerEvent) => {
-      last = clamp(axis === 'x' ? size + m.clientX - start : size + start - m.clientY);
+      const moved = axis === 'x' ? m.clientX - start : start - m.clientY;
+      last = clamp(size + (options.reverse ? -moved : moved));
       // One layout (and one map redraw) per frame, however fast the pointer moves.
       if (!frame) frame = requestAnimationFrame(() => {
         frame = 0;
@@ -97,7 +100,7 @@ export function makeResizer(options: ResizerOptions): () => void {
   handle.addEventListener('dblclick', reset);
   handle.addEventListener('keydown', (e) => {
     const grow = axis === 'x' ? { ArrowRight: 1, ArrowLeft: -1 } : { ArrowUp: 1, ArrowDown: -1 };
-    const sign = grow[e.key as keyof typeof grow];
+    const sign = (grow[e.key as keyof typeof grow] ?? 0) * (options.reverse ? -1 : 1);
     if (sign) apply(clamp(options.size() + sign * (e.shiftKey ? STEP * 4 : STEP)), true);
     else if (e.key === 'Home') reset();
     else return;

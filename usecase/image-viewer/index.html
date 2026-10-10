@@ -56,9 +56,10 @@
             <div class="point-tools">
               <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・パンシャープン">プロセッシング</button>
             </div>
-            <p class="menu-heading">時間</p>
+            <p class="menu-heading">時間・集計</p>
             <div class="point-tools">
               <button type="button" id="timeline-open" aria-pressed="false" data-key="T" aria-keyshortcuts="T" title="時間を持つレイヤーを時間軸に並べ、期間で絞り込みます（T）">タイムライン</button>
+              <button type="button" id="dashboard-open" aria-pressed="false" data-key="B" aria-keyshortcuts="B" title="件数・属性別の集計・数値の分布・時間の推移・ヒートマップ。グラフをクリックすると地図とテーブルを絞り込みます（B）">ダッシュボード</button>
             </div>
             <p class="menu-heading">保存</p>
             <div class="point-tools">
@@ -104,6 +105,9 @@
       <main id="map" class="map"></main>
       <!-- Filtering every layer by a window of time: src/timeline.ts. -->
       <section id="timeline" aria-label="タイムライン" hidden></section>
+      <!-- Counts, charts and a heatmap of a layer, beside the map: src/dashboard.ts. -->
+      <aside id="dashboard" aria-label="ダッシュボード" hidden></aside>
+      <div id="dashboard-resize" class="dashboard-resize"></div>
       <section id="table" class="table" aria-label="属性テーブル"></section>
       <p id="status" class="status" role="status"></p>
     </div>

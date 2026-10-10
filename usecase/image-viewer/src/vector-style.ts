@@ -638,6 +638,7 @@ export class LayerStyle {
   private gl_: GlVector | null = null;
   private waiting_ = false;
   private time_: TimeFilter | null = null;
+  private filter_: ((feature: FeatureLike) => boolean) | null = null;
 
   /**
    * @param layer The layer drawn.
@@ -708,6 +709,32 @@ export class LayerStyle {
     else this.layer.changed();
   }
 
+  /**
+   * Draws only the features `filter` passes (the dashboard's choice of
+   * values), or all of them with null; the timeline's filter applies too.
+   */
+  setFilter(filter: ((feature: FeatureLike) => boolean) | null): void {
+    if (filter === this.filter_) return;
+    this.filter_ = filter;
+    if (this.gl_) this.gl_.setFilter(filter);
+    else this.layer.changed();
+  }
+
+  /** Whether any filter (the timeline's or the dashboard's) leaves features out. */
+  isFiltered(): boolean {
+    return !!this.time_ || !!this.filter_;
+  }
+
+  /** Whether `feature` passes the dashboard's filter (the timeline's aside). */
+  passesFilter(feature: FeatureLike): boolean {
+    return !this.filter_ || this.filter_(feature);
+  }
+
+  /** Whether `feature` is drawn under the timeline's and the dashboard's filters. */
+  shows(feature: FeatureLike): boolean {
+    return this.inTime(feature) && (!this.filter_ || this.filter_(feature));
+  }
+
   /** Whether `feature` is shown under the timeline's filter (always, without one). */
   inTime(feature: FeatureLike): boolean {
     const time = this.time_;
@@ -754,7 +781,7 @@ export class LayerStyle {
       if (this.gl_) {
         this.gl_.setTime(this.time_);
         this.gl_.setSpec(spec);
-      } else this.gl_ = new GlVector(this.layer, spec, this.time_);
+      } else this.gl_ = new GlVector(this.layer, spec, this.time_, this.filter_);
       // The canvas layer draws only the labels.
       this.layer.setStyle(spec.label.field ? this.timed_(styleFunction(spec, this.own, latitude, false)) : null);
     } else {
@@ -769,8 +796,8 @@ export class LayerStyle {
     this.layer.setDeclutter(!!spec.label.field && !spec.label.overlap);
   }
 
-  /** `style`, leaving out the features outside the timeline's window (the window is read as it draws). */
+  /** `style`, leaving out the features the timeline and the dashboard filter out (read as it draws). */
   private timed_(style: StyleFunction): StyleFunction {
-    return (feature, resolution) => (this.inTime(feature) ? style(feature, resolution) : undefined);
+    return (feature, resolution) => (this.shows(feature) ? style(feature, resolution) : undefined);
   }
 }
