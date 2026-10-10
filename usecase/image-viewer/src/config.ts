@@ -9,6 +9,7 @@ import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 import { catalogOf, type CatalogConfig } from './catalog.js';
 import { satelliteCatalogOf, type SatelliteCatalogConfig } from './imaging-plan.js';
 import { aiModelOf, type AiModelConfig } from './ai/model-config.js';
+import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 
 /**
@@ -88,6 +89,8 @@ export interface ViewerConfig {
   satelliteCatalogs: SatelliteCatalogConfig[];
   /** ONNX models for the AI tools (ai-tools.ts): object detection and click segmentation. Files can be chosen too. */
   aiModels: AiModelConfig[];
+  /** Esri feature layers the AI tools' results are written to (ai-transfer.ts), attributes mapped by role; none hides 「DB へ転記」. */
+  detectionOutputs: DetectionOutput[];
 }
 
 /**
@@ -142,6 +145,7 @@ export const defaultConfig: ViewerConfig = {
   pathMappings: [],
   satelliteCatalogs: [],
   aiModels: [],
+  detectionOutputs: [],
 };
 
 /** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
@@ -180,7 +184,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -249,6 +253,12 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('aiModels' in json) {
     if (Array.isArray(json.aiModels)) config.aiModels = json.aiModels.map((m, i) => aiModelOf(m, problems, i)).filter((m): m is AiModelConfig => m !== null);
     else problems.push('aiModels が配列ではありません');
+  }
+
+  if ('detectionOutputs' in json) {
+    if (Array.isArray(json.detectionOutputs)) {
+      config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
+    } else problems.push('detectionOutputs が配列ではありません');
   }
 
   return { config, problems };

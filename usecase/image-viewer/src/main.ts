@@ -58,6 +58,8 @@ import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/in
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
 import { DetectDialog, SegmentTool } from './ai-tools.js';
+import { TransferDialog } from './ai-transfer.js';
+import { imageTime } from './timeline.js';
 import type { ProcessingResult } from './processing/common.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
 import { ViewExportDialog } from './view-export.js';
@@ -420,6 +422,11 @@ const aiOptions = {
     await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
+  // The catalog id (an image opened from 「画像カタログ」) and the acquisition time, written on what is found.
+  imageInfo: async (layer: ViewerLayer) => ({
+    id: layer.type === 'image' ? (catalogIds.get(layer) ?? null) : null,
+    time: layer.type === 'image' ? ((await imageTime(layer))?.time ?? null) : null,
+  }),
 };
 const aiDetect = new DetectDialog(document.getElementById('ai-detect') as HTMLButtonElement, map, aiOptions);
 const aiSegment = new SegmentTool(document.getElementById('ai-segment') as HTMLButtonElement, map, {
@@ -428,6 +435,15 @@ const aiSegment = new SegmentTool(document.getElementById('ai-segment') as HTMLB
     points.setAdding(false);
     measure.setMode(null);
   },
+});
+// The AI layers into a database (config.json's detectionOutputs): new and corrected features, attributes mapped by role.
+const aiTransferButton = document.getElementById('ai-transfer') as HTMLButtonElement;
+aiTransferButton.hidden = config.detectionOutputs.length === 0;
+const aiTransfer = new TransferDialog(aiTransferButton, selection, {
+  outputs: config.detectionOutputs,
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  say,
 });
 
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
@@ -565,11 +581,14 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
 // COGs by URL, local paths through pathMappings (a URL, or a folder allowed in the browser).
 /** What the catalog said of the images opened from it, for the information panel. */
 const fromCatalog = new WeakMap<ViewerImage, Array<[string, string]>>();
+/** The catalog ids of images opened from a catalog (written on what the AI tools find in them). */
+const catalogIds = new WeakMap<ViewerImage, string>();
 const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
 const openCatalogUrl = async (url: string, record: CatalogRecord, catalog: CatalogConfig) => {
   const image = images.find(await loader.loadUrl(url));
   if (!image) return;
   fromCatalog.set(image, catalogInfo(record, catalog));
+  if (record.id) catalogIds.set(image, record.id);
   if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
 };
 const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as HTMLButtonElement, map, config.imageCatalogs, {
@@ -590,6 +609,7 @@ const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as
         const image = images.list().find((i) => !before.has(i));
         if (image) {
           fromCatalog.set(image, catalogInfo(record, catalog));
+          if (record.id) catalogIds.set(image, record.id);
           if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
         }
         return true;
@@ -835,6 +855,7 @@ declare global {
       panSharpen: PanSharpenDialog;
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
+      aiTransfer: TransferDialog;
       toolMenu: ToolMenu;
       guide: Guide;
       help: HelpDialog;
@@ -851,4 +872,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, aiDetect, aiSegment, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan };

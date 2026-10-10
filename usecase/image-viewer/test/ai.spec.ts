@@ -39,16 +39,16 @@ function squareTiff(): Uint8Array {
   );
 }
 
-async function openSquare(page: Page) {
+async function openSquare(page: Page, name = 'square.tif') {
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
-  await page.evaluate((base64) => {
+  await page.evaluate(([base64, name]) => {
     const list = new DataTransfer();
-    list.items.add(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'square.tif'));
+    list.items.add(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], name));
     const input = document.querySelector<HTMLInputElement>('#open input[type=file]')!;
     input.files = list.files;
     input.dispatchEvent(new Event('change'));
-  }, toBase64(squareTiff()));
+  }, [toBase64(squareTiff()), name]);
   await expect(page.locator('#images .name')).toHaveCount(1);
   // Let the image draw at its final place.
   await page.evaluate(() => new Promise((resolve) => window.viewer.map.once('rendercomplete', resolve)));
@@ -102,7 +102,7 @@ test('detects objects over the view and adds them as a temporary layer', async (
   expect(count).toBeGreaterThan(0);
   expect(classes).toEqual(['bright']);
   expect(Math.min(...scores)).toBeGreaterThanOrEqual(0.5);
-  expect(fields).toEqual(['class', 'class_id', 'score']);
+  expect(fields).toEqual(['class', 'class_id', 'score', 'image', 'image_id', 'image_time', 'model', 'detected_at', 'note']);
   // The cells found cover the square (to a cell of 16 screen pixels), in the middle of the image and the view.
   const cell = 16 * resolution;
   expect(Math.abs((extent[0] + extent[2]) / 2 - center[0])).toBeLessThan(cell);
@@ -156,5 +156,91 @@ test('outlines the object under a click with Segment Anything', async ({ page })
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
   await expect(page.locator('#ai-segment')).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
+
+test('writes detections, corrected and added ones, to an Esri feature layer by mapped attributes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const url = 'http://localhost:4175/svc/arcgis/rest/services/Detections/FeatureServer/0';
+  const settings = {
+    detectionOutputs: [
+      {
+        label: '検出DB',
+        url,
+        fields: { fileName: 'FILE_NAME', imageId: 'IMAGE_ID', detectedAt: 'DETECTED_AT', sentAt: 'SENT_AT', class: 'CLASS', score: 'CONFIDENCE', model: 'MODEL', status: 'STATUS', lon: 'LON', lat: 'LAT', area: 'AREA_M2', note: 'NOTE' },
+        statusValues: { ai: 1, corrected: 2, manual: 3 },
+        constants: { SOURCE: 'viewer' },
+      },
+    ],
+  };
+  await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settings) }));
+  const name = `transfer-${Date.now()}.tif`;
+  await openSquare(page, name);
+  await page.evaluate((base64) => {
+    window.viewer.aiDetect.open();
+    window.viewer.aiDetect.addModelFile(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'detect.onnx'));
+  }, model('detect.onnx'));
+  const dialog = page.locator('.ai-dialog');
+  await expect(dialog.locator('.ai-model-info')).toContainText('2 クラス');
+  await dialog.locator('summary').click();
+  await dialog.getByLabel('スコアのしきい値').fill('0.5');
+  await dialog.getByRole('button', { name: '実行' }).click();
+  await expect(page.locator('#status')).toContainText('を作成しました', { timeout: 30_000 });
+
+  // A person checks the result: one class corrected, one false detection deleted.
+  const count = await page.evaluate(() => {
+    const layer = window.viewer.images.layers()[0];
+    if (layer.type !== 'service') return 0;
+    const source = layer.service.vector!.source;
+    const [first, second] = source.getFeatures();
+    first.set('class', 'roof');
+    source.removeFeature(second);
+    return source.getFeatures().length;
+  });
+
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#ai-transfer').click();
+  const transfer = page.locator('.ai-transfer-dialog');
+  await expect(transfer.locator('.ai-transfer-plan')).toContainText(`検出結果（ポリゴン）へ新規 ${count} 件・更新 0 件・転記済みで変更なし 0 件（AI ${count - 1}・修正 1）`);
+  // NOTE is mapped but the layer has no such attribute: shown, and left out.
+  await expect(transfer.locator('.ai-transfer-plan')).toContainText('転記先にない属性 1 個は書きません');
+  await transfer.getByRole('button', { name: '転記' }).click();
+  await expect(page.locator('#status')).toContainText(`検出DB へ ${count} 件を追加、0 件を更新しました`);
+
+  const rows = async () =>
+    ((await (await page.request.get('/svc/detections')).json()) as Array<{ attributes: Record<string, unknown>; geometry: { rings: number[][][] } }>).filter(
+      (r) => r.attributes.FILE_NAME === name,
+    );
+  let sent = await rows();
+  expect(sent).toHaveLength(count);
+  expect(sent.filter((r) => r.attributes.STATUS === 2).map((r) => r.attributes.CLASS)).toEqual(['roof']);
+  expect(sent.filter((r) => r.attributes.STATUS === 1).every((r) => r.attributes.CLASS === 'bright')).toBe(true);
+  for (const r of sent) {
+    expect(r.attributes).toMatchObject({ MODEL: 'detect.onnx', SOURCE: 'viewer', IMAGE_ID: null });
+    expect(r.attributes.CONFIDENCE).toBeGreaterThanOrEqual(0.5);
+    expect(typeof r.attributes.DETECTED_AT).toBe('number');
+    expect(typeof r.attributes.SENT_AT).toBe('number');
+    // Near 35.68° N, 140.3° E (UTM zone 54N, 380 km E), with an area of a few hundred square metres or more.
+    expect(r.attributes.LAT as number).toBeGreaterThan(35.6);
+    expect(r.attributes.LAT as number).toBeLessThan(35.75);
+    expect(r.attributes.AREA_M2 as number).toBeGreaterThan(100);
+    expect(r.geometry.rings[0].length).toBe(5);
+  }
+
+  // Sent once: nothing new. A box moved afterwards is sent again as an update of its row.
+  await transfer.getByRole('button', { name: '閉じる' }).click();
+  await page.evaluate(() => {
+    const layer = window.viewer.images.layers()[0];
+    if (layer.type === 'service') layer.service.vector!.source.getFeatures()[2].getGeometry()!.translate(10, 0);
+  });
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#ai-transfer').click();
+  await expect(transfer.locator('.ai-transfer-plan')).toContainText(`新規 0 件・更新 1 件・転記済みで変更なし ${count - 1} 件（AI ${count - 2}・修正 2）`);
+  await transfer.getByRole('button', { name: '転記' }).click();
+  await expect(page.locator('#status')).toContainText('検出DB へ 0 件を追加、1 件を更新しました');
+  sent = await rows();
+  expect(sent).toHaveLength(count);
+  expect(sent.filter((r) => r.attributes.STATUS === 2)).toHaveLength(2);
   expect(errors).toEqual([]);
 });

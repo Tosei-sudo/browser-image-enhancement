@@ -23,7 +23,8 @@ import { Circle, Fill, Stroke, Style } from 'ol/style.js';
 import { getUid } from 'ol/util.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import type { Tensor } from 'onnxruntime-web/webgpu';
-import type { ViewerLayer } from './images.js';
+import { shortName, type ViewerLayer } from './images.js';
+import { markOrigin } from './ai/transfer.js';
 import type { ProcessingResult } from './processing/common.js';
 import { field } from './processing/common.js';
 import { drawView, type DrawnView } from './view-export.js';
@@ -51,6 +52,28 @@ export interface AiToolsOptions {
   say: (message: string) => void;
   /** The click tool started: other click tools stop. */
   onStart?: () => void;
+  /** The catalog id and the acquisition time of an image, when known, written on what is found in it. */
+  imageInfo?: (layer: ViewerLayer) => Promise<{ id?: string | null; time?: number | null }>;
+}
+
+/** The fields every AI layer has: where its features come from (for the database, transfer.ts). */
+export const sourceFields = () => [
+  field('image', 'string', '画像'),
+  field('image_id', 'string', '画像ID'),
+  field('image_time', 'date', '撮像日時'),
+  field('model', 'string', 'モデル'),
+  field('detected_at', 'date', '検出日時'),
+  field('note', 'string', '備考'),
+];
+
+/** Sets where features come from, and marks them as the model made them. */
+async function stamp(features: Feature[], layer: ViewerLayer, model: string, options: AiToolsOptions): Promise<void> {
+  const info: { id?: string | null; time?: number | null } = (await options.imageInfo?.(layer).catch(() => null)) ?? {};
+  const now = Date.now();
+  for (const f of features) {
+    f.setProperties({ image: shortName(layer.name), image_id: info.id ?? null, image_time: info.time ?? null, model, detected_at: now, note: null }, true);
+    markOrigin(f);
+  }
 }
 
 /** The image to look at: the selected layer when it shows pixels, else the top visible one that does. */
@@ -326,6 +349,8 @@ export class DetectDialog {
       }
       const fields = [field('class', 'string', 'クラス'), field('class_id', 'integer', 'クラス番号'), field('score', 'double', 'スコア')];
       if (spec.task === 'obb') fields.push(field('angle', 'double', '回転角（°）'));
+      fields.push(...sourceFields());
+      await stamp(features, layer, label, this.options);
       const counts = new Map<string, number>();
       for (const f of features) counts.set(f.get('class'), (counts.get(f.get('class')) ?? 0) + 1);
       const summary = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c, n]) => `${c} ${n}`).join('・');
@@ -685,10 +710,13 @@ export class SegmentTool {
 
   /** Makes the outlines a temporary layer and starts again. */
   async keep(): Promise<void> {
-    const features = this.objects_.flatMap((o, i) => (o.feature ? [new Feature({ geometry: o.feature.getGeometry()!.clone(), id: i + 1 })] : []));
+    const features = this.objects_.flatMap((o, i) => (o.feature ? [new Feature({ geometry: o.feature.getGeometry()!.clone(), id: i + 1, class: null })] : []));
     if (!features.length) return;
-    const label = this.models_.select.selectedOptions[0]?.textContent ?? 'SAM';
-    await this.options.onResult({ title: 'AI 抽出', features, fields: [field('id', 'integer', '番号')] }, `クリックで抽出（${label}）`);
+    const label = (this.models_.select.selectedOptions[0]?.textContent ?? 'SAM').replace(/^📄 /, '');
+    const layer = targetLayer(this.options);
+    if (layer) await stamp(features, layer, label, this.options);
+    const fields = [field('id', 'integer', '番号'), field('class', 'string', 'クラス'), ...sourceFields()];
+    await this.options.onResult({ title: 'AI 抽出', features, fields }, `クリックで抽出（${label}）`);
     this.options.say(`AI 抽出 を作成しました（${features.length} 件、一時レイヤー）`);
     this.objects_ = [];
     this.source_.clear();

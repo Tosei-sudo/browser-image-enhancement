@@ -2414,3 +2414,20 @@ body {
 .ai-segment-note:empty {
   display: none;
 }
+.ai-transfer-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.ai-transfer-fields dt {
+  color: var(--muted);
+}
+.ai-transfer-fields dd {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+}
+.ai-transfer-fields dd.missing {
+  color: #c0392b;
+}
