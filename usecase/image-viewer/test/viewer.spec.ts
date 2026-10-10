@@ -219,7 +219,8 @@ test('right click copies the coordinates of the point in several notations', asy
   await choosePng(page, 'photo.png');
   await expect(page.locator('#status')).toContainText('photo.png を開きました');
   await page.mouse.click(center.x, center.y, { button: 'right' });
-  expect(await menu.locator('.coordinate-label').allTextContents()).toEqual(['画素 (x, y)']);
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('.coordinate-label')).toHaveText(['画素 (x, y)']);
 });
 
 test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page }) => {
