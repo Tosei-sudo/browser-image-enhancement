@@ -242,6 +242,54 @@ function query(form) {
   };
 }
 
+/**
+ * Town/FeatureServer/0: two multipatch buildings (footprints near Tokyo Station), with the
+ * multipatch options of the query: `xyFootprint` gives each footprint
+ * (Web Mercator), `extent` five points at the lowest and highest height.
+ */
+const buildings = [
+  { id: 1, name: 'タワー', lon: 139.7671, lat: 35.6812, size: 0.0004, z: [0, 150] },
+  { id: 2, name: 'ホール', lon: 139.7690, lat: 35.6812, size: 0.0006, z: [0, 30] },
+];
+export const buildingsLayer = {
+  id: 0,
+  name: '建物',
+  type: 'Feature Layer',
+  geometryType: 'esriGeometryMultiPatch',
+  objectIdField: 'OBJECTID',
+  capabilities: 'Query',
+  maxRecordCount: 1000,
+  supportedMultipatchOptions: 'xyFootprint,extent',
+  fields: [
+    { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' },
+    { name: 'NAME', type: 'esriFieldTypeString', alias: '名称', length: 20 },
+  ],
+};
+
+function buildingsQuery(form) {
+  if (form.get('returnIdsOnly') === 'true') return { objectIdFieldName: 'OBJECTID', objectIds: buildings.map((b) => b.id) };
+  const ids = (form.get('objectIds') ?? '').split(',').filter(Boolean).map(Number);
+  const option = form.get('multipatchOption');
+  if (form.get('returnGeometry') === 'true' && !option) return { error: { code: 400, message: 'multipatchOption is required' } };
+  const square = (b) => [
+    [b.lon, b.lat],
+    [b.lon, b.lat + b.size],
+    [b.lon + b.size, b.lat + b.size],
+    [b.lon + b.size, b.lat],
+    [b.lon, b.lat],
+  ];
+  const features = buildings
+    .filter((b) => ids.includes(b.id))
+    .map((b) => {
+      const geometry =
+        option === 'extent'
+          ? { hasZ: true, rings: [[[b.lon, b.lat, b.z[0]], [b.lon, b.lat + b.size, b.z[0]], [b.lon + b.size, b.lat + b.size, b.z[1]], [b.lon + b.size, b.lat, b.z[0]], [b.lon, b.lat, b.z[0]]]] }
+          : { rings: [square(b).map(([lon, lat]) => mercator(lon, lat))] };
+      return { attributes: { OBJECTID: b.id, NAME: b.name }, geometry };
+    });
+  return { objectIdFieldName: 'OBJECTID', geometryType: 'esriGeometryPolygon', spatialReference: option === 'extent' ? { wkid: 4326 } : { wkid: 102100, latestWkid: 3857 }, fields: buildingsLayer.fields, features };
+}
+
 /** Protocol buffer pieces, enough to write a Mapbox Vector Tile. */
 const varint = (n) => {
   const out = [];
@@ -373,10 +421,15 @@ export async function serveService(req, res, url, base) {
     if (p.REQUEST === 'GetFeature') return json(stationsJson());
   }
 
-  const esri = /^\/svc\/arcgis\/rest\/services\/(Test|Secure)\/FeatureServer(?:\/(\d+))?(?:\/(query|applyEdits))?$/.exec(path);
+  const esri = /^\/svc\/arcgis\/rest\/services\/(Test|Secure|Town)\/FeatureServer(?:\/(\d+))?(?:\/(query|applyEdits))?$/.exec(path);
   if (esri) {
     const [, service, layer, op] = esri;
     if (service === 'Secure' && form.get('token') !== 'secret') return json({ error: { code: 499, message: 'Token Required', details: [] } });
+    if (service === 'Town') {
+      if (layer === undefined) return json({ currentVersion: 11.1, layers: [{ id: 0, name: '建物', type: 'Feature Layer', geometryType: 'esriGeometryMultiPatch' }], tables: [] });
+      if (!op) return json(buildingsLayer);
+      if (op === 'query') return json(buildingsQuery(form));
+    }
     if (layer === undefined) return json({ currentVersion: 11.1, layers: [{ id: 0, name: '公園', type: 'Feature Layer', geometryType: 'esriGeometryPoint' }], tables: [] });
     if (layer !== '0') return json({ error: { code: 400, message: 'Invalid layer' } });
     if (!op) return json(parksLayer);

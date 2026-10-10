@@ -245,14 +245,122 @@ function tileset(lon, lat) {
 fixtures['/tiles/tileset.json'] = tileset(139.75, 35.68);
 fixtures['/tiles/cube.glb'] = cubeGlb();
 
+/**
+ * An Esri scene service (I3S 1.8, 3D object layer in WGS 84) of one blue
+ * 40 m cube standing on mean sea level at `lon`, `lat`: the service with its
+ * layer, one node page, and the node's geometry (uncompressed: position,
+ * normal, uv0, color, featureId, faceRange).
+ */
+function sceneService(lon, lat) {
+  const dx = 20 / (111320 * Math.cos((lat * Math.PI) / 180));
+  const dy = 20 / 110950;
+  const faces = [
+    [[1, 0, 0], [[dx, -dy, -20], [dx, dy, -20], [dx, dy, 20], [dx, -dy, 20]]],
+    [[-1, 0, 0], [[-dx, dy, -20], [-dx, -dy, -20], [-dx, -dy, 20], [-dx, dy, 20]]],
+    [[0, 1, 0], [[dx, dy, -20], [-dx, dy, -20], [-dx, dy, 20], [dx, dy, 20]]],
+    [[0, -1, 0], [[-dx, -dy, -20], [dx, -dy, -20], [dx, -dy, 20], [-dx, -dy, 20]]],
+    [[0, 0, 1], [[-dx, -dy, 20], [dx, -dy, 20], [dx, dy, 20], [-dx, dy, 20]]],
+    [[0, 0, -1], [[-dx, dy, -20], [dx, dy, -20], [dx, -dy, -20], [-dx, -dy, -20]]],
+  ];
+  const positions = [];
+  const normals = [];
+  for (const [n, q] of faces) {
+    for (const i of [0, 1, 2, 0, 2, 3]) {
+      positions.push(...q[i]);
+      normals.push(...n);
+    }
+  }
+  const count = positions.length / 3;
+  const geometry = Buffer.concat([
+    Buffer.from(new Uint32Array([count, 1]).buffer),
+    Buffer.from(new Float32Array(positions).buffer),
+    Buffer.from(new Float32Array(normals).buffer),
+    Buffer.from(new Float32Array(count * 2).buffer),
+    Buffer.from(new Uint8Array(count * 4).fill(255).buffer),
+    Buffer.from(new BigUint64Array([1n]).buffer),
+    Buffer.from(new Uint32Array([0, count / 3 - 1]).buffer),
+  ]);
+  const layer = {
+    id: 0,
+    layerType: '3DObject',
+    name: 'cubes',
+    href: 'layers/0',
+    version: '{00000000-0000-0000-0000-000000000000}',
+    store: {
+      version: '1.8',
+      profile: 'meshpyramids',
+      defaultGeometrySchema: {
+        geometryType: 'triangles',
+        header: [
+          { property: 'vertexCount', type: 'UInt32' },
+          { property: 'featureCount', type: 'UInt32' },
+        ],
+        topology: 'PerAttributeArray',
+        ordering: ['position', 'normal', 'uv0', 'color'],
+        vertexAttributes: {
+          position: { valueType: 'Float32', valuesPerElement: 3 },
+          normal: { valueType: 'Float32', valuesPerElement: 3 },
+          uv0: { valueType: 'Float32', valuesPerElement: 2 },
+          color: { valueType: 'UInt8', valuesPerElement: 4 },
+        },
+        featureAttributeOrder: ['id', 'faceRange'],
+        featureAttributes: {
+          id: { valueType: 'UInt64', valuesPerElement: 1 },
+          faceRange: { valueType: 'UInt32', valuesPerElement: 2 },
+        },
+      },
+    },
+    spatialReference: { wkid: 4326, latestWkid: 4326, vcsWkid: 5773 },
+    heightModelInfo: { heightModel: 'gravity_related_height', vertCRS: 'EGM96_Geoid', heightUnit: 'meter' },
+    fullExtent: { xmin: lon - dx, ymin: lat - dy, xmax: lon + dx, ymax: lat + dy, zmin: 0, zmax: 40 },
+    nodePages: { nodesPerPage: 64, lodSelectionMetricType: 'maxScreenThresholdSQ', rootIndex: 0 },
+    geometryDefinitions: [
+      {
+        topology: 'triangle',
+        geometryBuffers: [
+          {
+            offset: 8,
+            position: { type: 'Float32', component: 3 },
+            normal: { type: 'Float32', component: 3 },
+            uv0: { type: 'Float32', component: 2 },
+            color: { type: 'UInt8', component: 4 },
+            featureId: { type: 'UInt64', component: 1, binding: 'per-feature' },
+            faceRange: { type: 'UInt32', component: 2, binding: 'per-feature' },
+          },
+        ],
+      },
+    ],
+    materialDefinitions: [{ pbrMetallicRoughness: { baseColorFactor: [0.1, 0.3, 0.95, 1], metallicFactor: 0, roughnessFactor: 1 } }],
+  };
+  const page = {
+    nodes: [
+      {
+        index: 0,
+        lodThreshold: 1e12,
+        obb: { center: [lon, lat, 20], halfSize: [40, 40, 40], quaternion: [0, 0, 0, 1] },
+        children: [],
+        mesh: { geometry: { definition: 0, resource: 0, vertexCount: count, featureCount: 1 }, material: { definition: 0 } },
+      },
+    ],
+  };
+  return {
+    '/i3s/SceneServer': Buffer.from(JSON.stringify({ serviceName: 'cubes', layers: [layer] })),
+    '/i3s/SceneServer/layers/0': Buffer.from(JSON.stringify(layer)),
+    '/i3s/SceneServer/layers/0/nodepages/0': Buffer.from(JSON.stringify(page)),
+    '/i3s/SceneServer/layers/0/nodes/0/geometries/0': geometry,
+  };
+}
+const scene = sceneService(139.76, 35.68);
+
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = normalize(decodeURIComponent(url.pathname));
   if (await serveService(req, res, url, `http://localhost:${port}`)) return;
-  const headers = { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
+  const headers = { 'content-type': path.startsWith('/i3s/') && !path.includes('/geometries/') ? 'application/json' : (types[extname(path)] ?? 'application/octet-stream'), 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
   let body;
   try {
-    body = fixtures[path] ?? (await readFile(join(root, path === '/' ? 'index.html' : path)));
+    // Scene services ask with trailing slashes.
+    body = fixtures[path] ?? scene[path.replace(/\/+$/, '')] ?? (await readFile(join(root, path === '/' ? 'index.html' : path)));
   } catch {
     return res.writeHead(404).end('not found');
   }

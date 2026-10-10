@@ -40,6 +40,7 @@ import {
   buildModuleUrl,
   Cesium3DTileset,
   CesiumWidget,
+  I3SDataProvider,
   CustomHeightmapTerrainProvider,
   EllipsoidTerrainProvider,
   GeographicTilingScheme,
@@ -79,6 +80,7 @@ import { gridAround, raiseByTriangles, runViewshed, viewshedPixels, visibleArea,
 import { GlobeMeasure, type GlobeMeasureMode, type MeasureResult } from './globe-measure.js';
 import { drawProfile, profileCsv } from './profile-chart.js';
 import { isLocalTiles, serveFolder } from './local-tiles.js';
+import { isSceneServer, openSceneService } from './i3s.js';
 import type { ImageList, ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 
@@ -245,12 +247,22 @@ function demTerrain(cells: readonly Dted[], geoid: GeoidGrid): TerrainProvider {
   });
 }
 
-/** One 3D Tiles tileset added by URL or from a folder. */
+/** One 3D Tiles tileset (by URL or from a folder) or scene service (I3S). */
 interface TilesetEntry {
   url: string;
   name: string;
-  tileset: Cesium3DTileset;
+  tileset: Cesium3DTileset | I3SDataProvider;
   row: HTMLLIElement;
+}
+
+/** The 3D Tiles tilesets of an entry (a scene service has one per layer). */
+function tilesetsOf(entry: TilesetEntry): Cesium3DTileset[] {
+  return entry.tileset instanceof Cesium3DTileset ? [entry.tileset] : entry.tileset.layers.map((l) => l.tileset).filter((t): t is Cesium3DTileset => !!t);
+}
+
+/** Where an entry is, as a rectangle (radians). */
+function rectangleOf(entry: TilesetEntry): Rectangle {
+  return entry.tileset instanceof Cesium3DTileset ? Rectangle.fromBoundingSphere(entry.tileset.boundingSphere) : entry.tileset.extent;
 }
 
 /** A viewshed shown on the map. */
@@ -448,6 +460,7 @@ export class Globe {
 
   /** Puts the camera at `place`. */
   setCamera(place: CameraPlace): void {
+    this.widget.camera.cancelFlight();
     this.widget.camera.setView({
       destination: Cartesian3.fromDegrees(place.lon, place.lat, place.height),
       orientation: { heading: CesiumMath.toRadians(place.heading), pitch: CesiumMath.toRadians(place.pitch), roll: 0 },
@@ -692,19 +705,25 @@ export class Globe {
 
   // ----- 3D Tiles -------------------------------------------------------------
 
-  /** Adds a 3D Tiles tileset (the URL of its tileset.json) and flies to it, unless `fly` is false. */
+  /**
+   * Adds a 3D Tiles tileset (the URL of its tileset.json) or an Esri scene
+   * service (`…/SceneServer`, I3S) and flies to it, unless `fly` is false.
+   */
   async addTileset(url: string, options: { name?: string; show?: boolean; fly?: boolean } = {}): Promise<boolean> {
     const { say } = this.context;
-    const name = options.name ?? (url.replace(/\/tileset\.json(\?.*)?$/i, '').split('/').pop() || url);
+    const scene = isSceneServer(url);
+    const name = options.name ?? (scene ? /([^/]+)\/SceneServer/i.exec(url)?.[1] : null) ?? (url.replace(/\/tileset\.json(\?.*)?$/i, '').split('/').pop() || url);
     say(`${name} を読み込んでいます…`);
     try {
-      const tileset = await Cesium3DTileset.fromUrl(url);
+      const tileset = scene ? await openSceneService(url, this.geoid_ ?? (this.geoid_ = await loadGeoid())) : await Cesium3DTileset.fromUrl(url);
       tileset.show = options.show ?? true;
       this.widget.scene.primitives.add(tileset);
       const entry: TilesetEntry = { url, name, tileset, row: document.createElement('li') };
       this.tilesets_.push(entry);
+      // Scene services give an extent only; viewed as a sphere, the camera stays outside small ones.
+      const zoom = () => this.widget.camera.flyToBoundingSphere(tileset instanceof Cesium3DTileset ? tileset.boundingSphere : BoundingSphere.fromRectangle3D(tileset.extent), { duration: 0.8 });
       this.panel_.tilesetRow(entry, tileset.show, {
-        zoom: () => void this.widget.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 0.8 }),
+        zoom,
         remove: () => {
           this.widget.scene.primitives.remove(tileset);
           this.tilesets_.splice(this.tilesets_.indexOf(entry), 1);
@@ -716,8 +735,8 @@ export class Globe {
           this.widget.scene.requestRender();
         },
       });
-      if (options.fly !== false) void this.widget.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 0.8 });
-      say(`3D タイルを追加しました: ${name}`);
+      if (options.fly !== false) zoom();
+      say(`${scene ? 'シーンサービス' : '3D タイル'}を追加しました: ${name}`);
       return true;
     } catch (error) {
       say(`3D タイルを開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
@@ -909,13 +928,13 @@ export class Globe {
     const scene = this.widget.scene;
     const shown = this.tilesets_.filter((t) => t.tileset.show);
     if (shown.length && scene.sampleHeightSupported) {
-      const rects = shown.map((t) => Rectangle.fromBoundingSphere(t.tileset.boundingSphere));
+      const rects = shown.map(rectangleOf);
       const inside = (lon: number, lat: number) => rects.some((r) => Rectangle.contains(r, Cartographic.fromDegrees(lon, lat)));
       // Every `step`-th point of the grid, so there are at most MAX_TILE_SAMPLES.
       let cells = 0;
       for (let r = 0; r < grid.height; r++) for (let c = 0; c < grid.width; c++) if (inside(grid.west + c * grid.dLon, grid.north - r * grid.dLat)) cells++;
       const step = Math.max(1, Math.ceil(Math.sqrt(cells / MAX_TILE_SAMPLES)));
-      const exclude = shown.length < this.tilesets_.length ? this.tilesets_.filter((t) => !t.tileset.show).map((t) => t.tileset) : [];
+      const exclude = this.tilesets_.filter((t) => !t.tileset.show).flatMap(tilesetsOf);
       const e = scene.verticalExaggeration || 1;
       const ellipsoid = scene.globe.show;
       // Only objects: the ground is the DEM's.
@@ -1077,7 +1096,7 @@ class GlobePanel {
       </label>
       <h3>3D タイル</h3>
       <form class="globe-tileset">
-        <input type="url" name="url" placeholder="tileset.json の URL" aria-label="3D タイルの URL" required />
+        <input type="url" name="url" placeholder="tileset.json か SceneServer の URL" aria-label="3D タイルかシーンサービスの URL" title="3D Tiles の tileset.json、または Esri のシーンサービス（…/SceneServer、I3S）" required />
         <button type="submit">追加</button>
       </form>
       <div class="globe-buttons">
