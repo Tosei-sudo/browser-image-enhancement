@@ -211,6 +211,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     if (saved) enhance.setPipeline(saved);
     mapElement.querySelector('.ol-enhance')?.classList.toggle('inactive', !target);
     selection.clear();
+    selection.setLayer(layer?.layer ?? null);
     showTable(layer);
     dashboard?.refresh();
     void showInfo(info, layer, layerInfo(layer));

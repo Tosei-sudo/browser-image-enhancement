@@ -1,11 +1,14 @@
 /**
  * The selected features of the selected vector layer, shared by the map and
- * the attribute table, and drawn highlighted above every layer.
+ * the attribute table, and drawn highlighted above every layer (while that
+ * layer is shown: hidden, or out of its scale range, the highlight goes too).
  */
 import Collection from 'ol/Collection.js';
 import type Feature from 'ol/Feature.js';
 import type OlMap from 'ol/Map.js';
-import Observable from 'ol/Observable.js';
+import type { EventsKey } from 'ol/events.js';
+import type BaseLayer from 'ol/layer/Base.js';
+import Observable, { unByKey } from 'ol/Observable.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Circle, Fill, Stroke, Style } from 'ol/style.js';
@@ -32,10 +35,13 @@ export class Selection extends Observable {
   private batching_ = false;
   /** Features added or taken out during the batch. */
   private touched_ = 0;
+  private readonly highlight_ = new VectorLayer({ source: this.source_, style: highlight, zIndex: 20_000 });
+  /** Listeners on the layer the highlight follows. */
+  private follow_: EventsKey[] = [];
 
   constructor(map: OlMap) {
     super();
-    map.addLayer(new VectorLayer({ source: this.source_, style: highlight, zIndex: 20_000 }));
+    map.addLayer(this.highlight_);
     this.features.on('add', (e) => {
       this.set_.add(e.element);
       if (this.batching_) return void this.touched_++;
@@ -48,6 +54,25 @@ export class Selection extends Observable {
       if (this.source_.hasFeature(e.element)) this.source_.removeFeature(e.element);
       this.changed();
     });
+  }
+
+  /**
+   * The layer the selected features belong to: the highlight shows only while
+   * it does (its visibility and scale range). Null: always shown.
+   */
+  setLayer(layer: BaseLayer | null): void {
+    unByKey(this.follow_);
+    this.follow_ = [];
+    const h = this.highlight_;
+    const copy = () => {
+      h.setVisible(layer?.getVisible() ?? true);
+      h.setMinResolution(layer?.getMinResolution() ?? 0);
+      h.setMaxResolution(layer?.getMaxResolution() ?? Infinity);
+      h.setMinZoom(layer?.getMinZoom() ?? -Infinity);
+      h.setMaxZoom(layer?.getMaxZoom() ?? Infinity);
+    };
+    copy();
+    if (layer) this.follow_ = [layer.on(['change:visible', 'change:minResolution', 'change:maxResolution', 'change:minZoom', 'change:maxZoom'], copy)].flat();
   }
 
   has(feature: Feature): boolean {
