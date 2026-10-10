@@ -1555,7 +1555,8 @@ body {
   width: 100%;
   height: 100%;
 }
-.globe.picking canvas {
+.globe.picking canvas,
+.globe.measuring canvas {
   cursor: crosshair;
 }
 /* The 2D view's own zoom and rotate buttons, and what tells about the 2D view, step aside in 3D. */
@@ -1683,4 +1684,118 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
+}
+
+/* 3D measuring and its profile (globe-measure.ts, profile-chart.ts). */
+.globe-measure-lines {
+  white-space: pre-line;
+  font-variant-numeric: tabular-nums;
+}
+.profile-wrap {
+  position: relative;
+}
+.profile-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  --profile-ground: #a08a6e;
+  --profile-surface: #5b6b80;
+  --profile-clear: #1f9d55;
+  --profile-blocked: #d64545;
+}
+@media (prefers-color-scheme: dark) {
+  .profile-chart {
+    --profile-ground: #8c7a62;
+    --profile-surface: #9fb0c6;
+    --profile-clear: #3cc47c;
+    --profile-blocked: #ff6b6b;
+  }
+}
+.profile-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.profile-tick {
+  fill: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.profile-ground {
+  fill: var(--profile-ground);
+  fill-opacity: 0.55;
+  stroke: var(--profile-ground);
+  stroke-width: 1.5;
+}
+.profile-surface {
+  fill: none;
+  stroke: var(--profile-surface);
+  stroke-width: 2;
+}
+.profile-sight {
+  fill: none;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+.profile-sight.clear {
+  stroke: var(--profile-clear);
+}
+.profile-sight.blocked {
+  stroke: var(--profile-blocked);
+}
+.profile-block {
+  fill: var(--profile-blocked);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+.profile-end {
+  fill: #ffd400;
+  stroke: #000;
+  stroke-width: 1;
+}
+.profile-cross {
+  stroke: var(--fg);
+  stroke-opacity: 0.5;
+}
+.profile-tip {
+  position: absolute;
+  top: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 11px;
+  white-space: pre;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.profile-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.profile-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.profile-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+.profile-legend i.ground {
+  height: 8px;
+  background: #a08a6e;
+}
+.profile-legend i.surface {
+  background: #5b6b80;
+}
+.profile-legend i.sight.clear {
+  background: #1f9d55;
+}
+.profile-legend i.sight.blocked {
+  background: #d64545;
 }

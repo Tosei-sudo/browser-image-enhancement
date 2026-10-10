@@ -5,7 +5,7 @@
  * view) wait while it is open.
  */
 import type OlMap from 'ol/Map.js';
-import type { Globe, GlobeContext } from './globe.js';
+import type { Globe, GlobeContext, GlobeState } from './globe.js';
 
 export interface GlobeToggleOptions {
   button: HTMLButtonElement;
@@ -20,6 +20,10 @@ export interface GlobeToggleOptions {
 export class GlobeToggle {
   private globe_: Globe | null = null;
   private loading_: Promise<Globe> | null = null;
+  /** A project's 3D settings, for when the view is first opened. */
+  private pending_: GlobeState | null = null;
+  /** Whether the pending state's camera is used (the project had 3D open). */
+  private pendingCamera_ = false;
 
   constructor(
     private readonly map: OlMap,
@@ -53,6 +57,9 @@ export class GlobeToggle {
       const globe = await this.load_();
       this.show_(true);
       globe.open();
+      const pending = this.pending_;
+      this.pending_ = null;
+      if (pending) await globe.setState(pending, this.pendingCamera_);
       onToggle(true);
       context.say('3D 表示にしました（2D の全レイヤーを地表に重ねています）');
     } catch (error) {
@@ -62,6 +69,35 @@ export class GlobeToggle {
       button.disabled = false;
     }
     section.hidden = !this.isOpen();
+  }
+
+  /** The 3D view's state for a project file: null until it has been opened. */
+  state(): GlobeState | null {
+    return this.globe_?.state() ?? this.pending_;
+  }
+
+  /**
+   * Brings back a project's 3D view: opened with its camera and settings when
+   * it was open, else closed (its settings kept for when it opens). Resolves to
+   * whether it is open.
+   */
+  async restore(state: GlobeState | null): Promise<boolean> {
+    if (!state?.open) {
+      await this.toggle(false);
+      if (state && this.globe_) await this.globe_.setState(state, false);
+      else {
+        this.pending_ = state;
+        this.pendingCamera_ = false;
+      }
+      return false;
+    }
+    if (this.isOpen()) await this.globe_!.setState(state);
+    else {
+      this.pending_ = state;
+      this.pendingCamera_ = true;
+      await this.toggle(true);
+    }
+    return this.isOpen();
   }
 
   private show_(open: boolean): void {

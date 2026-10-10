@@ -211,3 +211,85 @@ export function viewshedPixels(result: Uint8Array): Uint8ClampedArray<ArrayBuffe
   }
   return rgba;
 }
+
+/** One point of a profile: horizontal distance from the start (m) and the height there (m above sea level; NaN: unknown). */
+export interface ProfileSample {
+  distance: number;
+  height: number;
+}
+
+/**
+ * Whether the straight line from `from` (height at distance 0) to `to`
+ * (height at the last sample's distance) clears every sample between, with
+ * the Earth's curvature and refraction (as {@link viewshed}: a sample at
+ * distance d sinks by (1 − k) · d² / 2R relative to a line from the start).
+ * Returns the distance of the first sample in the way, or null when nothing
+ * is. Samples at the two ends are left out (the ends lie on the surface).
+ */
+export function lineOfSight(samples: readonly ProfileSample[], from: number, to: number, refraction = 0.13, radius = 6371000): number | null {
+  if (samples.length < 3) return null;
+  const length = samples[samples.length - 1].distance;
+  if (!(length > 0)) return null;
+  const c = (1 - refraction) / (2 * radius);
+  const end = to - c * length * length;
+  // A little clearance, so a line drawn along flat ground still counts as seen.
+  const margin = Math.max(0.05, length * 1e-6);
+  for (let i = 1; i < samples.length - 1; i++) {
+    const { distance: d, height } = samples[i];
+    if (Number.isNaN(height) || d <= 0 || d >= length) continue;
+    const line = from + ((end - from) * d) / length;
+    if (height - c * d * d > line + margin) return d;
+  }
+  return null;
+}
+
+/** The height of the sight line at `distance`, as a profile draws it (true heights, so the line bends up by the curvature drop). */
+export function sightLineHeight(distance: number, length: number, from: number, to: number, refraction = 0.13, radius = 6371000): number {
+  const c = (1 - refraction) / (2 * radius);
+  const end = to - c * length * length;
+  return from + ((end - from) * distance) / length + c * distance * distance;
+}
+
+/**
+ * Raises the heights of `grid` to those of `triangles` (longitude, latitude,
+ * height above sea level, nine numbers a triangle) where they are higher:
+ * buildings and other objects standing on the ground, as obstacles. Each cell
+ * takes the highest surface over its centre. Returns how many cells rose.
+ */
+export function raiseByTriangles(grid: ViewshedGrid, triangles: ArrayLike<number>): number {
+  const { west, north, dLon, dLat, width, height, heights } = grid;
+  let raised = 0;
+  for (let t = 0; t + 9 <= triangles.length; t += 9) {
+    // In cell units: x to the east, y to the south.
+    const x0 = (triangles[t] - west) / dLon;
+    const y0 = (north - triangles[t + 1]) / dLat;
+    const z0 = triangles[t + 2];
+    const x1 = (triangles[t + 3] - west) / dLon;
+    const y1 = (north - triangles[t + 4]) / dLat;
+    const z1 = triangles[t + 5];
+    const x2 = (triangles[t + 6] - west) / dLon;
+    const y2 = (north - triangles[t + 7]) / dLat;
+    const z2 = triangles[t + 8];
+    const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    if (Math.abs(area) < 1e-12) continue; // a wall, seen from above
+    // Cells on an edge count (with some room for rounding).
+    const c0 = Math.max(0, Math.ceil(Math.min(x0, x1, x2) - 1e-6));
+    const c1 = Math.min(width - 1, Math.floor(Math.max(x0, x1, x2) + 1e-6));
+    const r0 = Math.max(0, Math.ceil(Math.min(y0, y1, y2) - 1e-6));
+    const r1 = Math.min(height - 1, Math.floor(Math.max(y0, y1, y2) + 1e-6));
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const a = ((x1 - c) * (y2 - r) - (x2 - c) * (y1 - r)) / area;
+        const b = ((x2 - c) * (y0 - r) - (x0 - c) * (y2 - r)) / area;
+        const g = 1 - a - b;
+        if (a < -1e-6 || b < -1e-6 || g < -1e-6) continue;
+        const z = a * z0 + b * z1 + g * z2;
+        const k = r * width + c;
+        if (!(z > heights[k]) && !Number.isNaN(heights[k])) continue;
+        heights[k] = z;
+        raised++;
+      }
+    }
+  }
+  return raised;
+}

@@ -158,8 +158,10 @@ test('3D Tiles open by URL, and the 2D-only tools wait in 3D', async ({ page }) 
   await open(page);
   await page.locator('#globe-toggle').click();
   await expect(page.locator('#globe-section')).toBeVisible();
-  await expect(page.locator('#measure-distance')).toBeDisabled();
-  await expect(page.locator('#save-view')).toBeDisabled();
+  await expect(page.locator('#add-point')).toBeDisabled();
+  await expect(page.locator('#swipe')).toBeDisabled();
+  // Measuring and saving the view work on the globe instead (globe-tools.spec.ts).
+  await expect(page.locator('#measure-distance')).toBeEnabled();
   await page.locator('#globe [name=url]').fill('http://localhost:4175/tiles/tileset.json');
   await page.locator('#globe .globe-tileset button').click();
   await expect(page.locator('#status')).toContainText('3D タイルを追加しました');
@@ -181,6 +183,6 @@ test('3D Tiles open by URL, and the 2D-only tools wait in 3D', async ({ page }) 
   await page.locator('.globe-tilesets li button[aria-label$=を閉じる]').click();
   await expect(page.locator('.globe-tilesets li')).toHaveCount(0);
   await page.locator('#globe-toggle').click();
-  await expect(page.locator('#measure-distance')).toBeEnabled();
+  await expect(page.locator('#add-point')).toBeEnabled();
   expect(errors).toEqual([]);
 });

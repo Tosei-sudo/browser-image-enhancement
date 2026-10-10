@@ -423,6 +423,10 @@ const project = new ProjectControl({
   say,
   remember: (handles) => void recent?.remember(handles),
   onChange: updateLink,
+  globeState: () => globeToggle.state(),
+  restoreGlobe: (state) => globeToggle.restore(state),
+  isDem: (layer) => layer.type === 'image' && geometry.isGeoTiffDem(layer),
+  useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
 });
 new ToolMenu(document.getElementById('project-menu')!);
 document.getElementById('project-open')!.addEventListener('click', () => void project.choose());
@@ -524,8 +528,33 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
 }
 
 // The 3D view: the 2D layers draped over a WGS 84 globe, DEM relief, 3D Tiles, multipatches and the viewshed.
-// The tools that work on the 2D view wait while it is open.
-const twoDOnly = ['measure-distance', 'measure-area', 'add-point', 'save-view', 'swipe', 'histogram-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
+// The tools that work on the 2D view wait while it is open; measuring and saving the view work on the globe instead.
+const twoDOnly = ['add-point', 'swipe', 'histogram-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
+const threeDMeasure = { 'measure-distance': 'distance', 'measure-area': 'area' } as const;
+for (const [id, mode] of Object.entries(threeDMeasure)) {
+  const button = document.getElementById(id) as HTMLButtonElement;
+  // Before the 2D tool's own listener.
+  button.addEventListener(
+    'click',
+    (e) => {
+      const globe = globeToggle.isOpen() ? globeToggle.globe() : null;
+      if (!globe) return;
+      e.stopImmediatePropagation();
+      globe.setMeasure(globe.measureMode() === mode ? null : mode);
+    },
+    { capture: true },
+  );
+}
+document.getElementById('save-view')!.addEventListener(
+  'click',
+  (e) => {
+    const globe = globeToggle.isOpen() ? globeToggle.globe() : null;
+    if (!globe) return;
+    e.stopImmediatePropagation();
+    void globe.savePicture();
+  },
+  { capture: true },
+);
 const globeToggle = new GlobeToggle(map, {
   button: document.getElementById('globe-toggle') as HTMLButtonElement,
   section: document.getElementById('globe-section')!,
@@ -541,6 +570,10 @@ const globeToggle = new GlobeToggle(map, {
       table.scrollTo(feature);
     },
     say,
+    // The measuring buttons show the 3D tool's mode while 3D is open.
+    onMeasure: (now) => {
+      for (const [id, mode] of Object.entries(threeDMeasure)) document.getElementById(id)!.setAttribute('aria-pressed', String(now === mode));
+    },
   },
   onToggle: (open) => {
     if (open) {
@@ -554,6 +587,7 @@ const globeToggle = new GlobeToggle(map, {
       if (open) b.dataset.title2d ??= b.title;
       b.title = open ? '3D 表示では使えません（「3D」でもとに戻します）' : (b.dataset.title2d ?? b.title);
     }
+    for (const id of Object.keys(threeDMeasure)) document.getElementById(id)!.setAttribute('aria-pressed', 'false');
   },
 });
 // A DEM opened or closed changes the relief.
