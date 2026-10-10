@@ -377,6 +377,30 @@ export class Timeline extends Observable {
     return features.filter((f) => style.inTime(f));
   }
 
+  /** The time span of each feature of a vector layer, as the timeline reads it (null: the layer has no times). */
+  spanOf(layer: ViewerLayer): TimeFilter['span'] | null {
+    if (!this.times_.has(layer)) this.collect_();
+    return this.times_.get(layer)?.span ?? null;
+  }
+
+  /** Opens the timeline on the window from `from` to `to` (one `unit` long, when given). */
+  focus(from: number, to: number, unit?: TimeUnit): void {
+    this.setPlaying(false);
+    if (unit && WIDTHS.includes(unit)) {
+      this.width_ = unit;
+      this.widthSelect_.value = unit;
+    } else {
+      this.width_ = 'free';
+      this.widthSelect_.value = 'free';
+    }
+    this.cumulative_ = false;
+    this.cumulativeBox_.checked = false;
+    this.window_ = [from, to];
+    this.setOpen(true);
+    this.followWindow_();
+    this.apply_();
+  }
+
   /** Whether the timeline filters `layer` now. */
   filters(layer: ViewerLayer): boolean {
     const t = this.times_.get(layer);
@@ -497,7 +521,10 @@ export class Timeline extends Observable {
         }
         const starts: number[] = [];
         if (t.span) {
+          // The dashboard's filter counts: the chart shows what can be shown.
+          const style = layer.service.style;
           for (const f of features) {
+            if (style && !style.passesFilter(f)) continue;
             const s = t.span(f);
             if (s) starts.push(s[0]);
           }
