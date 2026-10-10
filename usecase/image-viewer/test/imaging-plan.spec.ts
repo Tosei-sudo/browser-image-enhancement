@@ -16,13 +16,13 @@ const config = {
     {
       label: 'テスト衛星',
       url: layerUrl,
-      fields: { name: 'SAT_NAME', tle1: 'TLE1', tle2: 'TLE2', maxOffNadir: 'MAX_ONA', swath: 'SWATH_KM', lookSide: 'LOOK', kind: 'SENSOR' },
+      fields: { name: 'SAT_NAME', tle1: 'TLE1', tle2: 'TLE2', maxOffNadir: 'MAX_ONA', swath: 'SWATH_KM', lookSide: 'LOOK', kind: 'SENSOR', minInterval: 'GAP_MIN' },
     },
   ],
 };
 const satellites = [
   { attributes: { OBJECTID: 1, SAT_NAME: 'OPT-1', TLE1: line1, TLE2: line2, MAX_ONA: 30, SWATH_KM: 12, LOOK: 'both', SENSOR: 'optical' } },
-  { attributes: { OBJECTID: 2, SAT_NAME: 'SAR-1', TLE1: line1, TLE2: line2, MAX_ONA: 45, SWATH_KM: 30, LOOK: 'right', SENSOR: 'SAR' } },
+  { attributes: { OBJECTID: 2, SAT_NAME: 'SAR-1', TLE1: line1, TLE2: line2, MAX_ONA: 45, SWATH_KM: 30, LOOK: 'right', SENSOR: 'SAR', GAP_MIN: 10 } },
   { attributes: { OBJECTID: 3, SAT_NAME: 'NO-TLE', TLE1: '', TLE2: '', MAX_ONA: 30, SWATH_KM: 10, LOOK: '', SENSOR: '' } },
 ];
 const sites = {
@@ -38,10 +38,10 @@ async function serve(page: Page, settings: object = config): Promise<void> {
   await page.route(`${layerUrl}**`, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ features: satellites }) }));
 }
 
-async function openSites(page: Page): Promise<void> {
+async function openSites(page: Page, collection: object = sites): Promise<void> {
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
-  await page.evaluate(async (text) => window.viewer.project.openFiles([new File([text], 'sites.geojson', { type: 'application/geo+json' })]), JSON.stringify(sites));
+  await page.evaluate(async (text) => window.viewer.project.openFiles([new File([text], 'sites.geojson', { type: 'application/geo+json' })]), JSON.stringify(collection));
   await expect(page.locator('#images li')).toHaveCount(1);
 }
 
@@ -130,5 +130,62 @@ test('without a catalog, plans the samples and pasted TLEs over a clicked point'
   await dialog.getByRole('button', { name: '計算' }).click();
   await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
   await expect(dialog.locator('thead')).not.toContainText('対象');
+  expect(errors).toEqual([]);
+});
+
+test('combines passes of several satellites to cover a wide polygon', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page);
+  // About 140 × 70 km round Tokyo: wider than any scene.
+  const wide = {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[139.0, 35.4], [140.5, 35.4], [140.5, 36.0], [139.0, 36.0], [139.0, 35.4]]] }, properties: { name: '関東' } }],
+  };
+  await openSites(page, wide);
+  await openPanel(page);
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('.plan-more summary').click();
+  await expect(dialog.locator('.plan-sats-list')).toContainText('間隔 10 分');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.locator('select[name=days]').selectOption('30');
+  await dialog.locator('select[name=daylight]').selectOption('none');
+  await dialog.getByRole('button', { name: '計算' }).click();
+
+  // No single pass covers it, so the combination is shown: what each pass adds and the total so far.
+  await expect(dialog.locator('.service-status')).toContainText('関東:', { timeout: 60_000 });
+  await expect(dialog.locator('.service-status')).toContainText('パスで');
+  await expect(dialog.locator('select[name=view]')).toHaveValue('cover');
+  await expect(dialog.locator('thead')).toContainText('追加');
+  await expect(dialog.locator('thead')).toContainText('累計');
+  const steps = await page.evaluate(() => window.viewer.imagingPlan.opportunities().map((o) => ({ time: o.time, gain: o.gain!, cumulative: o.cumulative!, satellite: o.satellite })));
+  expect(steps.length).toBeGreaterThan(1);
+  steps.forEach((step, i) => {
+    expect(step.gain).toBeGreaterThan(0);
+    if (i) expect(step.cumulative).toBeGreaterThan(steps[i - 1].cumulative);
+  });
+  expect(new Set(steps.map((s) => s.satellite)).size).toBe(2);
+  // The other passes of the combination are drawn, numbered.
+  const labels = await page.evaluate(() =>
+    window.viewer.imagingPlan.overlay
+      .getSource()!
+      .getFeatures()
+      .filter((f) => f.get('kind') === 'step')
+      .map((f) => f.get('label') as string),
+  );
+  expect(labels.length).toBeGreaterThan(0);
+
+  // A lower goal needs no more passes.
+  await dialog.locator('input[name=goal]').fill('50');
+  await dialog.locator('input[name=goal]').dispatchEvent('change');
+  expect((await page.evaluate(() => window.viewer.imagingPlan.opportunities())).length).toBeLessThanOrEqual(steps.length);
+
+  // Every opportunity, with the share each covers.
+  await dialog.locator('select[name=view]').selectOption('all');
+  await expect(dialog.locator('thead')).toContainText('被覆');
+  await expect(dialog.locator('tbody tr').first()).toContainText('%');
+  const [file] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'CSV 保存' }).click()]);
+  expect(file.suggestedFilename()).toMatch(/\.csv$/);
   expect(errors).toEqual([]);
 });

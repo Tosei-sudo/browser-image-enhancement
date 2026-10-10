@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  coverPlan,
   groundRange,
   lookSideOf,
   passShapes,
@@ -13,6 +14,7 @@ import {
   tleEpoch,
   tleLines,
   type PlanOptions,
+  type PlanTarget,
   type SatelliteSpec,
 } from '../src/imaging-plan.js';
 import { parseConfig } from '../src/config.js';
@@ -26,6 +28,21 @@ const around = (t: number, minutes = 30): PlanOptions => ({ start: t - minutes *
 
 /** A point `km` east of another, on the same parallel. */
 const east = ([lon, lat]: [number, number], km: number): [number, number] => [lon + km / (111.32 * Math.cos((lat * Math.PI) / 180)), lat];
+
+/** A box `w` × `h` km round a point, as an area target sampled by a grid of about 20 × 20 cells. */
+const boxTarget = (label: string, [lon, lat]: [number, number], w: number, h: number): PlanTarget => {
+  const dLon = w / (111.32 * Math.cos((lat * Math.PI) / 180));
+  const dLat = h / 111.32;
+  const cells: Array<[number, number]> = [];
+  for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) cells.push([lon - dLon / 2 + (dLon * (i + 0.5)) / 20, lat - dLat / 2 + (dLat * (j + 0.5)) / 20]);
+  const points: Array<[number, number]> = [
+    [lon - dLon / 2, lat - dLat / 2],
+    [lon + dLon / 2, lat - dLat / 2],
+    [lon + dLon / 2, lat + dLat / 2],
+    [lon - dLon / 2, lat + dLat / 2],
+  ];
+  return { label, center: [lon, lat], points, cells };
+};
 
 describe('TLE and catalog attributes', () => {
   it('reads TLE lines with or without a name line', () => {
@@ -41,7 +58,7 @@ describe('TLE and catalog attributes', () => {
       {
         label: '衛星',
         url: 'https://example.com/arcgis/rest/services/Sats/FeatureServer/0?x=1',
-        fields: { name: 'SAT_NAME', tle1: 'L1', tle2: 'L2', maxOffNadir: 'MAX_ANGLE', swath: 'SWATH_M', lookSide: 'LOOK', kind: 'SENSOR' },
+        fields: { name: 'SAT_NAME', tle1: 'L1', tle2: 'L2', maxOffNadir: 'MAX_ANGLE', swath: 'SWATH_M', lookSide: 'LOOK', kind: 'SENSOR', minInterval: 'GAP_MIN', maxPerDay: 'PER_DAY' },
         swathUnit: 'm',
         defaults: { maxOffNadir: 25 },
       },
@@ -50,12 +67,12 @@ describe('TLE and catalog attributes', () => {
     )!;
     expect(problems).toEqual([]);
     expect(catalog.url).toBe('https://example.com/arcgis/rest/services/Sats/FeatureServer/0');
-    expect(catalog.defaults).toEqual({ maxOffNadir: 25, minOffNadir: 0, swath: 10 });
-    const sat = satelliteOf({ SAT_NAME: 'SAR-1', L1: line1, L2: line2, MAX_ANGLE: 40, SWATH_M: 30000, LOOK: 'R', SENSOR: 'SAR' }, catalog) as SatelliteSpec;
-    expect(sat).toMatchObject({ name: 'SAR-1', maxOffNadir: 40, swath: 30, length: 30, lookSide: 'right', sar: true });
+    expect(catalog.defaults).toEqual({ maxOffNadir: 25, minOffNadir: 0, swath: 10, scenesPerPass: 1, minInterval: 0, maxPerDay: 0 });
+    const sat = satelliteOf({ SAT_NAME: 'SAR-1', L1: line1, L2: line2, MAX_ANGLE: 40, SWATH_M: 30000, LOOK: 'R', SENSOR: 'SAR', GAP_MIN: 15, PER_DAY: 4 }, catalog) as SatelliteSpec;
+    expect(sat).toMatchObject({ name: 'SAR-1', maxOffNadir: 40, swath: 30, length: 30, lookSide: 'right', sar: true, minInterval: 15, maxPerDay: 4 });
     // Empty specifications fall back to the defaults (in km).
     const plain = satelliteOf({ SAT_NAME: 'OPT-1', L1: line1, L2: line2, MAX_ANGLE: null, SWATH_M: '' }, catalog) as SatelliteSpec;
-    expect(plain).toMatchObject({ maxOffNadir: 25, swath: 10, lookSide: 'both', sar: false });
+    expect(plain).toMatchObject({ maxOffNadir: 25, swath: 10, lookSide: 'both', sar: false, minInterval: 0, maxPerDay: 0 });
     expect(satelliteOf({ SAT_NAME: 'X' }, catalog)).toBe('X: TLE がありません');
   });
 
@@ -146,7 +163,11 @@ describe('planning', () => {
     expect(op.width).toBeGreaterThan(30);
     expect(op.width).toBeLessThan(65);
     expect(op.strips).toBe(Math.ceil(op.width / 12));
-    const shapes = passShapes(iss({ swath: 12 }), { label: 'box', center: below, points: box }, op)!;
+    // A point-like target is taken in one scene; an agile satellite takes as many side by side as it can.
+    expect(passShapes(iss({ swath: 12 }), { label: 'box', center: below, points: box }, op)!.scenes).toHaveLength(1);
+    const agile = iss({ swath: 12, scenesPerPass: op.strips });
+    const wide = planAccess([agile], [{ label: 'box', center: below, points: box }], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 60000)!;
+    const shapes = passShapes(agile, { label: 'box', center: below, points: box }, wide)!;
     expect(shapes.scenes).toHaveLength(op.strips);
     expect(shapes.reach).toHaveLength(2);
     expect(shapes.track.length).toBeGreaterThan(50);
@@ -185,5 +206,53 @@ describe('planning', () => {
     // The optical one only by day, the SAR one only looking right within its angles.
     for (const o of optical) expect(o.sunElevation).toBeGreaterThanOrEqual(10);
     for (const o of sar) expect([o.side, o.offNadir >= 20, o.offNadir <= 45]).toEqual(['right', true, true]);
+  });
+
+  it('covers part of an area per pass, and all of it with scenes side by side', () => {
+    const target = boxTarget('box', below, 60, 20);
+    const one = planAccess([iss({ swath: 12 })], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 120000)!;
+    // About 12 of 60 km across.
+    expect(one.coverage).toBeGreaterThan(0.12);
+    expect(one.coverage).toBeLessThan(0.35);
+    expect(one.cells).toHaveLength(400);
+    const all = planAccess([iss({ swath: 12, scenesPerPass: 6 })], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 120000)!;
+    expect(all.coverage).toBeGreaterThan(0.95);
+    expect(passShapes(iss({ swath: 12, scenesPerPass: 6 }), target, all)!.scenes).toHaveLength(6);
+  });
+
+  it('combines passes of several satellites to cover a wide area', () => {
+    const target = boxTarget('wide', [139.7, 35.7], 150, 60);
+    const sats = [iss({ swath: 30 }), iss({ name: 'ISS-2', swath: 30, tle2: line2.replace('325.0288', '145.0288') })];
+    const { opportunities } = planAccess(sats, [target], { start: epoch, end: epoch + 14 * 86400000, maxOffNadir: null, daylight: 'none', minSunElevation: 10 });
+    const [plan] = coverPlan(opportunities, [target], sats, 0.9);
+    expect(plan.steps.length).toBeGreaterThan(2);
+    expect(plan.coverage).toBeGreaterThanOrEqual(0.9);
+    expect(plan.done).toBe(plan.steps[plan.steps.length - 1].time);
+    // Every step adds something, the total grows, and the steps are in time order.
+    plan.steps.forEach((step, i) => {
+      expect(step.gain).toBeGreaterThan(0);
+      if (i) expect(step.time).toBeGreaterThan(plan.steps[i - 1].time);
+      if (i) expect(step.cumulative).toBeGreaterThan(plan.steps[i - 1].cumulative!);
+    });
+    expect(new Set(plan.steps.map((s) => s.satellite)).size).toBe(2);
+  });
+
+  it('keeps a satellite free for its interval between shots', () => {
+    // Two places 300 km apart along the same pass: seen a minute or so apart.
+    const a: PlanTarget = { label: 'a', center: below, points: [] };
+    const b: PlanTarget = { label: 'b', center: subSatellitePoint(iss(), T + 50000)!, points: [] };
+    const options = { ...around(T, 60 * 24 * 2), start: T - 60000 };
+    const free = iss();
+    const free2 = coverPlan(planAccess([free], [a, b], options).opportunities, [a, b], [free]);
+    expect(Math.abs(free2[1].done! - free2[0].done!)).toBeLessThan(120000);
+    const busy = iss({ minInterval: 10 });
+    const plans = coverPlan(planAccess([busy], [a, b], options).opportunities, [a, b], [busy]);
+    expect(plans[0].done).toBe(free2[0].done);
+    expect(plans[1].done! - plans[0].done!).toBeGreaterThanOrEqual(10 * 60000);
+    expect(plans[1].blocked).toBeGreaterThan(0);
+    // One shot a day: the second place waits a day.
+    const daily = iss({ maxPerDay: 1 });
+    const once = coverPlan(planAccess([daily], [a, b], options).opportunities, [a, b], [daily]);
+    expect(once[1].done! - once[0].done!).toBeGreaterThanOrEqual(86400000);
   });
 });
