@@ -47,5 +47,6 @@
   "projectionLookup": "https://spatialreference.org/ref/{authority}/{code}/ogcwkt/",
   "projections": {},
   "layers": [],
-  "imageRules": []
+  "imageRules": [],
+  "imageCatalogs": []
 }
