@@ -99,9 +99,23 @@ export interface ServiceLayer {
   extent: Extent | null;
   /** Lines for the information panel. */
   info: Array<[string, string]>;
+  /** WMS: the layer's time dimension, which the timeline sets. */
+  time?: ServiceTime;
   /** WMS: features at a point (GetFeatureInfo). */
   featureInfo?: (coordinate: Coordinate, map: OlMap) => Promise<{ features: Feature[]; fields: Field[] }>;
   dispose?: () => void;
+}
+
+/** A time dimension of a service layer (WMS `TIME`). */
+export interface ServiceTime {
+  /** The times the server offers (ms since 1970), oldest first; empty when it lists none. */
+  values: number[];
+  /** The server's default, as it writes it. */
+  default?: string;
+  /** Draws the layer at time `t` (the latest offered time not after it), or as the server's default with null. */
+  set(t: number | null): void;
+  /** The time drawn now, as asked for (null: the server's default). */
+  current(): string | null;
 }
 
 /** One layer a service offers, for the choice list. */

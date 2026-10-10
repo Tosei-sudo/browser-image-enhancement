@@ -29,7 +29,7 @@ body {
 .app {
   display: grid;
   height: 100%;
-  grid-template: 'bar bar' auto 'side map' 1fr 'side table' auto / min(var(--side-width), 60vw) minmax(0, 1fr);
+  grid-template: 'bar bar' auto 'side map' 1fr 'side timeline' auto 'side table' auto / min(var(--side-width), 60vw) minmax(0, 1fr);
   --side-width: 17rem;
 }
 
@@ -1683,4 +1683,121 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
+}
+
+/* The timeline (src/timeline.ts): a strip under the map. */
+.timeline {
+  grid-area: timeline;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.timeline[hidden] {
+  display: none;
+}
+.timeline-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px 8px 0;
+}
+.timeline-bar h2 {
+  margin: 0 4px 0 0;
+  font-size: 13px;
+}
+.timeline-bar button,
+.timeline-bar select,
+.timeline-more summary {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.timeline-bar button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.timeline-label {
+  min-width: 10em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.timeline-count,
+.timeline-note {
+  color: var(--muted);
+}
+.timeline-close {
+  margin-left: auto;
+}
+.timeline-more {
+  position: relative;
+}
+.timeline-more summary {
+  list-style: none;
+}
+.timeline-settings {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  max-width: min(36rem, 80vw);
+  max-height: 50vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px #0003;
+}
+.timeline-settings h3 {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.timeline-settings button {
+  justify-self: start;
+}
+.timeline-layer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.timeline-layer-name {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-chart {
+  position: relative;
+  height: 84px;
+  padding: 2px 8px 4px;
+}
+.timeline-chart canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.timeline-chart canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.timeline-empty {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--muted);
+}
+.image.time-out .name {
+  opacity: 0.5;
+  text-decoration: line-through dotted;
 }

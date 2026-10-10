@@ -146,7 +146,7 @@ export class ProjectControl {
         left.push(l.name);
         continue;
       }
-      const layer: ProjectLayer = { type: l.type, name: l.name, source, visible: l.layer.getVisible(), opacity: l.layer.getOpacity() };
+      const layer: ProjectLayer = { type: l.type, name: l.name, source, visible: images.isVisible(l), opacity: l.layer.getOpacity() };
       const correction = l.type === 'image' ? l.source : l.service.correction;
       const pipeline = correction?.getPipeline();
       if (pipeline && pipeline.ops.length) layer.pipeline = pipeline.toJSON();
