@@ -1813,6 +1813,7 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
 
 /* The timeline (src/timeline.ts): a strip under the map. */
 .timeline {
