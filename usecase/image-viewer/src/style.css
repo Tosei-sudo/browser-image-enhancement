@@ -2431,3 +2431,46 @@ body {
 .ai-transfer-fields dd.missing {
   color: #c0392b;
 }
+
+/* Display rules of Esri image and map services (raster-rules-dialog.ts). */
+.raster-rules textarea {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+.raster-rules .add-condition {
+  justify-self: start;
+}
+.raster-count {
+  margin: 0;
+  color: var(--muted);
+}
+.raster-sublayers {
+  display: grid;
+  gap: 4px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.raster-group {
+  margin-top: 4px;
+  font-weight: 600;
+}
+.raster-sublayer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.raster-sublayer input:not([type='checkbox'])[hidden] {
+  display: none;
+}
+.raster-rules .service-actions .spacer {
+  flex: 1;
+}
+.raster-rules [data-for][hidden] {
+  display: none;
+}

@@ -13,6 +13,7 @@
  */
 import type { PipelineJSON } from 'browser-image-enhancement';
 import { serviceNames, type Field, type ServiceRef } from './services/index.js';
+import { settingsOf } from './services/esri-rules.js';
 import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
 import type { ProjectLayout } from './layout.js';
@@ -269,6 +270,8 @@ function readSource(s: Record<string, unknown>, sets: number): LayerSource | nul
       const ref: ServiceRef = { kind: r.kind as ServiceRef['kind'], url: r.url, layer: r.layer };
       if (typeof r.matrixSet === 'string') ref.matrixSet = r.matrixSet;
       if (typeof r.format === 'string') ref.format = r.format;
+      const settings = settingsOf(r.settings);
+      if (settings) ref.settings = settings;
       return { kind: 'service', ref };
     }
     case 'files':

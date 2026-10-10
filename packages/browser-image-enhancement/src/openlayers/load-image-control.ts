@@ -132,6 +132,12 @@ export interface LoadImageControlOptions {
    * the chooser, and `loadFile` or your `onFiles` with the files chosen.
    */
   onOpen?: () => void;
+  /**
+   * Takes a URL entered in the URL form first, for URLs that are not COGs
+   * (an image service, say): return (or resolve with) true when it was opened
+   * another way, false to load it as a COG. A rejection keeps the form open.
+   */
+  onUrl?: (url: string) => boolean | Promise<boolean>;
   /** Called after an image is loaded (also fired as a `load` event). */
   onLoad?: (loaded: LoadedImage) => void;
   /** Called when an image cannot be loaded (also fired as an `error` event). */
@@ -200,7 +206,10 @@ export default class LoadImageControl extends Control {
       form.addEventListener('submit', (e) => {
         e.preventDefault();
         const url = input.value.trim();
-        if (url) void this.loadUrl(url).then(() => (form.hidden = true), () => {});
+        if (!url) return;
+        void Promise.resolve(options.onUrl ? options.onUrl(url) : false)
+          .then((handled) => (handled ? undefined : this.loadUrl(url)))
+          .then(() => (form.hidden = true), () => {});
       });
       element.append(toggle, form);
     }

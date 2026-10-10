@@ -17,6 +17,7 @@ import type { Extent } from 'ol/extent.js';
 import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer } from './common.js';
 import { vectorLayer } from './vector.js';
 import { extentHeights, raiseFootprints } from './esri-multipatch.js';
+import { imageServerChoice, MAP_CHOICE, mapChoice, openImageServer, openMapServer } from './esri-raster.js';
 
 /** What the viewer keeps of an Esri layer's description. */
 export interface EsriLayerInfo {
@@ -65,7 +66,7 @@ interface EsriLayerJson {
 
 /** Whether `url` looks like an ArcGIS REST service or layer. */
 export function isEsriUrl(url: string): boolean {
-  return /\/(FeatureServer|MapServer)(\/\d+)?\/?(\?.*)?$/i.test(url);
+  return /\/(FeatureServer|MapServer)(\/\d+)?\/?(\?.*)?$/i.test(url) || /\/ImageServer\/?(\?.*)?$/i.test(url);
 }
 
 /**
@@ -87,26 +88,40 @@ export async function esriJson<T>(url: string, params: Record<string, string>, t
   return json;
 }
 
-/** Reads an Esri service (`…/FeatureServer`) or one of its layers (`…/FeatureServer/0`). */
+/**
+ * Reads an Esri service: a feature service (`…/FeatureServer`) or one of its
+ * layers (`…/FeatureServer/0`); a map service (`…/MapServer`: its map as a
+ * picture, then its feature layers) or one of its layers; or an image service
+ * (`…/ImageServer`, one picture layer).
+ */
 export async function readEsri(input: string, token?: string): Promise<ServiceCatalog> {
   const clean = input.replace(/\?.*$/, '').replace(/\/+$/, '');
+  if (/\/ImageServer$/i.test(clean)) {
+    const { title, choice } = await imageServerChoice(clean, token);
+    return { kind: 'esri', url: clean, title, choices: [choice], open: (_choice, context, pick) => openImageServer(clean, context, pick?.settings) };
+  }
   const m = /^(.*\/(?:FeatureServer|MapServer))(?:\/(\d+))?$/i.exec(clean);
-  if (!m) throw new ServiceError('FeatureServer または MapServer の URL を入力してください');
+  if (!m) throw new ServiceError('FeatureServer・MapServer・ImageServer の URL を入力してください');
   const [, serviceUrl, layerId] = m;
-  const service = await esriJson<{ layers?: Array<{ id: number; name: string; geometryType?: string; type?: string }>; serviceDescription?: string; documentInfo?: { Title?: string } }>(
+  const mapServer = /MapServer$/i.test(serviceUrl);
+  const service = await esriJson<{ layers?: Array<{ id: number; name: string; geometryType?: string; type?: string }>; serviceDescription?: string; documentInfo?: { Title?: string }; mapName?: string }>(
     serviceUrl,
     {},
     token,
   );
+  const title = service.documentInfo?.Title || service.mapName || serviceUrl.split('/').slice(-2, -1)[0] || serviceUrl;
   const layers = (service.layers ?? []).filter((l) => (l.type ?? 'Feature Layer') === 'Feature Layer' && (layerId === undefined || String(l.id) === layerId));
-  if (layers.length === 0) throw new ServiceError('フィーチャーレイヤーがありません');
   const choices: LayerChoice[] = layers.map((l) => ({ name: String(l.id), title: l.name, abstract: geometryNames[l.geometryType ?? ''] }));
+  // A map service's own map first: what most people want from it.
+  if (mapServer && layerId === undefined) choices.unshift(mapChoice(title));
+  if (choices.length === 0) throw new ServiceError('フィーチャーレイヤーがありません');
   return {
     kind: 'esri',
     url: serviceUrl,
-    title: service.documentInfo?.Title || serviceUrl.split('/').slice(-2, -1)[0] || serviceUrl,
+    title,
     choices,
-    open: (choice, context) => openLayer(`${serviceUrl}/${choice.name}`, /MapServer$/i.test(serviceUrl), context.token),
+    open: (choice, context, pick) =>
+      choice.name === MAP_CHOICE ? openMapServer(serviceUrl, context, pick?.settings) : openLayer(`${serviceUrl}/${choice.name}`, mapServer, context.token),
   };
 }
 
@@ -173,7 +188,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
   };
 }
 
-function toField(f: EsriField, editableLayer: boolean, managed: Set<string>): Field | null {
+export function toField(f: EsriField, editableLayer: boolean, managed: Set<string>): Field | null {
   const types: Record<string, Field['type']> = {
     esriFieldTypeOID: 'oid',
     esriFieldTypeString: 'string',
