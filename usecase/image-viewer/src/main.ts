@@ -66,6 +66,7 @@ import { HistogramPanel } from './histogram-panel.js';
 import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
+import { CatalogPanel, catalogInfo } from './catalog-panel.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
@@ -524,6 +525,19 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
   open: (file) => openImageFile(file, fileContext()),
 });
 
+// Image catalogs (config.json's imageCatalogs): search by date, sensor and angle, open the COGs found.
+/** What the catalog said of the images opened from it, for the information panel. */
+const fromCatalog = new WeakMap<object, Array<[string, string]>>();
+const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as HTMLButtonElement, map, config.imageCatalogs, {
+  say,
+  openUrl: async (url, record, catalog) => {
+    const source = await loader.loadUrl(url);
+    fromCatalog.set(source, catalogInfo(record, catalog));
+    const image = images.find(source);
+    if (image && images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+  },
+});
+
 /** What opening files needs: where they go, and how RSETs being made are shown. */
 function fileContext(): OpenFilesContext {
   return {
@@ -566,7 +580,7 @@ function showRset(image: ViewerImage): void {
 /** Rows the information panel adds for an image: its RSET, and what the geometric mode knows of it. */
 function layerInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (layer?.type !== 'image') return geometryInfo(layer);
-  return [...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
+  return [...(fromCatalog.get(layer.source) ?? []), ...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
 }
 
 /** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */
@@ -721,9 +735,10 @@ declare global {
       project: ProjectControl;
       rset: typeof rsetSettings;
       globe: GlobeToggle;
+      catalog: CatalogPanel;
       timeline: Timeline;
       dashboard: Dashboard;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, timeline, dashboard };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard };

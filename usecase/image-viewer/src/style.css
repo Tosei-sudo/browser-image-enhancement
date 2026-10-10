@@ -1685,6 +1685,136 @@ body {
   margin-top: 6px;
 }
 
+/* Image catalog panel (in the add-a-service dialog's style): non-modal, at the right, so the map stays usable. */
+.catalog-dialog[open] {
+  position: fixed;
+  inset: 56px 16px auto auto;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(44rem, calc(100% - 32px));
+  max-height: calc(100vh - 96px);
+  margin: 0;
+  box-shadow: 0 4px 16px #0003;
+}
+.catalog-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.catalog-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+}
+.catalog-head select {
+  padding: 2px 6px;
+  font: inherit;
+}
+.catalog-close {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.catalog-form {
+  grid-template-columns: auto auto auto 1fr;
+  margin-top: 10px;
+}
+.catalog-form [hidden] {
+  display: none;
+}
+.catalog-days span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg);
+}
+.catalog-angle input {
+  width: 7em;
+}
+.catalog-more summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.catalog-more-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+.catalog-more-body .wide {
+  grid-column: auto;
+}
+.catalog-search {
+  grid-column: 4;
+  justify-self: end;
+}
+.catalog-results {
+  flex: 1;
+  min-height: 0;
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.catalog-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+.catalog-table th button {
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.catalog-table td {
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.catalog-table tbody tr {
+  cursor: pointer;
+}
+.catalog-table tbody tr:hover {
+  background: var(--accent-bg);
+}
+.catalog-table tbody tr.chosen {
+  background: #f59e0b33;
+}
+.catalog-kind {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.catalog-kind.url {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.catalog-kind.path {
+  background: #8883;
+  color: var(--muted);
+}
+.catalog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 /* The timeline (src/timeline.ts): a strip under the map. */
 .timeline {
   grid-area: timeline;
