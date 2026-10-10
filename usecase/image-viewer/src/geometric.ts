@@ -27,6 +27,7 @@ import type { Raster, Resample } from 'browser-image-geometry';
 import { readDted, type Dted } from './dted.js';
 import { coversAny, elevationAt, elevationRange, loadGeoid, type GeoidGrid } from './dem.js';
 import { dtedToGeoTIFF } from './dem-layer.js';
+import { resampleDem } from './dem-geotiff.js';
 import { ContourLayer } from './contour-layer.js';
 import { gridOfDted, niceInterval } from './contours.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
@@ -182,6 +183,53 @@ export class GeometricMode {
     const range = elevationRange(cell);
     say(`${file.name} を標高データ（${cell.level}）として開きました${range ? `。標高 ${range[0]}〜${range[1]} m` : ''}`);
     this.changed_(image);
+  }
+
+  /**
+   * Uses a one-band georeferenced GeoTIFF (default: the selected image) as
+   * elevation data, like a DTED cell: its heights (metres above mean sea
+   * level) resampled to longitude and latitude.
+   */
+  async useAsDem(image = this.images.selected()): Promise<boolean> {
+    const geo = image && this.geoImages_.get(image);
+    const { say } = this.options;
+    if (!image || !geo || this.busy_) return false;
+    if (image.source.getValueBandCount() !== 1) {
+      say('標高データにできるのは 1 バンドの画像だけです');
+      return false;
+    }
+    this.busy_ = true;
+    this.render();
+    try {
+      say(`${baseName(image.name)} を標高データとして読み込んでいます…`);
+      const view = await image.source.getView();
+      if (!view.extent || !view.projection) throw new Error('位置情報がありません');
+      const { raster, first } = await readForOrtho(geo.from);
+      const noData = first.getGDALNoData();
+      const lonLat = transformExtent(view.extent, view.projection, 'EPSG:4326');
+      const toRaster = getTransform('EPSG:4326', view.projection);
+      const cell = resampleDem({ width: raster.width, height: raster.height, data: raster.data, noData: noData ?? null, extent: view.extent }, (p) => toRaster(p) as number[], lonLat);
+      const range = elevationRange(cell);
+      if (!range) throw new Error('高さの値がありません');
+      this.geoImages_.delete(image);
+      this.dems_.set(image, cell);
+      this.images.setBadge(image, 'DEM');
+      if (!image.source.getPipeline().ops.length) this.setPipeline_(image, pipeline().autoStretch());
+      say(`${baseName(image.name)} を標高データとして使います（標高 ${Math.round(range[0])}〜${Math.round(range[1])} m、${cell.width}×${cell.height} 点）`);
+      this.changed_(image);
+      return true;
+    } catch (error) {
+      say(`標高データにできませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    } finally {
+      this.busy_ = false;
+      this.render();
+    }
+  }
+
+  /** Whether `image` is a GeoTIFF used as elevation data (a DTED opens as one by itself). */
+  isGeoTiffDem(image: ViewerImage): boolean {
+    return this.dems_.get(image)?.level === 'GeoTIFF';
   }
 
   /** Marks a loaded image as a satellite image with an RPC model. */
@@ -457,7 +505,7 @@ export class GeometricMode {
     const ortho = image && this.orthos_.get(image);
     const geo = image && this.geoImages_.get(image);
     if (image && dem) {
-      p(`標高データ（${dem.level}）。開いている間、オルソ補正の地形に使います。`);
+      p(`標高データ（${dem.level}）。開いている間、オルソ補正・3D の起伏・可視解析の地形に使います。`);
       this.renderContours_(image, row);
     } else if (image && ortho) {
       p(`${baseName(ortho.sourceName)} のオルソ補正画像。位置がずれていれば、ずらして合わせられます。`);
@@ -484,11 +532,15 @@ export class GeometricMode {
       for (const [value, label] of Object.entries(resampleNames)) select.append(new Option(label, value, value === 'bilinear', value === 'bilinear'));
       row(select, button(this.busy_ ? '補正中…' : 'オルソ補正', () => void this.orthorectify(image, select.value as Resample), { disabled: this.busy_, name: 'ortho' }));
     } else if (image && geo) {
+      if (image.source.getValueBandCount() === 1) {
+        const use = row(button(this.busy_ ? '読み込み中…' : '標高データとして使う', () => void this.useAsDem(image), { disabled: this.busy_, name: 'use-dem' }));
+        use.title = '値を標高（m、平均海面から）として、オルソ補正・等高線・3D の起伏・可視解析に使います';
+      }
       this.renderSimple_(geo, image, cells, p, row, button);
     } else {
       p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）か、位置情報のある GeoTIFF を選ぶと、オルソ補正できます。');
     }
-    p(cells.length ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）` : '標高データ: なし（DTED .dt0〜.dt2 を開くと使います）', 'geometry-dems');
+    p(cells.length ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）` : '標高データ: なし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を「標高データとして使う」と使います）', 'geometry-dems');
   }
 
   /** The simple orthorectification's part of the panel: the satellite's direction, then the details most never need. */

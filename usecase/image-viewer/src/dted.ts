@@ -13,7 +13,7 @@
 
 /** A DTED cell read into memory, north up. */
 export interface Dted {
-  /** `DTED0`, `DTED1` or `DTED2` (from the DSI, else from the post spacing). */
+  /** `DTED0`, `DTED1` or `DTED2` (from the DSI, else from the post spacing); `GeoTIFF` for a GeoTIFF DEM. */
   level: string;
   /** Longitude of the westernmost post line, degrees. */
   west: number;
@@ -25,8 +25,8 @@ export interface Dted {
   width: number;
   /** Posts down (latitude rows). */
   height: number;
-  /** Elevations in metres, row by row from north to south; voids are {@link DTED_VOID}. */
-  data: Int16Array;
+  /** Elevations in metres, row by row from north to south; voids are {@link DTED_VOID} (a GeoTIFF DEM's are floats). */
+  data: Int16Array | Float32Array;
   /** Absolute vertical accuracy in metres (90% linear error), when given. */
   verticalAccuracy: number | null;
 }

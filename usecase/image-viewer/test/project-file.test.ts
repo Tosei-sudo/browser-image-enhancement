@@ -43,6 +43,32 @@ describe('project files', () => {
     expect(read.layers[0]).toMatchObject({ visible: true, opacity: 1 });
   });
 
+  it('keep the 3D view and GeoTIFF DEMs', () => {
+    const with3d: Project = {
+      ...project,
+      layers: [...project.layers, { type: 'image', name: 'dem.tif', source: { kind: 'url', url: 'https://example.com/dem.tif' }, visible: true, opacity: 1, dem: true }],
+      globe: {
+        open: true,
+        camera: { lon: 139.7, lat: 35.6, height: 1500, heading: 10, pitch: -35 },
+        terrain: true,
+        exaggeration: 2,
+        heightMode: 'ground',
+        natural: false,
+        tilesets: [{ url: 'https://example.com/tiles/tileset.json', show: false }],
+      },
+    };
+    expect(readProject(writeProject(with3d)).project).toEqual(with3d);
+    // Odd values are tamed; local addresses and broken cameras are left out.
+    const odd = JSON.parse(writeProject(with3d)) as Record<string, Record<string, unknown>>;
+    odd.globe.exaggeration = 50;
+    odd.globe.heightMode = 'up';
+    odd.globe.tilesets = [{ url: 'javascript:alert(1)' }, { url: 'https://a.example/t.json' }];
+    const read = readProject(JSON.stringify(odd)).project.globe!;
+    expect(read).toMatchObject({ exaggeration: 10, heightMode: 'auto', tilesets: [{ url: 'https://a.example/t.json', show: true }] });
+    odd.globe.camera = { lon: 'x' };
+    expect(readProject(JSON.stringify(odd)).project.globe).toBeUndefined();
+  });
+
   it('are named by their extension', () => {
     expect(isProjectName('調査.IVPROJ')).toBe(true);
     expect(isProjectName('a.json')).toBe(false);
