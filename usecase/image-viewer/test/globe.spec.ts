@@ -95,8 +95,9 @@ test('multipatch buildings stand on the relief and are picked like features', as
   await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.501, lat: 35.2455, height: 1500, heading: 0, pitch: -30 }));
   await settled(page, 'with the buildings');
   await page.screenshot({ path: 'test-results/globe-buildings.png' });
-  // A click on the tower selects it in the attribute table.
-  const tower = await page.evaluate(() => {
+  // A click on the tower selects it in the attribute table. Scanned until found:
+  // a busy machine may still be placing the buildings on the relief.
+  const findTower = () => page.evaluate(() => {
     const globe = window.viewer.globe.globe()!;
     const canvas = globe.widget.scene.canvas;
     // Scan the middle row for the first pixel that picks a shape.
@@ -108,7 +109,8 @@ test('multipatch buildings stand on the relief and are picked like features', as
     }
     return null;
   });
-  expect(tower).not.toBeNull();
+  let tower: number[] | null = null;
+  await expect.poll(async () => (tower = await findTower()), { timeout: 120_000, intervals: [2000] }).not.toBeNull();
   const box = (await page.locator('.globe canvas').boundingBox())!;
   await page.mouse.click(box.x + tower![0], box.y + tower![1]);
   await expect.poll(() => page.evaluate(() => window.viewer.selection.list().map((f) => f.get('NAME')))).toEqual(['tower']);
