@@ -387,7 +387,7 @@ export function baseName(name: string): string {
 }
 
 /** The file name of a URL (without the query), or the name as given. */
-function shortName(name: string): string {
+export function shortName(name: string): string {
   try {
     const url = new URL(name);
     return decodeURIComponent(url.pathname.split('/').pop() || url.host);

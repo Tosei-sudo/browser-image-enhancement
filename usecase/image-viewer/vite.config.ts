@@ -41,12 +41,17 @@ function serviceWorker(): Plugin {
     },
     closeBundle() {
       const files = filesOf(outDir).filter((f) => f !== 'sw.js' && !f.endsWith('.map'));
+      // ONNX Runtime's WebAssembly (about 27 MB, the AI tools only) is cached when first used, not on install.
+      const isLazy = (f: string) => /(^|\/)ort-wasm[^/]*\.wasm$/.test(f);
       const hash = createHash('sha256');
       for (const f of files) hash.update(f).update(readFileSync(join(outDir, f)));
       const template = readFileSync(new URL('./sw.js', import.meta.url), 'utf8');
       writeFileSync(
         join(outDir, 'sw.js'),
-        template.replace("'__VERSION__'", JSON.stringify(hash.digest('hex').slice(0, 12))).replace('/* __PRECACHE__ */ []', JSON.stringify(['./', ...files])),
+        template
+          .replace("'__VERSION__'", JSON.stringify(hash.digest('hex').slice(0, 12)))
+          .replace('/* __PRECACHE__ */ []', JSON.stringify(['./', ...files.filter((f) => !isLazy(f))]))
+          .replace('/* __LAZY__ */ []', JSON.stringify(files.filter(isLazy))),
       );
     },
   };
@@ -128,5 +133,6 @@ export default defineConfig({
   build: { outDir: 'dist', target: 'es2022', chunkSizeWarningLimit: 1500 },
   // SQLite (GeoPackages) finds its .wasm next to its own module, which pre-bundling would move.
   // satellite.js is left as it is too, so its WebAssembly part can be left out (satelliteJsOnly).
-  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm', 'satellite.js'] },
+  // ONNX Runtime (the AI tools) finds its .wasm next to its module too.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm', 'satellite.js', 'onnxruntime-web'] },
 });

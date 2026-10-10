@@ -278,6 +278,63 @@ function query(form) {
 }
 
 /**
+ * Detections/FeatureServer/0: a polygon layer the AI tools' results are written
+ * to (ai.spec.ts). What is sent is kept (not reset) and read back from
+ * /svc/detections.
+ */
+const detectionsLayer = {
+  id: 0,
+  name: '検出結果',
+  type: 'Feature Layer',
+  geometryType: 'esriGeometryPolygon',
+  objectIdField: 'OBJECTID',
+  capabilities: 'Create,Query,Update',
+  fields: [
+    { name: 'OBJECTID', type: 'esriFieldTypeOID', editable: false },
+    { name: 'IMAGE_ID', type: 'esriFieldTypeString', length: 50, editable: true },
+    { name: 'FILE_NAME', type: 'esriFieldTypeString', length: 100, editable: true },
+    { name: 'ACQ_TIME', type: 'esriFieldTypeDate', editable: true },
+    { name: 'DETECTED_AT', type: 'esriFieldTypeDate', editable: true },
+    { name: 'SENT_AT', type: 'esriFieldTypeDate', editable: true },
+    { name: 'CLASS', type: 'esriFieldTypeString', length: 50, editable: true },
+    { name: 'CONFIDENCE', type: 'esriFieldTypeDouble', editable: true },
+    { name: 'MODEL', type: 'esriFieldTypeString', length: 100, editable: true },
+    { name: 'STATUS', type: 'esriFieldTypeSmallInteger', editable: true },
+    { name: 'LON', type: 'esriFieldTypeDouble', editable: true },
+    { name: 'LAT', type: 'esriFieldTypeDouble', editable: true },
+    { name: 'AREA_M2', type: 'esriFieldTypeDouble', editable: true },
+    { name: 'SOURCE', type: 'esriFieldTypeString', length: 20, editable: true },
+  ],
+};
+const detections = new Map();
+let nextDetection = 1;
+
+function detectionEdits(form) {
+  const adds = JSON.parse(form.get('adds') ?? '[]');
+  const updates = JSON.parse(form.get('updates') ?? '[]');
+  const known = new Set(detectionsLayer.fields.map((f) => f.name));
+  const unknown = (a) => Object.keys(a).find((k) => !known.has(k));
+  return {
+    addResults: adds.map((f) => {
+      if (unknown(f.attributes)) return { success: false, error: { code: 1000, description: `属性 ${unknown(f.attributes)} はありません` } };
+      if (!f.geometry?.rings?.length) return { success: false, error: { code: 1000, description: 'ポリゴンがありません' } };
+      const id = nextDetection++;
+      detections.set(id, { ...f, attributes: { ...f.attributes, OBJECTID: id } });
+      return { objectId: id, success: true };
+    }),
+    updateResults: updates.map((f) => {
+      const id = f.attributes.OBJECTID;
+      const row = detections.get(id);
+      if (!row) return { objectId: id, success: false, error: { code: 1019, description: 'ありません' } };
+      Object.assign(row.attributes, f.attributes);
+      if (f.geometry) row.geometry = f.geometry;
+      return { objectId: id, success: true };
+    }),
+    deleteResults: [],
+  };
+}
+
+/**
  * Town/FeatureServer/0: two multipatch buildings (footprints near Tokyo Station), with the
  * multipatch options of the query: `xyFootprint` gives each footprint
  * (Web Mercator), `extent` five points at the lowest and highest height.
@@ -456,6 +513,9 @@ export async function serveService(req, res, url, base) {
     if (p.REQUEST === 'GetFeature') return json(stationsJson());
   }
 
+  if (path === '/svc/detections') return json([...detections.values()]);
+  const detection = /^\/svc\/arcgis\/rest\/services\/Detections\/FeatureServer\/0(?:\/(applyEdits))?$/.exec(path);
+  if (detection) return json(detection[1] && req.method === 'POST' ? detectionEdits(form) : detectionsLayer);
   if (path === '/svc/raster-requests') return json(rasterRequests);
   const image = /^\/svc\/arcgis\/rest\/services\/Scenes\/ImageServer(?:\/(exportImage|query|identify))?$/.exec(path);
   if (image) {
