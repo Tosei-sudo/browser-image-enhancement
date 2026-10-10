@@ -32,6 +32,8 @@ export interface PictureTiles {
   layer: LayerGroup;
   /** The correction, while the layer can be corrected. */
   correction: () => TileCorrection | null;
+  /** Loads every tile again (the URLs changed: another time). */
+  refresh: () => void;
 }
 
 export function pictureTiles(options: PictureTilesOptions): PictureTiles {
@@ -43,7 +45,14 @@ export function pictureTiles(options: PictureTilesOptions): PictureTiles {
     wrapX: false,
   };
   const plain = () => new TileLayer({ source: new ImageTile({ ...sourceOptions }) });
-  if (!options.gpu) return { layer: new LayerGroup({ layers: [plain()] }), correction: () => null };
+  // A new URL function gives the tiles a new key, so the renderers load them again (refresh() alone keeps the cached ones).
+  const refresh = (group: LayerGroup) => () =>
+    group.getLayers().forEach((l) => (l as TileLayer<ImageTile>).getSource()?.setUrl((z: number, x: number, y: number) => options.url(z, x, y)));
+
+  if (!options.gpu) {
+    const group = new LayerGroup({ layers: [plain()] });
+    return { layer: group, correction: () => null, refresh: refresh(group) };
+  }
 
   let correction: TileCorrection | null = new TileCorrection();
   const source = new ImageTile({ ...sourceOptions, crossOrigin: 'anonymous' });
@@ -61,5 +70,5 @@ export function pictureTiles(options: PictureTilesOptions): PictureTiles {
     corrected.dispose();
     options.onNoCors?.();
   });
-  return { layer: group, correction: () => correction };
+  return { layer: group, correction: () => correction, refresh: refresh(group) };
 }

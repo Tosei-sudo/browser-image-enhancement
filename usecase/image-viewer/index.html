@@ -56,6 +56,10 @@
             <div class="point-tools">
               <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・パンシャープン">プロセッシング</button>
             </div>
+            <p class="menu-heading">時間</p>
+            <div class="point-tools">
+              <button type="button" id="timeline-open" aria-pressed="false" data-key="T" aria-keyshortcuts="T" title="時間を持つレイヤーを時間軸に並べ、期間で絞り込みます（T）">タイムライン</button>
+            </div>
             <p class="menu-heading">保存</p>
             <div class="point-tools">
               <button type="button" id="save-view" title="表示範囲を PNG・GeoTIFF で保存します">表示範囲を保存</button>
@@ -98,6 +102,8 @@
       </aside>
       <div id="side-resize" class="side-resize"></div>
       <main id="map" class="map"></main>
+      <!-- Filtering every layer by a window of time: src/timeline.ts. -->
+      <section id="timeline" aria-label="タイムライン" hidden></section>
       <section id="table" class="table" aria-label="属性テーブル"></section>
       <p id="status" class="status" role="status"></p>
     </div>

@@ -268,6 +268,16 @@ export function landTile() {
   return bytes(3, layer);
 }
 
+/** The TIME of each GetMap of the WMS with a time dimension. */
+export const wmsTimeRequests = [];
+
+/** A WMS whose layer has a time dimension: monthly maps of 2024. */
+const wmsTimeCapabilities = (base) =>
+  wmsCapabilities(base)
+    .replaceAll('/svc/wms?', '/svc/wmstime?')
+    .replace('<Name>test:tokyo</Name>', '<Name>test:rain</Name>')
+    .replace('<Title>東京の地図</Title>', '<Title>月ごとの雨量</Title><Dimension name="time" units="ISO8601" default="2024-12-01">2024-01-01/2024-12-01/P1M</Dimension>');
+
 /** The vector tiles asked for, as paths with their query. */
 export const vectorTileRequests = [];
 
@@ -301,10 +311,19 @@ export async function serveService(req, res, url, base) {
   if (path === '/svc/reset') {
     resetServices();
     vectorTileRequests.length = 0;
+    wmsTimeRequests.length = 0;
     return json({ ok: true });
   }
   if (path === '/svc/state') return json([...parks.values()]);
   if (path === '/svc/vector-tiles') return json(vectorTileRequests);
+  if (path === '/svc/wms-times') return json(wmsTimeRequests);
+  if (path === '/svc/wmstime') {
+    if (p.REQUEST === 'GetCapabilities') return send('text/xml', wmsTimeCapabilities(base));
+    if (p.REQUEST === 'GetMap') {
+      wmsTimeRequests.push(p.TIME ?? null);
+      return send('image/png', tile);
+    }
+  }
 
   const vts = /^\/svc\/arcgis\/rest\/services\/(OSM|SecureOSM)\/VectorTileServer(\/.*)?$/.exec(path);
   if (vts) {
