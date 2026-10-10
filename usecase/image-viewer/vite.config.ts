@@ -91,8 +91,29 @@ function cesiumAssets(): Plugin {
   };
 }
 
+/**
+ * Leaves out satellite.js's WebAssembly build: the imaging plan (src/imaging-plan.ts)
+ * uses its JavaScript SGP4 only, and the WebAssembly part starts workers of its
+ * own and holds megabytes that would only be precached for nothing.
+ */
+function satelliteJsOnly(): Plugin {
+  const empty = '\0satellite-js-no-wasm';
+  return {
+    name: 'image-viewer-satellite-js-only',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === './wasm/index.js' && importer && /[\\/]satellite\.js[\\/]dist[\\/]index\.js$/.test(importer)) return empty;
+      return null;
+    },
+    load(id) {
+      return id === empty ? 'export {};' : null;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [cesiumAssets(), serviceWorker()],
+  plugins: [cesiumAssets(), serviceWorker(), satelliteJsOnly()],
+  worker: { plugins: () => [satelliteJsOnly()] },
   // Shown at the bottom of the side panel (src/build-info.ts).
   define: {
     __BUILD_INFO__: JSON.stringify({
@@ -106,5 +127,6 @@ export default defineConfig({
   // OpenLayers makes one large chunk; the site is a single page, so that is fine.
   build: { outDir: 'dist', target: 'es2022', chunkSizeWarningLimit: 1500 },
   // SQLite (GeoPackages) finds its .wasm next to its own module, which pre-bundling would move.
-  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+  // satellite.js is left as it is too, so its WebAssembly part can be left out (satelliteJsOnly).
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm', 'satellite.js'] },
 });

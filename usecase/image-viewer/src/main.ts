@@ -71,6 +71,7 @@ import type { CatalogConfig, CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
+import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
@@ -564,6 +565,19 @@ const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as
   forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
 });
 
+// Imaging plans (config.json's satelliteCatalogs, or pasted TLEs): when the satellites can next image a layer's features.
+const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as HTMLButtonElement, map, config.satelliteCatalogs, {
+  layers: () => images.layers(),
+  selection,
+  say,
+  onLayer: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+    say(`${made} をレイヤーとして追加しました`);
+  },
+});
+
 /** What opening files needs: where they go, and how RSETs being made are shown. */
 function fileContext(): OpenFilesContext {
   return {
@@ -764,7 +778,8 @@ declare global {
       catalog: CatalogPanel;
       timeline: Timeline;
       dashboard: Dashboard;
+      imagingPlan: ImagingPlanPanel;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan };
