@@ -63,6 +63,7 @@ export class CatalogPanel {
   private readonly open_: HTMLButtonElement;
   private readonly zoom_: HTMLButtonElement;
   private readonly copy_: HTMLButtonElement;
+  /** Undefined only when config.json lists no catalog (the button is hidden then). */
   private catalog_: CatalogConfig;
   private layer_: Promise<CatalogLayerInfo> | null = null;
   private records_: CatalogRecord[] = [];
@@ -154,7 +155,7 @@ export class CatalogPanel {
       this.choose(record, add ? 'toggle' : 'only');
       this.rowOf(record)?.scrollIntoView({ block: 'nearest' });
     });
-    this.useCatalog(this.catalog_);
+    if (this.catalog_) this.useCatalog(this.catalog_);
   }
 
   /** Shows the panel (non-modal, so the map can still be moved) with the footprints of the last search. */

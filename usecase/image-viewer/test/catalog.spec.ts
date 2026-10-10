@@ -63,8 +63,12 @@ async function serveCatalog(page: Page): Promise<string[]> {
 }
 
 test('no catalog in config.json, no button', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
   await expect(page.locator('#catalog-open')).toBeHidden();
+  expect(errors).toEqual([]);
 });
 
 test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
