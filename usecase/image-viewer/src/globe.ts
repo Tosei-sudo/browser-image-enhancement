@@ -80,6 +80,8 @@ import { gridAround, raiseByTriangles, runViewshed, viewshedPixels, visibleArea,
 import { GlobeMeasure, type GlobeMeasureMode, type MeasureResult } from './globe-measure.js';
 import { drawProfile, profileCsv } from './profile-chart.js';
 import { isLocalTiles, serveFolder } from './local-tiles.js';
+import { GlobeSatellites } from './globe-satellite.js';
+import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { isSceneServer, openSceneService } from './i3s.js';
 import type { ImageList, ViewerService } from './images.js';
 import type { Selection } from './selection.js';
@@ -96,6 +98,8 @@ export interface GlobeContext {
   say: (message: string) => void;
   /** Called when measuring starts or stops. */
   onMeasure?: (mode: 'distance' | 'area' | null) => void;
+  /** The passes of the imaging plan to draw (the chosen opportunity, and the rest of its combination). */
+  satellitePasses?: () => SatellitePass3d[];
 }
 
 /** A camera position: degrees, metres above the ellipsoid, heading and pitch in degrees. */
@@ -294,6 +298,7 @@ export class Globe {
   private geoid_: GeoidGrid | null = null;
   private readonly panel_: GlobePanel;
   private readonly measure_: GlobeMeasure;
+  private readonly satellites_: GlobeSatellites;
   private readonly unwatch_: Array<() => void> = [];
 
   constructor(
@@ -348,6 +353,7 @@ export class Globe {
       onChange: (result) => this.panel_.showMeasure(result),
       say: context.say,
     });
+    this.satellites_ = new GlobeSatellites(this.widget);
     // Esc clears a measurement, or stops picking the observer.
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' || !this.open_) return;
@@ -387,6 +393,24 @@ export class Globe {
     this.widget.resize();
     if (extent) this.flyTo(transformExtent(extent, view.getProjection(), 'EPSG:4326'), 0);
     this.refresh();
+    this.updateSatellites();
+  }
+
+  // ----- imaging plans ------------------------------------------------------------
+
+  /** Draws the imaging plan's passes as they are now (none when nothing is chosen). */
+  updateSatellites(): void {
+    this.satellites_.show(this.context.satellitePasses?.() ?? []);
+  }
+
+  /** Looks at the chosen pass from the side (framed left of `right` covered pixels); false when there is none. */
+  viewSatellite(right = 0): boolean {
+    return this.satellites_.view(right);
+  }
+
+  /** The imaging plan's drawing, for the tests. */
+  get satellites(): GlobeSatellites {
+    return this.satellites_;
   }
 
   /** Back to 2D, looking where the camera looks. */
