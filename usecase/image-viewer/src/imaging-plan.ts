@@ -10,8 +10,10 @@
  * target the moment of closest approach (the smallest off-nadir angle) is
  * found, and the pass is an opportunity when that angle is within what the
  * satellite can do, on a side it can look to, and (for optical satellites)
- * in daylight. An area is judged by its centre; how many scenes side by side
- * cover it is worked out from its width across the track.
+ * in daylight. An area (a polygon) is sampled by points inside it: each pass
+ * takes the scenes it can (`scenesPerPass` side by side) where they cover the
+ * most of what it can reach, and {@link coverPlan} strings passes of several
+ * satellites together, earliest first, until the area is covered.
  *
  * Everything here is plain computation, run in a worker (imaging-plan-worker.ts);
  * the panel is imaging-plan-panel.ts.
@@ -42,6 +44,12 @@ export interface SatelliteFields {
   lookSide?: string;
   /** The kind of sensor; values matching `sarPattern` are SAR (they image at night too). */
   kind?: string;
+  /** How many scenes side by side one pass can take (an agile satellite turning between strips). */
+  scenesPerPass?: string;
+  /** Minutes the satellite needs after one shot before the next (turning, cooling, downlink); 0 or empty for none. */
+  minInterval?: string;
+  /** Most shots it can take in 24 hours (power, memory); 0 or empty for no limit. */
+  maxPerDay?: string;
 }
 
 /** Specifications used when the catalog leaves a field empty. */
@@ -50,6 +58,12 @@ export interface SatelliteDefaults {
   minOffNadir: number;
   /** km. */
   swath: number;
+  /** Scenes side by side in one pass. */
+  scenesPerPass: number;
+  /** Minutes between shots (0: none). */
+  minInterval: number;
+  /** Shots in 24 hours (0: no limit). */
+  maxPerDay: number;
 }
 
 /** One catalog from `config.json`'s `satelliteCatalogs`. */
@@ -71,13 +85,13 @@ export interface SatelliteCatalogConfig {
 }
 
 /** Specifications used when neither the catalog nor `config.json` gives them. */
-export const builtInDefaults: SatelliteDefaults = { maxOffNadir: 30, minOffNadir: 0, swath: 10 };
+export const builtInDefaults: SatelliteDefaults = { maxOffNadir: 30, minOffNadir: 0, swath: 10, scenesPerPass: 1, minInterval: 0, maxPerDay: 0 };
 const defaultSar = /SAR|radar|レーダ/i;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isName = (value: unknown): value is string => typeof value === 'string' && /^[\w.]+$/.test(value);
 const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(https?:)?\/\/|^\.{0,2}\//.test(url);
-const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir', 'swath', 'length', 'lookSide', 'kind'] as const;
+const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir', 'swath', 'length', 'lookSide', 'kind', 'scenesPerPass', 'minInterval', 'maxPerDay'] as const;
 
 /** The catalog of one `satelliteCatalogs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function satelliteCatalogOf(value: unknown, problems: string[], index: number): SatelliteCatalogConfig | null {
@@ -99,7 +113,7 @@ export function satelliteCatalogOf(value: unknown, problems: string[], index: nu
 
   const given: Partial<SatelliteDefaults> = {};
   if (isRecord(defaults)) {
-    for (const key of ['maxOffNadir', 'minOffNadir', 'swath'] as const) {
+    for (const key of ['maxOffNadir', 'minOffNadir', 'swath', 'scenesPerPass', 'minInterval', 'maxPerDay'] as const) {
       const v = defaults[key];
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0) given[key] = v;
       else if (v !== undefined) problems.push(`${at} の defaults.${key} は 0 以上の数にしてください`);
@@ -141,6 +155,12 @@ export interface SatelliteSpec {
   swath: number;
   /** km. */
   length: number;
+  /** Scenes side by side in one pass (1 or more). */
+  scenesPerPass: number;
+  /** Minutes it needs between shots (0: none). */
+  minInterval: number;
+  /** Most shots in 24 hours (0: no limit). */
+  maxPerDay: number;
   lookSide: LookSide;
   sar: boolean;
   /** Where it came from (the catalog's label, or 「貼り付け」). */
@@ -190,6 +210,9 @@ export function satelliteOf(attributes: Record<string, unknown>, catalog: Satell
     minOffNadir: numberOf(get(fields.minOffNadir)) ?? defaults.minOffNadir,
     swath,
     length: length === null ? swath : length * scale,
+    scenesPerPass: Math.max(1, Math.round(numberOf(get(fields.scenesPerPass)) ?? defaults.scenesPerPass)),
+    minInterval: Math.max(0, numberOf(get(fields.minInterval)) ?? defaults.minInterval),
+    maxPerDay: Math.max(0, Math.round(numberOf(get(fields.maxPerDay)) ?? defaults.maxPerDay)),
     lookSide: lookSideOf(get(fields.lookSide)),
     sar: typeof kind === 'string' && catalog.sarPattern.test(kind),
     source: catalog.label,
@@ -200,7 +223,10 @@ export function satelliteOf(attributes: Record<string, unknown>, catalog: Satell
  * Satellites from pasted TLE text (two lines each, or three with a name
  * line), all with the same specifications.
  */
-export function satellitesFromText(text: string, spec: SatelliteDefaults & { lookSide?: LookSide; sar?: boolean }): SatelliteSpec[] {
+export function satellitesFromText(
+  text: string,
+  spec: Pick<SatelliteDefaults, 'maxOffNadir' | 'minOffNadir' | 'swath'> & Partial<SatelliteDefaults> & { lookSide?: LookSide; sar?: boolean },
+): SatelliteSpec[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const found: SatelliteSpec[] = [];
   for (let i = 0; i < lines.length - 1; i++) {
@@ -216,6 +242,9 @@ export function satellitesFromText(text: string, spec: SatelliteDefaults & { loo
       minOffNadir: spec.minOffNadir,
       swath: spec.swath,
       length: spec.swath,
+      scenesPerPass: Math.max(1, Math.round(spec.scenesPerPass ?? 1)),
+      minInterval: Math.max(0, spec.minInterval ?? 0),
+      maxPerDay: Math.max(0, Math.round(spec.maxPerDay ?? 0)),
       lookSide: spec.lookSide ?? 'both',
       sar: spec.sar ?? false,
       source: '貼り付け',
@@ -236,7 +265,7 @@ export const SAMPLE_SOURCE = 'サンプル';
  * real TLEs, so they only show how planning works.
  */
 export function sampleSatellites(): SatelliteSpec[] {
-  const base = { minOffNadir: 0, source: SAMPLE_SOURCE };
+  const base = { minOffNadir: 0, minInterval: 0, maxPerDay: 0, source: SAMPLE_SOURCE };
   return [
     {
       ...base,
@@ -247,6 +276,7 @@ export function sampleSatellites(): SatelliteSpec[] {
       maxOffNadir: 20,
       swath: 30,
       length: 30,
+      scenesPerPass: 1,
       lookSide: 'both',
       sar: false,
     },
@@ -260,6 +290,7 @@ export function sampleSatellites(): SatelliteSpec[] {
       minOffNadir: 20,
       swath: 50,
       length: 50,
+      scenesPerPass: 1,
       lookSide: 'right',
       sar: true,
     },
@@ -350,6 +381,12 @@ export interface PlanTarget {
   center: [number, number];
   /** Points spread over the area (its vertices), for how wide it is across the track; empty for a point. */
   points: Array<[number, number]>;
+  /**
+   * Points spread evenly inside the area (a grid in a polygon), each
+   * standing for an equal share of it: what passes cover is counted in
+   * them. Absent or empty for a point, which is covered whole or not at all.
+   */
+  cells?: Array<[number, number]>;
 }
 
 export interface PlanOptions {
@@ -374,25 +411,40 @@ export interface Opportunity {
   target: number;
   /** The moment of closest approach, ms since the epoch. */
   time: number;
-  /** Degrees. */
+  /** Off-nadir angle the satellite looks at (the middle of its scenes for an area), degrees. */
   offNadir: number;
-  /** Angle between the line of sight and the vertical at the target, degrees. */
+  /** Angle between the line of sight and the vertical on the ground, degrees. */
   incidence: number;
-  /** Elevation of the satellite seen from the target, degrees. */
+  /** Elevation of the satellite seen from the ground, degrees. */
   elevation: number;
   side: 'left' | 'right';
   /** Whether the satellite moves north (an ascending pass). */
   ascending: boolean;
-  /** Degrees. */
+  /** At the target's middle, degrees. */
   sunElevation: number;
-  /** Distance from the satellite to the target, km. */
+  /** Distance from the satellite to where it looks, km. */
   range: number;
   /** How wide the area is across the track, km (0 for a point). */
   width: number;
-  /** Scenes side by side needed to cover it. */
+  /** Scenes side by side needed to cover it all from this pass. */
   strips: number;
+  /** Share of the area (0–1) the scenes this pass takes cover; 1 for a point. */
+  coverage: number;
+  /** Where the scenes are across the track: from and to, radians in the orbit's frame (left positive). */
+  window: [number, number];
+  /**
+   * For an area: how far across the track each of its cells is (radians,
+   * left positive), NaN where the satellite cannot look; for choosing
+   * scenes again when passes are combined.
+   */
+  cells?: Float32Array;
+  /** In a combination ({@link coverPlan}): share newly covered by this pass, and covered so far. */
+  gain?: number;
+  cumulative?: number;
   /** Days between the TLE's epoch and this moment. */
   tleAge: number;
+  /** The satellite's distance from the Earth's centre, km (for looking elsewhere across the track). */
+  orbitRadius: number;
 }
 
 export interface PlanResult {
@@ -424,6 +476,20 @@ interface Prepared {
   up: Vec;
   /** Unit vectors of the area's points. */
   points: Vec[];
+  /** Unit vectors of the area's cells (empty for a point). */
+  cells: Vec[];
+  /** The largest angle (radians) between the middle and the area's points: how far it reaches from its middle. */
+  radius: number;
+}
+
+function prepare(t: PlanTarget): Prepared {
+  const r = ecefOf(t.center);
+  const middle = unit(r);
+  const points = t.points.map((p) => unit(ecefOf(p)));
+  const cells = (t.cells ?? []).map((p) => unit(ecefOf(p)));
+  let radius = 0;
+  for (const p of [...points, ...cells]) radius = Math.max(radius, Math.acos(Math.min(1, dot(p, middle))));
+  return { r, up: upOf(t.center), points, cells, radius };
 }
 
 /** How an orbit sees a target at one moment. */
@@ -446,7 +512,7 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
   const opportunities: Opportunity[] = [];
   const step = (options.step ?? 60) * 1000;
   const count = Math.max(2, Math.ceil((options.end - options.start) / step) + 1);
-  const prepared: Prepared[] = targets.map((t) => ({ r: ecefOf(t.center), up: upOf(t.center), points: t.points.map((p) => unit(ecefOf(p))) }));
+  const prepared = targets.map(prepare);
   const xs = new Float64Array(count);
   const ys = new Float64Array(count);
   const zs = new Float64Array(count);
@@ -496,11 +562,12 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
       for (let k = 0; k < count; k++) {
         const next = c(k + 1);
         if (here > -2 && here >= prev && here > next) {
-          // Cheap test before refining: the target's distance from the orbit's plane bounds the smallest angle of the pass.
+          // Cheap test before refining: the target's distance from the orbit's plane (less how far
+          // the area reaches) bounds the smallest angle of the pass.
           const r: Vec = [xs[k], ys[k], zs[k]];
           const n: Vec = [ns[k * 3], ns[k * 3 + 1], ns[k * 3 + 2]];
           const across = Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(unit(t.r), n)))));
-          if (offNadirFor(across, norm(r)) <= limit + 1) {
+          if (offNadirFor(Math.max(0, across - t.radius), norm(r)) <= limit + 1) {
             const found = refine(satrec, t, options.start + (k - 1) * step, options.start + (k + 1) * step);
             if (found) {
               const op = judge(sat, s, ti, t, found, limit, options, epoch);
@@ -548,36 +615,171 @@ function refine(satrec: SatRec, t: Prepared, a: number, b: number): number | nul
   return f(best) > -2 ? best : null;
 }
 
+/**
+ * Where to put `width` radians of scenes across the track so they take the
+ * most cells: `across` holds each cell's angle (NaN where it cannot be seen)
+ * and `open` says which still count. The scenes are centred on the cells they take.
+ */
+export function bestWindow(across: ArrayLike<number>, width: number, open?: (i: number) => boolean): { count: number; window: [number, number] } | null {
+  const xs: number[] = [];
+  for (let i = 0; i < across.length; i++) if (!Number.isNaN(across[i]) && (!open || open(i))) xs.push(across[i]);
+  if (!xs.length) return null;
+  xs.sort((a, b) => a - b);
+  let best = 0;
+  let from = 0;
+  for (let i = 0, j = 0; i < xs.length; i++) {
+    while (xs[i] - xs[j] > width) j++;
+    if (i - j + 1 > best) {
+      best = i - j + 1;
+      from = j;
+    }
+  }
+  const mid = (xs[from] + xs[from + best - 1]) / 2;
+  return { count: best, window: [mid - width / 2, mid + width / 2] };
+}
+
+/** Looking `x` radians across the track from `distance` km: the off-nadir angle, incidence, elevation (degrees) and range (km). */
+function lookAt(x: number, distance: number) {
+  const lambda = Math.abs(x);
+  const offNadir = offNadirFor(lambda, distance);
+  const incidence = offNadir + lambda * deg;
+  const range = Math.hypot(R * Math.sin(lambda), distance - R * Math.cos(lambda));
+  return { offNadir, incidence, elevation: 90 - incidence, range };
+}
+
 /** The opportunity at `time`, or null when the satellite cannot take it. */
 function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: number, limit: number, options: PlanOptions, epoch: number): Opportunity | null {
   const satrec = satrecOf(sat) as SatRec;
   const st = stateAt(satrec, time)!;
-  const { cosOff, elevation, range, d } = look(st, t);
-  if (elevation <= 0) return null;
-  const offNadir = Math.acos(Math.min(1, cosOff)) * deg;
-  if (offNadir > limit || offNadir < sat.minOffNadir) return null;
-  const n = unit(cross(st.r, st.v));
-  const side = dot(d, n) > 0 ? 'left' : 'right';
-  if (sat.lookSide !== 'both' && sat.lookSide !== side) return null;
   const center = lonLatOf(t.r);
   const sun = sunElevation(center, time);
   if (options.daylight === 'optical' && !sat.sar && sun < options.minSunElevation) return null;
+  const f = frameOf(st);
+  const distance = norm(st.r);
   const { width } = spread(st, t);
-  return {
+  const sw = (sat.swath / R) * sat.scenesPerPass;
+  const common = {
     satellite: s,
     target: ti,
     time,
-    offNadir,
-    incidence: 90 - elevation,
-    elevation,
-    side,
     ascending: st.north,
     sunElevation: sun,
-    range,
     width,
     strips: width > 0 ? Math.max(1, Math.ceil(width / sat.swath - 1e-9)) : 1,
     tleAge: (time - epoch) / 86400000,
+    orbitRadius: distance,
   };
+
+  if (!t.cells.length) {
+    // A point: the angle to it at closest approach.
+    const { cosOff, elevation, range, d } = look(st, t);
+    if (elevation <= 0) return null;
+    const offNadir = Math.acos(Math.min(1, cosOff)) * deg;
+    if (offNadir > limit || offNadir < sat.minOffNadir) return null;
+    const side = dot(d, f.n) > 0 ? 'left' : 'right';
+    if (sat.lookSide !== 'both' && sat.lookSide !== side) return null;
+    const x = trackAngles(unit(t.r), f)[0];
+    return { ...common, offNadir, incidence: 90 - elevation, elevation, side, range, coverage: 1, window: [x - sw / 2, x + sw / 2] };
+  }
+
+  // An area: the cells within reach (on a side it looks to, between its smallest and largest angles), and the
+  // scenes placed over as many of them as they can take.
+  const near = sat.minOffNadir > 0 ? groundRange(sat.minOffNadir, distance) / R : 0;
+  const far = groundRange(limit, distance) / R;
+  const across = new Float32Array(t.cells.length);
+  t.cells.forEach((p, i) => {
+    const x = trackAngles(p, f)[0];
+    const ok = Math.abs(x) >= near && Math.abs(x) <= far && (sat.lookSide === 'both' || (x > 0) === (sat.lookSide === 'left'));
+    across[i] = ok ? x : Number.NaN;
+  });
+  const best = bestWindow(across, sw);
+  if (!best) return null;
+  const mid = (best.window[0] + best.window[1]) / 2;
+  return {
+    ...common,
+    ...lookAt(mid, distance),
+    side: mid > 0 ? 'left' : 'right',
+    coverage: best.count / t.cells.length,
+    window: best.window,
+    cells: across,
+  };
+}
+
+/** One target's combination of passes. */
+export interface CoverPlan {
+  target: number;
+  /** The passes taken, in time order, with what each adds (`gain`) and the total so far (`cumulative`). */
+  steps: Opportunity[];
+  /** Share covered in the end (0–1). */
+  coverage: number;
+  /** When the goal is reached; null when the passes found do not reach it. */
+  done: number | null;
+  /** Passes that would have helped but were skipped because the satellite was still busy (its interval or daily limit). */
+  blocked: number;
+}
+
+/**
+ * Strings passes (of any satellite) together to cover the targets, earliest
+ * first: going through the opportunities in time order, a pass is taken when
+ * its scenes, placed over what is still uncovered, add at least `minGain` of
+ * an area, until `goal` of it is covered; a point needs just one pass. The
+ * targets share the satellites, so a shot is only taken when its satellite
+ * is free: `minInterval` minutes after its last shot (of any target), and
+ * fewer than `maxPerDay` shots in the 24 hours before.
+ */
+export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], sats: SatelliteSpec[], goal = 0.95, minGain = 0.02): CoverPlan[] {
+  const plans: CoverPlan[] = targets.map((_, ti) => ({ target: ti, steps: [], coverage: 0, done: null, blocked: 0 }));
+  const covered = targets.map((t) => new Uint8Array(t.cells?.length ?? 0));
+  const totals = targets.map(() => 0);
+  const shots = sats.map(() => [] as number[]);
+  const busy = (s: number, time: number) => {
+    const sat = sats[s];
+    const taken = shots[s];
+    const last = taken[taken.length - 1];
+    if (last !== undefined && sat.minInterval > 0 && time - last < sat.minInterval * 60000) return true;
+    return sat.maxPerDay > 0 && taken.filter((t) => time - t < 86400000).length >= sat.maxPerDay;
+  };
+  for (const op of [...opportunities].sort((a, b) => a.time - b.time)) {
+    const plan = plans[op.target];
+    if (!plan || plan.done !== null) continue;
+    const n = covered[op.target].length;
+    const sat = sats[op.satellite];
+    if (!n) {
+      if (busy(op.satellite, op.time)) {
+        plan.blocked++;
+        continue;
+      }
+      shots[op.satellite].push(op.time);
+      plan.steps.push({ ...op, gain: 1, cumulative: 1 });
+      plan.coverage = 1;
+      plan.done = op.time;
+      continue;
+    }
+    if (!op.cells || !sat) continue;
+    const cov = covered[op.target];
+    const best = bestWindow(op.cells, (sat.swath / R) * sat.scenesPerPass, (i) => !cov[i]);
+    if (!best || best.count / n < Math.min(minGain, goal - totals[op.target] / n - 1e-9)) continue;
+    if (busy(op.satellite, op.time)) {
+      plan.blocked++;
+      continue;
+    }
+    const [a, b] = best.window;
+    let gain = 0;
+    op.cells.forEach((x, i) => {
+      if (!cov[i] && x >= a && x <= b) {
+        cov[i] = 1;
+        gain++;
+      }
+    });
+    shots[op.satellite].push(op.time);
+    totals[op.target] += gain;
+    const total = totals[op.target] / n;
+    const mid = (a + b) / 2;
+    plan.steps.push({ ...op, window: best.window, ...lookAt(mid, op.orbitRadius), side: mid > 0 ? 'left' : 'right', gain: gain / n, cumulative: total });
+    plan.coverage = total;
+    if (total >= goal) plan.done = op.time;
+  }
+  return plans;
 }
 
 /** The orbit's frame at a moment: the normal of its plane, along the track, and up. */
@@ -596,7 +798,7 @@ function trackAngles(p: Vec, f: { n: Vec; a: Vec; w: Vec }): [number, number] {
 /** How far an area reaches across and along the track (angles, radians, and width in km). */
 function spread(st: { r: Vec; v: Vec }, t: Prepared) {
   const f = frameOf(st);
-  const all = [unit(t.r), ...t.points].map((p) => trackAngles(p, f));
+  const all = [unit(t.r), ...t.points, ...t.cells].map((p) => trackAngles(p, f));
   const across = all.map((x) => x[0]);
   const along = all.map((x) => x[1]);
   const [x0, x1] = [Math.min(...across), Math.max(...across)];
@@ -610,7 +812,7 @@ export interface PassShapes {
   track: Array<[number, number]>;
   /** The edges of what the satellite can reach (its largest off-nadir angle), one line per side it can look to. */
   reach: Array<Array<[number, number]>>;
-  /** The scenes that cover the target, side by side. */
+  /** The scenes the pass takes, side by side. */
   scenes: Array<Array<[number, number]>>;
   /** Where the satellite is at the moment. */
   position: [number, number];
@@ -620,7 +822,7 @@ export interface PassShapes {
 export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportunity, minutes = 5): PassShapes | null {
   const satrec = satrecOf(sat);
   if (typeof satrec === 'string') return null;
-  const t: Prepared = { r: ecefOf(target.center), up: upOf(target.center), points: target.points.map((p) => unit(ecefOf(p))) };
+  const t = prepare(target);
   const track: Array<[number, number]> = [];
   const sides = (sat.lookSide === 'both' ? ['left', 'right'] : [sat.lookSide]) as Array<'left' | 'right'>;
   const reach: Array<Array<[number, number]>> = sides.map(() => []);
@@ -639,14 +841,14 @@ export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportuni
   }
   const st = stateAt(satrec, op.time)!;
   const g = eciToGeodetic({ x: st.eci[0], y: st.eci[1], z: st.eci[2] }, st.gmst);
-  const { frame, x0, x1, y0, y1 } = spread(st, t);
+  const { frame, y0, y1 } = spread(st, t);
   const sw = sat.swath / R;
-  const total = op.strips * sw;
-  const start = (x0 + x1) / 2 - total / 2;
+  const [start, end] = op.window;
+  const count = Math.max(1, Math.round((end - start) / sw));
   const half = Math.max(sat.length / R, y1 - y0) / 2;
   const mid = (y0 + y1) / 2;
   const scenes: Array<Array<[number, number]>> = [];
-  for (let j = 0; j < op.strips; j++) {
+  for (let j = 0; j < count; j++) {
     const a = start + j * sw;
     const b = a + sw;
     const ring: Array<[number, number]> = [];

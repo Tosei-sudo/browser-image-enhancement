@@ -3,7 +3,10 @@
  * satelliteCatalogs, imaging-plan.ts) next take a picture of the features of
  * a layer, the selected features, or a point clicked on the map? It lists the
  * opportunities in time order; choosing one draws its ground track, how far
- * the satellite can reach and the scenes that cover the target. The list
+ * the satellite can reach and the scenes that cover the target. For areas
+ * (polygons) each pass shows how much of it it covers, and 「組み合わせ」
+ * strings passes of all the satellites together until the whole is covered,
+ * keeping each satellite's interval between shots and its daily limit. The list
  * saves as CSV, and the scenes can be added as a layer (with their times, so
  * the timeline and table work on them).
  *
@@ -26,12 +29,14 @@ import { field, type ProcessingResult } from './processing/common.js';
 import { wgs84 } from './vector-write.js';
 import {
   builtInDefaults,
+  coverPlan,
   SAMPLE_SOURCE,
   sampleSatellites,
   passShapes,
   satelliteOf,
   satellitesFromText,
   tleEpoch,
+  type CoverPlan,
   type Opportunity,
   type PlanOptions,
   type PlanResult,
@@ -54,6 +59,8 @@ export interface PlanPanelOptions {
 export const MAX_TARGETS = 200;
 /** The most points of an area used for its width. */
 const MAX_POINTS = 256;
+/** About how many cells sample an area (fewer when the polygons fill little of their extent). */
+const CELLS = 600;
 /** A TLE older than this many days is marked in the list. */
 const OLD_TLE = 14;
 
@@ -97,10 +104,12 @@ export function targetOf(features: Feature[], projection: string, label: string)
   const points: Array<[number, number]> = [];
   const extent = createEmpty();
   let center: [number, number] | null = null;
+  const areas: Array<Polygon | MultiPolygon> = [];
   for (const feature of features) {
     const geometry = feature.getGeometry()?.clone().transform(projection, 'EPSG:4326');
     if (!geometry) continue;
     extend(extent, geometry.getExtent());
+    if (geometry instanceof Polygon || geometry instanceof MultiPolygon) areas.push(geometry);
     points.push(...verticesOf(geometry));
     // One polygon: aim inside it (its middle can fall outside a bent one).
     if (features.length === 1 && geometry instanceof Polygon) center = geometry.getInteriorPoint().getCoordinates().slice(0, 2) as [number, number];
@@ -108,7 +117,40 @@ export function targetOf(features: Feature[], projection: string, label: string)
   if (isEmpty(extent)) return null;
   center ??= getCenter(extent) as [number, number];
   const unique = points.length === 1 ? [] : spreadOut(points, MAX_POINTS);
-  return { label, center, points: unique };
+  const cells = cellsOf(areas);
+  return { label, center, points: unique, ...(cells.length ? { cells } : {}) };
+}
+
+/**
+ * Points evenly spread inside polygons (in WGS 84), about {@link CELLS} of
+ * them: a grid over their extent, square on the ground, keeping the points
+ * inside. A grid finer by half is tried while too few fall inside (thin or
+ * scattered polygons).
+ */
+export function cellsOf(areas: Array<Polygon | MultiPolygon>): Array<[number, number]> {
+  if (!areas.length) return [];
+  const extent = createEmpty();
+  for (const a of areas) extend(extent, a.getExtent());
+  const [w, s, e, n] = extent;
+  const k = Math.cos((((s + n) / 2) * Math.PI) / 180);
+  const width = Math.max((e - w) * k, 1e-9);
+  const height = Math.max(n - s, 1e-9);
+  let step = Math.sqrt((width * height) / CELLS);
+  let cells: Array<[number, number]> = [];
+  for (let tries = 0; tries < 4; tries++) {
+    cells = [];
+    const nx = Math.max(1, Math.round(width / step));
+    const ny = Math.max(1, Math.round(height / step));
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < ny; j++) {
+        const c: [number, number] = [w + ((e - w) * (i + 0.5)) / nx, s + ((n - s) * (j + 0.5)) / ny];
+        if (areas.some((a) => a.intersectsCoordinate(c))) cells.push(c);
+      }
+    }
+    if (cells.length >= CELLS / 4) break;
+    step /= 2;
+  }
+  return spreadOut(cells, CELLS * 4);
 }
 
 /** A feature's name for the list: a name-like attribute, its id, or its number. */
@@ -134,8 +176,22 @@ const inputText = (ms: number) => {
 };
 const round = (v: number, digits = 1) => String(Math.round(v * 10 ** digits) / 10 ** digits);
 const sideText = (op: Opportunity) => `${op.side === 'right' ? '右' : '左'}・${op.ascending ? '北行' : '南行'}`;
+const percent = (v: number) => (v >= 0.995 ? '100%' : `${Math.max(v > 0 ? 1 : 0, Math.round(v * 100))}%`);
+/** How much of the target a pass covers: a share for an area, scenes for a point or line. */
 const coverText = (op: Opportunity, sat: SatelliteSpec) =>
-  op.width === 0 ? '1 シーン' : op.strips === 1 ? `1 シーン（幅 ${round(op.width, 0)} km）` : `${op.strips} シーン（幅 ${round(op.width, 0)} km ／ 観測幅 ${round(sat.swath)} km）`;
+  op.cells
+    ? op.coverage >= 0.995
+      ? '全域'
+      : percent(op.coverage)
+    : op.width === 0
+      ? '1 シーン'
+      : op.strips === 1
+        ? `1 シーン（幅 ${round(op.width, 0)} km）`
+        : `${op.strips} シーン（幅 ${round(op.width, 0)} km ／ 観測幅 ${round(sat.swath)} km）`;
+const coverTitle = (op: Opportunity, sat: SatelliteSpec) =>
+  op.cells
+    ? `この回の ${sat.scenesPerPass} シーン（観測幅 ${round(sat.swath)} km）で対象の ${percent(op.coverage)} を撮像。対象の幅 ${round(op.width, 0)} km を覆うには ${op.strips} シーン分`
+    : '';
 
 /** The CSV of a plan's opportunities (with a BOM, for spreadsheets). */
 export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: PlanTarget[]): string {
@@ -143,7 +199,26 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     const text = String(v ?? '');
     return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
-  const head = ['日時（UTC）', '日時（ローカル）', '衛星', '衛星ID', '対象', '経度', '緯度', 'オフナディア角', '入射角', '方向', '軌道', '太陽高度', '幅km', 'シーン数', 'TLE経過日数'];
+  const combined = ops.some((op) => op.cumulative !== undefined);
+  const head = [
+    '日時（UTC）',
+    '日時（ローカル）',
+    '衛星',
+    '衛星ID',
+    '対象',
+    '経度',
+    '緯度',
+    'オフナディア角',
+    '入射角',
+    '方向',
+    '軌道',
+    '太陽高度',
+    '幅km',
+    'シーン数',
+    '被覆率%',
+    ...(combined ? ['追加%', '累計%'] : []),
+    'TLE経過日数',
+  ];
   const rows = ops.map((op) => {
     const sat = sats[op.satellite];
     const t = targets[op.target];
@@ -162,6 +237,8 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       round(op.sunElevation, 1),
       round(op.width, 1),
       op.strips,
+      round(op.coverage * 100, 1),
+      ...(combined ? [round((op.gain ?? 0) * 100, 1), round((op.cumulative ?? 0) * 100, 1)] : []),
       round(op.tleAge, 1),
     ];
   });
@@ -174,7 +251,7 @@ interface Listed {
   box: HTMLInputElement;
 }
 
-type SortKey = 'time' | 'satellite' | 'target' | 'offNadir' | 'side' | 'sun' | 'cover';
+type SortKey = 'time' | 'satellite' | 'target' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
   switch (feature.get('kind')) {
@@ -190,6 +267,19 @@ const overlayStyle = (feature: Feature): Style | Style[] => {
       return new Style({ stroke: new Stroke({ color: '#0ea5e9', width: 1.5, lineDash: [3, 4] }) });
     case 'scene':
       return new Style({ stroke: new Stroke({ color: '#2563eb', width: 2 }), fill: new Fill({ color: 'rgba(37, 99, 235, 0.25)' }) });
+    case 'step':
+      // The other passes of a combination, numbered in time order.
+      return new Style({
+        stroke: new Stroke({ color: '#7c3aed', width: 1.5, lineDash: [6, 4] }),
+        fill: new Fill({ color: 'rgba(124, 58, 237, 0.12)' }),
+        text: new Text({
+          text: String(feature.get('label') ?? ''),
+          font: 'bold 13px sans-serif',
+          overflow: true,
+          fill: new Fill({ color: '#4c1d95' }),
+          stroke: new Stroke({ color: '#fff', width: 3 }),
+        }),
+      });
     case 'satellite':
       return new Style({
         image: new Circle({ radius: 7, stroke: new Stroke({ color: '#fff', width: 2 }), fill: new Fill({ color: '#1e3a5f' }) }),
@@ -218,6 +308,8 @@ export class ImagingPlanPanel {
   private readonly status_: HTMLElement;
   private readonly table_: HTMLTableElement;
   private readonly firstOnly_: HTMLInputElement;
+  private readonly view_: HTMLSelectElement;
+  private readonly goal_: HTMLInputElement;
   private readonly csv_: HTMLButtonElement;
   private readonly layer_: HTMLButtonElement;
   private readonly zoom_: HTMLButtonElement;
@@ -230,6 +322,8 @@ export class ImagingPlanPanel {
   private worker_: Worker | null = null;
   /** The last plan: what was planned and what was found. */
   private plan_: { sats: SatelliteSpec[]; targets: PlanTarget[]; result: PlanResult; options: PlanOptions } | null = null;
+  /** The combination of the last plan, for the goal it was made for. */
+  private cover_: { goal: number; plans: CoverPlan[] } | null = null;
   private shown_: Opportunity[] = [];
   private chosen_: Opportunity | null = null;
   private sort_: { key: SortKey; descending: boolean } = { key: 'time', descending: false };
@@ -272,6 +366,8 @@ export class ImagingPlanPanel {
               <div class="plan-pasted wide">
                 <label>最大オフナディア角<input name="pasteMax" type="number" min="0" max="80" step="any" value="${builtInDefaults.maxOffNadir}" /></label>
                 <label>観測幅（km）<input name="pasteSwath" type="number" min="0.1" step="any" value="${builtInDefaults.swath}" /></label>
+                <label>撮像間隔（分）<input name="pasteGap" type="number" min="0" step="any" value="0" title="1 回撮像してから次に撮像できるまでの時間。0 は制約なし" /></label>
+                <label>1 日の上限（回）<input name="pastePerDay" type="number" min="0" step="1" value="0" title="24 時間に撮像できる回数。0 は制約なし" /></label>
                 <label class="check"><input name="pasteSar" type="checkbox" />SAR（夜間も撮像）</label>
               </div>
             </div>
@@ -280,7 +376,14 @@ export class ImagingPlanPanel {
         <button type="submit" class="primary catalog-search">計算</button>
       </form>
       <p class="service-status" role="status"></p>
-      <label class="check plan-first" hidden><input type="checkbox" name="firstOnly" />衛星・対象ごとに最初の機会のみ</label>
+      <div class="plan-view" hidden>
+        <select name="view" aria-label="表示">
+          <option value="all">すべての機会</option>
+          <option value="cover">組み合わせ（全域を最短で）</option>
+        </select>
+        <label class="plan-goal" hidden title="面の対象をどこまで覆えば完了とするか">目標<input name="goal" type="number" min="10" max="100" step="1" value="95" />%</label>
+        <label class="check plan-first"><input type="checkbox" name="firstOnly" />衛星・対象ごとに最初の機会のみ</label>
+      </div>
       <div class="catalog-results"><table class="catalog-table plan-table"><thead></thead><tbody></tbody></table></div>
       <div class="service-actions catalog-actions">
         <button type="button" value="csv" disabled title="一覧を CSV で保存します">CSV 保存</button>
@@ -296,6 +399,8 @@ export class ImagingPlanPanel {
     this.status_ = this.dialog.querySelector('.service-status')!;
     this.table_ = this.dialog.querySelector('table')!;
     this.firstOnly_ = this.dialog.querySelector('input[name=firstOnly]')!;
+    this.view_ = this.dialog.querySelector('select[name=view]')!;
+    this.goal_ = this.dialog.querySelector('input[name=goal]')!;
     this.csv_ = this.dialog.querySelector('button[value=csv]')!;
     this.layer_ = this.dialog.querySelector('button[value=layer]')!;
     this.zoom_ = this.dialog.querySelector('button[value=zoom]')!;
@@ -321,8 +426,10 @@ export class ImagingPlanPanel {
     this.dialog.querySelector('.plan-sats button[value=all]')!.addEventListener('click', () => this.checkAll(true));
     this.dialog.querySelector('.plan-sats button[value=none]')!.addEventListener('click', () => this.checkAll(false));
     this.sats_.addEventListener('change', () => this.countSats());
-    for (const name of ['tle', 'pasteMax', 'pasteSwath', 'pasteSar']) (this.form_.elements.namedItem(name) as HTMLInputElement).addEventListener('change', () => this.listSats());
+    for (const name of ['tle', 'pasteMax', 'pasteSwath', 'pasteGap', 'pastePerDay', 'pasteSar']) (this.form_.elements.namedItem(name) as HTMLInputElement).addEventListener('change', () => this.listSats());
     this.firstOnly_.addEventListener('change', () => this.render());
+    this.view_.addEventListener('change', () => this.showView());
+    this.goal_.addEventListener('change', () => this.showView());
     this.csv_.addEventListener('click', () => this.saveCsv());
     this.layer_.addEventListener('click', () => this.addLayer());
     this.zoom_.addEventListener('click', () => this.zoomToChosen());
@@ -394,10 +501,14 @@ export class ImagingPlanPanel {
     const value = (name: string) => (this.form_.elements.namedItem(name) as HTMLInputElement).value;
     const max = Number(value('pasteMax'));
     const swath = Number(value('pasteSwath'));
+    const gap = Number(value('pasteGap'));
+    const perDay = Number(value('pastePerDay'));
     return satellitesFromText(value('tle'), {
       ...builtInDefaults,
       maxOffNadir: Number.isFinite(max) && max > 0 ? max : builtInDefaults.maxOffNadir,
       swath: Number.isFinite(swath) && swath > 0 ? swath : builtInDefaults.swath,
+      minInterval: Number.isFinite(gap) && gap > 0 ? gap : 0,
+      maxPerDay: Number.isFinite(perDay) && perDay > 0 ? Math.round(perDay) : 0,
       sar: (this.form_.elements.namedItem('pasteSar') as HTMLInputElement).checked,
     });
   }
@@ -417,7 +528,7 @@ export class ImagingPlanPanel {
         const label = document.createElement('label');
         label.className = 'check';
         const age = (now - tleEpoch(sat)) / 86400000;
-        const facts = [`最大 ${round(sat.maxOffNadir)}°`, sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '', `幅 ${round(sat.swath)} km`, sat.lookSide === 'both' ? '' : sat.lookSide === 'right' ? '右向き' : '左向き', sat.sar ? 'SAR' : '光学']
+        const facts = [`最大 ${round(sat.maxOffNadir)}°`, sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '', `幅 ${round(sat.swath)} km`, sat.scenesPerPass > 1 ? `1 パス ${sat.scenesPerPass} シーン` : '', sat.minInterval > 0 ? `間隔 ${round(sat.minInterval)} 分` : '', sat.maxPerDay > 0 ? `1 日 ${sat.maxPerDay} 回` : '', sat.lookSide === 'both' ? '' : sat.lookSide === 'right' ? '右向き' : '左向き', sat.sar ? 'SAR' : '光学']
           .filter(Boolean)
           .join('・');
         const note = document.createElement('small');
@@ -566,15 +677,59 @@ export class ImagingPlanPanel {
     this.worker_ = null;
     if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
     this.plan_ = { sats, targets, result, options };
+    this.cover_ = null;
+    this.dialog.querySelector<HTMLElement>('.plan-view')!.hidden = result.opportunities.length === 0;
+    // An area no single pass covers: start with the combination that covers it.
+    const best = new Map<number, number>();
+    for (const op of result.opportunities) if (op.cells) best.set(op.target, Math.max(best.get(op.target) ?? 0, op.coverage));
+    this.view_.value = [...best.values()].some((c) => c < 0.95) ? 'cover' : 'all';
+    this.showView();
+  }
+
+  /** Whether the list is the combination rather than every opportunity. */
+  private combining(): boolean {
+    return this.view_.value === 'cover';
+  }
+
+  /** The combination of the last plan for the goal in the form (made again when the goal changes). */
+  coverPlans(): CoverPlan[] {
+    const plan = this.plan_!;
+    const goal = Math.min(1, Math.max(0.1, (Number(this.goal_.value) || 95) / 100));
+    if (this.cover_?.goal !== goal) this.cover_ = { goal, plans: coverPlan(plan.result.opportunities, plan.targets, plan.sats, goal) };
+    return this.cover_.plans;
+  }
+
+  /** Lists the last plan in the chosen view, with what it found in the status line. */
+  private showView(): void {
+    const plan = this.plan_;
+    if (!plan) return;
+    const combining = this.combining();
+    this.goal_.closest('label')!.hidden = !combining;
+    this.firstOnly_.closest('label')!.hidden = combining;
+    // A column the view does not have sorts by time instead.
+    if (combining ? this.sort_.key === 'cover' : this.sort_.key === 'gain' || this.sort_.key === 'cumulative') this.sort_ = { key: 'time', descending: false };
     this.chosen_ = null;
-    this.firstOnly_.closest('label')!.hidden = result.opportunities.length === 0;
     this.render();
-    const first = result.opportunities[0];
+    const { sats, targets, result } = plan;
     const problems = result.problems.length ? `（計算できなかった衛星: ${result.problems.join('、')}）` : '';
-    this.status_.textContent = first
-      ? `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${sats[first.satellite].name}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します${problems}`
-      : `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角の制限・日照条件を見直してください${problems}`;
-    if (first) this.choose(this.shown_[0]);
+    const first = result.opportunities[0];
+    if (!first) {
+      this.status_.textContent = `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角の制限・日照条件を見直してください${problems}`;
+    } else if (!combining) {
+      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${sats[first.satellite].name}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します${problems}`;
+    } else {
+      const plans = this.coverPlans();
+      const done = plans.filter((p) => p.done !== null);
+      const blocked = plans.reduce((n, p) => n + p.blocked, 0);
+      const line = (p: CoverPlan) =>
+        `${targets[p.target].label}: ${p.steps.length} パスで ${percent(p.coverage)}${p.done !== null ? `（${localText(p.done)} 完了）` : '（期間内に目標に届きません）'}`;
+      const summary =
+        plans.length <= 3
+          ? plans.map(line).join('、')
+          : `${plans.length} 対象のうち ${done.length} 対象が期間内に完了${done.length ? `（最後は ${localText(Math.max(...done.map((p) => p.done!)))}）` : ''}`;
+      this.status_.textContent = `${summary}。${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示します${problems}`;
+    }
+    if (this.shown_.length) this.choose(this.shown_[0]);
   }
 
   private columns(): Array<{ key: SortKey; label: string; text: (op: Opportunity) => string; title?: (op: Opportunity) => string }> {
@@ -592,14 +747,19 @@ export class ImagingPlanPanel {
       { key: 'offNadir', label: 'オフナディア角', text: (op) => `${round(op.offNadir)}°`, title: (op) => `入射角 ${round(op.incidence)}°・距離 ${round(op.range, 0)} km` },
       { key: 'side', label: '方向', text: sideText, title: () => '衛星の進行方向に対して対象が右か左か、北行（昇交）か南行（降交）か' },
       { key: 'sun', label: '太陽高度', text: (op) => `${round(op.sunElevation, 0)}°` },
-      { key: 'cover', label: '被覆', text: (op) => coverText(op, plan.sats[op.satellite]) },
+      ...(this.combining()
+        ? [
+            { key: 'gain' as const, label: '追加', text: (op: Opportunity) => `+${percent(op.gain ?? 0)}`, title: () => 'この回で新たに撮像できる対象の割合' },
+            { key: 'cumulative' as const, label: '累計', text: (op: Opportunity) => percent(op.cumulative ?? 0), title: () => 'この回までに撮像できた対象の割合' },
+          ]
+        : [{ key: 'cover' as const, label: '被覆', text: (op: Opportunity) => coverText(op, plan.sats[op.satellite]), title: (op: Opportunity) => coverTitle(op, plan.sats[op.satellite]) }]),
     ];
   }
 
   private sorted(): Opportunity[] {
     const plan = this.plan_!;
-    let ops = plan.result.opportunities;
-    if (this.firstOnly_.checked) {
+    let ops = this.combining() ? this.coverPlans().flatMap((p) => p.steps) : plan.result.opportunities;
+    if (!this.combining() && this.firstOnly_.checked) {
       const seen = new Set<string>();
       ops = ops.filter((op) => {
         const key = `${op.satellite}:${op.target}`;
@@ -619,7 +779,11 @@ export class ImagingPlanPanel {
         case 'sun':
           return op.sunElevation;
         case 'cover':
-          return op.strips * 1e6 + op.width;
+          return op.cells ? op.coverage : op.strips * 1e6 + op.width;
+        case 'gain':
+          return op.gain ?? 0;
+        case 'cumulative':
+          return op.target * 10 + (op.cumulative ?? 0);
         default:
           return op.time;
       }
@@ -661,6 +825,7 @@ export class ImagingPlanPanel {
           const td = document.createElement('td');
           td.textContent = column.text(op);
           if (column.title) td.title = column.title(op);
+          if (!td.title) td.removeAttribute('title');
           if (column.key === 'satellite' && this.plan_!.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE) td.classList.add('plan-old-cell');
           row.append(td);
         }
@@ -715,17 +880,28 @@ export class ImagingPlanPanel {
     for (const part of lines(shapes.track)) source.addFeature(new Feature({ kind: 'track', geometry: new LineString(part.map(to)) }));
     for (const edge of shapes.reach) for (const part of lines(edge)) source.addFeature(new Feature({ kind: 'reach', geometry: new LineString(part.map(to)) }));
     for (const ring of shapes.scenes) source.addFeature(new Feature({ kind: 'scene', geometry: new Polygon([ring.map(to)]) }));
+    if (this.combining()) {
+      // The other passes of the same target's combination, numbered, so what each adds can be seen.
+      const steps = this.coverPlans()[op.target]?.steps ?? [];
+      steps.forEach((step, i) => {
+        if (step.time === op.time && step.satellite === op.satellite) return;
+        const other = passShapes(plan.sats[step.satellite], plan.targets[step.target], step);
+        for (const ring of other?.scenes ?? []) source.addFeature(new Feature({ kind: 'step', label: String(i + 1), geometry: new Polygon([ring.map(to)]) }));
+      });
+    }
     source.addFeature(new Feature({ kind: 'satellite', label: `${sat.name} ${localText(op.time).slice(5)}`, geometry: new Point(to(shapes.position)) }));
   }
 
-  /** Fits the view to the chosen opportunity's target, scenes and satellite, beside the panel. */
+  /** Fits the view to the chosen opportunity's target, scenes and satellite (or the combination's passes), beside the panel. */
   zoomToChosen(): void {
     const op = this.chosen_;
     if (!op || !this.plan_) return;
     const extent = createEmpty();
     for (const f of this.overlay.getSource()!.getFeatures()) {
       const kind = f.get('kind');
-      if (kind === 'scene' || kind === 'satellite' || (kind === 'target' && f.get('target') === op.target)) extend(extent, f.getGeometry()!.getExtent());
+      // A combination shows the target and all its passes; one pass, also where the satellite is.
+      const shown = kind === 'scene' || kind === 'step' || (kind === 'satellite' && !this.combining()) || (kind === 'target' && f.get('target') === op.target);
+      if (shown) extend(extent, f.getGeometry()!.getExtent());
     }
     if (isEmpty(extent)) return;
     // The panel covers the right of the map: keep what is shown to the left of it.
@@ -767,6 +943,8 @@ export class ImagingPlanPanel {
           pass: op.ascending ? '北行' : '南行',
           sun: Math.round(op.sunElevation * 10) / 10,
           scenes: op.strips,
+          coverage: Math.round(op.coverage * 1000) / 10,
+          ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10 } : {}),
         }),
       );
     }
@@ -784,6 +962,8 @@ export class ImagingPlanPanel {
         field('pass', 'string', '軌道'),
         field('sun', 'double', '太陽高度'),
         field('scenes', 'integer', 'シーン数'),
+        field('coverage', 'double', '被覆率%'),
+        ...(this.combining() ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%')] : []),
       ],
       crs: wgs84,
     };
