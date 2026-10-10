@@ -100,9 +100,10 @@ test('multipatch buildings stand on the relief and are picked like features', as
   const findTower = () => page.evaluate(() => {
     const globe = window.viewer.globe.globe()!;
     const canvas = globe.widget.scene.canvas;
-    // Scan the middle row for the first pixel that picks a shape.
-    for (let x = 0; x < canvas.clientWidth; x += 4) {
-      for (let y = Math.round(canvas.clientHeight * 0.3); y < canvas.clientHeight * 0.7; y += 8) {
+    // A frame with the shapes as they are now, then a coarse scan (each pick draws the scene once).
+    globe.widget.scene.render();
+    for (let x = 0; x < canvas.clientWidth; x += 12) {
+      for (let y = Math.round(canvas.clientHeight * 0.3); y < canvas.clientHeight * 0.9; y += 12) {
         const picked = globe.widget.scene.pick({ x, y } as never) as { id?: { feature?: { get(k: string): string } } } | undefined;
         if (picked?.id?.feature?.get('NAME') === 'tower') return [x, y];
       }
