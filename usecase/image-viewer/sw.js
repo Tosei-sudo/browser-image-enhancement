@@ -4,7 +4,9 @@
  *
  * - The site's own files are cached on install, so it starts offline and
  *   installs as an app; they are served from the cache (their names carry
- *   their hash, so a new build brings new names).
+ *   their hash, so a new build brings new names). Large files only some
+ *   tools need (LAZY: ONNX Runtime's WebAssembly for the AI tools) are
+ *   cached the first time they are used instead.
  * - The page itself and config.json come from the network first (a new
  *   build, a config.json edited on the server), the cache when offline.
  * - Everything else (COGs, services, base map tiles, range requests) is left
@@ -12,11 +14,13 @@
  */
 const VERSION = '__VERSION__';
 const PRECACHE = /* __PRECACHE__ */ [];
+const LAZY = /* __LAZY__ */ [];
 const CACHE = `image-viewer-${VERSION}`;
 
 const scope = new URL(self.registration.scope);
 const local = (path) => new URL(path, scope).href;
 const precached = new Set(PRECACHE.map(local));
+const lazy = new Set(LAZY.map(local));
 const page = local('index.html');
 const config = local('config.json');
 
@@ -69,5 +73,16 @@ self.addEventListener('fetch', (event) => {
   }
   if (precached.has(bare)) {
     event.respondWith(caches.match(bare).then((cached) => cached || fetch(request)));
+  } else if (lazy.has(bare)) {
+    event.respondWith(
+      caches.match(bare).then(
+        (cached) =>
+          cached ||
+          fetch(request).then(async (response) => {
+            if (response.ok) await (await caches.open(CACHE)).put(bare, response.clone());
+            return response;
+          }),
+      ),
+    );
   }
 });

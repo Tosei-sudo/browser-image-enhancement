@@ -6,6 +6,8 @@
  * type and no-data, in its own CRS) as a GeoTIFF.
  */
 import type OlMap from 'ol/Map.js';
+import type BaseLayer from 'ol/layer/Base.js';
+import LayerGroup from 'ol/layer/Group.js';
 import { transformExtent, type ProjectionLike } from 'ol/proj.js';
 import type { Extent } from 'ol/extent.js';
 import { rasterToGeoTIFF, type GeoTIFFRaster, type GeoTIFFSamples } from 'browser-image-enhancement/openlayers';
@@ -192,20 +194,27 @@ export interface DrawnView {
   geo: GeoTIFFRaster['geo'] | null;
   /** Layers left out because their server does not allow reading them. */
   skipped: number;
+  /** Where the canvas is: the map coordinates of its pixel (0, 0) corner, and the steps of one pixel right and down. */
+  placement: { origin: [number, number]; right: [number, number]; down: [number, number] };
 }
 
 /**
  * Draws the view `scale` times larger (same area, finer tiles) and returns it
- * composed into one canvas; the map is put back as it was afterwards.
+ * composed into one canvas; the map is put back as it was afterwards. With
+ * `only`, every other layer is hidden while drawing (the AI tools look at
+ * one image).
  */
-export async function drawView(map: OlMap, scale = 1): Promise<DrawnView> {
+export async function drawView(map: OlMap, scale = 1, only?: BaseLayer): Promise<DrawnView> {
   const size = map.getSize();
   const view = map.getView();
   const resolution = view.getResolution();
   if (!size || !resolution) throw new Error('地図が表示されていません');
   const ratio = pixelRatioOf(map);
   const big = [Math.round(size[0] * scale), Math.round(size[1] * scale)];
+  const keep = new Set<BaseLayer>(only instanceof LayerGroup ? only.getLayersArray() : only ? [only] : []);
+  const hidden = only ? map.getAllLayers().filter((l) => !keep.has(l) && l.getVisible()) : [];
   try {
+    for (const l of hidden) l.setVisible(false);
     if (scale !== 1) {
       // The map draws into a larger viewport (clipped on screen) at a finer resolution: the same area, more pixels.
       map.setSize(big);
@@ -218,14 +227,13 @@ export async function drawView(map: OlMap, scale = 1): Promise<DrawnView> {
     const { canvas, skipped } = composeLayers(map, big, ratio);
     const projection = view.getProjection();
     const epsg = epsgOf(projection.getCode());
-    let geo: GeoTIFFRaster['geo'] | null = null;
-    if (epsg) {
-      const at = (x: number, y: number) => map.getCoordinateFromPixelInternal([x / ratio, y / ratio]);
-      const [o, r, d] = [at(0, 0), at(1, 0), at(0, 1)];
-      geo = affineGeo([o[0], o[1]], [r[0] - o[0], r[1] - o[1]], [d[0] - o[0], d[1] - o[1]], epsg, projection.getUnits() === 'degrees');
-    }
-    return { canvas, geo, skipped };
+    const at = (x: number, y: number) => map.getCoordinateFromPixelInternal([x / ratio, y / ratio]);
+    const [o, r, d] = [at(0, 0), at(1, 0), at(0, 1)];
+    const placement: DrawnView['placement'] = { origin: [o[0], o[1]], right: [r[0] - o[0], r[1] - o[1]], down: [d[0] - o[0], d[1] - o[1]] };
+    const geo = epsg ? affineGeo(placement.origin, placement.right, placement.down, epsg, projection.getUnits() === 'degrees') : null;
+    return { canvas, geo, skipped, placement };
   } finally {
+    for (const l of hidden) l.setVisible(true);
     if (scale !== 1) {
       map.setSize(size);
       view.setResolution(resolution);

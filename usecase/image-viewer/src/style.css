@@ -2360,3 +2360,57 @@ body {
 .plan-view label[hidden] {
   display: none;
 }
+
+/* AI tools: the model choice in the dialogs, and the click-segmentation panel over the map. */
+.ai-model {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ai-model select {
+  max-width: 100%;
+}
+.ai-segment-panel {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(30rem, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 2px 8px #0004;
+  font-size: 13px;
+}
+.ai-segment-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.ai-segment-row .ai-model {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 12rem;
+}
+.ai-segment-row .ai-model select {
+  flex: 1;
+  min-width: 0;
+}
+.ai-segment-row button.primary {
+  margin-left: auto;
+}
+.ai-segment-hint,
+.ai-segment-note {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ai-segment-note:empty {
+  display: none;
+}

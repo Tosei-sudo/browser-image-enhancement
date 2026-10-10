@@ -28,6 +28,7 @@
     "jsts": "^2.12.1",
     "ol": "^10.10.0",
     "ol-mapbox-style": "^13.5.1",
+    "onnxruntime-web": "^1.30.0",
     "proj4": "^2.22.0",
     "satellite.js": "^7.1.0",
     "shpjs": "^6.2.0"

@@ -56,6 +56,11 @@
             <div class="point-tools">
               <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・パンシャープン">プロセッシング</button>
             </div>
+            <p class="menu-heading">AI</p>
+            <div class="point-tools">
+              <button type="button" id="ai-detect" title="学習済みの YOLO モデル（ONNX）で、表示中の画像から物体を探してレイヤーにします">物体検出…</button>
+              <button type="button" id="ai-segment" aria-pressed="false" title="Segment Anything（ONNX）で、クリックした物体の輪郭を取ります">クリックで抽出</button>
+            </div>
             <p class="menu-heading">時間・集計</p>
             <div class="point-tools">
               <button type="button" id="timeline-open" aria-pressed="false" data-key="T" aria-keyshortcuts="T" title="時間を持つレイヤーを時間軸に並べ、期間で絞り込みます（T）">タイムライン</button>

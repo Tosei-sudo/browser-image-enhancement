@@ -8,6 +8,7 @@
 import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 import { catalogOf, type CatalogConfig } from './catalog.js';
 import { satelliteCatalogOf, type SatelliteCatalogConfig } from './imaging-plan.js';
+import { aiModelOf, type AiModelConfig } from './ai/model-config.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 
 /**
@@ -85,6 +86,8 @@ export interface ViewerConfig {
   pathMappings: PathMapping[];
   /** Esri layers (or tables) of satellites with their TLEs and specifications, for the 「撮像計画」 panel (imaging-plan.ts). */
   satelliteCatalogs: SatelliteCatalogConfig[];
+  /** ONNX models for the AI tools (ai-tools.ts): object detection and click segmentation. Files can be chosen too. */
+  aiModels: AiModelConfig[];
 }
 
 /**
@@ -138,6 +141,7 @@ export const defaultConfig: ViewerConfig = {
   imageCatalogs: [],
   pathMappings: [],
   satelliteCatalogs: [],
+  aiModels: [],
 };
 
 /** An absolute http(s) URL or one relative to the page (`./`, `../`, `/`). */
@@ -176,7 +180,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -240,6 +244,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.satelliteCatalogs)) {
       config.satelliteCatalogs = json.satelliteCatalogs.map((c, i) => satelliteCatalogOf(c, problems, i)).filter((c): c is SatelliteCatalogConfig => c !== null);
     } else problems.push('satelliteCatalogs が配列ではありません');
+  }
+
+  if ('aiModels' in json) {
+    if (Array.isArray(json.aiModels)) config.aiModels = json.aiModels.map((m, i) => aiModelOf(m, problems, i)).filter((m): m is AiModelConfig => m !== null);
+    else problems.push('aiModels が配列ではありません');
   }
 
   return { config, problems };

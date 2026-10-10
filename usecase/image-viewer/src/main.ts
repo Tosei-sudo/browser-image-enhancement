@@ -57,6 +57,8 @@ import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, type OpenContext, type ServiceLayer } from './services/index.js';
 import { elevationRange } from './dem.js';
 import { ProcessingDialog } from './processing-dialog.js';
+import { DetectDialog, SegmentTool } from './ai-tools.js';
+import type { ProcessingResult } from './processing/common.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
 import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
@@ -314,10 +316,14 @@ const measure = new MeasureTool(map, images, {
   area: document.getElementById('measure-area') as HTMLButtonElement,
   clear: document.getElementById('measure-clear') as HTMLButtonElement,
   say,
-  onStart: () => points.setAdding(false),
+  onStart: () => {
+    points.setAdding(false);
+    aiSegment.setActive(false);
+  },
 });
 document.getElementById('add-point')!.addEventListener('click', () => {
   if (points.isAdding()) measure.setMode(null);
+  if (points.isAdding()) aiSegment.setActive(false);
 });
 
 // Right click: copy the coordinates of the point.
@@ -329,7 +335,7 @@ const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement,
 // or asks a WMS layer what is there.
 map.on('singleclick', (e) => {
   const layer = images.selectedLayer();
-  if (points.isAdding() || measure.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
+  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
   const service = layer.service;
   if (service.vector) {
     const hit = service.style?.onGpu()
@@ -401,6 +407,27 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     addService(tempLayer(record, tempStore));
   },
   rasterTools: [{ id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() }],
+});
+
+// AI: models trained elsewhere (ONNX) run on the image: object detection over the view, and click segmentation.
+const aiOptions = {
+  models: config.aiModels,
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  say,
+  onResult: async (result: ProcessingResult, made: string) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+};
+const aiDetect = new DetectDialog(document.getElementById('ai-detect') as HTMLButtonElement, map, aiOptions);
+const aiSegment = new SegmentTool(document.getElementById('ai-segment') as HTMLButtonElement, map, {
+  ...aiOptions,
+  onStart: () => {
+    points.setAdding(false);
+    measure.setMode(null);
+  },
 });
 
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
@@ -806,6 +833,8 @@ declare global {
       recent: RecentMenu | null;
       processing: ProcessingDialog;
       panSharpen: PanSharpenDialog;
+      aiDetect: DetectDialog;
+      aiSegment: SegmentTool;
       toolMenu: ToolMenu;
       guide: Guide;
       help: HelpDialog;
@@ -822,4 +851,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, aiDetect, aiSegment, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan };
