@@ -176,6 +176,14 @@ export interface NoDataOptions {
   values?: readonly number[];
 }
 
+/** The no-data setting in use (see {@link EnhancedGeoTIFF.getNoData}): {@link NoDataOptions} with its defaults. */
+export interface NoDataSetting {
+  /** Whether the file's no-data value, NaN and the usual fill values are no data. */
+  auto: boolean;
+  /** More values that stand for no data, sorted. */
+  values: number[];
+}
+
 /** What the last DRA statistics were taken from. */
 export interface DraInfo {
   /** The area counted, in the source projection (the visible area clipped to the image). */
@@ -237,7 +245,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private packed_ = false;
   /** The test for no data that OpenLayers does not make itself (see `noData`); null for none. */
   private isNoData_: ((v: number) => boolean) | null = null;
-  private noData_: { auto: boolean; values: number[] };
+  private noData_: NoDataSetting;
   /** The `nodata` of each of `sources` as given (OpenLayers' own option), put back when `auto` is set again. */
   private sourceNoData_: Array<{ has: boolean; value: unknown }> | null = null;
   private readonly autoNormalize_: boolean;
@@ -779,7 +787,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   }
 
   /** Which pixels are no data now (see the `noData` option). */
-  getNoData(): { auto: boolean; values: number[] } {
+  getNoData(): NoDataSetting {
     return { auto: this.noData_.auto, values: [...this.noData_.values] };
   }
 
@@ -986,7 +994,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 const neverAborted = new AbortController().signal;
 
 /** `noData` with its defaults, the values sorted (for comparing). */
-function noDataOf(options: NoDataOptions | undefined): { auto: boolean; values: number[] } {
+function noDataOf(options: NoDataOptions | undefined): NoDataSetting {
   const values = [...new Set((options?.values ?? []).filter((v) => Number.isFinite(v)))].sort((a, b) => a - b);
   return { auto: options?.auto ?? true, values };
 }

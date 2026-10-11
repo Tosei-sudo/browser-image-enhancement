@@ -24,6 +24,7 @@ export {
   type DraInfo,
   type EnhancedGeoTIFFOptions,
   type NoDataOptions,
+  type NoDataSetting,
   type TileStats,
 } from './enhanced-geotiff.js';
 export { default as GpuCorrectedTileLayer, type GpuCorrectedTileLayerOptions, type LayerBlendMode, type LayerColorScale } from './gpu-layer.js';

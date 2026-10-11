@@ -100,6 +100,13 @@ export interface NoDataOptions {
   /** More values that stand for no data, 0 for the black collar around a warped image for example. Default none. */
   values?: readonly number[];
 }
+/** The no-data setting in use (see {@link EnhancedGeoTIFF.getNoData}): {@link NoDataOptions} with its defaults. */
+export interface NoDataSetting {
+  /** Whether the file's no-data value, NaN and the usual fill values are no data. */
+  auto: boolean;
+  /** More values that stand for no data, sorted. */
+  values: number[];
+}
 /** What the last DRA statistics were taken from. */
 export interface DraInfo {
   /** The area counted, in the source projection (the visible area clipped to the image). */
@@ -310,10 +317,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
    */
   private applyNoData_;
   /** Which pixels are no data now (see the `noData` option). */
-  getNoData(): {
-    auto: boolean;
-    values: number[];
-  };
+  getNoData(): NoDataSetting;
   /**
    * Changes which pixels are no data (see the `noData` option). Tiles are
    * read from the COG again; DRA statistics are taken again over the last
