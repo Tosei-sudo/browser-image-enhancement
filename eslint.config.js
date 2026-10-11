@@ -27,7 +27,7 @@ export default tseslint.config(
   {
     // The image viewer's service worker, copied into the build as it is.
     files: ['usecase/image-viewer/sw.js'],
-    languageOptions: { globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', URL: 'readonly' } },
+    languageOptions: { globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', URL: 'readonly', Headers: 'readonly', Response: 'readonly' } },
   },
   {
     files: ['usecase/*/test/server.mjs', 'usecase/*/scripts/*.mjs'],

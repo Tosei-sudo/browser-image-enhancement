@@ -1,8 +1,8 @@
 /**
  * Workers that run a detection model over tiles, side by side: on the GPU
  * (WebGPU) one worker, on the CPU (WebAssembly) several, each with its own
- * session, since without cross-origin isolation ONNX Runtime runs one thread
- * per session. The page only cuts the tiles out and gathers what is found.
+ * session (cpuPlan says how many, and on how many threads). The page only
+ * cuts the tiles out and gathers what is found.
  */
 import type { Detection } from './detect.js';
 import type { DetectRequest } from './detect-worker.js';
@@ -23,11 +23,25 @@ export interface DetectPool {
 }
 
 /**
- * How many CPU workers: half the cores, at most 3 (each holds the model). The
- * rest are left to the page, the GPU process and the map's own workers, so
- * the page stays quick to answer while the tiles run.
+ * How the CPU (WebAssembly) runs the tiles: how many workers (each holds the
+ * model) and how many threads each. One core is left to the page, the GPU
+ * process and the map's own workers, so the page stays quick to answer.
+ * - Cross-origin isolated (the service worker makes the page so): ONNX
+ *   Runtime runs a session on several threads, which beats more sessions on
+ *   one thread each (measured on 4 cores: 1 × 3 threads took 7.3 s where 2 × 1
+ *   took 12.3 s for 3 large tiles, 9.7 s against 13.3 s for 30 small ones);
+ *   a second worker only from 6 cores, threads at most 4 each.
+ * - Otherwise one thread per session: half the cores in workers, at most 3.
  */
-export const cpuWorkers = () => Math.max(1, Math.min(3, Math.floor((navigator.hardwareConcurrency || 2) / 2)));
+export function cpuPlan(cores = navigator.hardwareConcurrency || 2, isolated = globalThis.crossOriginIsolated === true): { workers: number; threads: number } {
+  if (!isolated) return { workers: Math.max(1, Math.min(3, Math.floor(cores / 2))), threads: 1 };
+  const budget = Math.max(1, Math.min(8, cores - 1));
+  const workers = budget >= 6 ? 2 : 1;
+  return { workers, threads: Math.min(4, Math.floor(budget / workers)) };
+}
+
+/** How many CPU workers run tiles side by side. */
+export const cpuWorkers = () => cpuPlan().workers;
 
 /** Starts the workers and loads the model (`bytes`) in each. */
 export async function createDetectPool(bytes: Uint8Array, name: string, useGpu = true): Promise<DetectPool> {
@@ -38,7 +52,7 @@ export async function createDetectPool(bytes: Uint8Array, name: string, useGpu =
     const backend = await new Promise<Backend>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<Reply>) => (e.data.type === 'loaded' ? resolve(e.data.backend) : e.data.type === 'error' ? reject(new Error(e.data.message)) : undefined);
       worker.onerror = (e) => reject(new Error(e.message || 'ワーカーを起動できませんでした'));
-      worker.postMessage({ type: 'load', bytes: bytes.slice(), name, useGpu: gpu } satisfies DetectRequest);
+      worker.postMessage({ type: 'load', bytes: bytes.slice(), name, useGpu: gpu, threads: cpuPlan().threads } satisfies DetectRequest);
     });
     return { worker, backend };
   };

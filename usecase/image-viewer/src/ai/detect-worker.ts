@@ -6,18 +6,32 @@
  */
 import { detectTile } from './detect-tile.js';
 import type { DetectorSpec } from './model-config.js';
-import { createModel, nameOf, type LoadedModel } from './runtime.js';
+import { createModel, loadOrt, nameOf, type LoadedModel } from './runtime.js';
 
 export type DetectRequest =
-  | { type: 'load'; bytes: Uint8Array; name: string; useGpu: boolean }
+  | { type: 'load'; bytes: Uint8Array; name: string; useGpu: boolean; threads: number }
   | { type: 'run'; id: number; rgba: Uint8ClampedArray; width: number; height: number; spec: DetectorSpec };
 
 let model: LoadedModel | null = null;
 
-self.onmessage = async (event: MessageEvent<DetectRequest>) => {
+/**
+ * On a cross-origin isolated page ONNX Runtime runs a model on several
+ * threads, starting each from this same script (it is bundled in), named
+ * `em-pthread…`: such a worker only loads ONNX Runtime, which takes its
+ * messages over. What arrives before that is kept and handed on.
+ */
+const thread = self.name.startsWith('em-pthread');
+if (thread) {
+  const early: MessageEvent[] = [];
+  self.onmessage = (event) => early.push(event);
+  void loadOrt().then(() => {
+    for (const event of early) self.onmessage?.(event);
+  });
+} else self.onmessage = async (event: MessageEvent<DetectRequest>) => {
   const request = event.data;
   try {
     if (request.type === 'load') {
+      (await loadOrt()).env.wasm.numThreads = request.threads;
       model = await createModel(request.bytes, request.name, request.useGpu);
       self.postMessage({ type: 'loaded', backend: model.backend });
     } else {

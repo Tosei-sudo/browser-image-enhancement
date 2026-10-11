@@ -9,6 +9,12 @@
  *   cached the first time they are used instead.
  * - The page itself and config.json come from the network first (a new
  *   build, a config.json edited on the server), the cache when offline.
+ * - The page is made cross-origin isolated (COOP same-origin, COEP
+ *   credentialless on it and the site's own files it answers, workers
+ *   included) so ONNX Runtime can run the AI tools on several threads.
+ *   This takes effect from the next load the service worker answers;
+ *   cross-origin files the page asks for without CORS come without cookies.
+ *   Browsers without credentialless (Safari) just stay as they were.
  * - Everything else (COGs, services, base map tiles, range requests) is left
  *   to the network as it is.
  */
@@ -56,6 +62,15 @@ async function networkFirst(request, key) {
   }
 }
 
+/** A response of the site with the headers that make the page (and its workers) cross-origin isolated. */
+async function isolated(response) {
+  if (response.type === 'opaqueredirect' || response.status === 0) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET' || request.headers.has('range')) return;
@@ -63,16 +78,16 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== scope.origin || !url.href.startsWith(scope.href)) return;
   // The page, whatever its query (?url=, ?service=…).
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, page));
+    event.respondWith(networkFirst(request, page).then(isolated));
     return;
   }
   const bare = url.origin + url.pathname;
   if (bare === config) {
-    event.respondWith(networkFirst(request, config));
+    event.respondWith(networkFirst(request, config).then(isolated));
     return;
   }
   if (precached.has(bare)) {
-    event.respondWith(caches.match(bare).then((cached) => cached || fetch(request)));
+    event.respondWith(caches.match(bare).then((cached) => cached || fetch(request)).then(isolated));
   } else if (lazy.has(bare)) {
     event.respondWith(
       caches.match(bare).then(
@@ -82,7 +97,7 @@ self.addEventListener('fetch', (event) => {
             if (response.ok) await (await caches.open(CACHE)).put(bare, response.clone());
             return response;
           }),
-      ),
+      ).then(isolated),
     );
   }
 });
