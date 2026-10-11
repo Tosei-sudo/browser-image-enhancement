@@ -93,6 +93,42 @@ test('opens the coloring from the layer row, on that image', async ({ page }) =>
   await expect(page.locator('#images .image').nth(1).locator('.color-swatch')).toHaveCount(1);
 });
 
+test('colors only the layer it is set on, not the images under it', async ({ page }) => {
+  await open(page);
+  await choose(page, [
+    { name: 'scene_2024.tif', bytes: before() },
+    { name: 'scene_2025.tif', bytes: after() },
+  ]);
+  // Pixels the top layer (scene_2025.tif, red) shows: the same whether the image under it is shown or not.
+  const opaque = () =>
+    page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          window.viewer.map.once('rendercomplete', () => {
+            const canvas = window.viewer.images.list()[0].layer.getOutputCanvas();
+            const ctx = document.createElement('canvas').getContext('2d')!;
+            ctx.canvas.width = canvas.width;
+            ctx.canvas.height = canvas.height;
+            ctx.drawImage(canvas, 0, 0);
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let n = 0;
+            for (let i = 3; i < data.length; i += 4) if (data[i] > 0) n++;
+            resolve(n);
+          });
+          window.viewer.map.render();
+        }),
+    );
+  await page.evaluate(() => {
+    const [top, under] = window.viewer.images.list();
+    top.layer.setColorScale({ scale: 'red' });
+    under.layer.setVisible(false);
+  });
+  const alone = await opaque();
+  expect(alone).toBeGreaterThan(0);
+  await page.evaluate(() => window.viewer.images.list()[1].layer.setVisible(true));
+  expect(await opaque()).toBe(alone);
+});
+
 test('colors a one-band image in a scale, and lays two dates over each other in red and cyan', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
