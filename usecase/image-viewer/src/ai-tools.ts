@@ -269,10 +269,13 @@ export class DetectDialog {
       this.info_.textContent = 'YOLO（Ultralytics など）の ONNX を選んでください。config.json の aiModels に登録したモデルはここに並びます。';
       return;
     }
+    // Another model chosen while this one loads: its own description wins.
+    const key = this.models_.select.value;
+    const stale = () => this.models_.select.value !== key;
     try {
       this.info_.textContent = 'モデルを読み込んでいます…';
-      const loaded = await this.model_((done) => (this.info_.textContent = `モデルを読み込んでいます… ${Math.round(done * 100)}%`));
-      if (!loaded) return;
+      const loaded = await this.model_((done) => stale() || (this.info_.textContent = `モデルを読み込んでいます… ${Math.round(done * 100)}%`));
+      if (!loaded || stale()) return;
       const { spec, model } = loaded;
       score.value = String(spec.score);
       iou.value = String(spec.iou);
@@ -282,7 +285,7 @@ export class DetectDialog {
         : 'クラス名なし（番号で出します）';
       this.info_.textContent = `${task}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(model.backend)}で実行`;
     } catch (error) {
-      this.info_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
+      if (!stale()) this.info_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
     }
   }
 
@@ -393,7 +396,7 @@ async function detectTile(
   spec: ReturnType<typeof detectorSpec>,
 ): Promise<Detection[]> {
   const [tw, th] = spec.inputSize;
-  const feed = await tensor(tileTensor(rgba, width, height, x0, y0, spec.inputSize, spec.mean, spec.std), [1, 3, th, tw]);
+  const feed = await tensor(tileTensor(rgba, width, height, x0, y0, spec.inputSize, spec.mean, spec.std, spec.bgr), [1, 3, th, tw]);
   const outputs = await model.session.run({ [input]: feed });
   const names = model.session.outputNames;
   const first = outputs[names[0]];
@@ -568,12 +571,14 @@ export class SegmentTool {
       this.note_.textContent = 'Segment Anything（SAM・MobileSAM など）のエンコーダーとデコーダーの ONNX を選んでください';
       return;
     }
+    const key = this.models_.select.value;
+    const stale = () => this.models_.select.value !== key;
     try {
       this.note_.textContent = 'モデルを読み込んでいます…';
       const m = await this.models();
-      if (m && this.active_) this.note_.textContent = `準備ができました（${backendLabel(m.encoder.backend)}）。画像をクリックしてください`;
+      if (m && this.active_ && !stale()) this.note_.textContent = `準備ができました（${backendLabel(m.encoder.backend)}）。画像をクリックしてください`;
     } catch (error) {
-      this.note_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
+      if (!stale()) this.note_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
     }
   }
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { aiModelOf, detectorSpec, onnxMetadata, pythonNames } from '../src/ai/model-config.js';
-import { boxCorners, decodeYolo, instanceMask, layoutOf, nms, overlap, PAD, tilesOf, tileStarts, tileTensor, type Detection } from '../src/ai/detect.js';
+import { aiModelOf, COCO_CLASSES, detectorSpec, onnxMetadata, pythonNames } from '../src/ai/model-config.js';
+import { boxCorners, decodeYolo, instanceMask, layoutOf, nms, overlap, PAD, tilesOf, tileStarts, tileTensor, yoloxGrid, type Detection } from '../src/ai/detect.js';
 import { maskOutline } from '../src/ai/mask-outline.js';
 import { partAt, samMask, samPrompt, samScale, samTensor } from '../src/ai/sam.js';
 import { parseConfig } from '../src/config.js';
@@ -26,6 +26,17 @@ describe('model config', () => {
     const meta = { task: 'obb', imgsz: '[1024, 768]', names: "{0: 'plane'}" };
     expect(detectorSpec({}, meta)).toMatchObject({ task: 'obb', inputSize: [768, 1024], classes: ['plane'] });
     expect(detectorSpec({ task: 'detect', inputSize: [320, 320], classes: ['x', 'y'], score: 0.5 }, meta)).toMatchObject({ task: 'detect', inputSize: [320, 320], classes: ['x', 'y'], score: 0.5 });
+  });
+
+  it('knows the COCO classes and YOLOX settings', () => {
+    const problems: string[] = [];
+    const m = aiModelOf({ url: './models/yolox.onnx', format: 'yolox', classes: 'coco', channels: 'bgr', strides: [8, 16, 32] }, problems, 0);
+    expect(problems).toEqual([]);
+    expect(m).toMatchObject({ format: 'yolox', channels: 'bgr', strides: [8, 16, 32] });
+    expect(m && 'classes' in m && m.classes).toEqual(COCO_CLASSES);
+    expect(COCO_CLASSES).toHaveLength(80);
+    aiModelOf({ url: 'a.onnx', classes: 'voc', channels: 'hsv', strides: [0] }, problems, 1);
+    expect(problems).toHaveLength(3);
   });
 
   it('checks aiModels entries in config.json', () => {
@@ -71,6 +82,9 @@ describe('tiles', () => {
     const t = tileTensor(rgba, 2, 1, 0, 0, [2, 2], [0, 0, 0], [255, 255, 255]);
     const pad = PAD / 255;
     expect([...t].map((v) => Math.round(v * 1000) / 1000)).toEqual([1, pad, pad, pad, 0, pad, pad, pad, 0, pad, pad, pad].map((v) => Math.round(v * 1000) / 1000));
+    // B, G, R (YOLOX): red lands in the last plane.
+    const bgr = tileTensor(rgba, 2, 1, 0, 0, [2, 2], [0, 0, 0], [1, 1, 1], true);
+    expect([bgr[0], bgr[4], bgr[8]]).toEqual([0, 0, 255]);
   });
 });
 
@@ -90,6 +104,24 @@ describe('decoding YOLO outputs', () => {
     // Without class names, the axes tell them apart (there are many more candidates than values).
     expect(layoutOf({ dims: [1, 84, 8400], data: [] }, spec())).toMatchObject({ format: 'yolov8', classes: 80, count: 8400 });
     expect(layoutOf({ dims: [1, 25200, 85], data: [] }, spec())).toMatchObject({ format: 'yolov5', classes: 80, count: 25200 });
+  });
+
+  it('reads the raw grid output of YOLOX (cell offsets and log sizes, in strides)', () => {
+    const s = detectorSpec({ format: 'yolox', inputSize: [64, 32], classes: ['car', 'ship'] }, {});
+    expect(s).toMatchObject({ std: [1, 1, 1], bgr: true, strides: [8, 16, 32] });
+    // Grids of 8 × 4, 4 × 2 and 2 × 1 cells.
+    const count = 32 + 8 + 2;
+    expect([...yoloxGrid(s.inputSize, s.strides, count).slice(3 * 33, 3 * 34)]).toEqual([1, 0, 16]);
+    expect(() => yoloxGrid(s.inputSize, s.strides, 40)).toThrow();
+    const data = new Float32Array(count * 7);
+    // Candidate 33: cell (1, 0) of the stride-16 grid.
+    data.set([0.5, 0.25, Math.log(2), 0, 0.9, 0.1, 0.8], 33 * 7);
+    const output = { dims: [1, count, 7], data };
+    expect(layoutOf(output, s)).toMatchObject({ format: 'yolox', count, classes: 2 });
+    const [d] = decodeYolo(output, s, 0.25);
+    expect(d.cls).toBe(1);
+    expect(d.score).toBeCloseTo(0.72);
+    expect(d.box.map((v) => Math.round(v * 1000) / 1000)).toEqual([24, 4, 32, 16]);
   });
 
   it('reads end-to-end exports ([1, N, 6], corners) and oriented boxes', () => {

@@ -28,9 +28,10 @@ export function tilesOf(width: number, height: number, size: readonly [number, n
 }
 
 /**
- * The model input (NCHW float32, RGB) for the `size` tile at (`x0`, `y0`) of
- * an RGBA picture: (value − mean) / std per channel. Pixels outside the
- * picture, and transparent ones (no data), are the padding gray.
+ * The model input (NCHW float32, RGB, or BGR with `bgr`) for the `size` tile
+ * at (`x0`, `y0`) of an RGBA picture: (value − mean) / std per channel
+ * (mean and std in R, G, B order). Pixels outside the picture, and
+ * transparent ones (no data), are the padding gray.
  */
 export function tileTensor(
   rgba: ArrayLike<number>,
@@ -41,11 +42,14 @@ export function tileTensor(
   size: readonly [number, number],
   mean: readonly number[],
   std: readonly number[],
+  bgr = false,
 ): Float32Array {
   const [tw, th] = size;
   const plane = tw * th;
   const out = new Float32Array(3 * plane);
   const pad = [0, 1, 2].map((c) => (PAD - mean[c]) / std[c]);
+  // Where R, G and B go.
+  const [r, g, b] = bgr ? [2 * plane, plane, 0] : [0, plane, 2 * plane];
   for (let y = 0; y < th; y++) {
     const sy = y0 + y;
     for (let x = 0; x < tw; x++) {
@@ -53,13 +57,13 @@ export function tileTensor(
       const o = y * tw + x;
       const i = (sy * width + sx) * 4;
       if (sx >= width || sy >= height || sx < 0 || sy < 0 || rgba[i + 3] === 0) {
-        out[o] = pad[0];
-        out[o + plane] = pad[1];
-        out[o + 2 * plane] = pad[2];
+        out[o + r] = pad[0];
+        out[o + g] = pad[1];
+        out[o + b] = pad[2];
       } else {
-        out[o] = (rgba[i] - mean[0]) / std[0];
-        out[o + plane] = (rgba[i + 1] - mean[1]) / std[1];
-        out[o + 2 * plane] = (rgba[i + 2] - mean[2]) / std[2];
+        out[o + r] = (rgba[i] - mean[0]) / std[0];
+        out[o + g] = (rgba[i + 1] - mean[1]) / std[1];
+        out[o + b] = (rgba[i + 2] - mean[2]) / std[2];
       }
     }
   }
@@ -108,6 +112,8 @@ export function layoutOf(output: Output, spec: DetectorSpec): { format: Exclude<
     else format = a < b ? 'yolov8' : 'yolov5';
   }
   if (format === 'end2end') return { format, values: b, count: a, transposed: false, classes: known };
+  // YOLOX: [1, N, 5 + classes], N being the cells of all its grids.
+  if (format === 'yolox') return { format, values: b, count: a, transposed: false, classes: b - 5 };
   // Which axis holds the values: the one of the expected count, else the shorter one.
   const transposed = known && (a === valuesOf(format) || b === valuesOf(format)) ? a === valuesOf(format) : a < b;
   const values = transposed ? a : b;
@@ -120,6 +126,7 @@ export function decodeYolo(output: Output, spec: DetectorSpec, minScore: number)
   const { format, values, count, transposed, classes } = layoutOf(output, spec);
   const data = output.data;
   const at = transposed ? (i: number, v: number) => data[v * count + i] : (i: number, v: number) => data[i * values + v];
+  const grid = format === 'yolox' ? yoloxGrid(spec.inputSize, spec.strides, count) : null;
   const found: Detection[] = [];
   for (let i = 0; i < count; i++) {
     let cls = 0;
@@ -140,8 +147,9 @@ export function decodeYolo(output: Output, spec: DetectorSpec, minScore: number)
         if (spec.task === 'segment') coeffAt = 6;
       }
     } else {
-      const first = format === 'yolov5' ? 5 : 4;
-      const objectness = format === 'yolov5' ? at(i, 4) : 1;
+      const withObjectness = format === 'yolov5' || format === 'yolox';
+      const first = withObjectness ? 5 : 4;
+      const objectness = withObjectness ? at(i, 4) : 1;
       if (!(objectness >= minScore)) continue;
       for (let c = 0; c < classes; c++) {
         const s = at(i, first + c);
@@ -152,7 +160,11 @@ export function decodeYolo(output: Output, spec: DetectorSpec, minScore: number)
       }
       score *= objectness;
       if (!(score >= minScore)) continue;
-      box = [at(i, 0), at(i, 1), at(i, 2), at(i, 3)];
+      if (grid) {
+        // YOLOX's raw output: offsets in the cell and log sizes, in strides.
+        const s = grid[3 * i + 2];
+        box = [(at(i, 0) + grid[3 * i]) * s, (at(i, 1) + grid[3 * i + 1]) * s, Math.exp(at(i, 2)) * s, Math.exp(at(i, 3)) * s];
+      } else box = [at(i, 0), at(i, 1), at(i, 2), at(i, 3)];
       if (spec.task === 'obb') angle = at(i, first + classes);
       if (spec.task === 'segment') coeffAt = first + classes;
     }
@@ -163,6 +175,24 @@ export function decodeYolo(output: Output, spec: DetectorSpec, minScore: number)
     found.push(d);
   }
   return found;
+}
+
+/**
+ * The cell (x, y) and stride of each of YOLOX's `count` candidates: the
+ * grids of its strides one after the other, row by row.
+ */
+export function yoloxGrid(size: readonly [number, number], strides: readonly number[], count: number): Float32Array {
+  const cells = strides.reduce((n, s) => n + Math.floor(size[0] / s) * Math.floor(size[1] / s), 0);
+  if (cells !== count) throw new Error(`YOLOX の出力 ${count} 個が入力 ${size[0]}×${size[1]}・ストライド ${strides.join('/')} の格子（${cells} 個）と合いません`);
+  const out = new Float32Array(3 * count);
+  let i = 0;
+  for (const s of strides) {
+    const [gw, gh] = [Math.floor(size[0] / s), Math.floor(size[1] / s)];
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++, i++) out.set([x, y, s], 3 * i);
+    }
+  }
+  return out;
 }
 
 /** The corners of a detection's box, clockwise on the picture (y down). */

@@ -6,8 +6,8 @@
  *
  * Two kinds of model:
  * - detection: one ONNX file (YOLOv5 / v8 / v11 and later, end-to-end
- *   exports, rotated boxes (OBB) and instance segmentation), run over the
- *   view in tiles;
+ *   exports, rotated boxes (OBB) and instance segmentation, and YOLOX's raw
+ *   grid output), run over the view in tiles;
  * - click segmentation: a Segment Anything (SAM, MobileSAM, EfficientSAM…)
  *   image encoder and prompt decoder, as exported by segment-anything's
  *   `export_onnx_model.py`.
@@ -16,7 +16,19 @@
 /** What a detection model finds. */
 export type DetectTask = 'detect' | 'obb' | 'segment';
 /** How a detection model's first output is laid out (`auto`: from its shape). */
-export type DetectFormat = 'auto' | 'yolov8' | 'yolov5' | 'end2end';
+export type DetectFormat = 'auto' | 'yolov8' | 'yolov5' | 'end2end' | 'yolox';
+
+/** The 80 classes of COCO, which most published detection weights were trained on (`"classes": "coco"`). */
+export const COCO_CLASSES = [
+  'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+  'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+  'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+  'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+  'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+  'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
+  'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+  'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush',
+];
 
 /** A detection model of `config.json`. */
 export interface DetectModelConfig {
@@ -30,10 +42,14 @@ export interface DetectModelConfig {
   inputSize?: [number, number];
   /** Class names by index (from its metadata, else `class 0`, `class 1`…). */
   classes?: string[];
-  /** Per channel (R, G, B, in 0–255): the input is (value − mean) / std. Default: 0 and 255 (YOLO's 0–1). */
+  /** Per channel (R, G, B, in 0–255): the input is (value − mean) / std. Default: 0 and 255 (YOLO's 0–1); YOLOX: 0 and 1. */
   mean?: [number, number, number];
   std?: [number, number, number];
+  /** The channel order of the input (default: rgb; YOLOX: bgr). */
+  channels?: 'rgb' | 'bgr';
   format?: DetectFormat;
+  /** YOLOX: the strides of its output grids (default 8, 16, 32). */
+  strides?: number[];
   /** Default score threshold (0–1). */
   score?: number;
   /** Default overlap (IoU) above which the weaker of two boxes of a class is dropped. */
@@ -97,12 +113,21 @@ export function aiModelOf(value: unknown, problems: string[], index: number): Ai
     else problems.push(`${at} の inputSize は 640 か [幅, 高さ] にしてください`);
   }
   if (value.classes !== undefined) {
-    if (Array.isArray(value.classes) && value.classes.every((c) => typeof c === 'string')) model.classes = value.classes as string[];
-    else problems.push(`${at} の classes はクラス名の配列にしてください`);
+    if (value.classes === 'coco') model.classes = [...COCO_CLASSES];
+    else if (Array.isArray(value.classes) && value.classes.every((c) => typeof c === 'string')) model.classes = value.classes as string[];
+    else problems.push(`${at} の classes はクラス名の配列か "coco" にしてください`);
   }
   if (value.format !== undefined) {
-    if (['auto', 'yolov8', 'yolov5', 'end2end'].includes(value.format as string)) model.format = value.format as DetectFormat;
-    else problems.push(`${at} の format は auto・yolov8・yolov5・end2end のどれかにしてください`);
+    if (['auto', 'yolov8', 'yolov5', 'end2end', 'yolox'].includes(value.format as string)) model.format = value.format as DetectFormat;
+    else problems.push(`${at} の format は auto・yolov8・yolov5・end2end・yolox のどれかにしてください`);
+  }
+  if (value.channels !== undefined) {
+    if (value.channels === 'rgb' || value.channels === 'bgr') model.channels = value.channels;
+    else problems.push(`${at} の channels は rgb か bgr にしてください`);
+  }
+  if (value.strides !== undefined) {
+    if (Array.isArray(value.strides) && value.strides.length > 0 && value.strides.every((n) => Number.isInteger(n) && n > 0)) model.strides = value.strides as number[];
+    else problems.push(`${at} の strides は [8, 16, 32] のような正の整数の配列にしてください`);
   }
   for (const key of ['score', 'iou'] as const) {
     if (value[key] === undefined) continue;
@@ -121,7 +146,11 @@ export interface DetectorSpec {
   classes: string[];
   mean: [number, number, number];
   std: [number, number, number];
+  /** The input's channels are B, G, R. */
+  bgr: boolean;
   format: DetectFormat;
+  /** YOLOX's grid strides. */
+  strides: number[];
   score: number;
   iou: number;
 }
@@ -136,13 +165,17 @@ export function detectorSpec(config: Partial<DetectModelConfig>, metadata: Recor
   const imgsz = parseNumbers(metadata.imgsz);
   // Ultralytics writes imgsz as [height, width].
   const fromMeta: [number, number] | null = imgsz.length === 2 ? [imgsz[1], imgsz[0]] : imgsz.length === 1 ? [imgsz[0], imgsz[0]] : null;
+  // YOLOX was trained on 0–255 B, G, R.
+  const yolox = config.format === 'yolox';
   return {
     task,
     inputSize: config.inputSize ?? fromMeta ?? [640, 640],
     classes: config.classes ?? pythonNames(metadata.names ?? ''),
     mean: config.mean ?? [0, 0, 0],
-    std: config.std ?? [255, 255, 255],
+    std: config.std ?? (yolox ? [1, 1, 1] : [255, 255, 255]),
+    bgr: (config.channels ?? (yolox ? 'bgr' : 'rgb')) === 'bgr',
     format: config.format ?? 'auto',
+    strides: config.strides ?? [8, 16, 32],
     score: config.score ?? 0.25,
     iou: config.iou ?? 0.45,
   };
