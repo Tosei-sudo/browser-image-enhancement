@@ -70,15 +70,17 @@ test('detects objects over the view and adds them as a temporary layer', async (
     window.viewer.aiDetect.addModelFile(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'detect.onnx'));
   }, model('detect.onnx'));
   // The class names and input size come from the model's own metadata.
-  await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）・入力 64×64・2 クラス（bright・dark）・CPU（WebAssembly）で実行');
+  await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）・入力 64×64・2 クラス（bright・dark）・CPU（WebAssembly）');
   await expect(dialog.getByLabel('スコアのしきい値')).toHaveValue('0.25');
 
   // Cells mostly on the square (the gray padding round the image scores under a half).
   await dialog.locator('summary').click();
   await dialog.getByLabel('スコアのしきい値').fill('0.5');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成しました', { timeout: 30_000 });
+  // It runs in the background: the dialog closes at once, a panel shows how far it got.
   await expect(dialog).toBeHidden();
+  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成しました', { timeout: 30_000 });
+  await expect(page.locator('.ai-progress')).toBeHidden();
   await expect(page.locator('#images .name').first()).toContainText('物体検出（detect.onnx）');
 
   const found = await page.evaluate(() => {
@@ -306,8 +308,7 @@ test('the sample models ship with the viewer: YOLO11-OBB and YOLOX-Tiny load, Mo
   await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）・入力 416×416・80 クラス（person・bicycle・car', { timeout: 60_000 });
   await dialog.getByRole('button', { name: '実行' }).click();
   // Nothing of COCO's on a white square.
-  await expect(dialog).toContainText('見つかりませんでした', { timeout: 60_000 });
-  await page.keyboard.press('Escape');
+  await expect(page.locator('#status')).toContainText('見つかりませんでした', { timeout: 60_000 });
 
   // クリックで抽出: MobileSAM takes the white square in.
   await page.getByRole('button', { name: 'ツール' }).click();

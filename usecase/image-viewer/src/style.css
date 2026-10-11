@@ -2506,3 +2506,32 @@ body {
 .raster-rules [data-for][hidden] {
   display: none;
 }
+/* A detection running in the background: how far it got, and 中止. */
+.ai-progress {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  width: min(30rem, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 2px 8px #0004;
+  font-size: 13px;
+}
+.ai-progress[hidden] {
+  display: none;
+}
+.ai-progress span {
+  flex: 1 1 100%;
+}
+.ai-progress progress {
+  flex: 1;
+}
