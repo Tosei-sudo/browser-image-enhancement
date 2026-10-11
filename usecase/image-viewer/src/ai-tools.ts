@@ -437,6 +437,8 @@ export class DetectDialog {
 
   /** The workers for the model in `bytes` (the same ones while the model stays). */
   private async pool_(bytes: ModelBytes): Promise<DetectPool> {
+    // A pool a stopped worker left dead is made again.
+    if (this.pool_ref?.key === bytes.key && (await this.pool_ref.pool.catch(() => null))?.dead) this.dropPool_();
     if (this.pool_ref?.key !== bytes.key) {
       this.dropPool_();
       const pool = createDetectPool(bytes.bytes, bytes.name);

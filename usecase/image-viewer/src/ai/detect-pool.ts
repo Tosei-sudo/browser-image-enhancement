@@ -17,6 +17,8 @@ export interface DetectPool {
   size: number;
   /** The objects in an RGBA tile (its buffer is handed to the worker), in the tile's pixels. */
   run(rgba: Uint8ClampedArray, width: number, height: number, spec: DetectorSpec): Promise<Detection[]>;
+  /** Whether a worker has stopped (or the pool was terminated): every run fails, so the pool is made again. */
+  readonly dead: boolean;
   terminate(): void;
 }
 
@@ -53,14 +55,21 @@ export async function createDetectPool(bytes: Uint8Array, name: string, useGpu =
 
 function pool(workers: Worker[], backend: Backend): DetectPool {
   const idle = [...workers];
-  const queue: Array<(worker: Worker) => void> = [];
+  const queue: Array<{ send: (worker: Worker) => void; reject: (error: Error) => void }> = [];
   const pending = new Map<number, { resolve: (found: Detection[]) => void; reject: (error: Error) => void; worker: Worker }>();
   let next = 0;
   let dead: Error | null = null;
   const release = (worker: Worker) => {
     const waiting = queue.shift();
-    if (waiting) waiting(worker);
+    if (waiting) waiting.send(worker);
     else idle.push(worker);
+  };
+  /** Fails every job (running, or waiting for a worker) with `error`. */
+  const fail = (error: Error) => {
+    dead = error;
+    for (const job of pending.values()) job.reject(error);
+    pending.clear();
+    for (const job of queue.splice(0)) job.reject(error);
   };
   for (const worker of workers) {
     worker.onmessage = (e: MessageEvent<Reply>) => {
@@ -74,17 +83,17 @@ function pool(workers: Worker[], backend: Backend): DetectPool {
       else job.reject(new Error(reply.message));
     };
     worker.onerror = (e) => {
-      dead = new Error(e.message || 'ワーカーが止まりました');
-      for (const [id, job] of pending) {
-        if (job.worker !== worker) continue;
-        pending.delete(id);
-        job.reject(dead);
-      }
+      // One stopped worker fails the pool: what was sent to the others is let go too, and the pool is made again next time.
+      for (const w of workers) w.terminate();
+      fail(new Error(e.message || 'ワーカーが止まりました'));
     };
   }
   return {
     backend,
     size: workers.length,
+    get dead() {
+      return dead !== null;
+    },
     run(rgba, width, height, spec) {
       if (dead) return Promise.reject(dead);
       return new Promise((resolve, reject) => {
@@ -95,15 +104,12 @@ function pool(workers: Worker[], backend: Backend): DetectPool {
         };
         const worker = idle.pop();
         if (worker) send(worker);
-        else queue.push(send);
+        else queue.push({ send, reject });
       });
     },
     terminate() {
-      dead = new Error('中止しました');
       for (const w of workers) w.terminate();
-      for (const job of pending.values()) job.reject(dead);
-      pending.clear();
-      queue.length = 0;
+      fail(new Error('中止しました'));
     },
   };
 }

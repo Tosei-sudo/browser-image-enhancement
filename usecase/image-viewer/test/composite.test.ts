@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { combine, commonSampleType, gridOver, meshOf, meshWindow, resampleMesh } from '../src/composite.js';
-import { makeBlock } from '../src/composite.js';
+import { fillOf, makeBlock } from '../src/composite.js';
 
 /** An image `dx` output pixels right of the output's origin, its pixels `1 / scale` output pixels wide. */
 const shifted = (dx: number, scale = 1) => (xy: Float64Array) => {
@@ -67,6 +67,31 @@ describe('makeBlock', () => {
     expect(Array.from(block.tiles[0].bytes.subarray(0, 6))).toEqual([50, 200, 200, 50, 200, 200]);
     expect(block.min).toEqual([50, 200, 200]);
     expect(block.covered).toBe(256);
+  });
+
+  it('keeps a real 0 of a 16-bit image (no data is the end of the range)', () => {
+    const m = meshOf(shifted(0), 0, 0, 16, 16, 32);
+    const data = new Int16Array(256).fill(0);
+    data[1] = -32768;
+    const a = { data, width: 16, height: 16, window: [0, 0, 16, 16] as const, noData: null, ...m };
+    const block = makeBlock({ width: 16, height: 16, channels: [a], type: { format: 2, bits: 16 }, resample: 'nearest', tileSize: 16, tx0: 0, ty0: 0 });
+    const out = new Int16Array(block.tiles[0].bytes.slice().buffer);
+    expect(out[0]).toBe(0);
+    // A value that would read as no data moves one step.
+    expect(out[1]).toBe(-32767);
+    expect(block.covered).toBe(256);
+    expect(block.min).toEqual([-32767]);
+  });
+});
+
+describe('fillOf', () => {
+  it('is NaN for floats, 0 for 8-bit unsigned, else the end of the range', () => {
+    expect(fillOf({ format: 3, bits: 32 })).toBeNaN();
+    expect(fillOf({ format: 1, bits: 8 })).toBe(0);
+    expect(fillOf({ format: 1, bits: 16 })).toBe(65535);
+    expect(fillOf({ format: 2, bits: 16 })).toBe(-32768);
+    expect(fillOf({ format: 2, bits: 8 })).toBe(-128);
+    expect(fillOf({ format: 1, bits: 32 })).toBe(4294967295);
   });
 });
 
