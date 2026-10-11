@@ -5,6 +5,7 @@ import { blocksOf, boxCorners, decodeDetectron2, decodeYolo, detectron2Outputs, 
 import { maskOutline } from '../src/ai/mask-outline.js';
 import { partAt, samMask, samPrompt, samScale, samTensor } from '../src/ai/sam.js';
 import { parseConfig } from '../src/config.js';
+import { cpuPlan } from '../src/ai/detect-pool.js';
 
 const spec = (over: Partial<ReturnType<typeof detectorSpec>> = {}) => ({ ...detectorSpec({}, {}), ...over });
 
@@ -282,5 +283,20 @@ describe('Segment Anything', () => {
     const mask = Uint8Array.from([1, 1, 0, 1, 1, 0, 0, 0, 1]);
     expect([...partAt(mask, 3, 3, 0, 0)]).toEqual([1, 1, 0, 1, 1, 0, 0, 0, 0]);
     expect([...partAt(mask, 3, 3, 2, 0)]).toEqual([...mask]);
+  });
+});
+
+describe('CPU workers and threads', () => {
+  it('runs one thread per worker on half the cores, at most 3 workers, when not isolated', () => {
+    expect(cpuPlan(2, false)).toEqual({ workers: 1, threads: 1 });
+    expect(cpuPlan(4, false)).toEqual({ workers: 2, threads: 1 });
+    expect(cpuPlan(16, false)).toEqual({ workers: 3, threads: 1 });
+  });
+  it('runs few sessions on several threads, a core left over, when cross-origin isolated', () => {
+    expect(cpuPlan(1, true)).toEqual({ workers: 1, threads: 1 });
+    expect(cpuPlan(4, true)).toEqual({ workers: 1, threads: 3 });
+    expect(cpuPlan(6, true)).toEqual({ workers: 1, threads: 4 });
+    expect(cpuPlan(8, true)).toEqual({ workers: 2, threads: 3 });
+    expect(cpuPlan(32, true)).toEqual({ workers: 2, threads: 4 });
   });
 });

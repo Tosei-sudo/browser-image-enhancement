@@ -33,8 +33,14 @@ import { blocksOf, boxCorners, nms, offset, tilesOf, type Detection } from './ai
 import { maskOutline, type PixelPolygon } from './ai/mask-outline.js';
 import { partAt, SAM_MEAN, SAM_STD, samMask, samPrompt, samScale, samTensor, type SamPoint } from './ai/sam.js';
 import { backendLabel, hasWebGpu, modelBytes, modelFrom, nameOf, tensor, type LoadedModel, type ModelBytes } from './ai/runtime.js';
-import { cpuWorkers, createDetectPool, type DetectPool } from './ai/detect-pool.js';
+import { cpuPlan, createDetectPool, type DetectPool } from './ai/detect-pool.js';
 import { offscreenMap, type OffscreenMap } from './offscreen-map.js';
+
+/** How the CPU runs the tiles, after its label: workers and threads. */
+function cpuLabel(): string {
+  const { workers, threads } = cpuPlan();
+  return `${workers > 1 ? ` × ${workers}` : ''}${threads > 1 ? `（${threads} スレッド${workers > 1 ? 'ずつ' : ''}）` : ''}`;
+}
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 /** Lets the page draw (a message, a progress line) before more work holds it. */
@@ -289,7 +295,7 @@ export class DetectDialog {
       const classes = spec.classes.length
         ? `${spec.classes.length} クラス（${spec.classes.slice(0, 8).join('・')}${spec.classes.length > 8 ? '…' : ''}）`
         : 'クラス名なし（番号で出します）';
-      this.info_.textContent = `${task}${kind}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(backend)}${backend === 'wasm' && cpuWorkers() > 1 ? ` × ${cpuWorkers()}` : ''}で実行`;
+      this.info_.textContent = `${task}${kind}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(backend)}${backend === 'wasm' ? cpuLabel() : ''}で実行`;
     } catch (error) {
       if (!stale()) this.info_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
     }

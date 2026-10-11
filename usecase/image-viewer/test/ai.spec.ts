@@ -355,3 +355,45 @@ test('the sample models ship with the viewer: YOLO11-OBB and YOLOX-Tiny load, Mo
   expect(area / (squareOnMap * squareOnMap)).toBeLessThan(1.1);
   expect(errors).toEqual([]);
 });
+
+test('on a cross-origin isolated page (as the service worker serves it) both tools run on several threads', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // What sw.js adds to the page and the site's files (Playwright keeps service workers out of the tests).
+  await page.route(/\/(index\.html|assets\/.*)$/, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, headers: { ...response.headers(), 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' } });
+  });
+  await page.addInitScript(() => Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 4 }));
+  await openSquare(page);
+  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#ai-detect').click();
+  const dialog = page.locator('.ai-dialog');
+  await page.evaluate((base64) => {
+    window.viewer.aiDetect.addModelFile(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'detect.onnx'));
+  }, model('detect.onnx'));
+  // One worker on 3 threads, the fourth core left to the page.
+  await expect(dialog.locator('.ai-model-info')).toContainText('CPU（WebAssembly）（3 スレッド）で実行');
+  await dialog.locator('summary').click();
+  await dialog.getByLabel('スコアのしきい値').fill('0.5');
+  await dialog.getByRole('button', { name: '実行' }).click();
+  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成しました', { timeout: 30_000 });
+
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#ai-segment').click();
+  const panel = page.locator('.ai-segment-panel');
+  await page.evaluate(
+    ([encoder, decoder]) => {
+      const file = (base64: string, name: string) => new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], name);
+      window.viewer.aiSegment.addModelFiles([file(decoder, 'mini_decoder.onnx'), file(encoder, 'mini_encoder.onnx')]);
+    },
+    [model('sam-encoder.onnx'), model('sam-decoder.onnx')],
+  );
+  await expect(panel.locator('.ai-segment-note')).toContainText('準備ができました');
+  const box = (await page.locator('#map').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出しました', { timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
