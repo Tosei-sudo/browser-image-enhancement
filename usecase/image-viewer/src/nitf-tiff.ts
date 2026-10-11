@@ -23,6 +23,8 @@ import { WGS84_KEYS } from './sensor-projection.js';
 import proj4 from 'proj4';
 import { parseCoordinate } from './coordinates.js';
 import { ascii } from './overviews.js';
+import { J2K_COMPRESSION, J2K_TAG, readJ2kLayout } from './j2k.js';
+import { NITF_JPEG_COMPRESSION } from './jpeg-blocks.js';
 
 /** A NITF file as a TIFF the viewer opens, and what it says about itself. */
 export interface NitfAsTiff {
@@ -96,11 +98,18 @@ export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
   }
   const image = segments[0];
   const ic = image.compression;
-  if (ic !== 'NC' && ic !== 'NM') throw new Error(`${COMPRESSIONS[ic] ?? ic} で圧縮された NITF には対応していません（非圧縮のみ）`);
+  const jpeg = ic === 'C3' || ic === 'M3';
+  const j2k = ic === 'C8' || ic === 'M8';
+  if (ic !== 'NC' && ic !== 'NM' && !jpeg && !j2k) throw new Error(`${COMPRESSIONS[ic] ?? ic} で圧縮された NITF には対応していません（非圧縮・JPEG・JPEG 2000 のみ）`);
   if (![8, 16, 32, 64].includes(image.nbpp)) throw new Error(`${image.nbpp} ビットの画素には対応していません`);
+  if (jpeg && image.nbpp !== 8) throw new Error(`${image.nbpp} ビットの JPEG 圧縮には対応していません（8 ビットのみ）`);
+  if ((jpeg || j2k) && segments.length > 1) throw new Error('複数の画像セグメントに分かれた圧縮画像には対応していません');
 
   const complex = complexKindOf(image, sicd);
-  const layout = await blockLayout(file, segments, complex !== null);
+  if (complex !== null && (jpeg || j2k)) throw new Error('圧縮された複素数の画像には対応していません');
+  const codestream = j2k ? await j2kLayoutOf(file, image) : null;
+  const layout = codestream ?? (jpeg ? await jpegLayout(file, image) : await blockLayout(file, segments, complex !== null));
+  if (codestream?.interleaved) notes.push('JPEG 2000 のタイルが分かれて並んでいるため、表示に時間がかかることがあります');
   const rows = segments.reduce((n, s) => n + s.rows, 0);
   const entries: Entry[] = [
     { tag: 256, type: LONG, values: [image.cols] },
@@ -119,7 +128,7 @@ export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
   const rgb = complex === null && samples === 3 && image.bands.map((b) => b.represent).join('') === 'RGB';
   entries.push(
     { tag: 258, type: SHORT, values: new Array(samples).fill(bits) },
-    { tag: 259, type: SHORT, values: [complex === null ? 1 : COMPLEX_COMPRESSION] },
+    { tag: 259, type: SHORT, values: [complex !== null ? COMPLEX_COMPRESSION : jpeg ? NITF_JPEG_COMPRESSION : j2k ? J2K_COMPRESSION : 1] },
     { tag: 262, type: SHORT, values: [rgb ? 2 : 1] },
     { tag: 277, type: SHORT, values: [samples] },
     { tag: 284, type: SHORT, values: [layout.planar ? 2 : 1] },
@@ -141,6 +150,7 @@ export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
       { tag: 279, type: LONG8, values: layout.counts },
     );
   }
+  if (codestream) entries.push({ tag: J2K_TAG, type: BYTE, values: Array.from(codestream.header) });
   if (complex !== null) entries.push({ tag: COMPLEX_TAG, type: DOUBLE, values: [complex, ...(complex === ComplexKind.AmpPhase8 && sicd?.ampTable ? sicd.ampTable : [])] });
 
   // Where it goes: the RPC model, else the corners.
@@ -314,6 +324,137 @@ async function blockLayout(file: Blob, segments: NitfImage[], complex: boolean):
   return { tiled: true, planar, blockWidth: width, blockHeight: height, offsets, counts, padValue };
 }
 
+/** The largest JPEG 2000 tile decoded at once, in pixels. */
+const MAX_J2K_TILE = 64 * 1024 * 1024;
+
+/** Tiles of the TIFF for a JPEG 2000 image: the codestream's own tiles, decoded one by one. */
+async function j2kLayoutOf(file: Blob, image: NitfImage): Promise<BlockLayout & { header: Uint8Array; interleaved: boolean }> {
+  const mask = image.compression === 'M8' ? await readMask(file, image) : null;
+  const start = mask?.dataStart ?? image.dataOffset;
+  const end = image.dataOffset + image.dataLength;
+  const j2k = await readJ2kLayout(file, start, end);
+  const { siz } = j2k;
+  if (siz.width - siz.x0 !== image.cols || siz.height - siz.y0 !== image.rows) throw new Error('JPEG 2000 の画像の大きさが NITF のヘッダーと合いません');
+  if (siz.x0 !== siz.tileX0 || siz.y0 !== siz.tileY0) throw new Error('タイルの原点が画像とずれた JPEG 2000 には対応していません');
+  if (siz.components.some((c) => c.dx !== 1 || c.dy !== 1)) throw new Error('間引いた成分のある JPEG 2000 には対応していません');
+  if (siz.tileWidth * siz.tileHeight > MAX_J2K_TILE && siz.tileWidth * siz.tileHeight > image.cols * image.rows / 2) {
+    throw new Error(`タイル分割されていない大きな JPEG 2000（${image.cols.toLocaleString()} × ${image.rows.toLocaleString()} px を一度に展開）には対応していません`);
+  }
+  return {
+    tiled: true,
+    planar: false,
+    blockWidth: Math.min(siz.tileWidth, image.cols),
+    blockHeight: Math.min(siz.tileHeight, image.rows),
+    offsets: j2k.tiles.map((t) => t.offset),
+    counts: j2k.tiles.map((t) => t.length),
+    padValue: mask?.padValue ?? null,
+    header: j2k.header,
+    interleaved: j2k.interleaved,
+  };
+}
+
+/** Reads a file a few megabytes at a time, byte by byte. */
+class ByteReader {
+  private chunk = new Uint8Array(0);
+  private chunkStart = 0;
+  constructor(
+    private readonly file: Blob,
+    readonly end: number,
+  ) {}
+  async at(p: number): Promise<number> {
+    if (p < this.chunkStart || p >= this.chunkStart + this.chunk.length) {
+      this.chunkStart = p;
+      this.chunk = new Uint8Array(await this.file.slice(p, Math.min(p + (4 << 20), this.end)).arrayBuffer());
+      if (!this.chunk.length) return -1;
+    }
+    return this.chunk[p - this.chunkStart];
+  }
+}
+
+/**
+ * Where each JPEG stream (one per block, or per block and band) is between
+ * `start` and `end`: found by reading the streams' markers and scanning their
+ * entropy-coded data for the end of image.
+ */
+async function scanJpegStreams(file: Blob, start: number, end: number, count: number): Promise<Array<{ offset: number; length: number }>> {
+  const r = new ByteReader(file, end);
+  const streams: Array<{ offset: number; length: number }> = [];
+  let p = start;
+  while (streams.length < count && p < end) {
+    // The next SOI.
+    while (p + 1 < end && !((await r.at(p)) === 0xff && (await r.at(p + 1)) === 0xd8)) p++;
+    if (p + 1 >= end) break;
+    const offset = p;
+    p += 2;
+    for (;;) {
+      if (p + 2 > end) throw new Error('JPEG のブロックが途中で切れています');
+      if ((await r.at(p)) !== 0xff) throw new Error('JPEG のブロックが読めません');
+      const marker = await r.at(p + 1);
+      if (marker === 0xff) {
+        p++; // fill byte
+        continue;
+      }
+      if (marker === 0xd9) {
+        p += 2;
+        break;
+      }
+      const length = ((await r.at(p + 2)) << 8) | (await r.at(p + 3));
+      p += 2 + length;
+      if (marker !== 0xda) continue;
+      // Entropy-coded data: up to the next marker that is not a stuffed zero or a restart.
+      for (;;) {
+        if (p + 1 >= end) throw new Error('JPEG のブロックが途中で切れています');
+        if ((await r.at(p)) === 0xff) {
+          const next = await r.at(p + 1);
+          if (next !== 0 && !(next >= 0xd0 && next <= 0xd7) && next !== 0xff) break;
+          p += 2;
+        } else p++;
+      }
+    }
+    streams.push({ offset, length: p - offset });
+  }
+  if (streams.length < count) throw new Error(`JPEG のブロックが足りません（${streams.length} / ${count}）`);
+  return streams;
+}
+
+/** Tiles of the TIFF for a JPEG compressed image: each block is a JPEG stream of its own (one per band when the bands are apart). */
+async function jpegLayout(file: Blob, image: NitfImage): Promise<BlockLayout> {
+  const bands = image.bands.length;
+  const blocks = image.blocksPerRow * image.blocksPerCol;
+  const width = image.blockWidth || image.cols;
+  const height = image.blockHeight || image.rows;
+  const planar = bands > 1 && image.mode !== 'P';
+  const count = planar ? blocks * bands : blocks;
+  const end = image.dataOffset + image.dataLength;
+  let streams: Array<{ offset: number; length: number }>;
+  let padValue: number | null = null;
+  const mask = image.compression === 'M3' ? await readMask(file, image) : null;
+  if (mask?.blockOffsets) {
+    padValue = mask.padValue;
+    // Each stream runs to where the next one starts.
+    const starts = [...new Set(mask.blockOffsets.filter((o) => o !== 0xffffffff).map((o) => mask.dataStart + o)), end].sort((a, b) => a - b);
+    const lengthOf = (o: number) => starts[starts.indexOf(o) + 1] - o;
+    const per = mask.blockOffsets.length === count ? mask.blockOffsets : null;
+    if (!per) throw new Error('JPEG のブロックマスクが読めません');
+    streams = per.map((o) => (o === 0xffffffff ? { offset: 0, length: 0 } : { offset: mask.dataStart + o, length: lengthOf(mask.dataStart + o) }));
+  } else {
+    streams = await scanJpegStreams(file, mask?.dataStart ?? image.dataOffset, end, count);
+  }
+  const offsets: number[] = [];
+  const counts: number[] = [];
+  const planes = planar ? bands : 1;
+  for (let b = 0; b < planes; b++) {
+    for (let k = 0; k < blocks; k++) {
+      // By block, a block's bands follow each other; band sequential, a band's blocks do.
+      const s = !planar ? streams[k] : image.mode === 'S' ? streams[b * blocks + k] : streams[k * bands + b];
+      offsets.push(s.offset);
+      counts.push(s.length);
+    }
+  }
+  // Tiles as large as the JPEG blocks, past the image's edge if the blocks are.
+  return { tiled: true, planar, blockWidth: width, blockHeight: height, offsets, counts, padValue };
+}
+
 /** RPC00A coefficient i is RPC00B coefficient RPC00A_TO_B[i]. */
 const RPC00A_TO_B = [0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9, 11, 14, 17, 12, 15, 18, 13, 16, 19];
 
@@ -481,12 +622,13 @@ function infoRows(nitf: NitfFile, image: NitfImage, sicd: SicdInfo | null, segme
 
 // ---- A BigTIFF header with one image directory ----
 
+const BYTE = 1;
 const ASCII = 2;
 const SHORT = 3;
 const LONG = 4;
 const DOUBLE = 12;
 const LONG8 = 16;
-const TYPE_SIZE: Record<number, number> = { [ASCII]: 1, [SHORT]: 2, [LONG]: 4, [DOUBLE]: 8, [LONG8]: 8 };
+const TYPE_SIZE: Record<number, number> = { [BYTE]: 1, [ASCII]: 1, [SHORT]: 2, [LONG]: 4, [DOUBLE]: 8, [LONG8]: 8 };
 
 interface Entry {
   tag: number;
@@ -539,7 +681,7 @@ function writeValues(view: DataView, at: number, e: Entry): void {
   const step = TYPE_SIZE[e.type];
   e.values.forEach((v, k) => {
     const p = at + k * step;
-    if (e.type === ASCII) view.setUint8(p, v);
+    if (e.type === ASCII || e.type === BYTE) view.setUint8(p, v);
     else if (e.type === SHORT) view.setUint16(p, v);
     else if (e.type === LONG) view.setUint32(p, v);
     else if (e.type === LONG8) view.setBigUint64(p, BigInt(v));

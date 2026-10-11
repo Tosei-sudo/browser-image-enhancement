@@ -69,9 +69,26 @@ test('a NITF and a SICD open, are placed where they belong and are drawn', async
   expect(errors).toEqual([]);
 });
 
-test('a JPEG 2000 NITF is refused with the reason', async ({ page }) => {
+test('JPEG 2000 and JPEG NITF open and are drawn', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
-  await choose(page, ['jpeg2000.ntf']);
-  await expect(page.locator('#status')).toContainText('JPEG 2000 で圧縮された NITF には対応していません');
+
+  await choose(page, ['jpeg2000-rgb.ntf']);
+  await expect(page.locator('#status')).toContainText('jpeg2000-rgb.ntf を開きました');
+  await expect(page.locator('#info')).toContainText('JPEG 2000');
+  await expect.poll(() => drawn(page)).toBeGreaterThan(5);
+
+  await choose(page, ['jpeg-rgb.ntf']);
+  await expect(page.locator('#status')).toContainText('jpeg-rgb.ntf を開きました');
+  await expect(page.locator('#info')).toContainText('JPEG');
+  expect(errors).toEqual([]);
+});
+
+test('a NITF in a compression not read is refused with the reason', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await choose(page, ['lossless-jpeg.ntf']);
+  await expect(page.locator('#status')).toContainText('可逆 JPEG で圧縮された NITF には対応していません');
 });
