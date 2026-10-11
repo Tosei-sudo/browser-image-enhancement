@@ -170,7 +170,7 @@ export function resampleMesh(
           }
         }
       }
-      out[o] = got && round ? Math.round(value) : value;
+      out[o] = got ? offFill(round ? Math.round(value) : value, fill) : value;
       if (got) count++;
     }
   }
@@ -202,8 +202,23 @@ export function samplesOf(type: SampleType, length: number): SampleArray {
   return signed ? new Int32Array(length) : new Uint32Array(length);
 }
 
-/** The output's no-data value: NaN for floats, 0 for integers. */
-export const fillOf = (type: SampleType): number => (type.format === 3 ? NaN : 0);
+/**
+ * The output's no-data value: NaN for floats, 0 for 8-bit unsigned (where 0
+ * is the usual black collar), else the end of the type's range, so a real 0
+ * (sea level in a DEM, say) keeps its value: the largest unsigned value, the
+ * smallest signed one.
+ */
+export function fillOf(type: SampleType): number {
+  if (type.format === 3) return NaN;
+  const bits = Math.min(type.bits, 32);
+  if (type.format === 2) return -(2 ** (bits - 1));
+  return bits === 8 ? 0 : 2 ** bits - 1;
+}
+
+/** `value` moved one step off `fill` when it would read as no data (a 0 of 8-bit unsigned stays: that is no data there). */
+export function offFill(value: number, fill: number): number {
+  return value === fill && fill !== 0 ? (fill > 0 ? value - 1 : value + 1) : value;
+}
 
 /** An extent `[minX, minY, maxX, maxY]`. */
 export type Box = [number, number, number, number];

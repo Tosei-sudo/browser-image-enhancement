@@ -128,4 +128,16 @@ describe('makeMosaicBlock', () => {
     expect(made.max).toEqual([200]);
     expect(made.covered).toBe(6);
   });
+
+  it('keeps a real 0 of a 16-bit DEM instead of making it no data', () => {
+    const a = read(0, 4, 1, (x) => (x < 2 ? 0 : -5), block);
+    const made = makeMosaicBlock(task([a], 12, 1, { type: { format: 2, bits: 16 } }));
+    const out = new Int16Array(made.tiles[0].bytes.slice().buffer);
+    expect(Array.from(out.subarray(0, 4))).toEqual([0, 0, -5, -5]);
+    // Past the image: no data, the end of the range.
+    expect(out[4]).toBe(-32768);
+    expect(made.min).toEqual([-5]);
+    expect(made.max).toEqual([0]);
+    expect(made.covered).toBe(4);
+  });
 });

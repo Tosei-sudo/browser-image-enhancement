@@ -12,7 +12,7 @@
  * block is looked up with a margin of `feather` pixels around it, so the
  * distance to an image's edge is the same on both sides of a block border.
  */
-import { MESH_STEP, fillOf, samplesOf, type CompositeBlock, type Resampling, type SampleType } from './composite.js';
+import { MESH_STEP, fillOf, offFill, samplesOf, type CompositeBlock, type Resampling, type SampleType } from './composite.js';
 import { cutTiles, type TileSamples } from './tiff-stream.js';
 
 /** All the bands of one image as read for a block: `width` × `height` pixels of `window` (full-resolution pixels), `bands` interleaved. */
@@ -265,7 +265,7 @@ export function makeMosaicBlock(task: MosaicTask): CompositeBlock {
         data[i] = fill;
         continue;
       }
-      const v = round ? Math.round(sums[i] / weights[i]) : sums[i] / weights[i];
+      const v = offFill(round ? Math.round(sums[i] / weights[i]) : sums[i] / weights[i], fill);
       data[i] = v;
       any = true;
       if (v < min[b]) min[b] = v;
