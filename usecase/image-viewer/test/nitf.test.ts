@@ -1,14 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { fromArrayBuffer } from 'geotiff';
+import { fromArrayBuffer, ImageFileDirectory } from 'geotiff';
 import { isNitf, readNitf } from '../src/nitf.js';
 import { cornersOf, nitfAsTiff } from '../src/nitf-tiff.js';
 import { planOverviews } from '../src/overviews.js';
 import { sensorPlacementOf, tiffInfo } from '../src/satellite.js';
 import { parseSicd } from '../src/sicd.js';
+import { readJ2kLayout, readSiz, tileCodestream, tileGrid } from '../src/j2k.js';
+import { decodeJ2k } from '../src/j2k-decoder.js';
+import { jpegIsRgb, ycbcrToRgb } from '../src/jpeg-blocks.js';
 import { sensorPlacement } from '../src/sensor-projection.js';
 
 // Made with GDAL's NITF driver and sarpy's SICD writer: 40 × 30 pixels.
+// The JPEG 2000 ones are lossless (NPJE_NUMERICALLY_LOSSLESS), in 32 × 32 tiles; lossless-jpeg.ntf is rgb-blocks.ntf with IC C5 (and a COMRAT).
 const W = 40;
 const H = 30;
 const fixture = (name: string) => new File([readFileSync(new URL(`./data/nitf/${name}`, import.meta.url))], name);
@@ -116,6 +120,22 @@ describe('NITF as a GeoTIFF', () => {
   });
 });
 
+describe('big-endian arrays read a piece at a time', () => {
+  // In a browser, arrays past the first piece of a directory read are deferred, and geotiff.js read them
+  // as little-endian; src/geotiff-big-endian.ts (loaded with overviews.ts) reads them in the file's order.
+  it('reads a deferred big-endian array of tile offsets right', async () => {
+    const bytes = new DataView(new ArrayBuffer(24));
+    [5, 70000, 2 ** 40].forEach((v, k) => bytes.setBigUint64(k * 8, BigInt(v)));
+    const source = { fetch: async ([s]: Array<{ offset: number; length: number }>) => [bytes.buffer.slice(s.offset, s.offset + s.length)] };
+    const deferred = (tag: number) => new Map([[tag, { source, arrayOffset: 0, littleEndian: false, fieldType: 16, length: 3, data: new Array(3), itemSize: 8 }]]);
+    const directory = new ImageFileDirectory(new Map(), new Map(), deferred(324) as never, 0);
+    expect(Number(await directory.loadValueIndexed('TileOffsets', 1))).toBe(70000);
+    expect(Array.from((await directory.loadValue('TileOffsets')) as ArrayLike<number>, Number)).toEqual([5, 70000, 2 ** 40]);
+    const other = new ImageFileDirectory(new Map(), new Map(), deferred(325) as never, 0);
+    expect(Array.from((await other.loadValue('TileByteCounts')) as ArrayLike<number>, Number)).toEqual([5, 70000, 2 ** 40]);
+  });
+});
+
 describe('SICD', () => {
   it('reads the XML: pixel type, corners and facts', async () => {
     const { nitf } = await open('re32f.sicd');
@@ -163,8 +183,72 @@ describe('SICD', () => {
   });
 });
 
+describe('compressed NITF', () => {
+  const rgb = [expected((x) => (x * 5) % 256), expected((_, y) => (y * 7) % 256), expected((x, y) => (x + y) % 256)];
+  /** Lossy JPEG: within `tolerance` of what was written. */
+  const near = (got: number[][], want: number[][], tolerance: number) =>
+    expect(Math.max(...got.flatMap((band, b) => band.map((v, i) => Math.abs(v - want[b][i]))))).toBeLessThanOrEqual(tolerance);
+
+  it.each(['jpeg2000-rgb.ntf', 'jpeg2000-one-tile.ntf'])('reads the JPEG 2000 tiles of %s (lossless) exactly', async (name) => {
+    expect(await pixels(name)).toEqual(rgb);
+    const { nitf, image } = await open(name);
+    expect(nitf.image.compression).toBe('C8');
+    expect(image.fileDirectory.getValue('PhotometricInterpretation')).toBe(2);
+  });
+
+  it('reads 16-bit JPEG 2000, unsigned and signed', async () => {
+    expect(await pixels('jpeg2000-u16.ntf')).toEqual([expected((x, y) => (x * 3 + y * 2) * 7)]);
+    expect(await pixels('jpeg2000-int16.ntf')).toEqual([expected((x, y) => x - y * 3)]);
+  });
+
+  it('makes a codestream of each JPEG 2000 tile, with the image area cut to the tile', async () => {
+    const file = fixture('jpeg2000-rgb.ntf');
+    const [image] = (await readNitf(file)).images;
+    const layout = await readJ2kLayout(file, image.dataOffset, image.dataOffset + image.dataLength);
+    expect(tileGrid(layout.siz)).toEqual([2, 1]);
+    expect(layout.interleaved).toBe(false);
+    const { offset, length } = layout.tiles[1];
+    const bytes = new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
+    const { codestream, index } = tileCodestream(layout.header, bytes);
+    expect(index).toBe(1);
+    const siz = readSiz(codestream);
+    expect([siz.x0, siz.y0, siz.width, siz.height, siz.tileWidth, siz.tileHeight]).toEqual([32, 0, 40, 30, 8, 30]);
+    const tile = await decodeJ2k(codestream);
+    expect([tile.width, tile.height, tile.components]).toEqual([8, 30, 3]);
+    expect(tile.data[0]).toBe(32 * 5);
+  });
+
+  it.each(['jpeg-rgb.ntf', 'jpeg-masked.ntf'])('reads the JPEG blocks of %s as RGB', async (name) => {
+    // Within what JPEG decoders differ by (GDAL's libjpeg reads these within 4).
+    near(await pixels(name), rgb, 8);
+    const { nitf } = await open(name);
+    expect(nitf.image.compression).toBe(name === 'jpeg-rgb.ntf' ? 'C3' : 'M3');
+  });
+
+  it('reads a grey JPEG', async () => {
+    near(await pixels('jpeg-gray.ntf'), [expected((x) => (x * 5) % 256)], 1);
+  });
+
+  it.each(['jpeg2000-rgb.ntf', 'jpeg-rgb.ntf'])('gets an RSET of %s like any GeoTIFF', async (name) => {
+    const { nitf } = await open(name);
+    const plan = await planOverviews(nitf.file, { geo: { modelPixelScale: [1, 1, 0], modelTiepoint: [0, 0, 0, 0, 0, 0] } });
+    const out = await fromArrayBuffer(await (await plan!.build()).arrayBuffer());
+    expect(await out.getImageCount()).toBeGreaterThan(1);
+  });
+
+  it('turns YCbCr into RGB unless an Adobe marker says the JPEG holds RGB', () => {
+    const data = Uint8Array.of(76, 85, 255, 150, 128, 128);
+    ycbcrToRgb(data);
+    expect(Array.from(data)).toEqual([254, 0, 0, 150, 150, 150]);
+    const adobe = (transform: number) => Uint8Array.of(0xff, 0xd8, 0xff, 0xee, 0, 14, ...[...'Adobe'].map((c) => c.charCodeAt(0)), 0, 100, 0, 0, 0, 0, transform, 0xff, 0xda);
+    expect(jpegIsRgb(adobe(0))).toBe(true);
+    expect(jpegIsRgb(adobe(1))).toBe(false);
+    expect(jpegIsRgb(Uint8Array.of(0xff, 0xd8, 0xff, 0xda))).toBe(false);
+  });
+});
+
 describe('NITF that cannot be read', () => {
-  it('says JPEG 2000 is not read', async () => {
-    await expect(nitfAsTiff(fixture('jpeg2000.ntf'))).rejects.toThrow(/JPEG 2000/);
+  it('says which compression is not read', async () => {
+    await expect(nitfAsTiff(fixture('lossless-jpeg.ntf'))).rejects.toThrow(/には対応していません/);
   });
 });
