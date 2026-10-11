@@ -119,7 +119,7 @@ export function viewScales(size: readonly number[], pixelRatio: number, max = MA
 }
 
 /** The pixel ratio the map draws at. */
-function pixelRatioOf(map: OlMap): number {
+export function pixelRatioOf(map: OlMap): number {
   return (map as unknown as { pixelRatio_?: number }).pixelRatio_ ?? window.devicePixelRatio ?? 1;
 }
 
@@ -202,22 +202,28 @@ export interface DrawnView {
  * Draws the view `scale` times larger (same area, finer tiles) and returns it
  * composed into one canvas; the map is put back as it was afterwards. With
  * `only`, every other layer is hidden while drawing (the AI tools look at
- * one image).
+ * one image). With `part` (x, y, width, height in CSS pixels of the larger
+ * view), only that block of it is drawn, so a very large view can be drawn
+ * piece by piece.
  */
-export async function drawView(map: OlMap, scale = 1, only?: BaseLayer): Promise<DrawnView> {
+export async function drawView(map: OlMap, scale = 1, only?: BaseLayer, part?: readonly [number, number, number, number]): Promise<DrawnView> {
   const size = map.getSize();
   const view = map.getView();
   const resolution = view.getResolution();
-  if (!size || !resolution) throw new Error('地図が表示されていません');
+  const center = view.getCenterInternal();
+  if (!size || !resolution || !center) throw new Error('地図が表示されていません');
   const ratio = pixelRatioOf(map);
-  const big = [Math.round(size[0] * scale), Math.round(size[1] * scale)];
+  const big = part ? [part[2], part[3]] : [Math.round(size[0] * scale), Math.round(size[1] * scale)];
+  // The centre of the block, from where it is in the view as shown now.
+  const partCenter = part ? map.getCoordinateFromPixelInternal([(part[0] + part[2] / 2) / scale, (part[1] + part[3] / 2) / scale]) : null;
   const keep = new Set<BaseLayer>(only instanceof LayerGroup ? only.getLayersArray() : only ? [only] : []);
   const hidden = only ? map.getAllLayers().filter((l) => !keep.has(l) && l.getVisible()) : [];
   try {
     for (const l of hidden) l.setVisible(false);
-    if (scale !== 1) {
+    if (scale !== 1 || part) {
       // The map draws into a larger viewport (clipped on screen) at a finer resolution: the same area, more pixels.
       map.setSize(big);
+      if (partCenter) view.setCenterInternal(partCenter);
       view.setResolution(resolution / scale);
       if (Math.abs(view.getResolution()! * scale - resolution) > resolution * 1e-6) {
         throw new Error(`この表示からは ${scale} 倍に拡大できません（ズームの上限です）`);
@@ -234,8 +240,9 @@ export async function drawView(map: OlMap, scale = 1, only?: BaseLayer): Promise
     return { canvas, geo, skipped, placement };
   } finally {
     for (const l of hidden) l.setVisible(true);
-    if (scale !== 1) {
+    if (scale !== 1 || part) {
       map.setSize(size);
+      view.setCenterInternal(center);
       view.setResolution(resolution);
     }
   }

@@ -27,9 +27,9 @@ import { shortName, type ViewerLayer } from './images.js';
 import { markOrigin } from './ai/transfer.js';
 import type { ProcessingResult } from './processing/common.js';
 import { field } from './processing/common.js';
-import { drawView, type DrawnView } from './view-export.js';
+import { drawView, pixelRatioOf, type DrawnView } from './view-export.js';
 import { detectorSpec, type AiModelConfig, type DetectModelConfig, type SamModelConfig } from './ai/model-config.js';
-import { boxCorners, decodeYolo, instanceMask, nms, offset, tilesOf, tileTensor, type Detection } from './ai/detect.js';
+import { blocksOf, boxCorners, decodeYolo, instanceMask, nms, offset, tilesOf, tileTensor, type Detection } from './ai/detect.js';
 import { maskOutline, type PixelPolygon } from './ai/mask-outline.js';
 import { partAt, SAM_MEAN, SAM_STD, samMask, samPrompt, samScale, samTensor, type SamPoint } from './ai/sam.js';
 import { backendLabel, modelFrom, nameOf, tensor, type LoadedModel } from './ai/runtime.js';
@@ -203,7 +203,7 @@ export class DetectDialog {
         <details class="wide pansharpen-more">
           <summary>詳細設定</summary>
           <div class="service-form">
-            <label>解析の細かさ<select name="scale" aria-label="解析の細かさ"><option value="1">画面のまま</option><option value="2">2 倍</option><option value="4">4 倍</option></select></label>
+            <label>解析の細かさ<select name="scale" aria-label="解析の細かさ"><option value="1">画面のまま</option><option value="2">2 倍</option><option value="4">4 倍</option><option value="8">8 倍</option><option value="16">16 倍</option></select></label>
             <label>スコアのしきい値<input name="score" type="number" min="0.01" max="0.99" step="0.05" aria-label="スコアのしきい値" /></label>
             <label>重なりの判定（IoU）<input name="iou" type="number" min="0.05" max="0.95" step="0.05" aria-label="重なりの判定" /></label>
             <label>タイルの重なり（%）<input name="overlap" type="number" min="0" max="50" step="5" value="20" aria-label="タイルの重なり" /></label>
@@ -313,32 +313,51 @@ export class DetectDialog {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
 
-      this.note_.textContent = '画像を描いています…';
-      await breathe();
-      const drawn = await drawView(this.map, Number(form.get('scale')) || 1, layer.layer);
-      const { width, height } = drawn.canvas;
-      const rgba = drawn.canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, width, height).data;
-      const tiles = tilesOf(width, height, spec.inputSize, Math.min(0.5, Math.max(0, Number(form.get('overlap')) / 100 || 0)));
+      // A large scale is drawn and analysed block by block, so memory stays bounded.
+      const scale = Number(form.get('scale')) || 1;
+      const ratio = pixelRatioOf(this.map);
+      const blocks = blocksOf(this.map.getSize()!, scale, ratio, Math.max(...spec.inputSize));
+      const overlap = Math.min(0.5, Math.max(0, Number(form.get('overlap')) / 100 || 0));
       const [tw, th] = spec.inputSize;
       const input = nameOf(model.session.inputNames, 'images', 0);
       const found: Detection[] = [];
-      let done = 0;
-      for (const [x0, y0] of tiles) {
+      let toMap: ((p: readonly [number, number]) => [number, number]) | null = null;
+      let tileCount = 0;
+      for (const [b, block] of blocks.entries()) {
         if (running.cancelled) throw new Error('中止しました');
-        this.note_.textContent = `解析しています… ${++done} / ${tiles.length} タイル（${backendLabel(model.backend)}）`;
-        if (isEmpty(rgba, width, height, x0, y0, tw, th)) continue;
+        const where = blocks.length > 1 ? `ブロック ${b + 1} / ${blocks.length}・` : '';
+        this.note_.textContent = `${where}画像を描いています…`;
         await breathe();
-        found.push(...(await detectTile(model, input, rgba, width, height, x0, y0, spec)));
+        const drawn = await drawView(this.map, scale, layer.layer, blocks.length > 1 ? block : undefined);
+        // Pixels of every block are counted from the larger view's corner.
+        const [bx, by] = [Math.round(block[0] * ratio), Math.round(block[1] * ratio)];
+        if (!toMap) {
+          const { origin, right, down } = drawn.placement;
+          const corner: [number, number] = [origin[0] - bx * right[0] - by * down[0], origin[1] - bx * right[1] - by * down[1]];
+          toMap = placementOf({ ...drawn, placement: { origin: corner, right, down } }).toMap;
+        }
+        const { width, height } = drawn.canvas;
+        const rgba = drawn.canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, width, height).data;
+        const tiles = tilesOf(width, height, spec.inputSize, overlap);
+        tileCount += tiles.length;
+        let done = 0;
+        for (const [x0, y0] of tiles) {
+          if (running.cancelled) throw new Error('中止しました');
+          this.note_.textContent = `${where}解析しています… ${++done} / ${tiles.length} タイル（${backendLabel(model.backend)}）`;
+          if (isEmpty(rgba, width, height, x0, y0, tw, th)) continue;
+          await breathe();
+          found.push(...(await detectTile(model, input, rgba, width, height, x0, y0, spec)).map((d) => offset(d, bx, by)));
+        }
+        drawn.canvas.width = drawn.canvas.height = 0;
       }
       const names = spec.classes;
       const nameOfClass = (cls: number) => names[cls] ?? `class ${cls}`;
       const kept = nms(found, spec.iou).filter((d) => !wanted.length || wanted.includes(nameOfClass(d.cls).toLowerCase()) || wanted.includes(String(d.cls)));
 
-      const { toMap } = placementOf(drawn);
       const features = kept.map((d) => {
         const rings = d.outline ?? [boxCorners(d)];
         const feature = new Feature({
-          geometry: polygonOf(rings, toMap),
+          geometry: polygonOf(rings, toMap!),
           class: nameOfClass(d.cls),
           class_id: d.cls,
           score: Math.round(d.score * 1000) / 1000,
@@ -347,7 +366,7 @@ export class DetectDialog {
         return feature;
       });
       if (!features.length) {
-        this.note_.textContent = `見つかりませんでした（${tiles.length} タイル、スコア ${spec.score} 以上）。拡大するか、しきい値を下げてみてください`;
+        this.note_.textContent = `見つかりませんでした（${tileCount} タイル、スコア ${spec.score} 以上）。拡大するか、しきい値を下げてみてください`;
         return;
       }
       const fields = [field('class', 'string', 'クラス'), field('class_id', 'integer', 'クラス番号'), field('score', 'double', 'スコア')];
@@ -362,7 +381,7 @@ export class DetectDialog {
         title: `物体検出（${label}）`,
         features,
         fields,
-        notes: [`${summary}（${tiles.length} タイル、${backendLabel(model.backend)}、${seconds} 秒）`],
+        notes: [`${summary}（${tileCount} タイル、${backendLabel(model.backend)}、${seconds} 秒）`],
       };
       await this.options.onResult(result, `物体検出 ${label}・スコア ${spec.score} 以上（${layer.name}）`);
       this.dialog.close();

@@ -112,6 +112,49 @@ test('detects objects over the view and adds them as a temporary layer', async (
   expect(errors).toEqual([]);
 });
 
+test('draws and analyses an 8 times larger view block by block', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openSquare(page);
+  // Zoomed out 8 times: at 8 times the detail, the square has as many pixels as at 1× before.
+  await page.evaluate(() => {
+    const view = window.viewer.map.getView();
+    view.setResolution(view.getResolution()! * 8);
+  });
+  await page.evaluate(() => new Promise((resolve) => window.viewer.map.once('rendercomplete', resolve)));
+  const blocks = await page.evaluate(() => window.viewer.map.getSize()!.map((n) => Math.ceil((n * 8 * devicePixelRatio) / 4096)));
+  expect(blocks[0] * blocks[1]).toBeGreaterThan(1);
+
+  await page.evaluate((base64) => {
+    window.viewer.aiDetect.open();
+    window.viewer.aiDetect.addModelFile(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'detect.onnx'));
+  }, model('detect.onnx'));
+  const dialog = page.locator('.ai-dialog');
+  await expect(dialog.locator('.ai-model-info')).toContainText('2 クラス');
+  await dialog.locator('summary').click();
+  await dialog.getByLabel('解析の細かさ').selectOption('8');
+  await dialog.getByLabel('スコアのしきい値').fill('0.5');
+  await dialog.getByRole('button', { name: '実行' }).click();
+  await expect(page.locator('#status')).toContainText('を作成しました', { timeout: 60_000 });
+
+  const found = await page.evaluate(() => {
+    const layer = window.viewer.images.layers()[0];
+    if (layer.type !== 'service') return null;
+    const view = window.viewer.map.getView();
+    return { extent: layer.service.vector!.source.getExtent()!, center: view.getCenter()!, resolution: view.getResolution()! };
+  });
+  const { extent, center, resolution } = found!;
+  // The cells cover the square where it is (to a cell of 16 pixels at 8 times the detail), across the blocks.
+  const cell = (16 * resolution) / 8;
+  expect(Math.abs((extent[0] + extent[2]) / 2 - center[0])).toBeLessThan(cell);
+  expect(Math.abs((extent[1] + extent[3]) / 2 - center[1])).toBeLessThan(cell);
+  expect(Math.abs(extent[2] - extent[0] - squareOnMap)).toBeLessThan(2 * cell);
+  expect(Math.abs(extent[3] - extent[1] - squareOnMap)).toBeLessThan(2 * cell);
+  // The map is back as it was.
+  expect(await page.evaluate(() => window.viewer.map.getView().getResolution())).toBeCloseTo(resolution);
+  expect(errors).toEqual([]);
+});
+
 test('outlines the object under a click with Segment Anything', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
