@@ -27,7 +27,7 @@ import WebGLTileLayer, { type Options, type Style } from 'ol/layer/WebGLTile.js'
 import type { FrameState } from 'ol/Map.js';
 import { listen, unlistenByKey, type EventsKey } from 'ol/events.js';
 import { getIntersection, isEmpty } from 'ol/extent.js';
-import { createGpuRenderer, histogram, type GpuRenderer } from '../index.js';
+import { colorScalePalette, createGpuRenderer, histogram, pipeline, type ColorScale, type ColorScaleOptions, type GpuRenderer } from '../index.js';
 import { warn } from '../warn.js';
 import EnhancedGeoTIFF from './enhanced-geotiff.js';
 import TileCorrection from './tile-correction.js';
@@ -42,7 +42,24 @@ export interface GpuCorrectedTileLayerOptions extends Options {
    * `EnhancedGeoTIFF`, which keeps its own pipeline.
    */
   correction?: TileCorrection;
+  /** A color scale for a monochrome image (see {@link GpuCorrectedTileLayer.setColorScale}). Default none. */
+  colorScale?: LayerColorScale | null;
+  /** How the layer is blended with the layers under it (see {@link GpuCorrectedTileLayer.setBlendMode}). Default `normal`. */
+  blendMode?: LayerBlendMode;
 }
+
+/** A color scale with its options, as {@link GpuCorrectedTileLayer.setColorScale} takes it. */
+export interface LayerColorScale extends ColorScaleOptions {
+  /** A preset's name (`'red'`, `'inferno'`…) or the scale's stops. */
+  scale: ColorScale;
+}
+
+/**
+ * How a layer is laid over the layers under it, as CSS `mix-blend-mode`:
+ * `screen` adds light (red over cyan shows white where both are bright),
+ * `difference` shows where two images differ, `multiply` darkens.
+ */
+export type LayerBlendMode = 'normal' | 'screen' | 'lighten' | 'darken' | 'multiply' | 'difference';
 
 /**
  * `ol/layer/WebGLTile` that corrects the drawn map on the GPU with the
@@ -67,16 +84,21 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private readonly stretch_ = { b0: 0, b1: 0, b2: 0, s0: 0, s1: 0, s2: 0, ready: 0 };
   /** Frames corrected so far. */
   frames = 0;
+  private colorScale_: LayerColorScale | null = null;
+  private palette_: Uint8ClampedArray | null = null;
+  private blendMode_: LayerBlendMode = 'normal';
 
   constructor(options: GpuCorrectedTileLayerOptions = {}) {
     // A class name of its own gives the layer its own WebGL canvas: OpenLayers
     // otherwise shares one canvas between neighbouring WebGL layers.
-    const { correction, ...layerOptions } = options;
+    const { correction, colorScale, blendMode, ...layerOptions } = options;
     super({ className: 'ol-layer gpu-corrected', ...layerOptions });
     this.userStyle_ = options.style ?? {};
     this.correction_ = correction ?? null;
     this.correctionKey_ = correction ? listen(correction, 'change', () => this.changed()) : null;
     this.useGpu_ = options.gpu !== false;
+    if (colorScale) this.setColorScale(colorScale);
+    if (blendMode) this.blendMode_ = blendMode;
     this.gpu_ = this.useGpu_ ? createGpuRenderer({ canvas: this.output_ }) : null;
     // The browser drops WebGL contexts when the GPU resets or too many pages use
     // it. Until the context is back the map shows the tiles as read; then the
@@ -106,27 +128,76 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     return this.correction_;
   }
 
+  /**
+   * Colors the corrected map with a color scale (pseudo-color): each pixel
+   * by its gray value, black at one end of the scale and white at the other.
+   * Meant for monochrome images (a SAR scene, one band); a colored image is
+   * colored by its luminance. Null shows the image as corrected. Done on the
+   * GPU after the correction, so a new scale only redraws the map; without
+   * WebGL2 the map is shown uncolored.
+   */
+  setColorScale(colorScale: LayerColorScale | null): void {
+    this.palette_ = colorScale ? colorScalePalette(colorScale.scale, colorScale) : null;
+    this.colorScale_ = colorScale ? { ...colorScale } : null;
+    this.changed();
+  }
+
+  /** The color scale set with {@link GpuCorrectedTileLayer.setColorScale}, or null. */
+  getColorScale(): LayerColorScale | null {
+    return this.colorScale_ ? { ...this.colorScale_ } : null;
+  }
+
+  /**
+   * Sets how the layer is laid over the layers under it (CSS
+   * `mix-blend-mode` of its canvas). With `screen`, two scenes in red and
+   * in cyan show white where both are bright and their own color where only
+   * one is: a two-date color composite, without resampling either.
+   */
+  setBlendMode(mode: LayerBlendMode): void {
+    this.blendMode_ = mode;
+    this.changed();
+  }
+
+  /** The blend mode set with {@link GpuCorrectedTileLayer.setBlendMode} (`normal` by default). */
+  getBlendMode(): LayerBlendMode {
+    return this.blendMode_;
+  }
+
   /** The canvas the corrected map is shown on (for reading pixels in tests). */
   getOutputCanvas(): HTMLCanvasElement {
     return this.output_;
   }
 
   override render(frameState: FrameState | null, target: HTMLElement): HTMLElement {
+    return this.blend_(this.correct_(frameState, target));
+  }
+
+  /** Sets the blend mode on the element shown (OpenLayers may return none, for a frame it does not draw). */
+  private blend_(element: HTMLElement): HTMLElement {
+    if (!element?.style) return element;
+    const mode = this.blendMode_ === 'normal' ? '' : this.blendMode_;
+    if (element.style.mixBlendMode !== mode) element.style.mixBlendMode = mode;
+    return element;
+  }
+
+  private correct_(frameState: FrameState | null, target: HTMLElement): HTMLElement {
     this.updateStretch_();
     const drawn = super.render(frameState, target);
     const source = this.getSource();
     const gpu = this.gpu_;
     if (!(drawn instanceof HTMLCanvasElement) || !gpu || !frameState) return drawn;
     const correcting = source instanceof EnhancedGeoTIFF ? (source.correctsTiles() ? null : source) : this.correction_;
-    if (!correcting) return drawn;
+    const palette = this.palette_;
+    if (!correcting && !palette) return drawn;
     if (correcting instanceof TileCorrection && correcting.wantsStats()) this.sampleStats_(drawn, correcting, frameState);
-    const pipeline = correcting.getEffectivePipeline();
-    const colorMode = correcting.getColorMode();
-    if (pipeline.ops.length === 0 || !colorMode) return drawn;
+    // Tiles corrected by the source (or another source) are only colored here.
+    const steps = correcting ? correcting.getEffectivePipeline() : pipeline();
+    const colorMode = correcting ? correcting.getColorMode() : 'rgb';
+    if ((steps.ops.length === 0 && !palette) || !colorMode) return drawn;
     if (drawn.width > gpu.maxSize || drawn.height > gpu.maxSize) return drawn;
 
     gpu.setImage(drawn, { colorMode });
-    gpu.render(pipeline);
+    gpu.render(steps, { palette });
     this.frames++;
     // Shown in place of the WebGL canvas, with its position, size and opacity.
     const out = this.output_;

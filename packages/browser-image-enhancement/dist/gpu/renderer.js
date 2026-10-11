@@ -3,7 +3,8 @@ import { COLOR_ONLY_OPS, isIdentity, kernelRadius, normalizeOp } from "../ops/in
 import { forGray, resolveMode } from "../core/process.js";
 import { countPixels, needsStats, resolveOps } from "../core/histogram.js";
 import { warnColorOnly } from "../functional.js";
-import { CURVE_SAMPLES, DECODE, PRESENT, VERTEX, curveRow, horizontalShader, opParams, pixelShader, verticalShader } from "./shaders.js";
+import { applyPalette } from "../color-scale.js";
+import { CURVE_SAMPLES, DECODE, PRESENT, PRESENT_PALETTE, VERTEX, curveRow, horizontalShader, opParams, pixelShader, verticalShader } from "./shaders.js";
 //#region src/gpu/renderer.ts
 /**
 * WebGL2 renderer: the same corrections as the JS engine, computed on the GPU
@@ -63,6 +64,10 @@ var Renderer = class {
 	kernel;
 	/** Samples of the curves of the `curve` steps being rendered, one row each. */
 	curves;
+	/** The palette of the last render (256 x 1 RGBA8), and the table it was uploaded from. */
+	palette;
+	paletteData = null;
+	lastPalette = null;
 	/** Row of {@link Renderer.curves} of each `curve` step being rendered. */
 	curveRows = /* @__PURE__ */ new Map();
 	source = null;
@@ -89,6 +94,7 @@ var Renderer = class {
 		this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
 		this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, /* @__PURE__ */ new Float32Array(1));
 		this.curves = this.texture(gl.RGBA32F, 1, 1, gl.RGBA, gl.FLOAT, /* @__PURE__ */ new Float32Array(4));
+		this.palette = this.texture(gl.RGBA8, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, null);
 	}
 	setImage(image, options = {}) {
 		const pixels = "data" in image ? image : null;
@@ -124,7 +130,7 @@ var Renderer = class {
 			this.canvas.height = height;
 		}
 	}
-	render(steps) {
+	render(steps, options = {}) {
 		const image = this.image;
 		if (!image || !this.source) throw new Error("Call setImage before render.");
 		const gl = this.gl;
@@ -170,7 +176,19 @@ var Renderer = class {
 			input = 1 - input;
 			i = next;
 		}
-		this.pass(PRESENT, null, [["u_src", this.use("result").texture]], []);
+		const palette = options.palette ?? null;
+		this.lastPalette = palette;
+		if (!palette) {
+			this.pass(PRESENT, null, [["u_src", this.use("result").texture]], []);
+			return;
+		}
+		if (palette.length < 1024) throw new RangeError(`A palette has 256 RGBA entries (1024 values), got ${palette.length}.`);
+		if (palette !== this.paletteData) {
+			gl.bindTexture(gl.TEXTURE_2D, this.palette);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, Uint8Array.from({ length: 1024 }, (_, i) => palette[i]));
+			this.paletteData = palette;
+		}
+		this.pass(PRESENT_PALETTE, null, [["u_src", this.use("result").texture], ["u_palette", this.palette]], []);
 	}
 	read() {
 		const image = this.image;
@@ -181,6 +199,7 @@ var Renderer = class {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, result.framebuffer);
 		gl.readPixels(0, 0, image.width, image.height, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(out.buffer));
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		if (this.lastPalette) applyPalette(out, this.lastPalette);
 		return createImageData(out, image.width, image.height);
 	}
 	dispose() {
@@ -190,6 +209,7 @@ var Renderer = class {
 		gl.deleteTexture(this.lut);
 		gl.deleteTexture(this.kernel);
 		gl.deleteTexture(this.curves);
+		gl.deleteTexture(this.palette);
 		for (const p of this.programs.values()) gl.deleteProgram(p);
 		this.programs.clear();
 		gl.deleteShader(this.vertex);

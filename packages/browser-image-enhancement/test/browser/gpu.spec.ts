@@ -172,3 +172,33 @@ test('reads another canvas directly, the same as its pixels', async ({ page }) =
   expect(r.redrawn).toEqual([0, 0, 0, 255]);
   expect(r.stretch).toBe('TypeError');
 });
+
+test('colors the result through a palette, on the canvas and when read', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const { lib } = window;
+    const d = new Uint8ClampedArray(4 * 4 * 4);
+    for (let i = 0; i < 16; i++) d.set([i * 16, i * 16, i * 16, i === 15 ? 128 : 255], i * 4);
+    const image = new ImageData(d, 4, 4);
+    const canvas = document.createElement('canvas');
+    const gpu = lib.createGpuRenderer({ canvas })!;
+    gpu.setImage(image, { colorMode: 'gray' });
+    const palette = lib.colorScalePalette('red');
+    gpu.render(lib.pipeline().gamma(1), { palette });
+    const read = Array.from(gpu.read().data);
+    const expected = Array.from(lib.applyPalette(new Uint8ClampedArray(d), palette));
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    ctx.canvas.width = ctx.canvas.height = 4;
+    ctx.drawImage(canvas, 0, 0);
+    const shown = Array.from(ctx.getImageData(0, 0, 4, 4).data);
+    gpu.render([]);
+    const plain = Array.from(gpu.read().data.subarray(0, 8));
+    gpu.dispose();
+    return { read, expected, shown: shown.slice(0, 12), plain };
+  });
+  expect(result.read).toEqual(result.expected);
+  // The canvas shows red: no green or blue anywhere.
+  expect(result.shown.filter((_, i) => i % 4 === 1 || i % 4 === 2).every((v) => v === 0)).toBe(true);
+  expect(result.shown[4]).toBe(16);
+  // Without a palette the next render is gray again.
+  expect(result.plain).toEqual([0, 0, 0, 255, 16, 16, 16, 255]);
+});

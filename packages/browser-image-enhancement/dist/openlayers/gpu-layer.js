@@ -1,5 +1,7 @@
 import { warn } from "../warn.js";
 import { histogram } from "../stats.js";
+import { pipeline } from "../pipeline.js";
+import { colorScalePalette } from "../color-scale.js";
 import { createGpuRenderer } from "../gpu/renderer.js";
 import EnhancedGeoTIFF from "./enhanced-geotiff.js";
 import TileCorrection from "./tile-correction.js";
@@ -63,8 +65,11 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	};
 	/** Frames corrected so far. */
 	frames = 0;
+	colorScale_ = null;
+	palette_ = null;
+	blendMode_ = "normal";
 	constructor(options = {}) {
-		const { correction, ...layerOptions } = options;
+		const { correction, colorScale, blendMode, ...layerOptions } = options;
 		super({
 			className: "ol-layer gpu-corrected",
 			...layerOptions
@@ -73,6 +78,8 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		this.correction_ = correction ?? null;
 		this.correctionKey_ = correction ? listen(correction, "change", () => this.changed()) : null;
 		this.useGpu_ = options.gpu !== false;
+		if (colorScale) this.setColorScale(colorScale);
+		if (blendMode) this.blendMode_ = blendMode;
 		this.gpu_ = this.useGpu_ ? createGpuRenderer({ canvas: this.output_ }) : null;
 		this.output_.addEventListener("webglcontextlost", (event) => {
 			event.preventDefault();
@@ -95,25 +102,67 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	getCorrection() {
 		return this.correction_;
 	}
+	/**
+	* Colors the corrected map with a color scale (pseudo-color): each pixel
+	* by its gray value, black at one end of the scale and white at the other.
+	* Meant for monochrome images (a SAR scene, one band); a colored image is
+	* colored by its luminance. Null shows the image as corrected. Done on the
+	* GPU after the correction, so a new scale only redraws the map; without
+	* WebGL2 the map is shown uncolored.
+	*/
+	setColorScale(colorScale) {
+		this.palette_ = colorScale ? colorScalePalette(colorScale.scale, colorScale) : null;
+		this.colorScale_ = colorScale ? { ...colorScale } : null;
+		this.changed();
+	}
+	/** The color scale set with {@link GpuCorrectedTileLayer.setColorScale}, or null. */
+	getColorScale() {
+		return this.colorScale_ ? { ...this.colorScale_ } : null;
+	}
+	/**
+	* Sets how the layer is laid over the layers under it (CSS
+	* `mix-blend-mode` of its canvas). With `screen`, two scenes in red and
+	* in cyan show white where both are bright and their own color where only
+	* one is: a two-date color composite, without resampling either.
+	*/
+	setBlendMode(mode) {
+		this.blendMode_ = mode;
+		this.changed();
+	}
+	/** The blend mode set with {@link GpuCorrectedTileLayer.setBlendMode} (`normal` by default). */
+	getBlendMode() {
+		return this.blendMode_;
+	}
 	/** The canvas the corrected map is shown on (for reading pixels in tests). */
 	getOutputCanvas() {
 		return this.output_;
 	}
 	render(frameState, target) {
+		return this.blend_(this.correct_(frameState, target));
+	}
+	/** Sets the blend mode on the element shown (OpenLayers may return none, for a frame it does not draw). */
+	blend_(element) {
+		if (!element?.style) return element;
+		const mode = this.blendMode_ === "normal" ? "" : this.blendMode_;
+		if (element.style.mixBlendMode !== mode) element.style.mixBlendMode = mode;
+		return element;
+	}
+	correct_(frameState, target) {
 		this.updateStretch_();
 		const drawn = super.render(frameState, target);
 		const source = this.getSource();
 		const gpu = this.gpu_;
 		if (!(drawn instanceof HTMLCanvasElement) || !gpu || !frameState) return drawn;
 		const correcting = source instanceof EnhancedGeoTIFF ? source.correctsTiles() ? null : source : this.correction_;
-		if (!correcting) return drawn;
+		const palette = this.palette_;
+		if (!correcting && !palette) return drawn;
 		if (correcting instanceof TileCorrection && correcting.wantsStats()) this.sampleStats_(drawn, correcting, frameState);
-		const pipeline = correcting.getEffectivePipeline();
-		const colorMode = correcting.getColorMode();
-		if (pipeline.ops.length === 0 || !colorMode) return drawn;
+		const steps = correcting ? correcting.getEffectivePipeline() : pipeline();
+		const colorMode = correcting ? correcting.getColorMode() : "rgb";
+		if (steps.ops.length === 0 && !palette || !colorMode) return drawn;
 		if (drawn.width > gpu.maxSize || drawn.height > gpu.maxSize) return drawn;
 		gpu.setImage(drawn, { colorMode });
-		gpu.render(pipeline);
+		gpu.render(steps, { palette });
 		this.frames++;
 		const out = this.output_;
 		out.className = drawn.className;

@@ -11,7 +11,8 @@
  * (project.ts), or asks for them. Temporary layers (processing results) are
  * kept whole, since they live nowhere else.
  */
-import type { PipelineJSON } from 'browser-image-enhancement';
+import { colorScales, type PipelineJSON } from 'browser-image-enhancement';
+import type { LayerBlendMode, LayerColorScale } from 'browser-image-enhancement/openlayers';
 import { serviceNames, type Field, type ServiceRef } from './services/index.js';
 import { settingsOf } from './services/esri-rules.js';
 import type { VectorStyleSpec } from './vector-style.js';
@@ -74,6 +75,10 @@ export interface ProjectLayer {
   bands?: [number, number, number];
   /** Whether the DRA range was locked. */
   draLocked?: boolean;
+  /** The color scale of a one-band image (see colorize-dialog.ts). */
+  colorScale?: LayerColorScale;
+  /** How an image is laid over the layers under it, when not `normal`. */
+  blend?: LayerBlendMode;
   /** Symbols and labels, for vector layers. */
   style?: VectorStyleSpec;
   /** A GeoTIFF used as elevation data. */
@@ -216,6 +221,9 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
   if (isObject(raw.pipeline) && raw.pipeline.version === 1 && Array.isArray(raw.pipeline.ops)) layer.pipeline = raw.pipeline as unknown as PipelineJSON;
   if (Array.isArray(raw.bands) && raw.bands.length === 3 && raw.bands.every((b) => Number.isInteger(b) && (b as number) >= 0)) layer.bands = raw.bands as [number, number, number];
   if (raw.draLocked === true) layer.draLocked = true;
+  const scale = readColorScale(raw.colorScale);
+  if (scale) layer.colorScale = scale;
+  if (typeof raw.blend === 'string' && blendModes.includes(raw.blend as LayerBlendMode)) layer.blend = raw.blend as LayerBlendMode;
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
   if (raw.dem === true) layer.dem = true;
   if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
@@ -227,6 +235,21 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
     if (isNumber(t.time)) layer.time.time = t.time;
   }
   return layer;
+}
+
+const blendModes: readonly LayerBlendMode[] = ['normal', 'screen', 'lighten', 'darken', 'multiply', 'difference'];
+
+/** A saved color scale: a preset's name or stops (a position and 3 or 4 numbers each). */
+function readColorScale(raw: unknown): LayerColorScale | null {
+  if (!isObject(raw)) return null;
+  const s = raw.scale;
+  const named = typeof s === 'string' && Object.hasOwn(colorScales, s);
+  const stops =
+    Array.isArray(s) &&
+    s.length > 0 &&
+    s.every((stop) => Array.isArray(stop) && isNumber(stop[0]) && Array.isArray(stop[1]) && (stop[1].length === 3 || stop[1].length === 4) && stop[1].every(isNumber));
+  if (!named && !stops) return null;
+  return { scale: s as LayerColorScale['scale'], ...(raw.reverse === true ? { reverse: true } : {}), ...(raw.fade === true ? { fade: true } : {}) };
 }
 
 const heightModes = ['auto', 'orthometric', 'ground', 'ellipsoid'] as const;

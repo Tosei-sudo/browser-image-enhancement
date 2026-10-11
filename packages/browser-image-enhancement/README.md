@@ -417,6 +417,9 @@ slider.oninput = () => source.setPipeline(current());
   - パイプラインに `autoStretch`（DRA）がないときは `rawStretch` の設定で画像全体の統計から引き伸ばします。範囲を固定するときは `rawStretch: { black, white }`、自動ストレッチの設定を変えるときは `rawStretch: { lowPercent: 2, highPercent: 2 }` のように渡します。
   - `autoStretch` があるときは、その設定（方式・クリップ・RGB 連動）で元の値を表示範囲の統計（`updateDra(map)`）から引き伸ばし、8bit での `autoStretch` は掛けません。
   - `correctTiles: false`（GPU で描画時に補正）では、タイルを元の値のまま float でレイヤーに渡し、`GpuCorrectedTileLayer` のシェーダで引き伸ばします（`gpuStretch`、既定 true）。8bit に丸めるのは描くときの 1 回だけで、DRA や `rawStretch` を変えてもタイルは作り直さず、地図を描き直すだけです。float テクスチャを補間できないブラウザ（`OES_texture_float_linear` がない）や `gpuStretch: false` では、これまでどおり読み込み時に 8bit へ引き伸ばします。このときレイヤーの `getData()` は元の値を返します。表示した色が要るときは描いた canvas を読んでください
+- カラースケール（疑似カラー）: `layer.setColorScale({ scale: 'red' })` で、白黒の画像（SAR・パンクロ・1 バンド）を黒→赤のように色を付けて描きます。プリセットは `red` `green` `blue` `cyan` `magenta` `yellow` `orange` `inferno` `viridis` `turbo` `blueWhiteRed` `gray`、または `[[0, [0, 0, 0]], [1, [255, 128, 0]]]` のような位置と色の並びです。`reverse`（反転）・`fade`（暗い所を透明に）も指定できます。補正のあと GPU で色を付けるので、スケールを変えても地図を描き直すだけです（WebGL2 がないときは白黒のまま）。`null` で元に戻ります
+- 重ね方: `layer.setBlendMode('screen')` で下のレイヤーとの重ね方（CSS の `mix-blend-mode`：`screen`・`difference`・`lighten`・`darken`・`multiply`）を変えます。2 時期の画像を赤とシアンにして後の方を `screen` で重ねると、変わらない所は白黒、片方だけ明るい所はその色になり、RGB 合成と同じ見え方を再サンプリングなしで得られます
+- 画像そのものに色を付けるときは `colorScalePalette(scale, options)`（256 色の RGBA 表）と `applyPalette(data, palette)`、GPU では `createGpuRenderer` の `render(pipeline, { palette })` を使えます
 
 WMS・WMTS・XYZ など普通の画像のタイルも、`ol/source/ImageTile`（`crossOrigin: 'anonymous'`）と `TileCorrection` で同じように GPU 補正できます。補正と DRA の統計は `TileCorrection` が持ち、DRA は描いた地図から統計を取ります。
 
