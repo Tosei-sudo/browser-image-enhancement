@@ -34,6 +34,8 @@ import { listen, unlistenByKey } from "ol/events.js";
 * its pipeline from a {@link TileCorrection} given as `correction`, and DRA
 * takes its statistics from the map the layer has drawn.
 */
+/** Layers made so far, for their own class names. */
+let layerCount = 0;
 /**
 * `ol/layer/WebGLTile` that corrects the drawn map on the GPU with the
 * pipeline of its {@link EnhancedGeoTIFF} source (created with
@@ -68,6 +70,8 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	colorScale_ = null;
 	palette_ = null;
 	blendMode_ = "normal";
+	/** The class name that gives the layer a WebGL canvas of its own (see {@link GpuCorrectedTileLayer.getClassName}). */
+	ownClass_ = `gpu-own-${++layerCount}`;
 	constructor(options = {}) {
 		const { correction, colorScale, blendMode, ...layerOptions } = options;
 		super({
@@ -93,6 +97,23 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 			this.gpu_ = createGpuRenderer({ canvas: this.output_ });
 			this.changed();
 		});
+	}
+	/**
+	* OpenLayers draws neighbouring WebGL layers of the same class name on one
+	* canvas, so a layer that colors, corrects or blends what it drew would do
+	* it to the layers under it too. Such a layer gets a class name of its own,
+	* hence a canvas of its own; the others keep sharing one (a WebGL context
+	* fewer each).
+	*/
+	getClassName() {
+		const base = super.getClassName();
+		return this.ownClass_ && this.ownsCanvas_() ? `${base} ${this.ownClass_}` : base;
+	}
+	/** Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}). */
+	ownsCanvas_() {
+		if (this.palette_ || this.blendMode_ !== "normal" || this.correction_) return true;
+		const source = this.getSource();
+		return source instanceof EnhancedGeoTIFF && !source.correctsTiles();
 	}
 	/** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
 	hasGpu() {

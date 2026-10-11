@@ -55,7 +55,19 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private colorScale_;
   private palette_;
   private blendMode_;
+  /** The class name that gives the layer a WebGL canvas of its own (see {@link GpuCorrectedTileLayer.getClassName}). */
+  private readonly ownClass_;
   constructor(options?: GpuCorrectedTileLayerOptions);
+  /**
+   * OpenLayers draws neighbouring WebGL layers of the same class name on one
+   * canvas, so a layer that colors, corrects or blends what it drew would do
+   * it to the layers under it too. Such a layer gets a class name of its own,
+   * hence a canvas of its own; the others keep sharing one (a WebGL context
+   * fewer each).
+   */
+  getClassName(): string;
+  /** Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}). */
+  private ownsCanvas_;
   /** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
   hasGpu(): boolean;
   /** The `correction` given in the options, or null. */
