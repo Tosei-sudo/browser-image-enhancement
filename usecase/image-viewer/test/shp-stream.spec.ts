@@ -134,3 +134,38 @@ test('a large Shapefile in a .zip is streamed from the .zip, without unpacking i
   await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('円');
   expect(errors).toEqual([]);
 });
+
+test('on the GPU, a large Shapefile hides with its layer and is not drawn afresh when the view loads new features', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/index.html?shpstream=always&vectorgl=always');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.setInputFiles('#open input[type=file]', circles(30, 40));
+  await expect(page.locator('#status')).toContainText('circles を開きました');
+  await expect.poll(() => featureCount(page)).toBe(900);
+  await expect(page.locator('#map .gl-vector')).toHaveCount(1);
+  // The WebGL layer's renderer stays the same while the map moves and features load (a new one is blank until built).
+  const mark = () =>
+    page.evaluate(() => {
+      const layer = window.viewer.images.layers()[0];
+      if (layer.type !== 'service') return false;
+      const style = layer.service.style as unknown as { gl_: { gl_: { getRenderer(): object } } };
+      const renderer = style.gl_.gl_.getRenderer() as { __mark?: boolean };
+      const marked = !!renderer.__mark;
+      renderer.__mark = true;
+      return marked;
+    });
+  expect(await mark()).toBe(false);
+  await page.evaluate(() => {
+    const view = window.viewer.map.getView();
+    view.setZoom(view.getZoom()! + 2);
+  });
+  await expect.poll(() => featureCount(page)).toBeLessThan(900);
+  expect(await mark()).toBe(true);
+  // Hidden: the WebGL drawing goes with the layer.
+  await page.evaluate(() => window.viewer.images.setVisible(window.viewer.images.layers()[0], false));
+  await expect(page.locator('#map .gl-vector')).toHaveCount(0);
+  await page.evaluate(() => window.viewer.images.setVisible(window.viewer.images.layers()[0], true));
+  await expect(page.locator('#map .gl-vector')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

@@ -250,7 +250,10 @@ export class StreamedVector {
     worker.onmessage = (event: MessageEvent<ShpReply>) => this.reply_(event.data);
     this.keys_ = [
       // Added to the map, or taken off it.
-      this.layer.on('propertychange', (e) => e.key === 'map' && this.attach_()),
+      // A listener returning false stops OpenLayers calling the next ones (the GPU drawing follows visibility this way): never return a value.
+      this.layer.on('propertychange', (e) => {
+        if (e.key === 'map') this.attach_();
+      }),
       this.layer.on(['change:visible', 'change:maxResolution', 'change:minResolution'], () => this.request()),
     ].flat();
     this.attach_();
