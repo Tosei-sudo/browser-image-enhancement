@@ -1049,6 +1049,27 @@ body {
 .composite-B select {
   border-left-color: #3e63dd;
 }
+.mosaic-images {
+  display: grid;
+  gap: 4px;
+}
+.mosaic-list {
+  max-height: 12rem;
+  margin: 0;
+  padding: 4px 4px 4px 2rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.mosaic-list label.check {
+  overflow-wrap: anywhere;
+}
+.mosaic-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .colorize-pair > summary,
 .composite-more > summary {
   cursor: pointer;

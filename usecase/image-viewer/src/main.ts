@@ -65,6 +65,7 @@ import { imageTime } from './timeline.js';
 import type { ProcessingResult } from './processing/common.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
 import { CompositeDialog } from './composite-dialog.js';
+import { MosaicDialog } from './mosaic-dialog.js';
 import { ColorizeDialog } from './colorize-dialog.js';
 import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
@@ -428,6 +429,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
   rasterTools: [
     { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
     { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
+    { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
     { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
   ],
 });
@@ -604,6 +606,12 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
 const timeOfImage = async (image: ViewerImage) => (await imageTime(image))?.time ?? null;
 const colorize = new ColorizeDialog(images, { say, timeOf: timeOfImage, onChange: () => updateLink() });
 const composite = new CompositeDialog(images, loader, {
+  say,
+  timeOf: timeOfImage,
+  open: (file) => openImageFile(file, fileContext()),
+});
+// Mosaics (from the processing dialog): neighbouring scenes joined into one, the first in priority order on top.
+const mosaic = new MosaicDialog(images, loader, {
   say,
   timeOf: timeOfImage,
   open: (file) => openImageFile(file, fileContext()),
@@ -907,6 +915,7 @@ declare global {
       panSharpen: PanSharpenDialog;
       colorize: ColorizeDialog;
       composite: CompositeDialog;
+      mosaic: MosaicDialog;
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
       aiTransfer: TransferDialog;
@@ -927,4 +936,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, composite, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, composite, mosaic, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules };
