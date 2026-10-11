@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type GeoTIFF from 'ol/source/GeoTIFF.js';
-import { floatNoData, isEightBit, keepEightBitRange } from '../../src/openlayers/geotiff-samples.js';
+import { floatNoData, isEightBit, keepEightBitRange, KNOWN_FILL_VALUES, valuesTest } from '../../src/openlayers/geotiff-samples.js';
 
 /** A stand-in for an OpenLayers GeoTIFF source after it opened its images. */
 function source(bits: number, format: number, nodata: number | null = null, levels = 1): GeoTIFF {
@@ -40,5 +40,21 @@ describe('GeoTIFF samples', () => {
     expect(floatNoData(source(32, 3, -9999))).toBeNull();
     expect(floatNoData(source(16, 1, 0.1))).toBeNull();
     expect(floatNoData(source(32, 3, null))).toBeNull();
+  });
+
+  it('tests no-data values as a float image holds them', () => {
+    const test = valuesTest([0, 0.1], false)!;
+    expect(test(0)).toBe(true);
+    expect(test(Math.fround(0.1))).toBe(true);
+    expect(test(1)).toBe(false);
+    expect(test(NaN)).toBe(false);
+    expect(valuesTest([], false)).toBeNull();
+    expect(valuesTest([], true)!(NaN)).toBe(true);
+  });
+
+  it('matches the usual fill values, the lowest float however it is rounded', () => {
+    const test = valuesTest(KNOWN_FILL_VALUES, true)!;
+    for (const v of [-9999, -32768, -3.40282e38, Math.fround(-3.40282e38), -3.4028234663852886e38, 3.4028234663852886e38, NaN]) expect(test(v)).toBe(true);
+    for (const v of [0, 255, 65535, -1, 1e30]) expect(test(v)).toBe(false);
   });
 });

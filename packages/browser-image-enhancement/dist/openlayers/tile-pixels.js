@@ -1,7 +1,7 @@
 //#region src/openlayers/tile-pixels.ts
-/** Makes transparent the pixels of a raw tile (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
+/** Makes transparent the pixels of a tile as read (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
 function maskNoData(data, bands, isNoData) {
-	if (!(data instanceof Float32Array) || bands < 2) return data;
+	if (!(data instanceof Float32Array || data instanceof Uint8Array || data instanceof Uint8ClampedArray) || bands < 2) return data;
 	for (let p = 0; p < data.length; p += bands) {
 		if (data[p + bands - 1] === 0) continue;
 		let all = true;

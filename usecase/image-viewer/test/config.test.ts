@@ -122,6 +122,19 @@ describe('imageRules', () => {
     expect(steps.pipeline?.toJSON().ops).toEqual([{ op: 'brightness', amount: 0.1 }]);
   });
 
+  it('reads no-data values to make transparent', () => {
+    const { config, problems } = parseConfig({
+      imageRules: [
+        { match: 'a', noData: 0 },
+        { match: 'b', noData: [0, -1, 'x'] },
+        { match: 'c', noData: { auto: false, values: [255] } },
+        { match: 'd', noData: 'zero' },
+      ],
+    });
+    expect(config.imageRules.map((r) => r.noData)).toEqual([{ values: [0] }, { values: [0, -1] }, { auto: false, values: [255] }]);
+    expect(problems).toHaveLength(2);
+  });
+
   it('takes the first rule that matches, ignoring case unless told', () => {
     const { config } = parseConfig({
       imageRules: [

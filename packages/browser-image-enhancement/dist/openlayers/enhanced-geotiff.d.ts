@@ -58,6 +58,12 @@ export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
    * (`DESCRIPTION` in GDAL's metadata, e.g. `NIR`); see `getBandNames`.
    */
   bandNames?: ReadonlyArray<string | null>;
+  /**
+   * Which pixels are no data and drawn transparent (see {@link NoDataOptions}).
+   * Default `{ auto: true }`: the file's no-data value and the usual fill
+   * values. Can be changed later with `setNoData`.
+   */
+  noData?: NoDataOptions;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -76,6 +82,30 @@ export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
   cpuReprojection?: boolean;
   /** How long a new tile fades in, in milliseconds; 0 for none. Default 100 (OpenLayers' own is 250). */
   transition?: number;
+}
+/**
+ * Which pixels are no data. A pixel is transparent when every one of its
+ * bands holds a no-data value. Values are compared as read: raw values for
+ * images read raw (`normalize: false`, or `'auto'` on 16-bit and float
+ * images), 0-255 for 8-bit ones.
+ */
+export interface NoDataOptions {
+  /**
+   * Use the file's own no-data value (`GDAL_NODATA`), NaN, and fill values
+   * that usually mean no data in files that do not say so: -9999, -32768
+   * and the lowest and highest float (default true). False shows the values
+   * the file marks as no data as they are (only `values` are transparent).
+   */
+  auto?: boolean;
+  /** More values that stand for no data, 0 for the black collar around a warped image for example. Default none. */
+  values?: readonly number[];
+}
+/** The no-data setting in use (see {@link EnhancedGeoTIFF.getNoData}): {@link NoDataOptions} with its defaults. */
+export interface NoDataSetting {
+  /** Whether the file's no-data value, NaN and the usual fill values are no data. */
+  auto: boolean;
+  /** More values that stand for no data, sorted. */
+  values: number[];
 }
 /** What the last DRA statistics were taken from. */
 export interface DraInfo {
@@ -134,8 +164,11 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private rawAlpha_;
   /** True when tiles are handed to the layer as 4 bands (RGB + alpha) instead of the bands as read (see `packTiles_`). */
   private packed_;
-  /** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
+  /** The test for no data that OpenLayers does not make itself (see `noData`); null for none. */
   private isNoData_;
+  private noData_;
+  /** The `nodata` of each of `sources` as given (OpenLayers' own option), put back when `auto` is set again. */
+  private sourceNoData_;
   private readonly autoNormalize_;
   private readonly rawStretchOption_;
   /** The raw stretch in use; null until the first statistics are read. */
@@ -269,6 +302,35 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   resetStats(): void;
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
   protected setLoader(loader: Loader): void;
+  /**
+   * Gives the tiles an alpha band for no data when OpenLayers would read
+   * them without one (the file has no no-data value), so that values set
+   * later (`setNoData`) can be made transparent without changing the layout
+   * of the tiles the layer was made for. Not for 2- and 4-band images: their
+   * last band is drawn as alpha already.
+   */
+  private addAlphaBand_;
+  /**
+   * Sets up the no-data test for the current `noData`: OpenLayers matches
+   * the file's no-data value itself (or, without `auto`, only NaN), and
+   * `isNoData_` the rest on the tiles it reads.
+   */
+  private applyNoData_;
+  /** Which pixels are no data now (see the `noData` option). */
+  getNoData(): NoDataSetting;
+  /**
+   * Changes which pixels are no data (see the `noData` option). Tiles are
+   * read from the COG again; DRA statistics are taken again over the last
+   * DRA area, without the new no-data pixels, and the promise resolves once
+   * they are.
+   */
+  setNoData(noData: NoDataOptions): Promise<void>;
+  /**
+   * The no-data value the file gives (`GDAL_NODATA` of its first image, or
+   * the `nodata` of `sources` as given); null when it gives none or before
+   * the COG is read.
+   */
+  getFileNoData(): number | null;
   /**
    * Hands the layer 4-band tiles (R, G, B, alpha) when the bands as read
    * would make more. OpenLayers' WebGL layer uploads every band of a tile:

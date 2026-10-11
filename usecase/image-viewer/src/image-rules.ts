@@ -31,6 +31,7 @@ export function applyImageRule(rules: readonly ImageRule[], name: string, source
   if (!rule) return undefined;
   applied.set(source, rule);
   if (rule.pipeline) source.setPipeline(rule.pipeline);
+  if (rule.noData) void source.setNoData(rule.noData).catch(() => {});
   if (rule.bands) {
     void showBands(source, rule, rule.bands).catch((error: unknown) => onProblem(`設定「${rule.label}」のバンド割り当てを使えませんでした（${error instanceof Error ? error.message : String(error)}）`));
   }

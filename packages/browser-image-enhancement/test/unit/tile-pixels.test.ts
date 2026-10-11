@@ -33,10 +33,10 @@ describe('tile pixel conversions', () => {
     expect(colorModeFor(4)).toBe('rgb');
   });
 
-  it('makes no-data pixels of a float tile transparent', () => {
+  it('makes no-data pixels of a float or 8-bit tile transparent', () => {
     const tile = new Float32Array([-9999, -9999, 1, 5, -9999, 1, -9999, -9999, 0]);
     expect(Array.from(maskNoData(tile, 3, (v) => v === -9999) as Float32Array)).toEqual([0, 0, 0, 5, -9999, 1, -9999, -9999, 0]);
-    const bytes = new Uint8Array([0, 0, 255]);
-    expect(maskNoData(bytes, 3, () => true)).toBe(bytes); // only float tiles carry no-data values
+    const bytes = new Uint8Array([0, 0, 255, 0, 7, 255]);
+    expect(Array.from(maskNoData(bytes, 3, (v) => v === 0) as Uint8Array)).toEqual([0, 0, 0, 0, 7, 255]);
   });
 });

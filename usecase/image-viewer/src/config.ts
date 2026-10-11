@@ -114,6 +114,8 @@ export interface ImageRule {
   pipeline: Pipeline | null;
   /** The bands shown as R, G and B, or one band in gray: 1-based numbers, or band names (GDAL's DESCRIPTION, e.g. "NIR"). */
   bands: Array<number | string> | null;
+  /** Which pixels are transparent (see nodata-dialog.ts); null leaves the default. */
+  noData?: { auto?: boolean; values: number[] } | null;
 }
 
 const gsi = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
@@ -294,7 +296,7 @@ const isPreset = (name: unknown): name is PresetName => typeof name === 'string'
 function imageRuleOf(value: unknown, problems: string[], index: number): ImageRule | null {
   const at = `imageRules[${index}]`;
   if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
-  const { match, caseSensitive, label, preset, enhance, bands } = value;
+  const { match, caseSensitive, label, preset, enhance, bands, noData } = value;
   if (typeof match !== 'string' || !match) return (problems.push(`${at} に match（ファイル名の正規表現）がありません`), null);
   let pattern: RegExp;
   try {
@@ -319,8 +321,17 @@ function imageRuleOf(value: unknown, problems: string[], index: number): ImageRu
     else problems.push(`${at} の bands は [赤, 緑, 青] か 1 つのバンド（1 から数えた番号かバンド名）にしてください`);
   }
 
-  if (!pipeline && !shown) return (problems.push(`${at} は補正（preset・enhance）もバンド（bands）も指定していないので無視しました`), null);
-  return { label: typeof label === 'string' && label ? label : match, match: pattern, pipeline, bands: shown };
+  // `noData`: values ([0], or one number), or { "auto": false, "values": [0] } to leave the file's own value out.
+  let transparent: ImageRule['noData'] = null;
+  if (noData !== undefined) {
+    const read = (v: unknown) => (Array.isArray(v) ? v : [v]).filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+    if (typeof noData === 'number' || Array.isArray(noData)) transparent = { values: read(noData) };
+    else if (isRecord(noData) && (noData.auto === undefined || typeof noData.auto === 'boolean')) transparent = { ...(noData.auto === false ? { auto: false } : {}), values: noData.values === undefined ? [] : read(noData.values) };
+    else problems.push(`${at} の noData は値（数値か数値の配列）か { "auto": false, "values": [0] } の形にしてください`);
+  }
+
+  if (!pipeline && !shown && !transparent) return (problems.push(`${at} は補正（preset・enhance）もバンド（bands）もノーデータ（noData）も指定していないので無視しました`), null);
+  return { label: typeof label === 'string' && label ? label : match, match: pattern, pipeline, bands: shown, ...(transparent ? { noData: transparent } : {}) };
 }
 
 /**

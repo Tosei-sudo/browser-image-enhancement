@@ -40,6 +40,12 @@
  * Tiles are then rebuilt from the raw cache with those bands in the first
  * three places (and alpha in the fourth), which is what OpenLayers draws.
  * Images with more than 4 bands show bands 0, 1, 2 unless told otherwise.
+ *
+ * No data: pixels whose bands all hold a no-data value are transparent (see
+ * `noData`): the file's own value (`GDAL_NODATA`) and the usual fill values
+ * by default, plus any values given, which can be changed at any time with
+ * `setNoData`. Tiles get an alpha band for it even when the file has no
+ * no-data value, so that one can be given later.
  */
 import GeoTIFF, { type Options as GeoTIFFOptions } from 'ol/source/GeoTIFF.js';
 import type { Loader, LoaderOptions } from 'ol/source/DataTile.js';
@@ -64,7 +70,7 @@ import { warn } from '../warn.js';
 import { cropMargin, withMargin } from './margin.js';
 import { reprojectOnCpu } from './cpu-reproject.js';
 import { readBandNames, type TiffImageLike } from './tiff-metadata.js';
-import { floatNoData, isEightBit, keepEightBitRange } from './geotiff-samples.js';
+import { floatNoData, isEightBit, keepEightBitRange, KNOWN_FILL_VALUES, valuesTest } from './geotiff-samples.js';
 import { floatTexturesFilterable } from './float-textures.js';
 import { fastReadRasters } from './fast-read.js';
 import { colorModeFor, maskNoData, selectRGBA, toRgb, toRGBA, toSelectedTile, fromRGBA } from './tile-pixels.js';
@@ -126,6 +132,12 @@ export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'
    * (`DESCRIPTION` in GDAL's metadata, e.g. `NIR`); see `getBandNames`.
    */
   bandNames?: ReadonlyArray<string | null>;
+  /**
+   * Which pixels are no data and drawn transparent (see {@link NoDataOptions}).
+   * Default `{ auto: true }`: the file's no-data value and the usual fill
+   * values. Can be changed later with `setNoData`.
+   */
+  noData?: NoDataOptions;
   /** Raw tiles kept for re-correction. Default 256 (about 64 MB for RGBA 256×256 tiles). */
   rawCacheSize?: number;
   /**
@@ -144,6 +156,32 @@ export interface EnhancedGeoTIFFOptions extends Omit<GeoTIFFOptions, 'normalize'
   cpuReprojection?: boolean;
   /** How long a new tile fades in, in milliseconds; 0 for none. Default 100 (OpenLayers' own is 250). */
   transition?: number;
+}
+
+/**
+ * Which pixels are no data. A pixel is transparent when every one of its
+ * bands holds a no-data value. Values are compared as read: raw values for
+ * images read raw (`normalize: false`, or `'auto'` on 16-bit and float
+ * images), 0-255 for 8-bit ones.
+ */
+export interface NoDataOptions {
+  /**
+   * Use the file's own no-data value (`GDAL_NODATA`), NaN, and fill values
+   * that usually mean no data in files that do not say so: -9999, -32768
+   * and the lowest and highest float (default true). False shows the values
+   * the file marks as no data as they are (only `values` are transparent).
+   */
+  auto?: boolean;
+  /** More values that stand for no data, 0 for the black collar around a warped image for example. Default none. */
+  values?: readonly number[];
+}
+
+/** The no-data setting in use (see {@link EnhancedGeoTIFF.getNoData}): {@link NoDataOptions} with its defaults. */
+export interface NoDataSetting {
+  /** Whether the file's no-data value, NaN and the usual fill values are no data. */
+  auto: boolean;
+  /** More values that stand for no data, sorted. */
+  values: number[];
 }
 
 /** What the last DRA statistics were taken from. */
@@ -205,8 +243,11 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private rawAlpha_ = false;
   /** True when tiles are handed to the layer as 4 bands (RGB + alpha) instead of the bands as read (see `packTiles_`). */
   private packed_ = false;
-  /** A float32 no-data value OpenLayers cannot match by itself (see floatNoData); null for none. */
+  /** The test for no data that OpenLayers does not make itself (see `noData`); null for none. */
   private isNoData_: ((v: number) => boolean) | null = null;
+  private noData_: NoDataSetting;
+  /** The `nodata` of each of `sources` as given (OpenLayers' own option), put back when `auto` is set again. */
+  private sourceNoData_: Array<{ has: boolean; value: unknown }> | null = null;
   private readonly autoNormalize_: boolean;
   private readonly rawStretchOption_: RasterStretch | AutoStretchOptions;
   /** The raw stretch in use; null until the first statistics are read. */
@@ -236,6 +277,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     if ('black' in this.rawStretchOption_ && 'white' in this.rawStretchOption_) this.rawStretch_ = this.rawStretchOption_;
     this.select_ = options.select ? toRgb(options.select) : null;
     this.bandNamesOption_ = options.bandNames ?? null;
+    this.noData_ = noDataOf(options.noData);
     this.pipeline_ = options.pipeline ?? pipeline();
     this.worker_ = options.worker ?? true;
     this.correctTiles_ = options.correctTiles ?? true;
@@ -258,7 +300,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** The part of the tile key that changes the tiles as read (bands, raw stretch), before the pipeline. */
   private contentKey_(): string {
     const select = this.remap_();
-    return `${select ? `:bands${select.join(',')}` : ''}${this.rawValues_ && !this.rawOnGpu_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ''}`;
+    const noData = this.noData_.auto && !this.noData_.values.length ? '' : `:nodata${JSON.stringify(this.noData_)}`;
+    return `${noData}${select ? `:bands${select.join(',')}` : ''}${this.rawValues_ && !this.rawOnGpu_ ? `:raw${JSON.stringify(this.rawStretch_)}` : ''}`;
   }
 
   /** True when raw tiles go to the layer as floats and the layer stretches them (see `gpuStretch`). */
@@ -677,6 +720,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** Called by the GeoTIFF source once the COG's metadata is read; wraps its tile loader. */
   protected override setLoader(loader: Loader): void {
     this.rawLoader_ = loader;
+    this.addAlphaBand_();
     this.rawBands_ = this.bandCount;
     this.rawAlpha_ = this.hasAlpha;
     if (this.autoNormalize_ && isEightBit(this)) {
@@ -687,7 +731,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
       this.appliedKey_ = this.tileKey_();
       this.appliedContent_ = this.contentKey_();
     }
-    this.isNoData_ = this.rawAlpha_ ? floatNoData(this) : null;
+    this.applyNoData_();
     // The band count is known now (OpenLayers sets the source ready right after this).
     if (this.select_) {
       const n = this.rawBands_ - (this.rawAlpha_ ? 1 : 0);
@@ -701,6 +745,94 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     this.preloadTileIndex_();
     const self = this as unknown as { sourceImagery_?: unknown[][]; sourceMasks_?: unknown[][] };
     for (const list of [self.sourceImagery_, self.sourceMasks_]) list?.forEach((levels) => levels?.forEach(fastReadRasters));
+  }
+
+  /**
+   * Gives the tiles an alpha band for no data when OpenLayers would read
+   * them without one (the file has no no-data value), so that values set
+   * later (`setNoData`) can be made transparent without changing the layout
+   * of the tiles the layer was made for. Not for 2- and 4-band images: their
+   * last band is drawn as alpha already.
+   */
+  private addAlphaBand_(): void {
+    if (this.hasAlpha || this.bandCount === 2 || this.bandCount === 4) return;
+    this.hasAlpha = true;
+    this.bandCount += 1;
+    this.nodataBandIndex = this.bandCount;
+  }
+
+  /**
+   * Sets up the no-data test for the current `noData`: OpenLayers matches
+   * the file's no-data value itself (or, without `auto`, only NaN), and
+   * `isNoData_` the rest on the tiles it reads.
+   */
+  private applyNoData_(): void {
+    const info = (this as unknown as { sourceInfo_?: Array<{ nodata?: unknown }> }).sourceInfo_ ?? [];
+    this.sourceNoData_ ??= info.map((s) => ({ has: 'nodata' in s, value: s.nodata }));
+    info.forEach((s, i) => {
+      const own = this.sourceNoData_![i];
+      if (!this.noData_.auto) s.nodata = NaN;
+      else if (own?.has) s.nodata = own.value;
+      else delete s.nodata;
+    });
+    const { auto, values } = this.noData_;
+    // 0-255 values hold none of the usual fill values (nor NaN): OpenLayers' own test is all there is.
+    if (!this.rawValues_ && !values.length) {
+      this.isNoData_ = null;
+      return;
+    }
+    const test = valuesTest(auto ? [...KNOWN_FILL_VALUES, ...values] : values, auto);
+    const float = auto ? floatNoData(this) : null;
+    this.isNoData_ = test && float ? (v) => test(v) || float(v) : (test ?? float);
+  }
+
+  /** Which pixels are no data now (see the `noData` option). */
+  getNoData(): NoDataSetting {
+    return { auto: this.noData_.auto, values: [...this.noData_.values] };
+  }
+
+  /**
+   * Changes which pixels are no data (see the `noData` option). Tiles are
+   * read from the COG again; DRA statistics are taken again over the last
+   * DRA area, without the new no-data pixels, and the promise resolves once
+   * they are.
+   */
+  async setNoData(noData: NoDataOptions): Promise<void> {
+    const next = noDataOf(noData);
+    if (JSON.stringify(next) === JSON.stringify(this.noData_)) return;
+    this.noData_ = next;
+    if (this.getState() !== 'ready') return;
+    this.applyNoData_();
+    this.raw_.clear();
+    // Statistics counted the old no-data pixels.
+    this.draKey_ = '';
+    if (this.autoRaw_) {
+      this.rawStretch_ = null;
+      this.rawStretchReady_ = null;
+      this.wholeRaw_ = null;
+      this.viewRaw_ = null;
+    }
+    this.reload_();
+    const info = this.draInfo_;
+    if (!info || !this.rawLoader_ || !this.pipeline_.needsStats) return;
+    const request = ++this.draRequest_;
+    const stats = await this.collectStats_(info.extent, info.z);
+    if (request !== this.draRequest_) return;
+    this.draKey_ = `${info.z}:${info.extent.join(',')}`;
+    this.applyStats_(stats);
+  }
+
+  /**
+   * The no-data value the file gives (`GDAL_NODATA` of its first image, or
+   * the `nodata` of `sources` as given); null when it gives none or before
+   * the COG is read.
+   */
+  getFileNoData(): number | null {
+    const given = this.sourceNoData_?.find((s) => s.has && typeof s.value === 'number');
+    if (given) return given.value as number;
+    const values = (this as unknown as { nodataValues_?: Array<Array<number | null>> }).nodataValues_;
+    const v = values?.[0]?.find((n) => typeof n === 'number');
+    return typeof v === 'number' ? v : null;
   }
 
   /**
@@ -860,6 +992,12 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
 }
 
 const neverAborted = new AbortController().signal;
+
+/** `noData` with its defaults, the values sorted (for comparing). */
+function noDataOf(options: NoDataOptions | undefined): NoDataSetting {
+  const values = [...new Set((options?.values ?? []).filter((v) => Number.isFinite(v)))].sort((a, b) => a - b);
+  return { auto: options?.auto ?? true, values };
+}
 
 /** Tile fade-in in milliseconds, unless `transition` is given (OpenLayers' own default is 250). */
 const DEFAULT_TRANSITION = 100;

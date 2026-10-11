@@ -79,6 +79,8 @@ export interface ProjectLayer {
   colorScale?: LayerColorScale;
   /** How an image is laid over the layers under it, when not `normal`. */
   blend?: LayerBlendMode;
+  /** Which pixels of an image are transparent, when not the default (`auto` on, no more values; see nodata-dialog.ts). */
+  noData?: { auto: boolean; values: number[] };
   /** Symbols and labels, for vector layers. */
   style?: VectorStyleSpec;
   /** A GeoTIFF used as elevation data. */
@@ -224,6 +226,9 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
   const scale = readColorScale(raw.colorScale);
   if (scale) layer.colorScale = scale;
   if (typeof raw.blend === 'string' && blendModes.includes(raw.blend as LayerBlendMode)) layer.blend = raw.blend as LayerBlendMode;
+  if (isObject(raw.noData) && typeof raw.noData.auto === 'boolean' && Array.isArray(raw.noData.values)) {
+    layer.noData = { auto: raw.noData.auto, values: raw.noData.values.filter((v): v is number => isNumber(v)) };
+  }
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
   if (raw.dem === true) layer.dem = true;
   if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
