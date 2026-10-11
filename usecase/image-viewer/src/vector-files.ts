@@ -14,6 +14,7 @@ import proj4 from 'proj4';
 import { readGeoPackage, type GeoPackageTable } from './geopackage.js';
 import { epsgCode } from './services/common.js';
 import { wgs84, type TargetCrs } from './vector-write.js';
+import { dbfTextEncoding } from './shp-stream.js';
 import { footprintOf, MULTIPATCH_SHAPE_TYPE, readMultiPatches, setMultiPatch, transformMultiPatch, type MultiPatch } from './multipatch.js';
 
 /** A file by name, as bytes: chosen, dropped, or found in a .zip. */
@@ -142,26 +143,8 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
  * UTF-8 and Shift_JIS when they are not (Japanese data without a .cpg).
  */
 export function dbfEncoding(dbf: Uint8Array, cpg?: string): string {
-  const label = cpg?.trim().toLowerCase();
-  if (label) {
-    if (/^(ansi\s*)?(932|cp932|ms932|windows-31j|sjis|shift[_-]?jis)$/.test(label)) return 'shift_jis';
-    if (/^(utf-?8|65001)$/.test(label)) return 'utf-8';
-    for (const candidate of [label, /^(ansi\s*)?(\d+)$/.exec(label) ? `windows-${/(\d+)$/.exec(label)![1]}` : '']) {
-      try {
-        if (candidate) return new TextDecoder(candidate).encoding;
-      } catch {
-        // not a label the browser knows
-      }
-    }
-  }
-  if (dbf[29] === 0x13) return 'shift_jis';
   const headerLength = dbf[8] | (dbf[9] << 8);
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(dbf.subarray(Math.min(headerLength, dbf.length)));
-    return 'utf-8';
-  } catch {
-    return 'shift_jis';
-  }
+  return dbfTextEncoding(dbf[29], dbf.subarray(Math.min(headerLength, dbf.length)), cpg);
 }
 
 /** Reads one Shapefile; without a .prj, coordinates must be longitude / latitude. */

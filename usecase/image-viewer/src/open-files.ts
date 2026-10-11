@@ -22,6 +22,7 @@ import { LayerStyle, singleSpec, type VectorStyleSpec } from './vector-style.js'
 import { readStyleQml } from './style-file.js';
 import { isVectorName, readVectorFiles, stem, type VectorFile } from './vector-files.js';
 import { isCsvName, readCsv } from './csv.js';
+import { openStreamedShapefile, planStreaming } from './streamed-shapefile.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import type Feature from 'ol/Feature.js';
@@ -111,9 +112,25 @@ async function readRpcFiles(files: File[], { say }: OpenFilesContext): Promise<M
   return models;
 }
 
-async function openVectors(files: File[], { addLayer, say }: OpenFilesContext): Promise<void> {
-  const names = files.map((f) => f.name).join('、');
+async function openVectors(chosen: File[], { addLayer, say }: OpenFilesContext): Promise<void> {
+  const names = chosen.map((f) => f.name).join('、');
   say(`${names} を読み込んでいます…`);
+  let files: File[];
+  try {
+    // Large Shapefiles are read a piece at a time into the browser, and shown a view at a time.
+    const { streamed, rest } = await planStreaming(chosen);
+    files = rest;
+    for (const parts of streamed) {
+      const style = parts.qml ? fileStyle({ styleQml: parts.qml }) : null;
+      const layer = await openStreamedShapefile(parts, (message, fraction) => say(`${parts.title}: ${message}… ${Math.round(fraction * 100)}%`), style);
+      addLayer(layer);
+      say(`${parts.title} を開きました（${layer.info.find(([k]) => k === '地物数')?.[1]} 件。大容量のため表示範囲だけを読み込みます・読み取り専用）`);
+    }
+  } catch (error) {
+    say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  if (!files.some((f) => isVectorName(f.name))) return;
   try {
     const read = await readVectorFiles(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()), handle: handleOf(f) }))), projectionOf);
     for (const file of read) addLayer(vectorFileLayer(file));
@@ -268,7 +285,7 @@ async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTI
 }
 
 /** The style a file came with, when it has one the viewer can read. */
-function fileStyle(file: VectorFile): VectorStyleSpec | null {
+function fileStyle(file: Pick<VectorFile, 'styleQml'>): VectorStyleSpec | null {
   if (!file.styleQml) return null;
   try {
     return readStyleQml(file.styleQml, singleSpec('#4363d8'));

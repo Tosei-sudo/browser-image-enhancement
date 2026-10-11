@@ -639,6 +639,8 @@ export class LayerStyle {
   private waiting_ = false;
   private time_: TimeFilter | null = null;
   private filter_: ((feature: FeatureLike) => boolean) | null = null;
+  /** Features the layer will hold, when it loads them as the map moves (a streamed Shapefile). */
+  private expected_ = 0;
 
   /**
    * @param layer The layer drawn.
@@ -652,6 +654,12 @@ export class LayerStyle {
     private readonly store: StyleStore = storeOf(),
   ) {
     this.spec_ = structuredClone(initial);
+    this.apply_();
+  }
+
+  /** Draws as for `count` features (on the GPU when many), though the layer holds fewer now: it loads them as the map moves. */
+  expectFeatures(count: number): void {
+    this.expected_ = count;
     this.apply_();
   }
 
@@ -776,7 +784,7 @@ export class LayerStyle {
         });
       }
     }
-    const count = this.layer.getSource()?.getFeatures().length ?? 0;
+    const count = Math.max(this.layer.getSource()?.getFeatures().length ?? 0, this.expected_);
     if (drawsOnGpu(spec, count)) {
       if (this.gl_) {
         this.gl_.setTime(this.time_);
