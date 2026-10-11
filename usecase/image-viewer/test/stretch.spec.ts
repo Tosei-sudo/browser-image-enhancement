@@ -84,7 +84,8 @@ test('a fill value not tagged as no data does not wash the scene out white', asy
   const [fill, dark, mid, bright] = await openAndRead(page, '/fixture-fill.tif', [0.3, 0.48, 0.6, 0.73]);
   const stretch = await page.evaluate(() => window.viewer.images.list()[0].source.getDraInfo()!.rawStretch!);
   expect(stretch.black[0]).toBeGreaterThan(0);
-  expect(fill[0]).toBe(0);
+  // The usual fill value is transparent, as if it were tagged (see nodata.spec.ts).
+  expect(fill[3]).toBe(0);
   // Before: black was the fill (-9999), and the whole scene drew at 255.
   expect(dark[0]).toBeLessThan(80);
   expect(mid[0]).toBeGreaterThan(80);

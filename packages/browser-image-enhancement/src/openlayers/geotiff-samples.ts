@@ -80,3 +80,32 @@ export function floatNoData(source: GeoTIFF): ((v: number) => boolean) | null {
   const f = Math.fround(nodata);
   return f === nodata ? null : (v) => v === f;
 }
+
+/** Fill values that stand for no data in files that do not say so: GDAL's and ESRI's usual ones. */
+export const KNOWN_FILL_VALUES: readonly number[] = [-9999, -32768, -FLOAT32_MAX, FLOAT32_MAX];
+
+/**
+ * The test for samples that hold one of `values`, as the file holds them:
+ * a value is also matched cast to float32 (a float image's samples), and a
+ * value close to the largest float stands for any value that close (see
+ * floatNoData). `nan` matches NaN too. Null when nothing is matched.
+ */
+export function valuesTest(values: readonly number[], nan: boolean): ((v: number) => boolean) | null {
+  const exact = new Set<number>();
+  let below = -Infinity;
+  let above = Infinity;
+  for (const v of values) {
+    if (v !== v) {
+      nan = true;
+    } else if (Math.abs(Math.abs(v) - FLOAT32_MAX) <= FLOAT32_MAX * 1e-5 || !Number.isFinite(v)) {
+      const edge = FLOAT32_MAX * (1 - 1e-5);
+      if (v < 0) below = -edge;
+      else above = edge;
+    } else {
+      exact.add(v);
+      exact.add(Math.fround(v));
+    }
+  }
+  if (!nan && exact.size === 0 && below === -Infinity && above === Infinity) return null;
+  return (v) => v <= below || v >= above || exact.has(v) || (nan && v !== v);
+}

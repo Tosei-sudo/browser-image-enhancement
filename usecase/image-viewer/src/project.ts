@@ -171,6 +171,8 @@ export class ProjectControl {
       if (l.type === 'image') {
         const bands = l.source.getSelect();
         if (bands) layer.bands = [...bands];
+        const noData = l.source.getNoData();
+        if (!noData.auto || noData.values.length) layer.noData = noData;
       }
       if (correction?.isDraLocked()) layer.draLocked = true;
       if (l.type === 'image') {
@@ -340,6 +342,7 @@ export class ProjectControl {
         if (l.type === 'image' && rule?.pipeline && !saved.pipeline) l.source.setPipeline(new Pipeline());
         if (l.type === 'image' && saved.bands) pending.push(l.source.setSelect(saved.bands).catch(() => void problems.push(`${saved.name} のバンド割り当て`)));
         else if (l.type === 'image' && rule?.bands) pending.push(l.source.setSelect(null).catch(() => {}));
+        if (l.type === 'image' && (saved.noData || rule?.noData)) pending.push(l.source.setNoData(saved.noData ?? {}).catch(() => void problems.push(`${saved.name} のノーデータ`)));
         if (l.type === 'image' && (saved.colorScale || saved.blend)) {
           l.layer.setColorScale(saved.colorScale ?? null);
           l.layer.setBlendMode(saved.blend ?? 'normal');

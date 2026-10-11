@@ -158,6 +158,34 @@ function fixtureStats(width = 512, height = 256) {
   );
 }
 
+/**
+ * 8-bit RGB with a black collar not tagged as no data (the left 40 %, 0 in
+ * every band), as a GDAL warp leaves around a scene. The scene is 40-200.
+ */
+function fixtureCollar(width = 512, height = 256) {
+  const values = new Uint8Array(width * height * 3);
+  const edge = Math.round(width * 0.4);
+  for (let y = 0; y < height; y++) {
+    for (let x = edge; x < width; x++) values.fill(40 + Math.round((160 * (x - edge)) / (width - edge - 1)), (y * width + x) * 3, (y * width + x) * 3 + 3);
+  }
+  const [minX, minY, maxX, maxY] = [139.6, 35.6, 139.9, 35.75];
+  return Buffer.from(
+    writeArrayBuffer(values, {
+      width,
+      height,
+      SamplesPerPixel: 3,
+      BitsPerSample: [8, 8, 8],
+      SampleFormat: [1, 1, 1],
+      PhotometricInterpretation: 2,
+      ModelPixelScale: [(maxX - minX) / width, (maxY - minY) / height, 0],
+      ModelTiepoint: [0, 0, 0, minX, maxY, 0],
+      GeographicTypeGeoKey: 4326,
+      GTModelTypeGeoKey: 2,
+      GTRasterTypeGeoKey: 1,
+    }),
+  );
+}
+
 const FLOAT32_LOWEST = -3.4028234663852886e38;
 const fixtures = {
   '/fixture.tif': tif,
@@ -167,6 +195,7 @@ const fixtures = {
   // The lowest float as fill, tagged with the rounded text ArcGIS and others write.
   '/fixture-nodata.tif': fixtureFill(FLOAT32_LOWEST, '-3.40282e+38'),
   '/fixture-stats.tif': fixtureStats(),
+  '/fixture-collar.tif': fixtureCollar(),
 };
 
 /** A red 40 m cube as a binary glTF (y up, its base at the origin). */

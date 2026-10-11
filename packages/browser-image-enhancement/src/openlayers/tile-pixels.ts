@@ -3,9 +3,9 @@ import type { Data } from 'ol/DataTile.js';
 import type { BandSelection } from '../bands.js';
 import type { ColorMode } from '../types.js';
 
-/** Makes transparent the pixels of a raw tile (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
+/** Makes transparent the pixels of a tile as read (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
 export function maskNoData(data: Data, bands: number, isNoData: (v: number) => boolean): Data {
-  if (!(data instanceof Float32Array) || bands < 2) return data;
+  if (!(data instanceof Float32Array || data instanceof Uint8Array || data instanceof Uint8ClampedArray) || bands < 2) return data;
   for (let p = 0; p < data.length; p += bands) {
     if (data[p + bands - 1] === 0) continue;
     let all = true;
