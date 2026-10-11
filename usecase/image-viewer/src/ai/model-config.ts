@@ -61,6 +61,13 @@ export interface DetectModelConfig {
   format?: DetectFormat;
   /** YOLOX: the strides of its output grids (default 8, 16, 32). */
   strides?: number[];
+  /**
+   * The most objects the model gives for one input (Detectron2: its
+   * TEST.DETECTIONS_PER_IMAGE, 100 unless changed at export; 0: no limit).
+   * A tile that reaches it is analysed again in quarters, so crowded
+   * places are not cut short.
+   */
+  maxDetections?: number;
   /** Default score threshold (0–1). */
   score?: number;
   /** Default overlap (IoU) above which the weaker of two boxes of a class is dropped. */
@@ -136,6 +143,10 @@ export function aiModelOf(value: unknown, problems: string[], index: number): Ai
     if (value.channels === 'rgb' || value.channels === 'bgr') model.channels = value.channels;
     else problems.push(`${at} の channels は rgb か bgr にしてください`);
   }
+  if (value.maxDetections !== undefined) {
+    if (Number.isInteger(value.maxDetections) && (value.maxDetections as number) >= 0) model.maxDetections = value.maxDetections as number;
+    else problems.push(`${at} の maxDetections は 0 以上の整数にしてください（0: 上限なし）`);
+  }
   if (value.strides !== undefined) {
     if (Array.isArray(value.strides) && value.strides.length > 0 && value.strides.every((n) => Number.isInteger(n) && n > 0)) model.strides = value.strides as number[];
     else problems.push(`${at} の strides は [8, 16, 32] のような正の整数の配列にしてください`);
@@ -166,6 +177,8 @@ export interface DetectorSpec {
   iou: number;
   /** The input is one image, `[3, H, W]`, not a batch `[1, 3, H, W]`. */
   unbatched: boolean;
+  /** The most objects the model gives for one input (0: no limit); a tile that reaches it is split. */
+  maxDetections: number;
 }
 
 /**
@@ -198,6 +211,8 @@ export function detectorSpec(config: Partial<DetectModelConfig>, metadata: Recor
     score: config.score ?? (detectron2 ? 0.5 : 0.25),
     iou: config.iou ?? 0.45,
     unbatched: input?.dims.length === 3,
+    // Detectron2 keeps the best 100 of an image unless told otherwise when exported.
+    maxDetections: config.maxDetections ?? (detectron2 ? 100 : 0),
   };
 }
 
