@@ -123,6 +123,11 @@ export function pixelRatioOf(map: OlMap): number {
   return (map as unknown as { pixelRatio_?: number }).pixelRatio_ ?? window.devicePixelRatio ?? 1;
 }
 
+const blends = new Set(['screen', 'lighten', 'darken', 'multiply', 'difference', 'overlay', 'exclusion']);
+
+/** The canvas composite operation of a CSS `mix-blend-mode`. */
+const blendOf = (mode: string): GlobalCompositeOperation => (blends.has(mode) ? (mode as GlobalCompositeOperation) : 'source-over');
+
 /**
  * The layers' canvases as one canvas of `size` CSS pixels at `pixelRatio`,
  * stacked, placed and faded as on screen (the way OpenLayers' export example
@@ -161,15 +166,19 @@ export function composeLayers(map: OlMap, size: readonly number[], pixelRatio: n
     ];
     const background = parent?.style.backgroundColor;
     ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
     if (background) {
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, size[0], size[1]);
     }
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    // Blended as on screen (an image screened over another, see colorize-dialog.ts).
+    ctx.globalCompositeOperation = blendOf(layer.style.mixBlendMode);
     ctx.drawImage(layer, 0, 0);
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
   return { canvas, skipped };
 }
 

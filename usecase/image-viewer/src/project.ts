@@ -41,6 +41,7 @@ import {
   type ProjectLayer,
 } from './project-file.js';
 import type { ProjectLayout } from './layout.js';
+import { markRow } from './colorize-dialog.js';
 
 /** Files opened together, as the viewer opened them. */
 export interface OpenedSet {
@@ -172,6 +173,11 @@ export class ProjectControl {
         if (bands) layer.bands = [...bands];
       }
       if (correction?.isDraLocked()) layer.draLocked = true;
+      if (l.type === 'image') {
+        const scale = l.layer.getColorScale();
+        if (scale) layer.colorScale = scale;
+        if (l.layer.getBlendMode() !== 'normal') layer.blend = l.layer.getBlendMode();
+      }
       if (l.type === 'service' && l.service.style) layer.style = l.service.style.get();
       if (this.options.isDem?.(l)) layer.dem = true;
       const time = this.options.layerTime?.get(l);
@@ -334,6 +340,11 @@ export class ProjectControl {
         if (l.type === 'image' && rule?.pipeline && !saved.pipeline) l.source.setPipeline(new Pipeline());
         if (l.type === 'image' && saved.bands) pending.push(l.source.setSelect(saved.bands).catch(() => void problems.push(`${saved.name} のバンド割り当て`)));
         else if (l.type === 'image' && rule?.bands) pending.push(l.source.setSelect(null).catch(() => {}));
+        if (l.type === 'image' && (saved.colorScale || saved.blend)) {
+          l.layer.setColorScale(saved.colorScale ?? null);
+          l.layer.setBlendMode(saved.blend ?? 'normal');
+          markRow(l);
+        }
         if (l.type === 'service' && l.service.style && saved.style) l.service.style.set(normalizeSpec(saved.style, l.service.style.initial));
         if (saved.time) this.options.layerTime?.set(l, saved.time);
       });

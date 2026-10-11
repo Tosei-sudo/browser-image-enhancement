@@ -13,7 +13,8 @@ import { forGray, resolveMode, type ResolvedMode } from '../core/process.js';
 import { warnColorOnly } from '../functional.js';
 import { COLOR_ONLY_OPS, isIdentity, kernelRadius, normalizeOp } from '../ops/index.js';
 import type { ColorOptions, Histogram, ImageDataLike, OpSpec, SharpenOptions } from '../types.js';
-import { CURVE_SAMPLES, curveRow, DECODE, horizontalShader, opParams, pixelShader, PRESENT, verticalShader, VERTEX, type PixelOp } from './shaders.js';
+import { applyPalette } from '../color-scale.js';
+import { CURVE_SAMPLES, curveRow, DECODE, horizontalShader, opParams, pixelShader, PRESENT, PRESENT_PALETTE, verticalShader, VERTEX, type PixelOp } from './shaders.js';
 
 /** Options for {@link createGpuRenderer}. */
 export interface GpuRendererOptions {
@@ -22,6 +23,16 @@ export interface GpuRendererOptions {
    * `OffscreenCanvas` (or `<canvas>` where there is none).
    */
   canvas?: HTMLCanvasElement | OffscreenCanvas;
+}
+
+/** Options of {@link GpuRenderer.render}. */
+export interface GpuRenderOptions {
+  /**
+   * A 256-entry RGBA table (from `colorScalePalette`) the corrected image is
+   * colored with, each pixel by its gray value (its luminance when colored):
+   * a color scale, or pseudo-color, over a monochrome image. Default none.
+   */
+  palette?: ArrayLike<number> | null;
 }
 
 /**
@@ -52,10 +63,11 @@ export interface GpuRenderer {
   /**
    * Corrects the image with the steps of `steps` (a `Pipeline` or an array of
    * steps) and draws the result on {@link GpuRenderer.canvas}. `autoStretch`
-   * takes its statistics from the image passed to `setImage`.
+   * takes its statistics from the image passed to `setImage`. A `palette`
+   * colors the result as it is drawn (see {@link GpuRenderOptions}).
    */
-  render(steps: { readonly ops: readonly OpSpec[] } | readonly OpSpec[]): void;
-  /** The last rendered result as pixels (a GPU-to-memory copy, so slower than `render`). */
+  render(steps: { readonly ops: readonly OpSpec[] } | readonly OpSpec[], options?: GpuRenderOptions): void;
+  /** The last rendered result as pixels, colored by its palette if it had one (a GPU-to-memory copy, so slower than `render`). */
   read(): ImageData;
   /** Frees the GPU memory. The renderer cannot be used afterwards. */
   dispose(): void;
@@ -131,6 +143,10 @@ class Renderer implements GpuRenderer {
   private readonly kernel: WebGLTexture;
   /** Samples of the curves of the `curve` steps being rendered, one row each. */
   private readonly curves: WebGLTexture;
+  /** The palette of the last render (256 x 1 RGBA8), and the table it was uploaded from. */
+  private readonly palette: WebGLTexture;
+  private paletteData: ArrayLike<number> | null = null;
+  private lastPalette: ArrayLike<number> | null = null;
   /** Row of {@link Renderer.curves} of each `curve` step being rendered. */
   private curveRows = new Map<PixelOp, number>();
   private source: WebGLTexture | null = null;
@@ -159,6 +175,7 @@ class Renderer implements GpuRenderer {
     this.lut = this.texture(gl.R32F, 256, 1, gl.RED, gl.FLOAT, DECODE);
     this.kernel = this.texture(gl.R32F, 1, 1, gl.RED, gl.FLOAT, new Float32Array(1));
     this.curves = this.texture(gl.RGBA32F, 1, 1, gl.RGBA, gl.FLOAT, new Float32Array(4));
+    this.palette = this.texture(gl.RGBA8, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, null);
   }
 
   setImage(image: ImageDataLike | GpuImageSource, options: ColorOptions = {}): void {
@@ -193,7 +210,7 @@ class Renderer implements GpuRenderer {
     }
   }
 
-  render(steps: { readonly ops: readonly OpSpec[] } | readonly OpSpec[]): void {
+  render(steps: { readonly ops: readonly OpSpec[] } | readonly OpSpec[], options: GpuRenderOptions = {}): void {
     const image = this.image;
     if (!image || !this.source) throw new Error('Call setImage before render.');
     const gl = this.gl;
@@ -233,8 +250,20 @@ class Renderer implements GpuRenderer {
       input = 1 - input;
       i = next;
     }
-    // Draw the result on the canvas.
-    this.pass(PRESENT, null, [['u_src', this.use('result').texture]], []);
+    // Draw the result on the canvas, through the palette if there is one.
+    const palette = options.palette ?? null;
+    this.lastPalette = palette;
+    if (!palette) {
+      this.pass(PRESENT, null, [['u_src', this.use('result').texture]], []);
+      return;
+    }
+    if (palette.length < 1024) throw new RangeError(`A palette has 256 RGBA entries (1024 values), got ${palette.length}.`);
+    if (palette !== this.paletteData) {
+      gl.bindTexture(gl.TEXTURE_2D, this.palette);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, Uint8Array.from({ length: 1024 }, (_, i) => palette[i]));
+      this.paletteData = palette;
+    }
+    this.pass(PRESENT_PALETTE, null, [['u_src', this.use('result').texture], ['u_palette', this.palette]], []);
   }
 
   read(): ImageData {
@@ -246,6 +275,7 @@ class Renderer implements GpuRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, result.framebuffer);
     gl.readPixels(0, 0, image.width, image.height, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(out.buffer));
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (this.lastPalette) applyPalette(out, this.lastPalette);
     return createImageData(out, image.width, image.height);
   }
 
@@ -256,6 +286,7 @@ class Renderer implements GpuRenderer {
     gl.deleteTexture(this.lut);
     gl.deleteTexture(this.kernel);
     gl.deleteTexture(this.curves);
+    gl.deleteTexture(this.palette);
     for (const p of this.programs.values()) gl.deleteProgram(p);
     this.programs.clear();
     gl.deleteShader(this.vertex);

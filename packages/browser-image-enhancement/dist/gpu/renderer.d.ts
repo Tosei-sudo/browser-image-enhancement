@@ -9,6 +9,15 @@ export interface GpuRendererOptions {
    */
   canvas?: HTMLCanvasElement | OffscreenCanvas;
 }
+/** Options of {@link GpuRenderer.render}. */
+export interface GpuRenderOptions {
+  /**
+   * A 256-entry RGBA table (from `colorScalePalette`) the corrected image is
+   * colored with, each pixel by its gray value (its luminance when colored):
+   * a color scale, or pseudo-color, over a monochrome image. Default none.
+   */
+  palette?: ArrayLike<number> | null;
+}
 /**
  * Pictures the GPU can read directly, without copying pixels through memory:
  * another canvas (2D or WebGL), an `ImageBitmap`, a loaded `<img>`, or a
@@ -36,12 +45,13 @@ export interface GpuRenderer {
   /**
    * Corrects the image with the steps of `steps` (a `Pipeline` or an array of
    * steps) and draws the result on {@link GpuRenderer.canvas}. `autoStretch`
-   * takes its statistics from the image passed to `setImage`.
+   * takes its statistics from the image passed to `setImage`. A `palette`
+   * colors the result as it is drawn (see {@link GpuRenderOptions}).
    */
   render(steps: {
     readonly ops: readonly OpSpec[];
-  } | readonly OpSpec[]): void;
-  /** The last rendered result as pixels (a GPU-to-memory copy, so slower than `render`). */
+  } | readonly OpSpec[], options?: GpuRenderOptions): void;
+  /** The last rendered result as pixels, colored by its palette if it had one (a GPU-to-memory copy, so slower than `render`). */
   read(): ImageData;
   /** Frees the GPU memory. The renderer cannot be used afterwards. */
   dispose(): void;

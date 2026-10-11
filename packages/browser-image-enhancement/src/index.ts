@@ -43,6 +43,16 @@ export {
   type RasterStretchRange,
   type RasterToImageDataOptions,
 } from './raster.js';
+export {
+  applyPalette,
+  colorScalePalette,
+  colorScales,
+  colorScaleStops,
+  type ColorScale,
+  type ColorScaleName,
+  type ColorScaleOptions,
+  type ColorScaleStop,
+} from './color-scale.js';
 export { panSharpen, type PanSharpenMethod, type PanSharpenModel, type PanSharpenOptions, type PanSharpenResult } from './pansharpen.js';
 export { assignBands, isGraySelection, selectBands, type BandSelection, type SelectedBands } from './bands.js';
 export { autoEnhance, presets, type PresetName } from './presets.js';
@@ -64,7 +74,7 @@ export {
   type ParamInfo,
   type RgbParamInfo,
 } from './ops/info.js';
-export { createGpuRenderer, type GpuImageSource, type GpuRenderer, type GpuRendererOptions } from './gpu/renderer.js';
+export { createGpuRenderer, type GpuImageSource, type GpuRenderer, type GpuRendererOptions, type GpuRenderOptions } from './gpu/renderer.js';
 export { configureWorkers, terminateWorkers, type WorkerConfig, type WorkerLike } from './worker/pool.js';
 export { configureWasm, wasmStatus, type WasmStatus } from './core/wasm.js';
 export type { ImageInput } from './io.js';

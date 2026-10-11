@@ -25,7 +25,7 @@ export {
   type EnhancedGeoTIFFOptions,
   type TileStats,
 } from './enhanced-geotiff.js';
-export { default as GpuCorrectedTileLayer, type GpuCorrectedTileLayerOptions } from './gpu-layer.js';
+export { default as GpuCorrectedTileLayer, type GpuCorrectedTileLayerOptions, type LayerBlendMode, type LayerColorScale } from './gpu-layer.js';
 export { default as TileCorrection, type TileCorrectionOptions } from './tile-correction.js';
 export { cropMargin, withMargin, type NeighbourTile } from './margin.js';
 export {

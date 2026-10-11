@@ -253,6 +253,21 @@ void main() {
   o = texelFetch(u_src, ivec2(p.x, textureSize(u_src, 0).y - 1 - p.y), 0);
 }`;
 
+/**
+ * Like {@link PRESENT}, coloring each pixel through the 256-entry palette
+ * texture by its 8-bit gray value (its luminance when colored), alpha
+ * multiplied by the palette's.
+ */
+export const PRESENT_PALETTE = `${HEADER}uniform sampler2D u_src;
+uniform sampler2D u_palette;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 c = texelFetch(u_src, ivec2(p.x, textureSize(u_src, 0).y - 1 - p.y), 0);
+  float l = c.r == c.g && c.g == c.b ? c.r : dot(vec3(0.2126, 0.7152, 0.0722), c.rgb);
+  vec4 m = texelFetch(u_palette, ivec2(int(floor(l * 255.0 + 0.5)), 0), 0);
+  o = vec4(m.rgb, c.a * m.a);
+}`;
+
 /** One row of the curve texture: RGBA samples of the composed curves (the curve for all channels, then each channel's own). */
 export function curveRow(op: Extract<PixelOp, { op: 'curve' }>, out: Float32Array, row: number): void {
   const all = curveFunction(op.points);

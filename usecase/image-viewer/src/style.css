@@ -1031,6 +1031,38 @@ body {
   font-size: 12px;
 }
 
+/* Coloring and RGB composite dialogs. */
+.colorize-preview {
+  height: 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.composite-channel select {
+  border-left-width: 6px;
+}
+.composite-R select {
+  border-left-color: #e5484d;
+}
+.composite-G select {
+  border-left-color: #30a46c;
+}
+.composite-B select {
+  border-left-color: #3e63dd;
+}
+.colorize-pair > summary,
+.composite-more > summary {
+  cursor: pointer;
+}
+.image .color-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 8px;
+  margin-right: 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
 /* Metadata dialog of a GeoTIFF (in the add-a-service dialog's style). */
 .metadata-open {
   margin-top: 8px;

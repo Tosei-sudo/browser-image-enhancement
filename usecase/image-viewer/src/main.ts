@@ -64,6 +64,8 @@ import { TransferDialog } from './ai-transfer.js';
 import { imageTime } from './timeline.js';
 import type { ProcessingResult } from './processing/common.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
+import { CompositeDialog } from './composite-dialog.js';
+import { ColorizeDialog } from './colorize-dialog.js';
 import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
@@ -423,7 +425,11 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
     addService(tempLayer(record, tempStore));
   },
-  rasterTools: [{ id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() }],
+  rasterTools: [
+    { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
+    { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
+    { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
+  ],
 });
 
 // AI: models trained elsewhere (ONNX) run on the image: object detection over the view, and click segmentation.
@@ -591,6 +597,15 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
 const panSharpen = new PanSharpenDialog(map, images, loader, {
   say,
   onPipeline: (p) => enhance.setPipeline(p),
+  open: (file) => openImageFile(file, fileContext()),
+});
+
+// Coloring one-band images, and RGB composites of them (from the processing dialog): two dates in red and cyan show what changed.
+const timeOfImage = async (image: ViewerImage) => (await imageTime(image))?.time ?? null;
+const colorize = new ColorizeDialog(images, { say, timeOf: timeOfImage, onChange: () => updateLink() });
+const composite = new CompositeDialog(images, loader, {
+  say,
+  timeOf: timeOfImage,
   open: (file) => openImageFile(file, fileContext()),
 });
 
@@ -890,6 +905,8 @@ declare global {
       recent: RecentMenu | null;
       processing: ProcessingDialog;
       panSharpen: PanSharpenDialog;
+      colorize: ColorizeDialog;
+      composite: CompositeDialog;
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
       aiTransfer: TransferDialog;
@@ -910,4 +927,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, composite, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules };
