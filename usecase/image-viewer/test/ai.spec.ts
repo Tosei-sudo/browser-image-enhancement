@@ -114,6 +114,38 @@ test('detects objects over the view and adds them as a temporary layer', async (
   expect(errors).toEqual([]);
 });
 
+test("runs a Detectron2 export (one image in; boxes, classes and scores out) as it is", async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openSquare(page);
+  await page.evaluate((base64) => {
+    window.viewer.aiDetect.open();
+    window.viewer.aiDetect.addModelFile(new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'detectron2.onnx'));
+  }, model('detectron2.onnx'));
+  const dialog = page.locator('.ai-dialog');
+  // Told apart by its outputs, its input size from the model: nothing to set.
+  await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）（Detectron2 形式）・入力 64×64・クラス名なし');
+  await expect(dialog.getByLabel('スコアのしきい値')).toHaveValue('0.5');
+  await dialog.getByRole('button', { name: '実行' }).click();
+  await expect(page.locator('#status')).toContainText('物体検出（detectron2.onnx） を作成しました', { timeout: 30_000 });
+
+  const found = await page.evaluate(() => {
+    const layer = window.viewer.images.layers()[0];
+    if (layer.type !== 'service') return null;
+    const view = window.viewer.map.getView();
+    const features = layer.service.vector!.source.getFeatures();
+    return { classes: [...new Set(features.map((f) => f.get('class')))], extent: layer.service.vector!.source.getExtent()!, center: view.getCenter()!, resolution: view.getResolution()! };
+  });
+  const { classes, extent, center, resolution } = found!;
+  expect(classes).toEqual(['class 0']);
+  // The bright cells, B, G, R of 0–255 in, cover the square where it is.
+  const cell = 16 * resolution;
+  expect(Math.abs((extent[0] + extent[2]) / 2 - center[0])).toBeLessThan(cell);
+  expect(Math.abs((extent[1] + extent[3]) / 2 - center[1])).toBeLessThan(cell);
+  expect(Math.abs(extent[2] - extent[0] - squareOnMap)).toBeLessThan(2 * cell);
+  expect(errors).toEqual([]);
+});
+
 test('draws and analyses an 8 times larger view block by block', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

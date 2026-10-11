@@ -259,7 +259,7 @@ export class DetectDialog {
     const chosen = this.models_.chosen();
     if (!chosen) return null;
     const bytes = await modelBytes(chosen.config ? chosen.config.url : chosen.files[0], onProgress);
-    return { bytes, spec: detectorSpec(chosen.config ?? {}, bytes.metadata), label: chosen.config ? chosen.config.label : chosen.label };
+    return { bytes, spec: detectorSpec(chosen.config ?? {}, bytes.metadata, bytes.signature), label: chosen.config ? chosen.config.label : chosen.label };
   }
 
   /** Shows what the chosen model is (its task, classes and input), loading it. */
@@ -285,10 +285,11 @@ export class DetectDialog {
       score.value = String(spec.score);
       iou.value = String(spec.iou);
       const task = { detect: '物体検出（矩形）', obb: '物体検出（回転矩形）', segment: 'インスタンスセグメンテーション（輪郭）' }[spec.task];
+      const kind = spec.format === 'detectron2' ? '（Detectron2 形式）' : '';
       const classes = spec.classes.length
         ? `${spec.classes.length} クラス（${spec.classes.slice(0, 8).join('・')}${spec.classes.length > 8 ? '…' : ''}）`
         : 'クラス名なし（番号で出します）';
-      this.info_.textContent = `${task}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(backend)}${backend === 'wasm' && cpuWorkers() > 1 ? ` × ${cpuWorkers()}` : ''}で実行`;
+      this.info_.textContent = `${task}${kind}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(backend)}${backend === 'wasm' && cpuWorkers() > 1 ? ` × ${cpuWorkers()}` : ''}で実行`;
     } catch (error) {
       if (!stale()) this.info_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
     }

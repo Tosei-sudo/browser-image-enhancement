@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { aiModelOf, COCO_CLASSES, detectorSpec, onnxMetadata, pythonNames } from '../src/ai/model-config.js';
-import { blocksOf, boxCorners, decodeYolo, instanceMask, layoutOf, nms, overlap, PAD, tilesOf, tileStarts, tileTensor, yoloxGrid, type Detection } from '../src/ai/detect.js';
+import { aiModelOf, COCO_CLASSES, detectorSpec, onnxMetadata, onnxSignature, pythonNames, type OnnxSignature } from '../src/ai/model-config.js';
+import { blocksOf, boxCorners, decodeDetectron2, decodeYolo, detectron2Outputs, instanceMask, layoutOf, nms, overlap, PAD, tilesOf, tileStarts, tileTensor, yoloxGrid, type Detection } from '../src/ai/detect.js';
 import { maskOutline } from '../src/ai/mask-outline.js';
 import { partAt, samMask, samPrompt, samScale, samTensor } from '../src/ai/sam.js';
 import { parseConfig } from '../src/config.js';
@@ -26,6 +26,32 @@ describe('model config', () => {
     const meta = { task: 'obb', imgsz: '[1024, 768]', names: "{0: 'plane'}" };
     expect(detectorSpec({}, meta)).toMatchObject({ task: 'obb', inputSize: [768, 1024], classes: ['plane'] });
     expect(detectorSpec({ task: 'detect', inputSize: [320, 320], classes: ['x', 'y'], score: 0.5 }, meta)).toMatchObject({ task: 'detect', inputSize: [320, 320], classes: ['x', 'y'], score: 0.5 });
+  });
+
+  it('reads the inputs and outputs of a model from its bytes', () => {
+    expect(onnxSignature(readFileSync(new URL('./data/ai/detect.onnx', import.meta.url)))).toEqual({
+      inputs: [{ name: 'images', type: 1, dims: [1, 3, 64, 64] }],
+      outputs: [{ name: 'output0', type: 1, dims: [1, 6, 16] }],
+    });
+    expect(onnxSignature(new Uint8Array([0xff, 0xff]))).toEqual({ inputs: [], outputs: [] });
+  });
+
+  it("knows Detectron2's export by its outputs: one image of 0–255 B, G, R in, boxes, scores and classes out", () => {
+    // export_model.py --format onnx --export-method tracing: traced at one size, image size as a last output.
+    const signature: OnnxSignature = {
+      inputs: [{ name: 'image', type: 1, dims: [3, 800, 1216] }],
+      outputs: [
+        { name: '3305', type: 1, dims: ['n', 'four'] },
+        { name: '3306', type: 1, dims: ['n'] },
+        { name: '3307', type: 7, dims: ['n'] },
+        { name: '3308', type: 7, dims: [2] },
+      ],
+    };
+    expect(detectorSpec({}, {}, signature)).toMatchObject({ format: 'detectron2', unbatched: true, inputSize: [1216, 800], bgr: true, mean: [0, 0, 0], std: [1, 1, 1], score: 0.5 });
+    // Named in config.json, with the size to cut tiles at.
+    expect(detectorSpec({ format: 'detectron2', inputSize: [640, 640] }, {})).toMatchObject({ format: 'detectron2', unbatched: false, inputSize: [640, 640], bgr: true, std: [1, 1, 1] });
+    // A YOLO model stays YOLO.
+    expect(detectorSpec({}, {}, { inputs: [{ name: 'images', type: 1, dims: [1, 3, 640, 640] }], outputs: [{ name: 'output0', type: 1, dims: [1, 84, 8400] }] })).toMatchObject({ format: 'auto', unbatched: false, bgr: false });
   });
 
   it('knows the COCO classes and YOLOX settings', () => {
@@ -150,6 +176,27 @@ describe('decoding YOLO outputs', () => {
     // Turned a quarter: 10 wide, 40 high.
     expect(Math.max(...corners.map((c) => c[0])) - Math.min(...corners.map((c) => c[0]))).toBeCloseTo(10);
     expect(Math.max(...corners.map((c) => c[1])) - Math.min(...corners.map((c) => c[1]))).toBeCloseTo(40);
+  });
+
+  it("reads Detectron2's boxes, scores and classes (int64), finding them by shape and type", () => {
+    const outputs = [
+      { name: 'boxes', type: 'float32', dims: [2, 4] },
+      { name: 'scores', type: 'float32', dims: [2] },
+      { name: 'classes', type: 'int64', dims: [2] },
+      { name: 'size', type: 'int64', dims: [2] },
+    ];
+    expect(detectron2Outputs(outputs)).toEqual({ boxes: outputs[0], scores: outputs[1], classes: outputs[2] });
+    // Unnamed, the first integer output of length N is the classes.
+    const unnamed = outputs.map((o, i) => ({ ...o, name: String(100 + i) }));
+    expect(detectron2Outputs(unnamed)?.classes).toBe(unnamed[2]);
+    expect(detectron2Outputs([{ name: 'output0', type: 'float32', dims: [1, 84, 8400] }])).toBeNull();
+    const found = decodeDetectron2(
+      { dims: [2, 4], data: [10, 20, 50, 40, 0, 0, 5, 5] },
+      { dims: [2], data: [0.9, 0.3] },
+      { dims: [2], data: BigInt64Array.from([3n, 1n]) as unknown as ArrayLike<number> },
+      0.5,
+    );
+    expect(found).toEqual([{ cls: 3, score: 0.9, box: [30, 30, 40, 20] }]);
   });
 
   it('keeps the best of overlapping boxes per class, and drops pieces inside a box', () => {

@@ -3,7 +3,7 @@
  * and its output decoded into objects in the picture's pixels. Used by the
  * detection workers (detect-worker.ts).
  */
-import { decodeYolo, instanceMask, nms, offset, ringArea, tileTensor, type Detection } from './detect.js';
+import { decodeDetectron2, decodeYolo, detectron2Outputs, instanceMask, nms, offset, ringArea, tileTensor, type Detection, type Output } from './detect.js';
 import { maskOutline } from './mask-outline.js';
 import type { DetectorSpec } from './model-config.js';
 import { tensor, type LoadedModel } from './runtime.js';
@@ -20,13 +20,19 @@ export async function detectTile(
   spec: DetectorSpec,
 ): Promise<Detection[]> {
   const [tw, th] = spec.inputSize;
-  const feed = await tensor(tileTensor(rgba, width, height, x0, y0, spec.inputSize, spec.mean, spec.std, spec.bgr), [1, 3, th, tw]);
+  const feed = await tensor(tileTensor(rgba, width, height, x0, y0, spec.inputSize, spec.mean, spec.std, spec.bgr), spec.unbatched ? [3, th, tw] : [1, 3, th, tw]);
   const outputs = await model.session.run({ [input]: feed });
   const names = model.session.outputNames;
-  const first = outputs[names[0]];
   const protos = spec.task === 'segment' ? outputs[names.find((n) => outputs[n].dims.length === 4) ?? names[1]] : undefined;
+  const read = async (name: string): Promise<Output> => ({ dims: outputs[name].dims, data: (await outputs[name].getData()) as ArrayLike<number> });
   try {
-    let found = nms(decodeYolo({ dims: first.dims, data: (await first.getData()) as Float32Array }, spec, spec.score), spec.iou);
+    let found: Detection[];
+    if (spec.format === 'detectron2') {
+      // Boxes, scores and classes apart, after the model's own NMS (the tiles' overlaps are merged later).
+      const parts = detectron2Outputs(names.map((name) => ({ name, type: outputs[name].type, dims: outputs[name].dims })));
+      if (!parts) throw new Error('Detectron2 の出力（boxes [N, 4]・scores [N]・classes [N]）が見つかりません');
+      found = decodeDetectron2(await read(parts.boxes.name), await read(parts.scores.name), await read(parts.classes.name), spec.score);
+    } else found = nms(decodeYolo(await read(names[0]), spec, spec.score), spec.iou);
     if (protos) {
       const p = { dims: protos.dims, data: (await protos.getData()) as Float32Array };
       found = found.flatMap((d) => {
