@@ -27,6 +27,30 @@ export function tilesOf(width: number, height: number, size: readonly [number, n
   return ys.flatMap((y) => xs.map((x): [number, number] => [x, y]));
 }
 
+/** Device pixels (width × height) drawn at once: larger views are drawn in blocks of about this size. */
+const BLOCK = 4096;
+
+/**
+ * The blocks (x, y, width, height, in CSS pixels of the view `scale` times
+ * larger) to draw the view in: one when it fits in {@link BLOCK} squared,
+ * else blocks overlapping by `margin` device pixels (a model input), so an
+ * object cut at one block's edge is whole in the next.
+ */
+export function blocksOf(size: readonly number[], scale: number, ratio: number, margin: number): Array<[number, number, number, number]> {
+  const [w, h] = [Math.round(size[0] * scale), Math.round(size[1] * scale)];
+  if (w * h * ratio * ratio <= BLOCK * BLOCK) return [[0, 0, w, h]];
+  const side = Math.floor(BLOCK / ratio);
+  const step = Math.max(1, side - Math.ceil(margin / ratio));
+  const starts = (length: number) => {
+    if (length <= side) return [0];
+    const out: number[] = [];
+    for (let x = 0; x + side < length; x += step) out.push(x);
+    out.push(length - side);
+    return out;
+  };
+  return starts(h).flatMap((y) => starts(w).map((x): [number, number, number, number] => [x, y, Math.min(side, w - x), Math.min(side, h - y)]));
+}
+
 /**
  * The model input (NCHW float32, RGB, or BGR with `bgr`) for the `size` tile
  * at (`x0`, `y0`) of an RGBA picture: (value − mean) / std per channel

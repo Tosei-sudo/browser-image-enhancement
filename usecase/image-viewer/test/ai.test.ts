@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { aiModelOf, COCO_CLASSES, detectorSpec, onnxMetadata, pythonNames } from '../src/ai/model-config.js';
-import { boxCorners, decodeYolo, instanceMask, layoutOf, nms, overlap, PAD, tilesOf, tileStarts, tileTensor, yoloxGrid, type Detection } from '../src/ai/detect.js';
+import { blocksOf, boxCorners, decodeYolo, instanceMask, layoutOf, nms, overlap, PAD, tilesOf, tileStarts, tileTensor, yoloxGrid, type Detection } from '../src/ai/detect.js';
 import { maskOutline } from '../src/ai/mask-outline.js';
 import { partAt, samMask, samPrompt, samScale, samTensor } from '../src/ai/sam.js';
 import { parseConfig } from '../src/config.js';
@@ -74,6 +74,20 @@ describe('tiles', () => {
       [0, 0],
       [360, 0],
     ]);
+  });
+
+  it('splits a view drawn 8 or 16 times larger into overlapping blocks', () => {
+    // Small enough: one block, the whole larger view.
+    expect(blocksOf([1000, 600], 4, 1, 1024)).toEqual([[0, 0, 4000, 2400]]);
+    // 16 times 1280 × 800: blocks of 4096, overlapping by a model input, the last ones at the edges.
+    const blocks = blocksOf([1280, 800], 16, 1, 1024);
+    const xs = [...new Set(blocks.map((b) => b[0]))];
+    expect(xs[0]).toBe(0);
+    expect(xs.at(-1)).toBe(20480 - 4096);
+    expect(xs[1] - xs[0]).toBe(4096 - 1024);
+    expect(blocks.every(([x, y, w, h]) => w === 4096 && h === 4096 && x + w <= 20480 && y + h <= 12800)).toBe(true);
+    // On a 2× screen the blocks are half as many CSS pixels.
+    expect(blocksOf([1280, 800], 8, 2, 1024)[0]).toEqual([0, 0, 2048, 2048]);
   });
 
   it('makes NCHW input, padding outside the picture and under transparent pixels', () => {
