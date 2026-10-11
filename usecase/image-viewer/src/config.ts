@@ -159,10 +159,13 @@ export const defaultConfig: ViewerConfig = {
 /**
  * The AI models that ship with the viewer (`models/`, so they work in a
  * closed network too), used while `config.json` has no `aiModels` of its own.
- * Both are Apache-2.0 (see `public/models/README.md`).
+ * YOLOX-Tiny and MobileSAM are Apache-2.0, YOLO11s-OBB is AGPL-3.0 (see
+ * `public/models/README.md`).
  */
 function sampleModels(): AiModelConfig[] {
   return [
+    // Trained on DOTA (aerial and satellite pictures); its classes, input size and task come from its metadata.
+    { kind: 'detect', label: 'YOLO11s-OBB（衛星・航空写真・DOTA 15 クラス）', url: './models/yolo11s-obb.onnx' },
     { kind: 'detect', label: 'YOLOX-Tiny（サンプル・COCO 80 クラス）', url: './models/yolox_tiny.onnx', format: 'yolox', inputSize: [416, 416], classes: [...COCO_CLASSES], score: 0.3 },
     { kind: 'sam', label: 'MobileSAM（サンプル）', encoder: './models/mobile_sam_encoder.onnx', decoder: './models/mobile_sam_decoder.onnx' },
   ];

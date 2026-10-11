@@ -41,7 +41,7 @@ function serviceWorker(): Plugin {
     },
     closeBundle() {
       const files = filesOf(outDir).filter((f) => f !== 'sw.js' && !f.endsWith('.map'));
-      // ONNX Runtime's WebAssembly (about 27 MB) and the sample models (models/, about 50 MB), the AI tools
+      // ONNX Runtime's WebAssembly (about 27 MB) and the sample models (models/, about 90 MB), the AI tools
       // only, are cached when first used, not on install.
       const isLazy = (f: string) => /(^|\/)ort-wasm[^/]*\.wasm$|^models\/.*\.onnx$/.test(f);
       const hash = createHash('sha256');

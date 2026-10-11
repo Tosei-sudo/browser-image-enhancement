@@ -245,17 +245,21 @@ test('writes detections, corrected and added ones, to an Esri feature layer by m
   expect(errors).toEqual([]);
 });
 
-test('the sample models ship with the viewer: YOLOX-Tiny loads, MobileSAM outlines the square', async ({ page }) => {
+test('the sample models ship with the viewer: YOLO11-OBB and YOLOX-Tiny load, MobileSAM outlines the square', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await openSquare(page);
 
-  // 物体検出: the sample is chosen first, with COCO's classes.
+  // 物体検出: the aerial model is chosen first, its classes and input from its own metadata.
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#ai-detect').click();
   const dialog = page.locator('.ai-dialog');
-  await expect(dialog.getByRole('combobox', { name: 'モデル' })).toHaveValue('config:0');
+  const models = dialog.getByRole('combobox', { name: 'モデル' });
+  await expect(models).toHaveValue('config:0');
+  await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（回転矩形）・入力 1024×1024・15 クラス（plane・ship・storage tank', { timeout: 60_000 });
+  // YOLOX-Tiny, with COCO's classes.
+  await models.selectOption('config:1');
   await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）・入力 416×416・80 クラス（person・bicycle・car', { timeout: 60_000 });
   await dialog.getByRole('button', { name: '実行' }).click();
   // Nothing of COCO's on a white square.
