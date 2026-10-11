@@ -5,7 +5,7 @@
  * - The site's own files are cached on install, so it starts offline and
  *   installs as an app; they are served from the cache (their names carry
  *   their hash, so a new build brings new names). Large files only some
- *   tools need (LAZY: ONNX Runtime's WebAssembly for the AI tools) are
+ *   tools need (LAZY: ONNX Runtime's WebAssembly and the sample models of the AI tools) are
  *   cached the first time they are used instead.
  * - The page itself and config.json come from the network first (a new
  *   build, a config.json edited on the server), the cache when offline.
