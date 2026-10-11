@@ -55,6 +55,8 @@ export interface VectorData {
   idField?: string;
   /** Features left out because the layer has more than {@link MAX_FEATURES}. */
   truncated: boolean;
+  /** What the layer holds when not every feature (a streamed Shapefile: those in view), for the table and export. */
+  note?: string;
 }
 
 /** How to open the layer again (for `?service=` links). */

@@ -137,6 +137,7 @@ export class ExportDialog {
     this.withStyle_.closest('label')!.hidden = format === 'geojson' || !this.entry_ || !exportStyle(this.entry_);
     const notes: string[] = [];
     if (this.entry_?.service.vector?.truncated) notes.push('このレイヤーは先頭 5 万件だけ読み込んでいます。書き出すのも読み込んだ地物だけです');
+    if (this.entry_?.service.vector?.note) notes.push('このレイヤーは表示範囲の地物だけを（縮小時は間引いて）読み込んでいます。書き出すのも読み込んだ地物だけです');
     if (format === 'shapefile') notes.push('属性名は 10 バイトまでに切り詰め、文字は UTF-8（.cpg 付き）で書きます。点・線・面が混ざっていると種類ごとに別の Shapefile にします');
     if (format === 'geojson' && this.crs_.value !== '0') notes.push('WGS 84 以外の GeoJSON は標準外です（古い crs 指定を付けます）');
     this.note_.textContent = notes.join('。');

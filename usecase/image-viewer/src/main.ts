@@ -34,6 +34,7 @@ import { CoordinateMenu } from './coordinate-menu.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
 import { glVector } from './gl-vector.js';
+import { clearStreamedCopies, streaming } from './streamed-shapefile.js';
 import { acceptFiles, openFiles, openImageFile, type OpenFilesContext } from './open-files.js';
 import { endBuilding, markBuilding, rsetOf, RsetIndicator, RsetProgress, rsetSettings, rsetText } from './rset.js';
 import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
@@ -182,6 +183,7 @@ function showTable(layer: ViewerLayer | null): void {
   if (layer?.type === 'service' && vector && service) {
     const notes = [
       vector.truncated ? `先頭 ${MAX_FEATURES.toLocaleString()} 件のみ` : '',
+      vector.note ?? '',
       timeline.filters(layer) ? 'タイムラインの期間内のみ' : '',
       dashboard.filters(layer) ? 'ダッシュボードで絞り込み中' : '',
     ].filter(Boolean);
@@ -799,6 +801,11 @@ baseMap.set(start.get('base') ?? config.defaultBaseMap);
 // `?vectorgl=always` / `never`: draw vector layers on the GPU whatever their size, or never (else only large ones).
 const vectorGl = start.get('vectorgl');
 if (vectorGl === 'always' || vectorGl === 'never') glVector.mode = vectorGl;
+// `?shpstream=always` / `never`: read Shapefiles a view at a time whatever their size, or never (else only large ones).
+const shpStream = start.get('shpstream');
+if (shpStream === 'always' || shpStream === 'never') streaming.mode = shpStream;
+// Browser copies of large Shapefiles left by an earlier visit.
+void clearStreamedCopies();
 
 /**
  * A URL typed in the open box (or given as `?url=`) that is an Esri image
