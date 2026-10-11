@@ -258,6 +258,8 @@ export class GlVector {
    * The same `span` function with another window only moves the window.
    */
   setTime(time: TimeFilter | null): void {
+    // Building the buffers again starts the WebGL layer afresh: it is blank until they are built.
+    if (!time && !this.time_) return;
     const same = !!time && !!this.time_ && time.span === this.time_.span;
     this.time_ = time;
     if (same) this.gl_?.updateStyleVariables(timeVariables(time.window));

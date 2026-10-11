@@ -711,6 +711,8 @@ export class LayerStyle {
   setTimeFilter(time: TimeFilter | null): void {
     const before = this.time_;
     this.time_ = time;
+    // No filter before or now (the timeline closed, telling every layer again): nothing to draw again.
+    if (!before && !time) return;
     if (!before !== !time) return this.apply_();
     if (this.gl_) this.gl_.setTime(time);
     // The canvas style reads the window as it draws.
