@@ -6,8 +6,9 @@
  *
  * Two kinds of model:
  * - detection: one ONNX file (YOLOv5 / v8 / v11 and later, end-to-end
- *   exports, rotated boxes (OBB) and instance segmentation, and YOLOX's raw
- *   grid output), run over the view in tiles;
+ *   exports, rotated boxes (OBB) and instance segmentation, YOLOX's raw
+ *   grid output, and R-CNN style outputs of boxes, scores and classes apart,
+ *   as Detectron2's ONNX export writes them), run over the view in tiles;
  * - click segmentation: a Segment Anything (SAM, MobileSAM, EfficientSAM…)
  *   image encoder and prompt decoder, as exported by segment-anything's
  *   `export_onnx_model.py`.
@@ -15,8 +16,18 @@
 
 /** What a detection model finds. */
 export type DetectTask = 'detect' | 'obb' | 'segment';
-/** How a detection model's first output is laid out (`auto`: from its shape). */
-export type DetectFormat = 'auto' | 'yolov8' | 'yolov5' | 'end2end' | 'yolox';
+/**
+ * How a detection model's outputs are laid out (`auto`: from their shapes).
+ * `detectron2`: boxes `[N, 4]` (x1, y1, x2, y2 in input pixels), scores `[N]`
+ * and classes `[N]` as separate outputs, after the model's own NMS
+ * (Detectron2's `export_model.py --format onnx --export-method tracing`, and
+ * torchvision's detection models); its input is one image, `[3, H, W]` or
+ * `[1, 3, H, W]`, of 0–255 B, G, R (the model normalizes it itself).
+ */
+export type DetectFormat = 'auto' | 'yolov8' | 'yolov5' | 'end2end' | 'yolox' | 'detectron2';
+
+/** The formats `config.json` may name. */
+export const DETECT_FORMATS: readonly DetectFormat[] = ['auto', 'yolov8', 'yolov5', 'end2end', 'yolox', 'detectron2'];
 
 /** The 80 classes of COCO, which most published detection weights were trained on (`"classes": "coco"`). */
 export const COCO_CLASSES = [
@@ -38,18 +49,25 @@ export interface DetectModelConfig {
   url: string;
   /** Taken from the model's metadata when absent. */
   task?: DetectTask;
-  /** The model's input, width and height (from its metadata, else 640 × 640). */
+  /** The model's input, width and height (from its metadata, else 640 × 640; Detectron2: 800 × 800). */
   inputSize?: [number, number];
   /** Class names by index (from its metadata, else `class 0`, `class 1`…). */
   classes?: string[];
-  /** Per channel (R, G, B, in 0–255): the input is (value − mean) / std. Default: 0 and 255 (YOLO's 0–1); YOLOX: 0 and 1. */
+  /** Per channel (R, G, B, in 0–255): the input is (value − mean) / std. Default: 0 and 255 (YOLO's 0–1); YOLOX, Detectron2: 0 and 1. */
   mean?: [number, number, number];
   std?: [number, number, number];
-  /** The channel order of the input (default: rgb; YOLOX: bgr). */
+  /** The channel order of the input (default: rgb; YOLOX, Detectron2: bgr). */
   channels?: 'rgb' | 'bgr';
   format?: DetectFormat;
   /** YOLOX: the strides of its output grids (default 8, 16, 32). */
   strides?: number[];
+  /**
+   * The most objects the model gives for one input (Detectron2: its
+   * TEST.DETECTIONS_PER_IMAGE, 100 unless changed at export; 0: no limit).
+   * A tile that reaches it is analysed again in quarters, so crowded
+   * places are not cut short.
+   */
+  maxDetections?: number;
   /** Default score threshold (0–1). */
   score?: number;
   /** Default overlap (IoU) above which the weaker of two boxes of a class is dropped. */
@@ -118,12 +136,16 @@ export function aiModelOf(value: unknown, problems: string[], index: number): Ai
     else problems.push(`${at} の classes はクラス名の配列か "coco" にしてください`);
   }
   if (value.format !== undefined) {
-    if (['auto', 'yolov8', 'yolov5', 'end2end', 'yolox'].includes(value.format as string)) model.format = value.format as DetectFormat;
-    else problems.push(`${at} の format は auto・yolov8・yolov5・end2end・yolox のどれかにしてください`);
+    if (DETECT_FORMATS.includes(value.format as DetectFormat)) model.format = value.format as DetectFormat;
+    else problems.push(`${at} の format は ${DETECT_FORMATS.join('・')} のどれかにしてください`);
   }
   if (value.channels !== undefined) {
     if (value.channels === 'rgb' || value.channels === 'bgr') model.channels = value.channels;
     else problems.push(`${at} の channels は rgb か bgr にしてください`);
+  }
+  if (value.maxDetections !== undefined) {
+    if (Number.isInteger(value.maxDetections) && (value.maxDetections as number) >= 0) model.maxDetections = value.maxDetections as number;
+    else problems.push(`${at} の maxDetections は 0 以上の整数にしてください（0: 上限なし）`);
   }
   if (value.strides !== undefined) {
     if (Array.isArray(value.strides) && value.strides.length > 0 && value.strides.every((n) => Number.isInteger(n) && n > 0)) model.strides = value.strides as number[];
@@ -153,6 +175,10 @@ export interface DetectorSpec {
   strides: number[];
   score: number;
   iou: number;
+  /** The input is one image, `[3, H, W]`, not a batch `[1, 3, H, W]`. */
+  unbatched: boolean;
+  /** The most objects the model gives for one input (0: no limit); a tile that reaches it is split. */
+  maxDetections: number;
 }
 
 /**
@@ -160,25 +186,45 @@ export interface DetectorSpec {
  * model's own metadata says (Ultralytics: `task`, `imgsz`, `names`), then
  * YOLO's defaults.
  */
-export function detectorSpec(config: Partial<DetectModelConfig>, metadata: Record<string, string>): DetectorSpec {
+export function detectorSpec(config: Partial<DetectModelConfig>, metadata: Record<string, string>, signature?: OnnxSignature): DetectorSpec {
   const task = config.task ?? (['detect', 'obb', 'segment'].includes(metadata.task) ? (metadata.task as DetectTask) : 'detect');
   const imgsz = parseNumbers(metadata.imgsz);
   // Ultralytics writes imgsz as [height, width].
   const fromMeta: [number, number] | null = imgsz.length === 2 ? [imgsz[1], imgsz[0]] : imgsz.length === 1 ? [imgsz[0], imgsz[0]] : null;
-  // YOLOX was trained on 0–255 B, G, R.
-  const yolox = config.format === 'yolox';
+  // A fixed input size (an export traced at one size, as Detectron2's is), else none.
+  const input = signature?.inputs[0];
+  const [h, w] = input ? input.dims.slice(-2) : [];
+  const fixed: [number, number] | null = typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0 ? [w, h] : null;
+  const detectron2 = config.format === 'detectron2' || ((config.format ?? 'auto') === 'auto' && !!signature && hasDetectron2Outputs(signature));
+  // YOLOX and Detectron2 take 0–255 B, G, R (Detectron2 normalizes inside the model).
+  const raw = config.format === 'yolox' || detectron2;
   return {
-    task,
-    inputSize: config.inputSize ?? fromMeta ?? [640, 640],
+    task: detectron2 ? 'detect' : task,
+    // Detectron2's models are trained with the shorter side about 800.
+    inputSize: config.inputSize ?? fromMeta ?? fixed ?? (detectron2 ? [800, 800] : [640, 640]),
     classes: config.classes ?? pythonNames(metadata.names ?? ''),
     mean: config.mean ?? [0, 0, 0],
-    std: config.std ?? (yolox ? [1, 1, 1] : [255, 255, 255]),
-    bgr: (config.channels ?? (yolox ? 'bgr' : 'rgb')) === 'bgr',
-    format: config.format ?? 'auto',
+    std: config.std ?? (raw ? [1, 1, 1] : [255, 255, 255]),
+    bgr: (config.channels ?? (raw ? 'bgr' : 'rgb')) === 'bgr',
+    format: detectron2 ? 'detectron2' : (config.format ?? 'auto'),
     strides: config.strides ?? [8, 16, 32],
-    score: config.score ?? 0.25,
+    score: config.score ?? (detectron2 ? 0.5 : 0.25),
     iou: config.iou ?? 0.45,
+    unbatched: input?.dims.length === 3,
+    // Detectron2 keeps the best 100 of an image unless told otherwise when exported.
+    maxDetections: config.maxDetections ?? (detectron2 ? 100 : 0),
   };
+}
+
+/** Whether a model's outputs are Detectron2's: boxes `[N, 4]`, and scores and classes `[N]` (float, integer). */
+function hasDetectron2Outputs({ outputs }: OnnxSignature): boolean {
+  const float = (o: OnnxValue) => o.type === ONNX_FLOAT || o.type === ONNX_FLOAT16 || o.type === ONNX_DOUBLE;
+  return (
+    // (A traced export may leave the 4 as a free axis.)
+    outputs.some((o) => float(o) && o.dims.length === 2 && (o.dims[1] === 4 || typeof o.dims[1] === 'string')) &&
+    outputs.some((o) => float(o) && o.dims.length === 1) &&
+    outputs.some((o) => !float(o) && o.dims.length === 1)
+  );
 }
 
 /** The numbers in `[640, 640]` or `640`. */
@@ -261,6 +307,103 @@ export function onnxMetadata(bytes: Uint8Array): Record<string, string> {
     }
   } catch {
     // Not a model we can walk: no metadata.
+  }
+  return out;
+}
+
+/** A graph input or output: its name, element type (ONNX's TensorProto.DataType) and shape (a name for a free axis). */
+export interface OnnxValue {
+  name: string;
+  type: number;
+  dims: Array<number | string>;
+}
+
+/** The inputs and outputs of an ONNX model's graph. */
+export interface OnnxSignature {
+  inputs: OnnxValue[];
+  outputs: OnnxValue[];
+}
+
+const ONNX_FLOAT = 1;
+const ONNX_DOUBLE = 11;
+const ONNX_FLOAT16 = 10;
+
+/**
+ * The inputs and outputs of an ONNX model (ModelProto.graph, field 7: input
+ * 11 and output 12, ValueInfoProto → TypeProto.tensor_type → shape), read
+ * straight from its protobuf bytes like {@link onnxMetadata}; the graph's
+ * weights are stepped over, not read.
+ */
+export function onnxSignature(bytes: Uint8Array): OnnxSignature {
+  const out: OnnxSignature = { inputs: [], outputs: [] };
+  const decoder = new TextDecoder();
+  let at = 0;
+  const varint = (): number => {
+    let value = 0;
+    let scale = 1;
+    for (;;) {
+      if (at >= bytes.length) throw new Error('truncated');
+      const b = bytes[at++];
+      value += (b & 0x7f) * scale;
+      if (b < 0x80) return value;
+      scale *= 128;
+    }
+  };
+  /** The fields of the message from `at` to `end`: field number, varint value or [start, end] span. */
+  const fields = function* (start: number, end: number): Generator<[number, number | [number, number]]> {
+    at = start;
+    while (at < end) {
+      const key = varint();
+      const wire = key % 8;
+      const field = Math.floor(key / 8);
+      if (wire === 0) yield [field, varint()];
+      else if (wire === 1) at += 8;
+      else if (wire === 5) at += 4;
+      else if (wire === 2) {
+        const length = varint();
+        const span: [number, number] = [at, at + length];
+        at += length;
+        const resume = at;
+        yield [field, span];
+        at = resume;
+      } else throw new Error(`wire type ${wire}`);
+    }
+  };
+  const text = ([a, b]: [number, number]) => decoder.decode(bytes.subarray(a, b));
+  const valueOf = (span: [number, number]): OnnxValue => {
+    const value: OnnxValue = { name: '', type: 0, dims: [] };
+    for (const [f, v] of [...fields(...span)]) {
+      if (f === 1 && Array.isArray(v)) value.name = text(v);
+      // TypeProto.tensor_type (1): elem_type (1), shape (2) of dims (1): dim_value (1) or dim_param (2).
+      if (f !== 2 || !Array.isArray(v)) continue;
+      for (const [tf, tensor] of [...fields(...v)]) {
+        if (tf !== 1 || !Array.isArray(tensor)) continue;
+        for (const [ef, e] of [...fields(...tensor)]) {
+          if (ef === 1 && typeof e === 'number') value.type = e;
+          if (ef !== 2 || !Array.isArray(e)) continue;
+          for (const [, dim] of [...fields(...e)]) {
+            if (!Array.isArray(dim)) continue;
+            let size: number | string = '?';
+            for (const [df, d] of [...fields(...dim)]) {
+              if (df === 1 && typeof d === 'number') size = d;
+              if (df === 2 && Array.isArray(d)) size = text(d);
+            }
+            value.dims.push(size);
+          }
+        }
+      }
+    }
+    return value;
+  };
+  try {
+    for (const [field, graph] of [...fields(0, bytes.length)]) {
+      if (field !== 7 || !Array.isArray(graph)) continue;
+      for (const [f, v] of [...fields(...graph)]) {
+        if (Array.isArray(v) && (f === 11 || f === 12)) (f === 11 ? out.inputs : out.outputs).push(valueOf(v));
+      }
+    }
+  } catch {
+    // Not a model we can walk: no signature.
   }
   return out;
 }

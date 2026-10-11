@@ -6,7 +6,7 @@
  * site; models come from `config.json` URLs or files chosen on the computer.
  */
 import type { InferenceSession, Tensor } from 'onnxruntime-web/webgpu';
-import { onnxMetadata } from './model-config.js';
+import { onnxMetadata, onnxSignature, type OnnxSignature } from './model-config.js';
 
 type Ort = typeof import('onnxruntime-web/webgpu');
 
@@ -98,6 +98,8 @@ export interface ModelBytes {
   name: string;
   bytes: Uint8Array;
   metadata: Record<string, string>;
+  /** Its inputs and outputs (their shapes tell some formats apart). */
+  signature: OnnxSignature;
 }
 
 /** Bytes read by URL or file, so a model is downloaded once. */
@@ -110,7 +112,7 @@ export function modelBytes(source: string | File, onProgress?: (done: number) =>
   if (!model) {
     model = (async () => {
       const bytes = typeof source === 'string' ? await fetchModel(key, onProgress) : new Uint8Array(await source.arrayBuffer());
-      return { key, name: typeof source === 'string' ? source : source.name, bytes, metadata: onnxMetadata(bytes) };
+      return { key, name: typeof source === 'string' ? source : source.name, bytes, metadata: onnxMetadata(bytes), signature: onnxSignature(bytes) };
     })();
     model.catch(() => read.delete(key));
     read.set(key, model);

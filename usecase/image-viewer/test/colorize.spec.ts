@@ -120,10 +120,12 @@ test('colors a one-band image in a scale, and lays two dates over each other in 
   await dialog.getByLabel('後の画像').selectOption({ label: 'scene_2025.tif' });
   await dialog.getByRole('button', { name: '赤とシアンで重ねる' }).click();
   await expect(page.locator('#status')).toContainText('scene_2024.tif を赤、scene_2025.tif をシアンで重ねました');
-  const state = await page.evaluate(() =>
-    window.viewer.images.list().map((i) => ({ name: i.name, scale: i.layer.getColorScale()?.scale, blend: i.layer.getBlendMode(), css: i.layer.getOutputCanvas().style.mixBlendMode })),
-  );
-  expect(state).toEqual([
+  // The canvas takes its CSS blend mode when the layer next draws.
+  const state = () =>
+    page.evaluate(() =>
+      window.viewer.images.list().map((i) => ({ name: i.name, scale: i.layer.getColorScale()?.scale, blend: i.layer.getBlendMode(), css: i.layer.getOutputCanvas().style.mixBlendMode })),
+    );
+  await expect.poll(state).toEqual([
     { name: 'scene_2025.tif', scale: 'cyan', blend: 'screen', css: 'screen' },
     { name: 'scene_2024.tif', scale: 'red', blend: 'normal', css: '' },
   ]);

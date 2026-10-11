@@ -7,6 +7,10 @@ the .onnx files are committed, so the tests do not need Python.
   64 × 64 input cut into 4 × 4 cells of 16 pixels; each cell is a candidate
   box of its own size, scored as class "bright" by the mean brightness of
   the cell (class "dark" scores 0).
+- detectron2.onnx: the same cells as Detectron2's traced ONNX export lays
+  them out: one unbatched image [3, 64, 64] of 0–255 B, G, R in; boxes
+  [16, 4] (x1, y1, x2, y2), classes [16] (int64, all 0), scores [16] (the
+  cell's mean brightness, 0–1) and the image size out.
 - sam-encoder.onnx / sam-decoder.onnx: a "Segment Anything" pair with the
   official decoder's inputs; the low-resolution mask (256 × 256 over the
   1024 input) is a disc of radius 64 input pixels round the first point.
@@ -52,6 +56,41 @@ def detect():
         ],
     )
     save(graph, 'detect.onnx', {'task': 'detect', 'imgsz': '[64, 64]', 'names': "{0: 'bright', 1: 'dark'}", 'stride': '16'})
+
+
+def detectron2():
+    cells = 4
+    boxes = np.array([[i * 16, j * 16, i * 16 + 16, j * 16 + 16] for j in range(cells) for i in range(cells)], np.float32)
+    nodes = [
+        helper.make_node('ReduceMean', ['image'], ['gray'], axes=[0], keepdims=1),
+        helper.make_node('Unsqueeze', ['gray', 'axis0'], ['batched']),
+        helper.make_node('AveragePool', ['batched'], ['pooled'], kernel_shape=[16, 16], strides=[16, 16]),
+        helper.make_node('Reshape', ['pooled', 'shape'], ['mean']),
+        helper.make_node('Div', ['mean', 'full'], ['scores']),
+        helper.make_node('Identity', ['cell_boxes'], ['boxes']),
+        helper.make_node('Identity', ['cell_classes'], ['classes']),
+        helper.make_node('Identity', ['size'], ['image_size']),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        'detectron2',
+        [helper.make_tensor_value_info('image', TensorProto.FLOAT, [3, 64, 64])],
+        [
+            helper.make_tensor_value_info('boxes', TensorProto.FLOAT, ['n', 4]),
+            helper.make_tensor_value_info('classes', TensorProto.INT64, ['n']),
+            helper.make_tensor_value_info('scores', TensorProto.FLOAT, ['n']),
+            helper.make_tensor_value_info('image_size', TensorProto.INT64, [2]),
+        ],
+        [
+            numpy_helper.from_array(boxes, 'cell_boxes'),
+            numpy_helper.from_array(np.zeros((cells * cells,), np.int64), 'cell_classes'),
+            numpy_helper.from_array(np.array([64, 64], np.int64), 'size'),
+            numpy_helper.from_array(np.array([0], np.int64), 'axis0'),
+            numpy_helper.from_array(np.array([cells * cells], np.int64), 'shape'),
+            numpy_helper.from_array(np.array([255], np.float32), 'full'),
+        ],
+    )
+    save(graph, 'detectron2.onnx')
 
 
 def sam():
@@ -111,4 +150,5 @@ def sam():
 
 
 detect()
+detectron2()
 sam()

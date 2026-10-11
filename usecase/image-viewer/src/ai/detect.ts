@@ -119,12 +119,13 @@ export interface Output {
  * of values per candidate and whether candidates run along the last axis
  * (YOLOv8: `[1, 4 + classes, N]`) or the middle one (YOLOv5: `[1, N, 5 + classes]`).
  */
-export function layoutOf(output: Output, spec: DetectorSpec): { format: Exclude<DetectFormat, 'auto'>; values: number; count: number; transposed: boolean; classes: number } {
+export function layoutOf(output: Output, spec: DetectorSpec): { format: Exclude<DetectFormat, 'auto' | 'detectron2'>; values: number; count: number; transposed: boolean; classes: number } {
   const [, a, b] = output.dims.length === 3 ? output.dims : [1, ...output.dims.slice(-2)];
   const extra = spec.task === 'obb' ? 1 : spec.task === 'segment' ? 32 : 0;
   const known = spec.classes.length;
   /** Values per candidate of a format, with the class names known. */
   const valuesOf = (format: 'yolov8' | 'yolov5') => 4 + extra + known + (format === 'yolov5' ? 1 : 0);
+  if (spec.format === 'detectron2') throw new Error('Detectron2 の出力は decodeDetectron2 で読みます');
   let format = spec.format;
   if (format === 'auto') {
     // End-to-end exports (NMS inside, YOLOv10, YOLO26): [1, ≤ 1000, 6] (7 with an angle, 38 with mask coefficients).
@@ -197,6 +198,36 @@ export function decodeYolo(output: Output, spec: DetectorSpec, minScore: number)
     if (angle !== undefined && Number.isFinite(angle)) d.angle = angle;
     if (coeffAt >= 0) d.coeffs = Float32Array.from({ length: 32 }, (_, k) => at(i, coeffAt + k));
     found.push(d);
+  }
+  return found;
+}
+
+/**
+ * Which of a model's outputs are Detectron2's boxes `[N, 4]`, scores `[N]`
+ * and classes `[N]`, or null when they are not laid out so. Classes are the
+ * first integer output of length N (Detectron2 writes the image size, an
+ * integer pair, after them), or one named class / label.
+ */
+export function detectron2Outputs<T extends { name: string; type: string; dims: readonly number[] }>(outputs: readonly T[]): { boxes: T; scores: T; classes: T } | null {
+  const boxes = outputs.find((o) => o.dims.length === 2 && o.dims[1] === 4 && o.type.startsWith('float'));
+  if (!boxes) return null;
+  const n = boxes.dims[0];
+  const flat = outputs.filter((o) => o !== boxes && o.dims.length === 1 && o.dims[0] === n);
+  const scores = flat.find((o) => /score/i.test(o.name) && o.type.startsWith('float')) ?? flat.find((o) => o.type.startsWith('float'));
+  const ints = flat.filter((o) => !o.type.startsWith('float'));
+  const classes = ints.find((o) => /class|label/i.test(o.name)) ?? ints[0] ?? flat.find((o) => o !== scores && /class|label/i.test(o.name));
+  return scores && classes ? { boxes, scores, classes } : null;
+}
+
+/** Detectron2's outputs as objects scoring at least `minScore`, in the tile's pixels. */
+export function decodeDetectron2(boxes: Output, scores: Output, classes: Output, minScore: number): Detection[] {
+  const found: Detection[] = [];
+  for (let i = 0; i < scores.data.length; i++) {
+    const score = Number(scores.data[i]);
+    if (!(score >= minScore)) continue;
+    const [x1, y1, x2, y2] = [boxes.data[4 * i], boxes.data[4 * i + 1], boxes.data[4 * i + 2], boxes.data[4 * i + 3]];
+    if (!(x2 > x1 && y2 > y1)) continue;
+    found.push({ cls: Number(classes.data[i]), score, box: [(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1] });
   }
   return found;
 }
