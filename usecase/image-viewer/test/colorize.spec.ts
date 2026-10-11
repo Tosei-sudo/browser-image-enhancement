@@ -77,6 +77,22 @@ const shown = (page: Page, index: number) =>
     index,
   );
 
+test('opens the coloring from the layer row, on that image', async ({ page }) => {
+  await open(page);
+  await choose(page, [
+    { name: 'scene_2024.tif', bytes: before() },
+    { name: 'scene_2025.tif', bytes: after() },
+  ]);
+  // The lower row: scene_2024.tif.
+  await page.locator('#images .image').nth(1).getByRole('button', { name: '着色（カラースケール・重ね方）' }).click();
+  const dialog = page.locator('.colorize-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('画像', { exact: true }).locator('option:checked')).toHaveText('scene_2024.tif');
+  await dialog.getByLabel('カラースケール').selectOption('blue');
+  expect(await page.evaluate(() => window.viewer.images.list().map((i) => i.layer.getColorScale()?.scale ?? null))).toEqual([null, 'blue']);
+  await expect(page.locator('#images .image').nth(1).locator('.color-swatch')).toHaveCount(1);
+});
+
 test('colors a one-band image in a scale, and lays two dates over each other in red and cyan', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

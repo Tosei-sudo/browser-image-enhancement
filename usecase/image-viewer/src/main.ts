@@ -250,6 +250,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onExport: (layer) => exporter.open(layer),
   onStyle: (layer) => styler.open(layer),
+  onColorize: (layer) => void colorize.open(layer),
   onRules: (layer) => rasterRules.open(layer),
 });
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.

@@ -53,6 +53,8 @@ export interface ImageListOptions {
   onExport?: (layer: ViewerService) => void;
   /** Called by the style button of a vector layer. */
   onStyle?: (layer: ViewerService) => void;
+  /** Called by the color button of an image (color scale and blend, colorize-dialog.ts). */
+  onColorize?: (layer: ViewerImage) => void;
   /** Called by the display rules button of an Esri image or map service layer. */
   onRules?: (layer: ViewerService) => void;
 }
@@ -343,6 +345,12 @@ export class ImageList {
       button('style', '◐', 'スタイル・ラベル', () => {
         this.select(image);
         this.options.onStyle!(image);
+      });
+    }
+    if (image.type === 'image' && this.options.onColorize) {
+      button('colorize', '◐', '着色（カラースケール・重ね方）', () => {
+        this.select(image);
+        this.options.onColorize!(image);
       });
     }
     if (image.type === 'service' && image.service.raster && this.options.onRules) {
