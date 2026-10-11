@@ -27,12 +27,14 @@ import { shortName, type ViewerLayer } from './images.js';
 import { markOrigin } from './ai/transfer.js';
 import type { ProcessingResult } from './processing/common.js';
 import { field } from './processing/common.js';
-import { drawView, pixelRatioOf, type DrawnView } from './view-export.js';
+import { drawView, drawViewInStrips, pixelRatioOf, type DrawnView } from './view-export.js';
 import { detectorSpec, type AiModelConfig, type DetectModelConfig, type SamModelConfig } from './ai/model-config.js';
-import { blocksOf, boxCorners, decodeYolo, instanceMask, nms, offset, tilesOf, tileTensor, type Detection } from './ai/detect.js';
+import { blocksOf, boxCorners, nms, offset, tilesOf, type Detection } from './ai/detect.js';
 import { maskOutline, type PixelPolygon } from './ai/mask-outline.js';
 import { partAt, SAM_MEAN, SAM_STD, samMask, samPrompt, samScale, samTensor, type SamPoint } from './ai/sam.js';
-import { backendLabel, modelFrom, nameOf, tensor, type LoadedModel } from './ai/runtime.js';
+import { backendLabel, hasWebGpu, modelBytes, modelFrom, nameOf, tensor, type LoadedModel, type ModelBytes } from './ai/runtime.js';
+import { cpuWorkers, createDetectPool, type DetectPool } from './ai/detect-pool.js';
+import { offscreenMap, type OffscreenMap } from './offscreen-map.js';
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 /** Lets the page draw (a message, a progress line) before more work holds it. */
@@ -185,6 +187,8 @@ export class DetectDialog {
   private readonly run_: HTMLButtonElement;
   private layers_: ViewerLayer[] = [];
   private running_: { cancelled: boolean } | null = null;
+  private pool_ref: { key: string; pool: Promise<DetectPool> } | null = null;
+  private readonly progress_: Progress;
 
   constructor(
     button: HTMLButtonElement,
@@ -231,9 +235,7 @@ export class DetectDialog {
     this.run_ = this.dialog.querySelector('button[value=run]')!;
     this.dialog.querySelector('button[value=cancel]')!.addEventListener('click', () => this.dialog.close());
     this.run_.addEventListener('click', () => void this.run());
-    this.dialog.addEventListener('close', () => {
-      if (this.running_) this.running_.cancelled = true;
-    });
+    this.progress_ = new Progress(map.getViewport().parentElement ?? document.body);
     button.addEventListener('click', () => this.open());
   }
 
@@ -252,12 +254,12 @@ export class DetectDialog {
     this.models_.addFiles([file]);
   }
 
-  /** The chosen model, loaded, with its spec. */
+  /** The chosen model's bytes (read, not loaded: the workers load it), with its spec. */
   private async model_(onProgress?: (done: number) => void) {
     const chosen = this.models_.chosen();
     if (!chosen) return null;
-    const model = await modelFrom(chosen.config ? chosen.config.url : chosen.files[0], onProgress);
-    return { model, spec: detectorSpec(chosen.config ?? {}, model.metadata), label: chosen.config ? chosen.config.label : chosen.label };
+    const bytes = await modelBytes(chosen.config ? chosen.config.url : chosen.files[0], onProgress);
+    return { bytes, spec: detectorSpec(chosen.config ?? {}, bytes.metadata), label: chosen.config ? chosen.config.label : chosen.label };
   }
 
   /** Shows what the chosen model is (its task, classes and input), loading it. */
@@ -276,33 +278,46 @@ export class DetectDialog {
       this.info_.textContent = 'モデルを読み込んでいます…';
       const loaded = await this.model_((done) => stale() || (this.info_.textContent = `モデルを読み込んでいます… ${Math.round(done * 100)}%`));
       if (!loaded || stale()) return;
-      const { spec, model } = loaded;
+      const { spec } = loaded;
+      // The workers run on the GPU when there is one.
+      const backend = (await hasWebGpu()) ? 'webgpu' : 'wasm';
+      if (stale()) return;
       score.value = String(spec.score);
       iou.value = String(spec.iou);
       const task = { detect: '物体検出（矩形）', obb: '物体検出（回転矩形）', segment: 'インスタンスセグメンテーション（輪郭）' }[spec.task];
       const classes = spec.classes.length
         ? `${spec.classes.length} クラス（${spec.classes.slice(0, 8).join('・')}${spec.classes.length > 8 ? '…' : ''}）`
         : 'クラス名なし（番号で出します）';
-      this.info_.textContent = `${task}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(model.backend)}で実行`;
+      this.info_.textContent = `${task}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(backend)}${backend === 'wasm' && cpuWorkers() > 1 ? ` × ${cpuWorkers()}` : ''}で実行`;
     } catch (error) {
       if (!stale()) this.info_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
     }
   }
 
-  /** Runs the chosen model over the view of the chosen image. */
+  /**
+   * Runs the chosen model over the view of the chosen image, in the
+   * background: the dialog closes, a small panel shows how far it got (and
+   * stops it), and the map stays free to use. The view is drawn on a hidden
+   * copy of the map, block by block when large, while workers analyse the
+   * tiles of the block drawn before.
+   */
   async run(): Promise<void> {
     const layer = this.layers_[Number(this.target_.value)];
     if (!layer) return void (this.note_.textContent = '先に画像を開いてください');
     if (!this.models_.chosen()) return void (this.note_.textContent = 'モデルを選んでください');
+    if (this.running_) return void (this.note_.textContent = '物体検出を実行中です。終わってからもう一度実行してください');
     const running = { cancelled: false };
     this.running_ = running;
     this.run_.disabled = true;
     const form = new FormData(this.form_);
     const started = performance.now();
+    const progress = this.progress_;
+    progress.start(() => (running.cancelled = true));
+    let offscreen: OffscreenMap | null = null;
     try {
       this.note_.textContent = 'モデルを読み込んでいます…';
       const loaded = (await this.model_())!;
-      const { model, label } = loaded;
+      const { label } = loaded;
       const spec = { ...loaded.spec };
       const score = Number(form.get('score'));
       const iou = Number(form.get('iou'));
@@ -312,23 +327,37 @@ export class DetectDialog {
         .split(/[,、，]/)
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
-
-      // A large scale is drawn and analysed block by block, so memory stays bounded.
       const scale = Number(form.get('scale')) || 1;
-      const ratio = pixelRatioOf(this.map);
-      const blocks = blocksOf(this.map.getSize()!, scale, ratio, Math.max(...spec.inputSize));
       const overlap = Math.min(0.5, Math.max(0, Number(form.get('overlap')) / 100 || 0));
+      this.dialog.close();
+      this.note_.textContent = '';
+
+      progress.say('モデルを準備しています…');
+      const pool = await this.pool_(loaded.bytes);
+      if (running.cancelled) throw new Error('中止しました');
+
+      // The view as it is now, on a hidden copy of the map (the map itself when the layer cannot be copied).
+      offscreen = await offscreenMap(this.map, layer.layer);
+      const drawMap = offscreen?.map ?? this.map;
+      const only = offscreen ? undefined : layer.layer;
+      const ratio = pixelRatioOf(drawMap);
+      // A large scale is drawn and analysed block by block, so memory stays bounded.
+      const blocks = blocksOf(drawMap.getSize()!, scale, ratio, Math.max(...spec.inputSize));
+      // The hidden map draws in strips, so the page never waits long for the GPU; the map itself in one go.
+      const draw = (b: number) => (offscreen ? drawViewInStrips(drawMap, scale, blocks[b]) : drawView(drawMap, scale, only, blocks.length > 1 ? blocks[b] : undefined));
       const [tw, th] = spec.inputSize;
-      const input = nameOf(model.session.inputNames, 'images', 0);
       const found: Detection[] = [];
       let toMap: ((p: readonly [number, number]) => [number, number]) | null = null;
       let tileCount = 0;
-      for (const [b, block] of blocks.entries()) {
+      let drawing = draw(0);
+      for (let b = 0; b < blocks.length; b++) {
         if (running.cancelled) throw new Error('中止しました');
         const where = blocks.length > 1 ? `ブロック ${b + 1} / ${blocks.length}・` : '';
-        this.note_.textContent = `${where}画像を描いています…`;
-        await breathe();
-        const drawn = await drawView(this.map, scale, layer.layer, blocks.length > 1 ? block : undefined);
+        progress.say(`${where}画像を描いています…`);
+        const drawn = await drawing;
+        // The next block is drawn (on the hidden map) while this one is analysed.
+        if (offscreen && b + 1 < blocks.length) drawing = draw(b + 1);
+        const block = blocks[b];
         // Pixels of every block are counted from the larger view's corner.
         const [bx, by] = [Math.round(block[0] * ratio), Math.round(block[1] * ratio)];
         if (!toMap) {
@@ -338,17 +367,25 @@ export class DetectDialog {
         }
         const { width, height } = drawn.canvas;
         const rgba = drawn.canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, width, height).data;
-        const tiles = tilesOf(width, height, spec.inputSize, overlap);
+        drawn.canvas.width = drawn.canvas.height = 0;
+        const tiles = tilesOf(width, height, spec.inputSize, overlap).filter(([x0, y0]) => !isEmpty(rgba, width, height, x0, y0, tw, th));
         tileCount += tiles.length;
         let done = 0;
+        // A few tiles more than workers are cut out at a time: each worker has the next one waiting.
+        const inFlight = new Set<Promise<void>>();
         for (const [x0, y0] of tiles) {
           if (running.cancelled) throw new Error('中止しました');
-          this.note_.textContent = `${where}解析しています… ${++done} / ${tiles.length} タイル（${backendLabel(model.backend)}）`;
-          if (isEmpty(rgba, width, height, x0, y0, tw, th)) continue;
-          await breathe();
-          found.push(...(await detectTile(model, input, rgba, width, height, x0, y0, spec)).map((d) => offset(d, bx, by)));
+          const job = pool
+            .run(cropOf(rgba, width, height, x0, y0, tw, th), tw, th, spec)
+            .then((objects) => {
+              found.push(...objects.map((d) => offset(d, bx + x0, by + y0)));
+              progress.say(`${where}解析しています… ${++done} / ${tiles.length} タイル（${backendLabel(pool.backend)}${pool.size > 1 ? ` × ${pool.size}` : ''}）`, done / tiles.length);
+            });
+          inFlight.add(job);
+          void job.finally(() => inFlight.delete(job)).catch(() => {});
+          if (inFlight.size >= pool.size * 2) await Promise.race(inFlight);
         }
-        drawn.canvas.width = drawn.canvas.height = 0;
+        await Promise.all(inFlight);
       }
       const names = spec.classes;
       const nameOfClass = (cls: number) => names[cls] ?? `class ${cls}`;
@@ -366,7 +403,7 @@ export class DetectDialog {
         return feature;
       });
       if (!features.length) {
-        this.note_.textContent = `見つかりませんでした（${tileCount} タイル、スコア ${spec.score} 以上）。拡大するか、しきい値を下げてみてください`;
+        this.options.say(`物体検出（${label}）: 見つかりませんでした（${tileCount} タイル、スコア ${spec.score} 以上）。拡大するか、しきい値を下げてみてください`);
         return;
       }
       const fields = [field('class', 'string', 'クラス'), field('class_id', 'integer', 'クラス番号'), field('score', 'double', 'スコア')];
@@ -381,17 +418,94 @@ export class DetectDialog {
         title: `物体検出（${label}）`,
         features,
         fields,
-        notes: [`${summary}（${tileCount} タイル、${backendLabel(model.backend)}、${seconds} 秒）`],
+        notes: [`${summary}（${tileCount} タイル、${backendLabel(pool.backend)}${pool.size > 1 ? ` × ${pool.size}` : ''}、${seconds} 秒）`],
       };
       await this.options.onResult(result, `物体検出 ${label}・スコア ${spec.score} 以上（${layer.name}）`);
-      this.dialog.close();
       this.options.say(`${result.title} を作成しました（${features.length.toLocaleString()} 件、一時レイヤー）。${result.notes![0]}`);
     } catch (error) {
-      this.note_.textContent = `検出できませんでした: ${message(error)}`;
+      if (running.cancelled) this.options.say('物体検出を中止しました');
+      else this.options.say(`物体検出できませんでした: ${message(error)}`);
+      // A worker stopped half-way through a tile is made again next time.
+      if (running.cancelled) this.dropPool_();
     } finally {
+      offscreen?.dispose();
+      progress.stop();
       this.run_.disabled = false;
       if (this.running_ === running) this.running_ = null;
     }
+  }
+
+  /** The workers for the model in `bytes` (the same ones while the model stays). */
+  private async pool_(bytes: ModelBytes): Promise<DetectPool> {
+    if (this.pool_ref?.key !== bytes.key) {
+      this.dropPool_();
+      const pool = createDetectPool(bytes.bytes, bytes.name);
+      this.pool_ref = { key: bytes.key, pool };
+      pool.catch(() => this.pool_ref?.pool === pool && (this.pool_ref = null));
+    }
+    return this.pool_ref!.pool;
+  }
+
+  private dropPool_(): void {
+    void this.pool_ref?.pool.then((p) => p.terminate()).catch(() => {});
+    this.pool_ref = null;
+  }
+
+  /** Whether a detection is running (it runs in the background). */
+  isRunning(): boolean {
+    return this.running_ !== null;
+  }
+}
+
+/** The tile at (x0, y0) of an RGBA picture, `tw` × `th` (transparent past the edges). */
+function cropOf(rgba: Uint8ClampedArray, width: number, height: number, x0: number, y0: number, tw: number, th: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(tw * th * 4);
+  const w = Math.max(0, Math.min(tw, width - x0));
+  for (let y = 0; y < th && y0 + y < height; y++) out.set(rgba.subarray(((y0 + y) * width + x0) * 4, ((y0 + y) * width + x0 + w) * 4), y * tw * 4);
+  return out;
+}
+
+/** A small panel over the map: how far a background detection got, and a button that stops it. */
+class Progress {
+  private readonly panel_ = document.createElement('div');
+  private readonly text_ = document.createElement('span');
+  private readonly bar_ = document.createElement('progress');
+  private readonly stop_ = document.createElement('button');
+  private onStop_: (() => void) | null = null;
+
+  constructor(parent: HTMLElement) {
+    this.panel_.className = 'ai-progress';
+    this.panel_.hidden = true;
+    this.panel_.setAttribute('role', 'status');
+    this.panel_.setAttribute('aria-label', '物体検出の進み具合');
+    this.stop_.type = 'button';
+    this.stop_.textContent = '中止';
+    this.stop_.addEventListener('click', () => {
+      this.onStop_?.();
+      this.say('中止しています…');
+    });
+    this.bar_.max = 1;
+    this.panel_.append(this.text_, this.bar_, this.stop_);
+    parent.append(this.panel_);
+  }
+
+  start(onStop: () => void): void {
+    this.onStop_ = onStop;
+    this.bar_.removeAttribute('value');
+    this.text_.textContent = '物体検出を始めています…';
+    this.panel_.hidden = false;
+  }
+
+  /** What it is doing, and how much of it is done (0–1; none: not known). */
+  say(text: string, done?: number): void {
+    this.text_.textContent = `物体検出: ${text}`;
+    if (done === undefined) this.bar_.removeAttribute('value');
+    else this.bar_.value = done;
+  }
+
+  stop(): void {
+    this.onStop_ = null;
+    this.panel_.hidden = true;
   }
 }
 
@@ -401,51 +515,6 @@ function isEmpty(rgba: Uint8ClampedArray, width: number, height: number, x0: num
     for (let x = x0; x < Math.min(width, x0 + tw); x += 2) if (rgba[(y * width + x) * 4 + 3] !== 0) return false;
   }
   return true;
-}
-
-/** The objects in one tile, in the picture's pixels (instance outlines traced from their masks). */
-async function detectTile(
-  model: LoadedModel,
-  input: string,
-  rgba: Uint8ClampedArray,
-  width: number,
-  height: number,
-  x0: number,
-  y0: number,
-  spec: ReturnType<typeof detectorSpec>,
-): Promise<Detection[]> {
-  const [tw, th] = spec.inputSize;
-  const feed = await tensor(tileTensor(rgba, width, height, x0, y0, spec.inputSize, spec.mean, spec.std, spec.bgr), [1, 3, th, tw]);
-  const outputs = await model.session.run({ [input]: feed });
-  const names = model.session.outputNames;
-  const first = outputs[names[0]];
-  const protos = spec.task === 'segment' ? outputs[names.find((n) => outputs[n].dims.length === 4) ?? names[1]] : undefined;
-  try {
-    let found = nms(decodeYolo({ dims: first.dims, data: (await first.getData()) as Float32Array }, spec, spec.score), spec.iou);
-    if (protos) {
-      const p = { dims: protos.dims, data: (await protos.getData()) as Float32Array };
-      found = found.flatMap((d) => {
-        const m = instanceMask(d, p, spec.inputSize);
-        if (!m) return [];
-        const polygons = maskOutline(m.mask, m.width, m.height);
-        if (!polygons.length) return [];
-        // The largest part is the object; specks around it are left out.
-        const largest = polygons.reduce((a, b) => (area(b[0]) > area(a[0]) ? b : a));
-        return [{ ...d, coeffs: undefined, outline: largest.map((ring) => ring.map(([x, y]): [number, number] => [x + m.x0, y + m.y0])) }];
-      });
-    }
-    // What is centred outside the picture (the padding, transparent no-data) is dropped; the rest moves into the picture.
-    return found
-      .filter((d) => {
-        const x = Math.floor(d.box[0] + x0);
-        const y = Math.floor(d.box[1] + y0);
-        return x >= 0 && y >= 0 && x < width && y < height && rgba[(y * width + x) * 4 + 3] !== 0;
-      })
-      .map((d) => offset(d, x0, y0));
-  } finally {
-    feed.dispose();
-    for (const n of names) outputs[n].dispose();
-  }
 }
 
 function area(ring: ReadonlyArray<readonly [number, number]>): number {

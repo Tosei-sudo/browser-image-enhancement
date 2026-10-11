@@ -91,14 +91,42 @@ export async function createModel(bytes: Uint8Array, name: string, useGpu = true
   return { name, session, metadata, backend: 'wasm' };
 }
 
+/** A model's bytes and metadata, without a session (the detection workers make their own). */
+export interface ModelBytes {
+  /** The same for the same URL or file. */
+  key: string;
+  name: string;
+  bytes: Uint8Array;
+  metadata: Record<string, string>;
+}
+
+/** Bytes read by URL or file, so a model is downloaded once. */
+const read = new Map<string, Promise<ModelBytes>>();
+
+/** The bytes of the model at `url` or in `file`, read once per page. */
+export function modelBytes(source: string | File, onProgress?: (done: number) => void): Promise<ModelBytes> {
+  const key = typeof source === 'string' ? new URL(source, location.href).href : fileKey(source);
+  let model = read.get(key);
+  if (!model) {
+    model = (async () => {
+      const bytes = typeof source === 'string' ? await fetchModel(key, onProgress) : new Uint8Array(await source.arrayBuffer());
+      return { key, name: typeof source === 'string' ? source : source.name, bytes, metadata: onnxMetadata(bytes) };
+    })();
+    model.catch(() => read.delete(key));
+    read.set(key, model);
+  }
+  return model;
+}
+
 /** The model at `url` or in `file`, loaded once per page. */
 export function modelFrom(source: string | File, onProgress?: (done: number) => void): Promise<LoadedModel> {
   const key = typeof source === 'string' ? new URL(source, location.href).href : fileKey(source);
   let model = loaded.get(key);
   if (!model) {
     model = (async () => {
-      const bytes = typeof source === 'string' ? await fetchModel(key, onProgress) : new Uint8Array(await source.arrayBuffer());
-      return createModel(bytes, typeof source === 'string' ? source : source.name);
+      const { bytes, name } = await modelBytes(source, onProgress);
+      // The session is made from a copy: the bytes stay for workers.
+      return createModel(bytes.slice(), name);
     })();
     // A failed load is tried again next time.
     model.catch(() => loaded.delete(key));

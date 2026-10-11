@@ -174,10 +174,21 @@ export function composeLayers(map: OlMap, size: readonly number[], pixelRatio: n
 }
 
 /** Resolves once the map has drawn every tile of the current view (or after `timeout` ms). */
+/** The coordinate `dx`, `dy` CSS pixels (right, down) from the centre of a view. */
+function offsetCenter(center: number[], resolution: number, rotation: number, dx: number, dy: number): number[] {
+  const [x, y] = [dx * resolution, -dy * resolution];
+  const [cos, sin] = [Math.cos(rotation), Math.sin(rotation)];
+  return [center[0] + x * cos - y * sin, center[1] + x * sin + y * cos];
+}
+
 function rendered(map: OlMap, timeout = 60_000): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(done, timeout);
-    function done() {
+    const [size, view] = [map.getSize()!, map.getView()];
+    function done(e?: { frameState?: { size: number[]; viewState: { resolution: number; center: number[] } } | null }) {
+      // Not a frame drawn before the latest change of size or view (its centre snaps to a pixel).
+      const state = e?.frameState;
+      if (state && (state.size[0] !== size[0] || state.size[1] !== size[1] || state.viewState.resolution !== view.getResolution() || state.viewState.center.some((c, i) => Math.abs(c - view.getCenterInternal()![i]) > view.getResolution()!))) return;
       clearTimeout(timer);
       map.un('rendercomplete', done);
       resolve();
@@ -215,7 +226,8 @@ export async function drawView(map: OlMap, scale = 1, only?: BaseLayer, part?: r
   const ratio = pixelRatioOf(map);
   const big = part ? [part[2], part[3]] : [Math.round(size[0] * scale), Math.round(size[1] * scale)];
   // The centre of the block, from where it is in the view as shown now.
-  const partCenter = part ? map.getCoordinateFromPixelInternal([(part[0] + part[2] / 2) / scale, (part[1] + part[3] / 2) / scale]) : null;
+  // (From the view itself, not the last frame: the map may not have drawn since its last change.)
+  const partCenter = part ? offsetCenter(center, resolution, view.getRotation(), (part[0] + part[2] / 2) / scale - size[0] / 2, (part[1] + part[3] / 2) / scale - size[1] / 2) : null;
   const keep = new Set<BaseLayer>(only instanceof LayerGroup ? only.getLayersArray() : only ? [only] : []);
   const hidden = only ? map.getAllLayers().filter((l) => !keep.has(l) && l.getVisible()) : [];
   try {
@@ -246,6 +258,34 @@ export async function drawView(map: OlMap, scale = 1, only?: BaseLayer, part?: r
       view.setResolution(resolution);
     }
   }
+}
+
+/**
+ * {@link drawView} of a `part` of the view, drawn as strips of at most
+ * `pixels` device pixels each and joined: the browser waits for the GPU (and
+ * nothing else runs) while it copies a drawn canvas, so a large part drawn in
+ * one go holds the page up for that long, and in strips only for a moment at
+ * a time. Meant for a map nobody looks at (the strips move it).
+ */
+export async function drawViewInStrips(map: OlMap, scale: number, part: readonly [number, number, number, number], pixels = 1 << 20): Promise<DrawnView> {
+  const [x, y, w, h] = part;
+  const ratio = pixelRatioOf(map);
+  const rows = Math.max(1, Math.floor(pixels / (w * ratio * ratio)));
+  if (rows >= h) return drawView(map, scale, undefined, part);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
+  const ctx = canvas.getContext('2d')!;
+  let first: DrawnView | null = null;
+  let skipped = 0;
+  for (let top = 0; top < h; top += rows) {
+    const strip = await drawView(map, scale, undefined, [x, y + top, w, Math.min(rows, h - top)]);
+    ctx.drawImage(strip.canvas, 0, Math.round(top * ratio));
+    strip.canvas.width = strip.canvas.height = 0;
+    skipped = Math.max(skipped, strip.skipped);
+    first ??= strip;
+  }
+  return { canvas, geo: first!.geo, skipped, placement: first!.placement };
 }
 
 /** An RGBA canvas as an 8-bit RGBA GeoTIFF (alpha as transparency). */
