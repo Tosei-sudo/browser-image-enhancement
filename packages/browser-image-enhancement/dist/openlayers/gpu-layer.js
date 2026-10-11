@@ -140,8 +140,9 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	render(frameState, target) {
 		return this.blend_(this.correct_(frameState, target));
 	}
-	/** Sets the blend mode on the element shown. */
+	/** Sets the blend mode on the element shown (OpenLayers may return none, for a frame it does not draw). */
 	blend_(element) {
+		if (!element?.style) return element;
 		const mode = this.blendMode_ === "normal" ? "" : this.blendMode_;
 		if (element.style.mixBlendMode !== mode) element.style.mixBlendMode = mode;
 		return element;

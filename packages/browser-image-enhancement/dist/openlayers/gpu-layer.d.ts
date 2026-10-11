@@ -83,7 +83,7 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   /** The canvas the corrected map is shown on (for reading pixels in tests). */
   getOutputCanvas(): HTMLCanvasElement;
   render(frameState: FrameState | null, target: HTMLElement): HTMLElement;
-  /** Sets the blend mode on the element shown. */
+  /** Sets the blend mode on the element shown (OpenLayers may return none, for a frame it does not draw). */
   private blend_;
   private correct_;
   /** Sets the raw-stretch style while the source hands raw float tiles, and its variables from the source's stretch. */
