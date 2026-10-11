@@ -66,7 +66,7 @@ export interface CompositePlan {
 }
 
 /** The full-resolution image of an open layer, as geotiff.js read it. */
-function tiffOf(image: ViewerImage): GeoTIFFImage | null {
+export function tiffOf(image: ViewerImage): GeoTIFFImage | null {
   return (image.source.getTiffImages()[0]?.[0] as GeoTIFFImage | undefined) ?? null;
 }
 
@@ -199,7 +199,7 @@ export function planComposite(channels: ReadonlyArray<Channel | null>, reference
 }
 
 /** The blocks of the output, as pixel windows `[x0, y0, x1, y1]`, row by row. */
-function blocksOf(grid: Grid): Array<[number, number, number, number]> {
+export function blocksOf(grid: Grid): Array<[number, number, number, number]> {
   const out: Array<[number, number, number, number]> = [];
   for (let y = 0; y < grid.height; y += BLOCK) for (let x = 0; x < grid.width; x += BLOCK) out.push([x, y, Math.min(grid.width, x + BLOCK), Math.min(grid.height, y + BLOCK)]);
   return out;
@@ -471,7 +471,7 @@ function compositeName(channels: ReadonlyArray<Channel | null>): string {
 }
 
 /** Pixel size along x in the image's own units, for picking the finest image. */
-function pixelSize(image: ViewerImage): number {
+export function pixelSize(image: ViewerImage): number {
   try {
     const p = place(image);
     const box = footprint(p, getProjection('EPSG:3857')!);
@@ -535,7 +535,7 @@ function call(worker: Worker, task: CompositeTask, transfer: Transferable[]): Pr
 }
 
 /** The result's georeferencing, no-data value and each band's range. */
-async function tagsOf(plan: CompositePlan, min: number[], max: number[]): Promise<TiffEntry[]> {
+export async function tagsOf(plan: CompositePlan, min: number[], max: number[]): Promise<TiffEntry[]> {
   const { grid } = plan;
   const g = {
     modelPixelScale: [grid.resolution[0], -grid.resolution[1], 0],
