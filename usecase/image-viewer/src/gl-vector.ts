@@ -175,6 +175,25 @@ export function glStyle(spec: VectorStyleSpec): FlatStyle {
   }
 }
 
+/**
+ * A WebGL vector layer that builds its buffers one set at a time.
+ * OpenLayers builds them again (in its worker, from every feature) each time
+ * the view stops or the features change, and queues a new build even while one
+ * is running: moving the map faster than builds finish piles up builds, each
+ * holding a copy of every feature, and memory grows until the map stays
+ * still. Here a frame during a build draws the buffers it has, and the next
+ * build starts when the running one is done (it redraws the layer).
+ */
+class SteadyWebGLVectorLayer extends WebGLVectorLayer<VectorSource<Feature>> {
+  override createRenderer(): ReturnType<WebGLVectorLayer<VectorSource<Feature>>['createRenderer']> {
+    const renderer = super.createRenderer();
+    const inner = renderer as unknown as { prepareFrameInternal(frameState: unknown): boolean };
+    const prepare = inner.prepareFrameInternal.bind(renderer);
+    inner.prepareFrameInternal = (frameState) => (renderer.ready ? prepare(frameState) : true);
+    return renderer;
+  }
+}
+
 /** Properties of the canvas layer the WebGL layer follows. */
 const followed = ['visible', 'opacity', 'extent', 'minResolution', 'maxResolution', 'minZoom', 'maxZoom'];
 
@@ -326,7 +345,7 @@ export class GlVector {
     const map = this.layer.getMapInternal();
     if (!map) return this.detach_();
     if (!this.gl_) {
-      this.gl_ = new WebGLVectorLayer({
+      this.gl_ = new SteadyWebGLVectorLayer({
         source: this.drawn_,
         style: this.styleLike_(),
         variables: timeVariables(this.time_?.window ?? [-Infinity, Infinity]),
