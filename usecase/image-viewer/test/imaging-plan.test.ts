@@ -8,6 +8,7 @@ import {
   sampleSatellites,
   satelliteCatalogOf,
   satelliteOf,
+  seriesOf,
   satellitesFromText,
   subSatellitePoint,
   sunElevation,
@@ -58,7 +59,7 @@ describe('TLE and catalog attributes', () => {
       {
         label: '衛星',
         url: 'https://example.com/arcgis/rest/services/Sats/FeatureServer/0?x=1',
-        fields: { name: 'SAT_NAME', tle1: 'L1', tle2: 'L2', maxOffNadir: 'MAX_ANGLE', swath: 'SWATH_M', lookSide: 'LOOK', kind: 'SENSOR', minInterval: 'GAP_MIN', maxPerDay: 'PER_DAY' },
+        fields: { name: 'SAT_NAME', tle1: 'L1', tle2: 'L2', maxOffNadir: 'MAX_ANGLE', swath: 'SWATH_M', lookSide: 'LOOK', kind: 'SENSOR', minInterval: 'GAP_MIN', maxPerDay: 'PER_DAY', series: 'SERIES', leadTime: 'LEAD_H' },
         swathUnit: 'm',
         defaults: { maxOffNadir: 25 },
       },
@@ -67,12 +68,12 @@ describe('TLE and catalog attributes', () => {
     )!;
     expect(problems).toEqual([]);
     expect(catalog.url).toBe('https://example.com/arcgis/rest/services/Sats/FeatureServer/0');
-    expect(catalog.defaults).toEqual({ maxOffNadir: 25, minOffNadir: 0, swath: 10, scenesPerPass: 1, minInterval: 0, maxPerDay: 0 });
-    const sat = satelliteOf({ SAT_NAME: 'SAR-1', L1: line1, L2: line2, MAX_ANGLE: 40, SWATH_M: 30000, LOOK: 'R', SENSOR: 'SAR', GAP_MIN: 15, PER_DAY: 4 }, catalog) as SatelliteSpec;
-    expect(sat).toMatchObject({ name: 'SAR-1', maxOffNadir: 40, swath: 30, length: 30, lookSide: 'right', sar: true, minInterval: 15, maxPerDay: 4 });
+    expect(catalog.defaults).toEqual({ maxOffNadir: 25, minOffNadir: 0, swath: 10, scenesPerPass: 1, minInterval: 0, maxPerDay: 0, leadTime: 0 });
+    const sat = satelliteOf({ SAT_NAME: 'SAR-1', L1: line1, L2: line2, MAX_ANGLE: 40, SWATH_M: 30000, LOOK: 'R', SENSOR: 'SAR', GAP_MIN: 15, PER_DAY: 4, SERIES: 'SAR-X', LEAD_H: 24 }, catalog) as SatelliteSpec;
+    expect(sat).toMatchObject({ name: 'SAR-1', maxOffNadir: 40, swath: 30, length: 30, lookSide: 'right', sar: true, minInterval: 15, maxPerDay: 4, series: 'SAR-X', leadTime: 24 });
     // Empty specifications fall back to the defaults (in km).
     const plain = satelliteOf({ SAT_NAME: 'OPT-1', L1: line1, L2: line2, MAX_ANGLE: null, SWATH_M: '' }, catalog) as SatelliteSpec;
-    expect(plain).toMatchObject({ maxOffNadir: 25, swath: 10, lookSide: 'both', sar: false, minInterval: 0, maxPerDay: 0 });
+    expect(plain).toMatchObject({ maxOffNadir: 25, swath: 10, lookSide: 'both', sar: false, minInterval: 0, maxPerDay: 0, leadTime: 0, series: 'OPT' });
     expect(satelliteOf({ SAT_NAME: 'X' }, catalog)).toBe('X: TLE がありません');
   });
 
@@ -254,5 +255,31 @@ describe('planning', () => {
     const daily = iss({ maxPerDay: 1 });
     const once = coverPlan(planAccess([daily], [a, b], options).opportunities, [a, b], [daily]);
     expect(once[1].done! - once[0].done!).toBeGreaterThanOrEqual(86400000);
+  });
+
+  it('reads the series from a name', () => {
+    expect(['SkySat-C12', 'ICEYE-X27', 'WorldView-3', 'ALOS-2', 'Sentinel-1A', 'GRUS 1C', 'ASNARO', 'Pleiades Neo 4 (PNEO4)'].map(seriesOf)).toEqual([
+      'SkySat',
+      'ICEYE',
+      'WorldView',
+      'ALOS',
+      'Sentinel',
+      'GRUS',
+      'ASNARO',
+      'Pleiades Neo',
+    ]);
+  });
+
+  it('leaves out shots too soon to order', () => {
+    const now = T - 30 * 60000;
+    const all = planAccess([iss()], [{ label: 'a', center: below, points: [] }], { ...around(T), now });
+    expect(all.opportunities.some((o) => Math.abs(o.time - T) < 60000)).toBe(true);
+    expect(all.tooSoon).toBe(0);
+    // Orders 2 hours ahead: the pass half an hour from now cannot be ordered.
+    const late = planAccess([iss({ leadTime: 2 })], [{ label: 'a', center: below, points: [] }], { ...around(T), now });
+    expect(late.opportunities.some((o) => Math.abs(o.time - T) < 60000)).toBe(false);
+    expect(late.tooSoon).toBeGreaterThan(0);
+    // Planned without a moment, lead times are not checked.
+    expect(planAccess([iss({ leadTime: 2 })], [{ label: 'a', center: below, points: [] }], around(T)).tooSoon).toBe(0);
   });
 });
