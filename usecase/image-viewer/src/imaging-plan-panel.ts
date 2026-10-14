@@ -208,6 +208,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   const head = [
     '日時（UTC）',
     '日時（ローカル）',
+    '発注期限（ローカル）',
     '衛星',
     '衛星ID',
     '対象',
@@ -230,6 +231,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     return [
       new Date(op.time).toISOString().replace(/\.\d+Z$/, 'Z'),
       localText(op.time, true),
+      sat.leadTime > 0 ? localText(op.time - sat.leadTime * 3600000, true) : '',
       sat.name,
       sat.id,
       t.label,
@@ -322,6 +324,8 @@ export class ImagingPlanPanel {
   private loaded_: Promise<void> | null = null;
   private catalogSats_: SatelliteSpec[] = [];
   private listed_: Listed[] = [];
+  /** The groups of the satellite list (kinds and series), with their checkboxes. */
+  private groups_: Array<{ box: HTMLInputElement; count: HTMLElement; members: Listed[] }> = [];
   /** The point clicked on the map, when the target is one. */
   private clicked_: [number, number] | null = null;
   private worker_: Worker | null = null;
@@ -373,6 +377,7 @@ export class ImagingPlanPanel {
                 <label>観測幅（km）<input name="pasteSwath" type="number" min="0.1" step="any" value="${builtInDefaults.swath}" /></label>
                 <label>撮像間隔（分）<input name="pasteGap" type="number" min="0" step="any" value="0" title="1 回撮像してから次に撮像できるまでの時間。0 は制約なし" /></label>
                 <label>1 日の上限（回）<input name="pastePerDay" type="number" min="0" step="1" value="0" title="24 時間に撮像できる回数。0 は制約なし" /></label>
+                <label>発注リード（時間）<input name="pasteLead" type="number" min="0" step="any" value="0" title="何時間先の撮像からオーダーできるか。それより近い機会は除きます。0 は制約なし" /></label>
                 <label class="check"><input name="pasteSar" type="checkbox" />SAR（夜間も撮像）</label>
               </div>
             </div>
@@ -431,7 +436,7 @@ export class ImagingPlanPanel {
     this.dialog.querySelector('.plan-sats button[value=all]')!.addEventListener('click', () => this.checkAll(true));
     this.dialog.querySelector('.plan-sats button[value=none]')!.addEventListener('click', () => this.checkAll(false));
     this.sats_.addEventListener('change', () => this.countSats());
-    for (const name of ['tle', 'pasteMax', 'pasteSwath', 'pasteGap', 'pastePerDay', 'pasteSar']) (this.form_.elements.namedItem(name) as HTMLInputElement).addEventListener('change', () => this.listSats());
+    for (const name of ['tle', 'pasteMax', 'pasteSwath', 'pasteGap', 'pastePerDay', 'pasteLead', 'pasteSar']) (this.form_.elements.namedItem(name) as HTMLInputElement).addEventListener('change', () => this.listSats());
     this.firstOnly_.addEventListener('change', () => this.render());
     this.view_.addEventListener('change', () => this.showView());
     this.goal_.addEventListener('change', () => this.showView());
@@ -508,19 +513,28 @@ export class ImagingPlanPanel {
     const swath = Number(value('pasteSwath'));
     const gap = Number(value('pasteGap'));
     const perDay = Number(value('pastePerDay'));
+    const lead = Number(value('pasteLead'));
     return satellitesFromText(value('tle'), {
       ...builtInDefaults,
       maxOffNadir: Number.isFinite(max) && max > 0 ? max : builtInDefaults.maxOffNadir,
       swath: Number.isFinite(swath) && swath > 0 ? swath : builtInDefaults.swath,
       minInterval: Number.isFinite(gap) && gap > 0 ? gap : 0,
       maxPerDay: Number.isFinite(perDay) && perDay > 0 ? Math.round(perDay) : 0,
+      leadTime: Number.isFinite(lead) && lead > 0 ? lead : 0,
       sar: (this.form_.elements.namedItem('pasteSar') as HTMLInputElement).checked,
     });
   }
 
-  /** Lists the satellites with checkboxes, keeping what was unchecked. */
+  /**
+   * Lists the satellites with checkboxes, keeping what was unchecked, in
+   * three levels: the kind (optical or SAR), the series, then each satellite.
+   * A group's checkbox checks or clears everything in it, and shows a dash
+   * when only some are checked.
+   */
   private listSats(): void {
     const unchecked = new Set(this.listed_.filter((l) => !l.box.checked).map((l) => `${l.sat.source}\n${l.sat.id}`));
+    const open = new Set([...this.sats_.querySelectorAll<HTMLDetailsElement>('details[open]')].map((d) => d.dataset.group));
+    const first = !this.listed_.length;
     const now = Date.now();
     this.listed_ = [...this.catalogSats_, ...this.pasted()].map((sat) => {
       const box = document.createElement('input');
@@ -528,27 +542,86 @@ export class ImagingPlanPanel {
       box.checked = !unchecked.has(`${sat.source}\n${sat.id}`);
       return { sat, box };
     });
+    this.groups_ = [];
+    const satLabel = ({ sat, box }: Listed) => {
+      const label = document.createElement('label');
+      label.className = 'check';
+      const age = (now - tleEpoch(sat)) / 86400000;
+      const facts = [
+        `最大 ${round(sat.maxOffNadir)}°`,
+        sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '',
+        `幅 ${round(sat.swath)} km`,
+        sat.scenesPerPass > 1 ? `1 パス ${sat.scenesPerPass} シーン` : '',
+        sat.minInterval > 0 ? `間隔 ${round(sat.minInterval)} 分` : '',
+        sat.maxPerDay > 0 ? `1 日 ${sat.maxPerDay} 回` : '',
+        sat.leadTime > 0 ? `${round(sat.leadTime)} 時間前までに発注` : '',
+        sat.lookSide === 'both' ? '' : sat.lookSide === 'right' ? '右向き' : '左向き',
+      ]
+        .filter(Boolean)
+        .join('・');
+      const note = document.createElement('small');
+      note.textContent = facts;
+      label.title = sat.source === SAMPLE_SOURCE ? 'サンプル（決め打ちの軌道。実在の衛星ではありません）' : `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
+      label.append(box, document.createTextNode(sat.name), note);
+      if (sat.source !== SAMPLE_SOURCE && Math.abs(age) > OLD_TLE) {
+        const old = document.createElement('span');
+        old.className = 'plan-old';
+        old.textContent = 'TLE 古い';
+        old.title = `TLE の元期が ${round(age, 0)} 日前です。予測がずれることがあります`;
+        label.append(old);
+      }
+      return label;
+    };
+    // A folding group with a checkbox for everything in it.
+    const group = (key: string, name: string, members: Listed[], body: HTMLElement[], level: number) => {
+      const details = document.createElement('details');
+      details.className = `plan-group plan-group-${level}`;
+      details.dataset.group = key;
+      // Kinds start open; series open when there are few satellites, or as they were.
+      details.open = open.has(key) || (first && (level === 1 || this.listed_.length <= 8));
+      const summary = document.createElement('summary');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.setAttribute('aria-label', `${name}をすべて選ぶ`);
+      box.addEventListener('click', (e) => e.stopPropagation());
+      box.addEventListener('change', () => {
+        for (const m of members) m.box.checked = box.checked;
+        this.countSats();
+      });
+      const count = document.createElement('span');
+      count.className = 'plan-group-count';
+      summary.append(box, document.createTextNode(name), count);
+      details.append(summary, ...body);
+      this.groups_.push({ box, count, members });
+      return details;
+    };
+    const byKey = <T,>(items: T[], key: (t: T) => string) => {
+      const map = new Map<string, T[]>();
+      for (const item of items) map.set(key(item), [...(map.get(key(item)) ?? []), item]);
+      return [...map].sort((a, b) => a[0].localeCompare(b[0], 'ja', { numeric: true }));
+    };
+    const kinds = [
+      { key: 'optical', name: '光学', members: this.listed_.filter((l) => !l.sat.sar) },
+      { key: 'sar', name: 'SAR', members: this.listed_.filter((l) => l.sat.sar) },
+    ].filter((k) => k.members.length);
     this.sats_.replaceChildren(
-      ...this.listed_.map(({ sat, box }) => {
-        const label = document.createElement('label');
-        label.className = 'check';
-        const age = (now - tleEpoch(sat)) / 86400000;
-        const facts = [`最大 ${round(sat.maxOffNadir)}°`, sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '', `幅 ${round(sat.swath)} km`, sat.scenesPerPass > 1 ? `1 パス ${sat.scenesPerPass} シーン` : '', sat.minInterval > 0 ? `間隔 ${round(sat.minInterval)} 分` : '', sat.maxPerDay > 0 ? `1 日 ${sat.maxPerDay} 回` : '', sat.lookSide === 'both' ? '' : sat.lookSide === 'right' ? '右向き' : '左向き', sat.sar ? 'SAR' : '光学']
-          .filter(Boolean)
-          .join('・');
-        const note = document.createElement('small');
-        note.textContent = facts;
-        label.title = sat.source === SAMPLE_SOURCE ? 'サンプル（決め打ちの軌道。実在の衛星ではありません）' : `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
-        label.append(box, document.createTextNode(sat.name), note);
-        if (sat.source !== SAMPLE_SOURCE && Math.abs(age) > OLD_TLE) {
-          const old = document.createElement('span');
-          old.className = 'plan-old';
-          old.textContent = 'TLE 古い';
-          old.title = `TLE の元期が ${round(age, 0)} 日前です。予測がずれることがあります`;
-          label.append(old);
-        }
-        return label;
-      }),
+      ...kinds.map((kind) =>
+        group(
+          kind.key,
+          kind.name,
+          kind.members,
+          byKey(kind.members, (l) => l.sat.series).map(([series, members]) =>
+            group(
+              `${kind.key}/${series}`,
+              series,
+              members,
+              [...members].sort((a, b) => a.sat.name.localeCompare(b.sat.name, 'ja', { numeric: true })).map(satLabel),
+              2,
+            ),
+          ),
+          1,
+        ),
+      ),
     );
     this.countSats();
   }
@@ -558,9 +631,16 @@ export class ImagingPlanPanel {
     this.countSats();
   }
 
+  /** Counts the checked satellites, overall and in each group (whose checkbox follows them). */
   private countSats(): void {
     const on = this.listed_.filter((l) => l.box.checked).length;
     this.satsSummary_.textContent = `（${on} / ${this.listed_.length}）`;
+    for (const g of this.groups_) {
+      const n = g.members.filter((m) => m.box.checked).length;
+      g.box.checked = n === g.members.length;
+      g.box.indeterminate = n > 0 && n < g.members.length;
+      g.count.textContent = `${n} / ${g.members.length}`;
+    }
   }
 
   /** The vector layers that can be targets. */
@@ -650,6 +730,7 @@ export class ImagingPlanPanel {
       maxOffNadir: cap === '' ? null : Number(cap),
       daylight: value('daylight') === 'none' ? 'none' : 'optical',
       minSunElevation: Number.isFinite(sun) ? sun : 10,
+      now: Date.now(),
     };
   }
 
@@ -717,7 +798,9 @@ export class ImagingPlanPanel {
     this.options.onChosen?.();
     this.render();
     const { sats, targets, result } = plan;
-    const problems = result.problems.length ? `（計算できなかった衛星: ${result.problems.join('、')}）` : '';
+    const problems =
+      (result.problems.length ? `（計算できなかった衛星: ${result.problems.join('、')}）` : '') +
+      (result.tooSoon ? `（発注リードタイムに間に合わない機会 ${result.tooSoon} 回を除きました）` : '');
     const first = result.opportunities[0];
     if (!first) {
       this.status_.textContent = `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角の制限・日照条件を見直してください${problems}`;
@@ -742,7 +825,12 @@ export class ImagingPlanPanel {
     const plan = this.plan_!;
     const many = plan.targets.length > 1;
     return [
-      { key: 'time', label: '日時', text: (op) => localText(op.time) },
+      {
+        key: 'time',
+        label: '日時',
+        text: (op) => localText(op.time),
+        title: (op) => (plan.sats[op.satellite].leadTime > 0 ? `発注期限 ${localText(op.time - plan.sats[op.satellite].leadTime * 3600000)}` : ''),
+      },
       {
         key: 'satellite',
         label: '衛星',

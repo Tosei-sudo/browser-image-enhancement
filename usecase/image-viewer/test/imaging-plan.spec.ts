@@ -115,7 +115,7 @@ test('without a catalog, plans the samples and pasted TLEs over a clicked point'
   await expect(dialog.locator('.service-status')).toContainText('サンプル衛星 2 機');
   await expect(dialog.locator('.plan-sats-count')).toHaveText('（2 / 2）');
   await expect(dialog.locator('select[name=target]')).toHaveValue('click');
-  await dialog.locator('.plan-more summary').click();
+  await dialog.locator('.plan-more > summary').click();
   await dialog.locator('textarea[name=tle]').fill(`ISS (ZARYA)\n${line1}\n${line2}`);
   await dialog.locator('textarea[name=tle]').dispatchEvent('change');
   await expect(dialog.locator('.plan-sats-count')).toHaveText('（3 / 3）');
@@ -146,8 +146,17 @@ test('combines passes of several satellites to cover a wide polygon', async ({ p
   await openPanel(page);
   const dialog = page.locator('.plan-dialog');
   await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
-  await dialog.locator('.plan-more summary').click();
+  await dialog.locator('.plan-more > summary').click();
   await expect(dialog.locator('.plan-sats-list')).toContainText('間隔 10 分');
+  // Grouped by kind, then series: clearing the SAR group clears its satellite, and the series box brings it back.
+  const groups = dialog.locator('.plan-group-1 > summary');
+  await expect(groups).toHaveText([/光学/, /SAR/]);
+  await groups.nth(1).locator('input').uncheck();
+  await expect(dialog.locator('.plan-sats-count')).toHaveText('（1 / 2）');
+  expect(await page.evaluate(() => window.viewer.imagingPlan.satellites().map((s) => s.checked))).toEqual([true, false]);
+  await dialog.locator('.plan-group-2 > summary', { hasText: 'SAR' }).locator('input').check();
+  await expect(dialog.locator('.plan-sats-count')).toHaveText('（2 / 2）');
+  await expect(groups.nth(1).locator('input')).toBeChecked();
   await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
   await dialog.locator('select[name=days]').selectOption('30');
   await dialog.locator('select[name=daylight]').selectOption('none');

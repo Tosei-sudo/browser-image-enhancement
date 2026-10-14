@@ -50,6 +50,10 @@ export interface SatelliteFields {
   minInterval?: string;
   /** Most shots it can take in 24 hours (power, memory); 0 or empty for no limit. */
   maxPerDay?: string;
+  /** The series (a family of satellites, like SkySat or ICEYE) for grouping; read from the name when absent. */
+  series?: string;
+  /** Hours ahead an order must be placed: shots sooner than that cannot be ordered; 0 or empty for none. */
+  leadTime?: string;
 }
 
 /** Specifications used when the catalog leaves a field empty. */
@@ -64,6 +68,8 @@ export interface SatelliteDefaults {
   minInterval: number;
   /** Shots in 24 hours (0: no limit). */
   maxPerDay: number;
+  /** Hours ahead an order must be placed (0: none). */
+  leadTime: number;
 }
 
 /** One catalog from `config.json`'s `satelliteCatalogs`. */
@@ -85,13 +91,13 @@ export interface SatelliteCatalogConfig {
 }
 
 /** Specifications used when neither the catalog nor `config.json` gives them. */
-export const builtInDefaults: SatelliteDefaults = { maxOffNadir: 30, minOffNadir: 0, swath: 10, scenesPerPass: 1, minInterval: 0, maxPerDay: 0 };
+export const builtInDefaults: SatelliteDefaults = { maxOffNadir: 30, minOffNadir: 0, swath: 10, scenesPerPass: 1, minInterval: 0, maxPerDay: 0, leadTime: 0 };
 const defaultSar = /SAR|radar|レーダ/i;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isName = (value: unknown): value is string => typeof value === 'string' && /^[\w.]+$/.test(value);
 const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(https?:)?\/\/|^\.{0,2}\//.test(url);
-const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir', 'swath', 'length', 'lookSide', 'kind', 'scenesPerPass', 'minInterval', 'maxPerDay'] as const;
+const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir', 'swath', 'length', 'lookSide', 'kind', 'scenesPerPass', 'minInterval', 'maxPerDay', 'series', 'leadTime'] as const;
 
 /** The catalog of one `satelliteCatalogs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function satelliteCatalogOf(value: unknown, problems: string[], index: number): SatelliteCatalogConfig | null {
@@ -113,7 +119,7 @@ export function satelliteCatalogOf(value: unknown, problems: string[], index: nu
 
   const given: Partial<SatelliteDefaults> = {};
   if (isRecord(defaults)) {
-    for (const key of ['maxOffNadir', 'minOffNadir', 'swath', 'scenesPerPass', 'minInterval', 'maxPerDay'] as const) {
+    for (const key of ['maxOffNadir', 'minOffNadir', 'swath', 'scenesPerPass', 'minInterval', 'maxPerDay', 'leadTime'] as const) {
       const v = defaults[key];
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0) given[key] = v;
       else if (v !== undefined) problems.push(`${at} の defaults.${key} は 0 以上の数にしてください`);
@@ -161,10 +167,28 @@ export interface SatelliteSpec {
   minInterval: number;
   /** Most shots in 24 hours (0: no limit). */
   maxPerDay: number;
+  /** Hours ahead an order must be placed (0: none). */
+  leadTime: number;
+  /** The family it belongs to, for grouping (SkySat, ICEYE …). */
+  series: string;
   lookSide: LookSide;
   sar: boolean;
   /** Where it came from (the catalog's label, or 「貼り付け」). */
   source: string;
+}
+
+/**
+ * The series a satellite's name suggests: the name without its number at
+ * the end (`SkySat-C12` → `SkySat`, `ICEYE-X27` → `ICEYE`, `WorldView-3` →
+ * `WorldView`); the whole name when nothing is left.
+ */
+export function seriesOf(name: string): string {
+  const base = name
+    .replace(/\s*\(.*\)\s*$/, '')
+    .replace(/[\s\-_]*[A-Za-z]?\d+[A-Za-z]?$/, '')
+    .replace(/[\s\-_]+$/, '')
+    .trim();
+  return base || name.trim() || '—';
 }
 
 export function lookSideOf(value: unknown): LookSide {
@@ -213,6 +237,8 @@ export function satelliteOf(attributes: Record<string, unknown>, catalog: Satell
     scenesPerPass: Math.max(1, Math.round(numberOf(get(fields.scenesPerPass)) ?? defaults.scenesPerPass)),
     minInterval: Math.max(0, numberOf(get(fields.minInterval)) ?? defaults.minInterval),
     maxPerDay: Math.max(0, Math.round(numberOf(get(fields.maxPerDay)) ?? defaults.maxPerDay)),
+    leadTime: Math.max(0, numberOf(get(fields.leadTime)) ?? defaults.leadTime),
+    series: String(get(fields.series) ?? '').trim() || seriesOf(name),
     lookSide: lookSideOf(get(fields.lookSide)),
     sar: typeof kind === 'string' && catalog.sarPattern.test(kind),
     source: catalog.label,
@@ -245,6 +271,8 @@ export function satellitesFromText(
       scenesPerPass: Math.max(1, Math.round(spec.scenesPerPass ?? 1)),
       minInterval: Math.max(0, spec.minInterval ?? 0),
       maxPerDay: Math.max(0, Math.round(spec.maxPerDay ?? 0)),
+      leadTime: Math.max(0, spec.leadTime ?? 0),
+      series: seriesOf(name),
       lookSide: spec.lookSide ?? 'both',
       sar: spec.sar ?? false,
       source: '貼り付け',
@@ -265,7 +293,7 @@ export const SAMPLE_SOURCE = 'サンプル';
  * real TLEs, so they only show how planning works.
  */
 export function sampleSatellites(): SatelliteSpec[] {
-  const base = { minOffNadir: 0, minInterval: 0, maxPerDay: 0, source: SAMPLE_SOURCE };
+  const base = { minOffNadir: 0, minInterval: 0, maxPerDay: 0, leadTime: 0, series: 'サンプル', source: SAMPLE_SOURCE };
   return [
     {
       ...base,
@@ -401,6 +429,12 @@ export interface PlanOptions {
   minSunElevation: number;
   /** Seconds between the coarse samples of each orbit (60 by default). */
   step?: number;
+  /**
+   * The moment the plan is made (ms since the epoch): a shot of a satellite
+   * with a `leadTime` is only an opportunity when it can still be ordered,
+   * that many hours after this. Absent: lead times are not checked.
+   */
+  now?: number;
 }
 
 /** One chance to take a picture. */
@@ -451,6 +485,8 @@ export interface PlanResult {
   opportunities: Opportunity[];
   /** Satellites that could not be planned, and why. */
   problems: string[];
+  /** Opportunities left out because they are too soon to order (within their satellite's lead time). */
+  tooSoon: number;
 }
 
 /** The satrec of a satellite; a problem when its TLE does not read. */
@@ -509,6 +545,7 @@ function look(state: { r: Vec; v: Vec }, t: Prepared) {
  */
 export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options: PlanOptions, onProgress?: (done: number) => void): PlanResult {
   const problems: string[] = [];
+  let tooSoon = 0;
   const opportunities: Opportunity[] = [];
   const step = (options.step ?? 60) * 1000;
   const count = Math.max(2, Math.ceil((options.end - options.start) / step) + 1);
@@ -571,7 +608,8 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
             const found = refine(satrec, t, options.start + (k - 1) * step, options.start + (k + 1) * step);
             if (found) {
               const op = judge(sat, s, ti, t, found, limit, options, epoch);
-              if (op) opportunities.push(op);
+              if (op && sat.leadTime > 0 && options.now !== undefined && op.time - sat.leadTime * 3600000 < options.now) tooSoon++;
+              else if (op) opportunities.push(op);
             }
           }
         }
@@ -582,7 +620,7 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
     onProgress?.((s + 1) / sats.length);
   });
   opportunities.sort((a, b) => a.time - b.time);
-  return { opportunities, problems };
+  return { opportunities, problems, tooSoon };
 }
 
 /** The moment between `a` and `b` with the smallest off-nadir angle to the target (golden-section search). */
