@@ -164,12 +164,15 @@ describe('planning', () => {
     expect(op.width).toBeGreaterThan(30);
     expect(op.width).toBeLessThan(65);
     expect(op.strips).toBe(Math.ceil(op.width / 12));
-    // A point-like target is taken in one scene; an agile satellite takes as many side by side as it can.
-    expect(passShapes(iss({ swath: 12 }), { label: 'box', center: below, points: box }, op)!.scenes).toHaveLength(1);
+    // One strip of scenes one after another along the pass; an agile satellite takes as many strips side by side as it can.
+    // (The scene length stays 10 km.)
+    expect(op.frames).toBe(Math.max(1, Math.ceil(op.length / 10 - 1e-6)));
+    expect(passShapes(iss({ swath: 12 }), { label: 'box', center: below, points: box }, op)!.scenes).toHaveLength(op.frames);
     const agile = iss({ swath: 12, scenesPerPass: op.strips });
     const wide = planAccess([agile], [{ label: 'box', center: below, points: box }], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 60000)!;
     const shapes = passShapes(agile, { label: 'box', center: below, points: box }, wide)!;
-    expect(shapes.scenes).toHaveLength(op.strips);
+    expect(shapes.scenes.length).toBeGreaterThanOrEqual(op.strips);
+    expect(shapes.scenes.length).toBeLessThanOrEqual(op.strips * wide.frames);
     expect(shapes.reach).toHaveLength(2);
     expect(shapes.track.length).toBeGreaterThan(50);
     // The satellite is above the target at the moment.
@@ -218,7 +221,30 @@ describe('planning', () => {
     expect(one.cells).toHaveLength(400);
     const all = planAccess([iss({ swath: 12, scenesPerPass: 6 })], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 120000)!;
     expect(all.coverage).toBeGreaterThan(0.95);
-    expect(passShapes(iss({ swath: 12, scenesPerPass: 6 }), target, all)!.scenes).toHaveLength(6);
+    expect(passShapes(iss({ swath: 12, scenesPerPass: 6 }), target, all)!.scenes.length).toBeGreaterThan(6);
+  });
+
+  it('lays scenes of the scene length one after another along the pass', () => {
+    // Scenes 10 km wide and 20 km long over an area 10 km across and about 70 km along the track.
+    const sat = iss({ swath: 10, length: 20 });
+    const ahead = subSatellitePoint(sat, T + 4500)!;
+    const behind = subSatellitePoint(sat, T - 4500)!;
+    const target: PlanTarget = { label: 'strip', center: below, points: [ahead, behind], cells: [behind, below, ahead] };
+    const op = planAccess([sat], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 60000)!;
+    expect(op.length).toBeGreaterThan(55);
+    expect(op.frames).toBe(Math.ceil(op.length / 20));
+    const { scenes } = passShapes(sat, target, op)!;
+    expect(scenes).toHaveLength(op.frames);
+    // Each scene: its long sides (along the pass) 20 km, its short sides (across) 10 km.
+    const km = (p: [number, number], q: [number, number]) => {
+      const r = Math.PI / 180;
+      const h = Math.sin(((q[1] - p[1]) * r) / 2) ** 2 + Math.cos(p[1] * r) * Math.cos(q[1] * r) * Math.sin(((q[0] - p[0]) * r) / 2) ** 2;
+      return 2 * 6371 * Math.asin(Math.sqrt(h));
+    };
+    for (const ring of scenes) {
+      expect(km(ring[0], ring[4])).toBeCloseTo(20, 0);
+      expect(km(ring[4], ring[5])).toBeCloseTo(10, 0);
+    }
   });
 
   it('combines passes of several satellites to cover a wide area', () => {

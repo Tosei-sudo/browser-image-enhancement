@@ -462,6 +462,10 @@ export interface Opportunity {
   width: number;
   /** Scenes side by side needed to cover it all from this pass. */
   strips: number;
+  /** How long the area is along the track, km (0 for a point). */
+  length: number;
+  /** Scenes one after another along the track (each the satellite's scene length) needed to cover that length. */
+  frames: number;
   /** Share of the area (0–1) the scenes this pass takes cover; 1 for a point. */
   coverage: number;
   /** Where the scenes are across the track: from and to, radians in the orbit's frame (left positive). */
@@ -703,7 +707,8 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
   if (options.daylight === 'optical' && !sat.sar && sun < options.minSunElevation) return null;
   const f = frameOf(st);
   const distance = norm(st.r);
-  const { width } = spread(st, t);
+  const { width, y0, y1 } = spread(st, t);
+  const along = (y1 - y0) * R;
   const sw = (sat.swath / R) * sat.scenesPerPass;
   const common = {
     satellite: s,
@@ -713,6 +718,8 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
     sunElevation: sun,
     width,
     strips: width > 0 ? Math.max(1, Math.ceil(width / sat.swath - 1e-9)) : 1,
+    length: along,
+    frames: framesFor(along, sat.length),
     tleAge: (time - epoch) / 86400000,
     orbitRadius: distance,
   };
@@ -909,7 +916,7 @@ export interface PassShapes {
   track: Array<[number, number]>;
   /** The edges of what the satellite can reach (its largest off-nadir angle), one line per side it can look to. */
   reach: Array<Array<[number, number]>>;
-  /** The scenes the pass takes, side by side. */
+  /** The scenes the pass takes: side by side across the track, and one after another along it. */
   scenes: Array<Array<[number, number]>>;
   /** Where the satellite is at the moment. */
   position: [number, number];
@@ -942,25 +949,48 @@ export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportuni
   const sw = sat.swath / R;
   const [start, end] = op.window;
   const count = Math.max(1, Math.round((end - start) / sw));
-  // A scene shared by several points runs along the track from the first to the last of them.
+  // What the scenes must cover along the track: the target, or for a scene shared by several points, from the
+  // first of them to the last. It is cut into scenes of the satellite's length, one after another along the pass.
+  // An area's strips each cover only the part of it within them.
   const rate = trackRate(norm(st.r));
-  const half = op.scene ? Math.max(sat.length / R, ((op.scene[1] - op.scene[0]) / 1000) * rate) / 2 : Math.max(sat.length / R, y1 - y0) / 2;
-  const mid = op.scene ? (((op.scene[0] + op.scene[1]) / 2 - op.time) / 1000) * rate : (y0 + y1) / 2;
+  const sceneLength = sat.length / R;
+  const samples = [unit(t.r), ...t.points, ...t.cells].map((p) => trackAngles(p, frame));
+  const alongOf = (a: number, b: number): [number, number] => {
+    if (op.scene) {
+      const m = (((op.scene[0] + op.scene[1]) / 2 - op.time) / 1000) * rate;
+      const h = (((op.scene[1] - op.scene[0]) / 1000) * rate) / 2;
+      return [m - h, m + h];
+    }
+    const inside = samples.filter(([x]) => x >= a && x <= b).map(([, y]) => y);
+    return inside.length > 1 ? [Math.min(...inside), Math.max(...inside)] : [y0, y1];
+  };
   const scenes: Array<Array<[number, number]>> = [];
   for (let j = 0; j < count; j++) {
     const a = start + j * sw;
     const b = a + sw;
-    const ring: Array<[number, number]> = [];
-    // Each edge in a few pieces, so long scenes follow the curve of the track.
-    const edge = (x: number, from: number, to: number) => {
-      for (let i = 0; i <= 4; i++) ring.push(lonLatOf(pointAt(frame, x, from + ((to - from) * i) / 4)));
-    };
-    edge(a, mid - half, mid + half);
-    edge(b, mid + half, mid - half);
-    ring.push(ring[0]);
-    scenes.push(ring);
+    const [from0, to0] = alongOf(a, b);
+    const frames = framesFor((to0 - from0) * R, sat.length);
+    const first = (from0 + to0) / 2 - (frames * sceneLength) / 2;
+    for (let k = 0; k < frames; k++) {
+      const from = first + k * sceneLength;
+      const to = from + sceneLength;
+      const ring: Array<[number, number]> = [];
+      // Each edge in a few pieces, so the scenes follow the curve of the track.
+      const edge = (x: number, y0e: number, y1e: number) => {
+        for (let i = 0; i <= 4; i++) ring.push(lonLatOf(pointAt(frame, x, y0e + ((y1e - y0e) * i) / 4)));
+      };
+      edge(a, from, to);
+      edge(b, to, from);
+      ring.push(ring[0]);
+      scenes.push(ring);
+    }
   }
   return { track, reach, scenes, position: [g.longitude * deg, g.latitude * deg] };
+}
+
+/** Scenes of `sceneLength` km one after another along the track to cover `length` km (at least one). */
+function framesFor(length: number, sceneLength: number): number {
+  return sceneLength > 0 ? Math.max(1, Math.ceil(length / sceneLength - 1e-6)) : 1;
 }
 
 /** The point `x` radians across the track and `y` along it, in an orbit's frame. */
