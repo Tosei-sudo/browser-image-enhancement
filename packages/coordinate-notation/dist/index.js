@@ -92,6 +92,17 @@ function fromUtm([easting, northing], zone, north) {
 function formatLatLon([lon, lat]) {
 	return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 }
+/** `35°40'52.32"N 139°46'01.56"E` (latitude first, seconds to 0.01″). */
+function formatDms([lon, lat]) {
+	const part = (value, plus, minus, width) => {
+		const hundredths = Math.round(Math.abs(value) * 36e4);
+		const d = Math.floor(hundredths / 36e4);
+		const m = Math.floor(hundredths % 36e4 / 6e3);
+		const s = hundredths % 6e3 / 100;
+		return `${String(d).padStart(width, "0")}°${String(m).padStart(2, "0")}'${s.toFixed(2).padStart(5, "0")}"${value < 0 ? minus : plus}`;
+	};
+	return `${part(lat, "N", "S", 2)} ${part(lon, "E", "W", 3)}`;
+}
 /** `54S UE 88433 49290` (1 m precision); null outside the MGRS area (the poles). */
 function formatMgrs(lonLat) {
 	try {
@@ -236,6 +247,6 @@ function valid([lon, lat]) {
 	return Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [lon, lat] : null;
 }
 //#endregion
-export { formatLatLon, formatMgrs, formatUtm, parseCoordinate, utmEpsg, utmZone };
+export { formatDms, formatLatLon, formatMgrs, formatUtm, parseCoordinate, utmEpsg, utmZone };
 
 //# sourceMappingURL=index.js.map

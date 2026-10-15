@@ -17,6 +17,19 @@ export function formatLatLon([lon, lat]: LonLat): string {
   return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 }
 
+/** `35°40'52.32"N 139°46'01.56"E` (latitude first, seconds to 0.01″). */
+export function formatDms([lon, lat]: LonLat): string {
+  const part = (value: number, plus: string, minus: string, width: number) => {
+    // Round once in hundredths of a second, so 59.999″ carries into the minute.
+    const hundredths = Math.round(Math.abs(value) * 360000);
+    const d = Math.floor(hundredths / 360000);
+    const m = Math.floor((hundredths % 360000) / 6000);
+    const s = (hundredths % 6000) / 100;
+    return `${String(d).padStart(width, '0')}°${String(m).padStart(2, '0')}'${s.toFixed(2).padStart(5, '0')}"${value < 0 ? minus : plus}`;
+  };
+  return `${part(lat, 'N', 'S', 2)} ${part(lon, 'E', 'W', 3)}`;
+}
+
 /** `54S UE 88433 49290` (1 m precision); null outside the MGRS area (the poles). */
 export function formatMgrs(lonLat: LonLat): string | null {
   try {

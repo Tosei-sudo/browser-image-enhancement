@@ -3,6 +3,8 @@
 export type LonLat = [number, number];
 /** `35.681240, 139.767100` (latitude first). */
 export declare function formatLatLon([lon, lat]: LonLat): string;
+/** `35°40'52.32"N 139°46'01.56"E` (latitude first, seconds to 0.01″). */
+export declare function formatDms([lon, lat]: LonLat): string;
 /** `54S UE 88433 49290` (1 m precision); null outside the MGRS area (the poles). */
 export declare function formatMgrs(lonLat: LonLat): string | null;
 /** The UTM zone of a point, with the Norway and Svalbard exceptions (as MGRS uses). */

@@ -31,6 +31,7 @@ import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } fro
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
 import { CoordinateMenu } from './coordinate-menu.js';
+import { CursorPosition } from './cursor-position.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
 import { glVector } from './gl-vector.js';
@@ -351,7 +352,9 @@ document.getElementById('add-point')!.addEventListener('click', () => {
 });
 
 // Right click: copy the coordinates of the point.
-const coordinateMenu = new CoordinateMenu(map, images, { say });
+// The latitude / longitude under the cursor at the bottom left; its notation is picked in the right-click menu.
+const cursorPosition = new CursorPosition(map, { imageAt: (at): Promise<ViewerImage | null> => coordinateMenu.imageAt(at) });
+const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, { say, cursor: cursorPosition });
 // The header field: go to typed coordinates.
 const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say });
 

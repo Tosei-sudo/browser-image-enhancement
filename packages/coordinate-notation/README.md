@@ -17,13 +17,14 @@ N/S/E/W やラベルがないときは緯度が先です。ただし最初の値
 ## 使い方
 
 ```ts
-import { parseCoordinate, formatLatLon, formatMgrs, formatUtm } from 'coordinate-notation';
+import { parseCoordinate, formatLatLon, formatDms, formatMgrs, formatUtm } from 'coordinate-notation';
 
 parseCoordinate('北緯35度40分52.32秒 東経139度46分1.56秒'); // [139.7671, 35.6812]
 parseCoordinate('54S UE 88433 49290');                       // [139.767…, 35.681…]
 parseCoordinate('hello');                                     // null
 
 formatLatLon([139.7671, 35.6812]); // '35.681200, 139.767100'
+formatDms([139.7671, 35.6812]);    // '35°40\'52.32"N 139°46\'01.56"E'
 formatMgrs([139.7671, 35.6812]);   // '54S UE 88433 49290'
 formatUtm([139.7671, 35.6812]);    // '54N 388433 3949290'
 ```
