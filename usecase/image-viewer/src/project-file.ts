@@ -19,6 +19,7 @@ import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
 import type { ProjectLayout } from './layout.js';
 import { readBookmarks, type Bookmark } from './bookmarks.js';
+import type { SavedNotes } from './annotations.js';
 
 /** The extension of project files. */
 export const PROJECT_EXTENSION = '.ivproj';
@@ -134,6 +135,8 @@ export interface Project {
   layout?: ProjectLayout;
   /** Named views (bookmarks.ts). */
   bookmarks?: Bookmark[];
+  /** Notes drawn on the map (annotations.ts): GeoJSON in `EPSG:3857`. */
+  annotations?: SavedNotes;
 }
 
 /** Whether a file name is a project file's. */
@@ -209,6 +212,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       ...(globe ? { globe } : {}),
       ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
       ...(bookmarks.length ? { bookmarks } : {}),
+      ...(isObject(json.annotations) && json.annotations.type === 'FeatureCollection' && Array.isArray(json.annotations.features) ? { annotations: json.annotations as unknown as SavedNotes } : {}),
     },
     skipped,
   };

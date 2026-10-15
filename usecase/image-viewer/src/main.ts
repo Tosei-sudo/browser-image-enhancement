@@ -72,6 +72,8 @@ import { MosaicDialog } from './mosaic-dialog.js';
 import { BandMathDialog } from './band-math-dialog.js';
 import { ChangeDialog } from './change-dialog.js';
 import { AlignDialog } from './align-dialog.js';
+import { Annotations } from './annotations.js';
+import { PrintDialog } from './print-dialog.js';
 import { ColorizeDialog } from './colorize-dialog.js';
 import { NoDataDialog } from './nodata-dialog.js';
 import { ViewExportDialog } from './view-export.js';
@@ -164,6 +166,7 @@ bindShortcuts({
   t: press('timeline-open'),
   b: press('dashboard-open'),
   m: () => bookmarks.add(),
+  n: press('annotate'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -349,11 +352,23 @@ const measure = new MeasureTool(map, images, {
   onStart: () => {
     points.setAdding(false);
     aiSegment.setActive(false);
+    annotations.setActive(false);
   },
 });
 document.getElementById('add-point')!.addEventListener('click', () => {
   if (points.isAdding()) measure.setMode(null);
   if (points.isAdding()) aiSegment.setActive(false);
+  if (points.isAdding()) annotations.setActive(false);
+});
+// Notes drawn on the map (arrows, lines, boxes, text): kept in the browser and in projects, and printed.
+const annotations: Annotations = new Annotations(map, {
+  say,
+  button: document.getElementById('annotate') as HTMLButtonElement,
+  onStart: () => {
+    points.setAdding(false);
+    measure.setMode(null);
+    aiSegment.setActive(false);
+  },
 });
 
 // Right click: copy the coordinates of the point.
@@ -384,7 +399,7 @@ const bookmarks: Bookmarks = new Bookmarks(map, document.getElementById('bookmar
 // or asks a WMS layer what is there.
 map.on('singleclick', (e) => {
   const layer = images.selectedLayer();
-  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
+  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || annotations.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
   const service = layer.service;
   if (service.vector) {
     const hit = service.style?.onGpu()
@@ -504,6 +519,12 @@ const aiTransfer = new TransferDialog(aiTransferButton, selection, {
 
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
 const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
+// Printing: the view on a sheet with a title, scale bar, north arrow and legend, as a PDF or PNG.
+const printDialog = new PrintDialog(document.getElementById('print') as HTMLButtonElement, map, images, {
+  say,
+  visible: (layer) => images.isVisible(layer),
+  name: () => project.name(),
+});
 
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
 
@@ -599,6 +620,7 @@ const project = new ProjectControl({
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
   bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  notes: { get: () => annotations.get(), set: (saved) => annotations.set(saved) },
   layout: {
     collect: (indexOf) => collectLayout(layoutParts, indexOf),
     apply: (layout, listIndexOf) => applyLayout(layoutParts, layout, listIndexOf),
@@ -983,6 +1005,8 @@ declare global {
       bandMath: BandMathDialog;
       change: ChangeDialog;
       align: AlignDialog;
+      annotations: Annotations;
+      print: PrintDialog;
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
       aiTransfer: TransferDialog;
@@ -1004,4 +1028,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
