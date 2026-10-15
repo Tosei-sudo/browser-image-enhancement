@@ -6,7 +6,8 @@
  */
 import type { Expr } from './band-math.js';
 import { blocksOf, planComposite, readBlock, tagsOf, type Channel, type CompositePlan } from './composite-dialog.js';
-import type { Resampling } from './composite.js';
+import { samplesOf, type Resampling } from './composite.js';
+import type { CompositeBlock, CompositeReply } from './composite-worker.js';
 import type { CalcBlock, CalcTask } from './raster-calc.js';
 import type { CalcReply } from './raster-calc-worker.js';
 import { TiledTiffWriter } from './tiff-stream.js';
@@ -108,4 +109,76 @@ function call(worker: Worker, task: CalcTask, transfer: Transferable[]): Promise
     worker.onerror = (e) => reject(new Error(e.message || '計算が止まりました'));
     worker.postMessage(task, transfer);
   });
+}
+
+/**
+ * Writes `channels` (one band each) looked up through `plan` into a GeoTIFF
+ * of `plan`'s grid and sample type, a block at a time in workers (as an RGB
+ * composite is, any number of bands): for an image moved onto another grid,
+ * such as one aligned to a reference (align.ts).
+ */
+export async function runResample(
+  plan: CompositePlan,
+  channels: Channel[],
+  color: { photometric: number; extraSamples?: number[] },
+  options: { resample?: Resampling; onProgress?: (done: number) => void; control?: { cancelled: boolean } } = {},
+): Promise<Blob> {
+  const { grid, type } = plan;
+  const bands = channels.length;
+  const resample = options.resample ?? 'bilinear';
+  const control = options.control ?? { cancelled: false };
+  const blocks = blocksOf(grid);
+  const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands, sample: samplesOf(type, 0), tileSize: TILE, ...color });
+  const min = new Array<number>(bands).fill(Infinity);
+  const max = new Array<number>(bands).fill(-Infinity);
+  let covered = 0;
+  let next = 0;
+  let done = 0;
+  let failed = false;
+  const stop = () => {
+    if (control.cancelled) throw new Error('中止しました');
+    if (failed) throw new Error('ほかのブロックで失敗しました');
+  };
+  const workers: Worker[] = [];
+  const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+  try {
+    for (let i = 0; i < Math.min(threads, blocks.length); i++) workers.push(new Worker(new URL('./composite-worker.ts', import.meta.url), { type: 'module' }));
+    const lane = async (worker: Worker) => {
+      while (next < blocks.length) {
+        stop();
+        const window = blocks[next++];
+        const task = { ...(await readBlock(plan, channels, window, type, resample)), tileSize: TILE };
+        stop();
+        const buffers = [...new Set(task.channels.flatMap((c) => (c ? [(c.data as unknown as { buffer: ArrayBuffer }).buffer] : [])))];
+        const block = await new Promise<CompositeBlock>((resolve, reject) => {
+          worker.onmessage = (e: MessageEvent<CompositeReply>) => (e.data.ok ? resolve(e.data.block) : reject(new Error(e.data.message)));
+          worker.onerror = (e) => reject(new Error(e.message || '処理が止まりました'));
+          worker.postMessage(task, buffers);
+        });
+        writer.add(block.tiles);
+        for (let b = 0; b < bands; b++) {
+          min[b] = Math.min(min[b], block.min[b]);
+          max[b] = Math.max(max[b], block.max[b]);
+        }
+        covered += block.covered;
+        done++;
+        options.onProgress?.(done / blocks.length);
+      }
+    };
+    await Promise.all(
+      workers.map(async (worker) => {
+        try {
+          await lane(worker);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+      }),
+    );
+    stop();
+  } finally {
+    for (const w of workers) w.terminate();
+  }
+  if (!covered) throw new Error('値のある画素がありませんでした');
+  return writer.finish(await tagsOf(plan, min, max));
 }

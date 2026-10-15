@@ -43,7 +43,7 @@ export interface Channel {
 }
 
 /** Where an open image's full-resolution pixels lie in its source's projection. */
-interface Placed {
+export interface Placed {
   image: ViewerImage;
   tiff: GeoTIFFImage;
   projection: Projection;
@@ -70,7 +70,8 @@ export function tiffOf(image: ViewerImage): GeoTIFFImage | null {
   return (image.source.getTiffImages()[0]?.[0] as GeoTIFFImage | undefined) ?? null;
 }
 
-function place(image: ViewerImage): Placed {
+/** Where `image`'s full-resolution pixels lie (throws while it is loading, or for a rotated image). */
+export function place(image: ViewerImage): Placed {
   const tiff = tiffOf(image);
   const projection = image.source.getProjection();
   if (!tiff || !projection) throw new Error(`${image.name} を読み込み中です`);
@@ -107,7 +108,7 @@ function pixelsToCoordinates(p: Placed, xy: Float64Array | number[]): void {
 }
 
 /** The extent of an image in `to`, from points along its edges. */
-function footprint(p: Placed, to: Projection): Box | null {
+export function footprint(p: Placed, to: Projection): Box | null {
   const w = p.tiff.getWidth();
   const h = p.tiff.getHeight();
   const n = 16;
@@ -129,14 +130,19 @@ function footprint(p: Placed, to: Projection): Box | null {
   return box[2] > box[0] && box[3] > box[1] ? box : null;
 }
 
-/** Output pixel positions (pairs, in place) to `p`'s pixel positions. */
-function lookupFor(grid: Grid, projection: Projection, p: Placed): PixelLookup {
+/**
+ * Output pixel positions (pairs, in place) to `p`'s pixel positions;
+ * `correct` moves the output coordinates (in `projection`) first, to where
+ * the image shows them (an alignment, see align.ts).
+ */
+export function lookupFor(grid: Grid, projection: Projection, p: Placed, correct?: (xy: Float64Array) => void): PixelLookup {
   const toImage = transformer(projection, p.projection);
   return (xy) => {
     for (let k = 0; k < xy.length; k += 2) {
       xy[k] = grid.origin[0] + xy[k] * grid.resolution[0];
       xy[k + 1] = grid.origin[1] + xy[k + 1] * grid.resolution[1];
     }
+    correct?.(xy);
     toImage(xy as unknown as number[], xy as unknown as number[], 2);
     for (let k = 0; k < xy.length; k += 2) {
       xy[k] = (xy[k] - p.shift[0] - p.origin[0]) / p.resolution[0];

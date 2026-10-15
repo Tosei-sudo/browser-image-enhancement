@@ -71,6 +71,7 @@ import { CompositeDialog } from './composite-dialog.js';
 import { MosaicDialog } from './mosaic-dialog.js';
 import { BandMathDialog } from './band-math-dialog.js';
 import { ChangeDialog } from './change-dialog.js';
+import { AlignDialog } from './align-dialog.js';
 import { ColorizeDialog } from './colorize-dialog.js';
 import { NoDataDialog } from './nodata-dialog.js';
 import { ViewExportDialog } from './view-export.js';
@@ -457,6 +458,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
   rasterTools: [
     { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
     { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
+    { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
     { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
     { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
     { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
@@ -652,6 +654,8 @@ const change = new ChangeDialog(images, loader, {
     images.addService(tempLayer(record, tempStore));
   },
 });
+// Automatic alignment (from the processing dialog): an image lined up with a reference by matching their texture.
+const align = new AlignDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
 // Which pixels of an image are transparent: the file's no-data value and the usual fill values, the black collar, values typed.
 const noData = new NoDataDialog(images, { say });
 const composite = new CompositeDialog(images, loader, {
@@ -978,6 +982,7 @@ declare global {
       mosaic: MosaicDialog;
       bandMath: BandMathDialog;
       change: ChangeDialog;
+      align: AlignDialog;
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
       aiTransfer: TransferDialog;
@@ -999,4 +1004,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
