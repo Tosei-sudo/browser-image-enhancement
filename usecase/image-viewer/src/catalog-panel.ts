@@ -106,7 +106,9 @@ export class CatalogPanel {
         <details class="catalog-more wide">
           <summary>詳細条件</summary>
           <div class="catalog-more-body">
-            <label class="catalog-days">登録日<span><input name="registeredFrom" type="date" aria-label="登録日（から）" /> 〜 <input name="registeredTo" type="date" aria-label="登録日（まで）" /></span></label>
+            <label class="catalog-days catalog-registered">登録日<span><input name="registeredFrom" type="date" aria-label="登録日（から）" /> 〜 <input name="registeredTo" type="date" aria-label="登録日（まで）" /></span></label>
+            <label class="catalog-days catalog-system">システム登録日<span><input name="systemRegisteredFrom" type="date" aria-label="システム登録日（から）" /> 〜 <input name="systemRegisteredTo" type="date" aria-label="システム登録日（まで）" /></span></label>
+            <label class="catalog-days catalog-azimuth">方位角<span><input name="azimuthFrom" type="number" min="0" max="360" step="any" placeholder="0" aria-label="方位角（から）" /> 〜 <input name="azimuthTo" type="number" min="0" max="360" step="any" placeholder="360" aria-label="方位角（まで）" /> °</span></label>
             <label class="wide">条件（SQL）<input name="where" type="text" placeholder="例: CLOUD &lt; 20" autocomplete="off" /></label>
             <button type="button" class="catalog-forget" hidden title="ローカルパスの画像のために許可したフォルダを忘れます。次に開くときに選び直します">フォルダの許可を消去</button>
           </div>
@@ -204,7 +206,11 @@ export class CatalogPanel {
     const { fields } = catalog;
     const show = (selector: string, on: boolean) => ((this.form_.querySelector<HTMLElement>(selector)!.hidden = !on), undefined);
     show('.catalog-days', Boolean(fields.acquired));
-    show('.catalog-more .catalog-days', Boolean(fields.registered));
+    show('.catalog-registered', Boolean(fields.registered));
+    show('.catalog-system', Boolean(fields.systemRegistered));
+    show('.catalog-azimuth', Boolean(fields.azimuth));
+    this.form_.querySelector('.catalog-azimuth')!.firstChild!.textContent = catalog.labels.azimuth ?? roleLabels.azimuth;
+    this.form_.querySelector('.catalog-system')!.firstChild!.textContent = (catalog.labels.systemRegistered ?? roleLabels.systemRegistered).replace(/日時$/, '日');
     show('.catalog-sensor', Boolean(fields.sensor));
     show('.catalog-angle', Boolean(fields.angle));
     const angle = this.form_.querySelector('.catalog-angle')!;
@@ -228,12 +234,17 @@ export class CatalogPanel {
   searchOf(): CatalogSearch {
     const value = (name: string) => (this.form_.elements.namedItem(name) as HTMLInputElement).value;
     const angle = value('maxAngle');
+    const number = (name: string) => (value(name) === '' ? null : Number(value(name)));
     return {
       ...emptySearch,
       acquiredFrom: value('acquiredFrom'),
       acquiredTo: value('acquiredTo'),
       registeredFrom: value('registeredFrom'),
       registeredTo: value('registeredTo'),
+      systemRegisteredFrom: value('systemRegisteredFrom'),
+      systemRegisteredTo: value('systemRegisteredTo'),
+      azimuthFrom: number('azimuthFrom'),
+      azimuthTo: number('azimuthTo'),
       sensor: this.sensor_.hidden ? this.sensorText_.value.trim() : this.sensor_.value,
       maxAngle: angle === '' ? null : Number(angle),
       where: value('where'),
@@ -278,8 +289,12 @@ export class CatalogPanel {
       fields.acquired ? { key: 'acquired', label: labels.acquired ?? roleLabels.acquired, text: (r) => timeText(r.acquired) } : null,
       fields.sensor ? { key: 'sensor', label: labels.sensor ?? roleLabels.sensor, text: (r) => r.sensor } : null,
       fields.angle ? { key: 'angle', label: labels.angle ?? roleLabels.angle, text: (r) => (r.angle === null ? '' : `${Math.round(r.angle * 10) / 10}°`) } : null,
+      fields.azimuth ? { key: 'azimuth', label: labels.azimuth ?? roleLabels.azimuth, text: (r) => (r.azimuth === null ? '' : `${Math.round(r.azimuth * 10) / 10}°`) } : null,
       fields.id ? { key: 'id', label: labels.id ?? roleLabels.id, text: (r) => r.id } : null,
       fields.registered ? { key: 'registered', label: labels.registered ?? roleLabels.registered, text: (r) => timeText(r.registered) } : null,
+      fields.systemRegistered
+        ? { key: 'systemRegistered', label: labels.systemRegistered ?? roleLabels.systemRegistered, text: (r) => timeText(r.systemRegistered) }
+        : null,
       ...columns.map(
         (c): Column => ({
           key: `column:${c.field}`,
@@ -305,7 +320,7 @@ export class CatalogPanel {
       button.title = `${column.label}で並べ替え`;
       th.setAttribute('aria-sort', on ? (this.sort_.descending ? 'descending' : 'ascending') : 'none');
       button.addEventListener('click', () => {
-        this.sort_ = { key: column.key, descending: on ? !this.sort_.descending : column.key === 'acquired' || column.key === 'registered' };
+        this.sort_ = { key: column.key, descending: on ? !this.sort_.descending : ['acquired', 'registered', 'systemRegistered'].includes(column.key) };
         this.setRecords(sortRecords(this.records_, this.sort_.key, this.sort_.descending), true);
       });
       th.append(button);
@@ -452,8 +467,10 @@ export function catalogInfo(record: CatalogRecord, catalog: CatalogConfig): Arra
   if (fields.id && record.id) rows.push([labels.id ?? roleLabels.id, record.id]);
   if (fields.acquired && record.acquired !== null) rows.push([labels.acquired ?? roleLabels.acquired, timeText(record.acquired)]);
   if (fields.registered && record.registered !== null) rows.push([labels.registered ?? roleLabels.registered, timeText(record.registered)]);
+  if (fields.systemRegistered && record.systemRegistered !== null) rows.push([labels.systemRegistered ?? roleLabels.systemRegistered, timeText(record.systemRegistered)]);
   if (fields.sensor && record.sensor) rows.push([labels.sensor ?? roleLabels.sensor, record.sensor]);
   if (fields.angle && record.angle !== null) rows.push([labels.angle ?? roleLabels.angle, `${record.angle}°`]);
+  if (fields.azimuth && record.azimuth !== null) rows.push([labels.azimuth ?? roleLabels.azimuth, `${record.azimuth}°`]);
   for (const c of catalog.columns) {
     const v = record.feature.get(c.field);
     if (v !== null && v !== undefined && v !== '') rows.push([c.label, String(v)]);

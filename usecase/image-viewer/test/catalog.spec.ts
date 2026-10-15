@@ -13,8 +13,8 @@ const config = {
     {
       label: 'テストカタログ',
       url: layerUrl,
-      fields: { id: 'IMG_ID', acquired: 'ACQ_TIME', registered: 'REG_TIME', sensor: 'SENSOR', angle: 'OFF_NADIR', source: ['COG_URL', 'FILE_PATH'] },
-      labels: { angle: 'オフナディア角' },
+      fields: { id: 'IMG_ID', acquired: 'ACQ_TIME', registered: 'REG_TIME', systemRegistered: 'SYS_TIME', sensor: 'SENSOR', angle: 'OFF_NADIR', azimuth: 'AZIMUTH', source: ['COG_URL', 'FILE_PATH'] },
+      labels: { angle: 'オフナディア角', azimuth: '衛星方位角' },
       columns: [{ field: 'CLOUD', label: '雲量' }],
     },
   ],
@@ -22,9 +22,9 @@ const config = {
 
 const ring = (x0: number, y0: number, x1: number, y1: number) => [[[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]]];
 const features = [
-  { attributes: { OBJECTID: 1, IMG_ID: 'IMG-A', ACQ_TIME: Date.UTC(2026, 8, 1, 1), REG_TIME: Date.UTC(2026, 8, 2), SENSOR: 'S1', OFF_NADIR: 10, CLOUD: 5, COG_URL: 'http://localhost:4175/fixture.tif', FILE_PATH: null }, geometry: { rings: ring(139.6, 35.6, 139.9, 35.75) } },
-  { attributes: { OBJECTID: 2, IMG_ID: 'IMG-B', ACQ_TIME: Date.UTC(2026, 9, 1, 1), REG_TIME: Date.UTC(2026, 9, 2), SENSOR: 'S2', OFF_NADIR: 25, CLOUD: 40, COG_URL: '', FILE_PATH: '\\\\nas\\img\\b.tif' }, geometry: { rings: ring(139.65, 35.62, 139.8, 35.7) } },
-  { attributes: { OBJECTID: 3, IMG_ID: 'IMG-C', ACQ_TIME: Date.UTC(2026, 7, 1, 1), REG_TIME: Date.UTC(2026, 7, 2), SENSOR: 'S2', OFF_NADIR: 5, CLOUD: 0, COG_URL: 'http://localhost:4175/fixture16.tif', FILE_PATH: null }, geometry: { rings: ring(139.6, 35.6, 139.9, 35.75) } },
+  { attributes: { OBJECTID: 1, IMG_ID: 'IMG-A', ACQ_TIME: Date.UTC(2026, 8, 1, 1), REG_TIME: Date.UTC(2026, 8, 2), SENSOR: 'S1', OFF_NADIR: 10, AZIMUTH: 120.5, SYS_TIME: Date.UTC(2026, 8, 3), CLOUD: 5, COG_URL: 'http://localhost:4175/fixture.tif', FILE_PATH: null }, geometry: { rings: ring(139.6, 35.6, 139.9, 35.75) } },
+  { attributes: { OBJECTID: 2, IMG_ID: 'IMG-B', ACQ_TIME: Date.UTC(2026, 9, 1, 1), REG_TIME: Date.UTC(2026, 9, 2), SENSOR: 'S2', OFF_NADIR: 25, AZIMUTH: 355, SYS_TIME: Date.UTC(2026, 9, 3), CLOUD: 40, COG_URL: '', FILE_PATH: '\\\\nas\\img\\b.tif' }, geometry: { rings: ring(139.65, 35.62, 139.8, 35.7) } },
+  { attributes: { OBJECTID: 3, IMG_ID: 'IMG-C', ACQ_TIME: Date.UTC(2026, 7, 1, 1), REG_TIME: Date.UTC(2026, 7, 2), SENSOR: 'S2', OFF_NADIR: 5, AZIMUTH: 200, SYS_TIME: Date.UTC(2026, 7, 3), CLOUD: 0, COG_URL: 'http://localhost:4175/fixture16.tif', FILE_PATH: null }, geometry: { rings: ring(139.6, 35.6, 139.9, 35.75) } },
 ];
 
 /** Serves the stand-in catalog; returns the `where` of each search. */
@@ -83,9 +83,11 @@ test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
   const rows = dialog.locator('tbody tr');
   // Opening lists what is in view, newest first.
   await expect(rows).toHaveCount(3);
-  await expect(rows.locator('td:nth-child(4)')).toHaveText(['IMG-B', 'IMG-A', 'IMG-C']);
+  await expect(rows.locator('td:nth-child(5)')).toHaveText(['IMG-B', 'IMG-A', 'IMG-C']);
   await expect(dialog.locator('thead')).toContainText('オフナディア角');
   await expect(dialog.locator('thead')).toContainText('雲量');
+  await expect(dialog.locator('thead')).toContainText('衛星方位角');
+  await expect(dialog.locator('thead')).toContainText('システム登録日時');
   await expect(rows.nth(0).locator('.catalog-kind')).toHaveText('ローカル');
   await expect(dialog.locator('.service-status')).toContainText('3 件（うちローカルパスのみ 1 件）');
   expect(await page.evaluate(() => window.viewer.catalog.footprints.getSource()!.getFeatures().length)).toBe(3);
@@ -97,6 +99,17 @@ test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
   await expect(rows).toHaveCount(1);
   expect(searches.at(-1)).toBe("SENSOR = 'S2' AND OFF_NADIR <= 20");
 
+  // The azimuth range under 「詳細条件」, through north.
+  await dialog.locator('select[name=sensor]').selectOption('');
+  await dialog.locator('input[name=maxAngle]').fill('');
+  await dialog.locator('summary').click();
+  await dialog.locator('input[name=azimuthFrom]').fill('350');
+  await dialog.locator('input[name=azimuthTo]').fill('130');
+  await dialog.locator('button.catalog-search').click();
+  await expect.poll(() => searches.at(-1)).toBe('(AZIMUTH >= 350 OR AZIMUTH <= 130)');
+  await dialog.locator('input[name=azimuthFrom]').fill('');
+  await dialog.locator('input[name=azimuthTo]').fill('');
+
   await dialog.locator('select[name=sensor]').selectOption('');
   await dialog.locator('input[name=maxAngle]').fill('');
   await dialog.locator('button.catalog-search').click();
@@ -104,7 +117,7 @@ test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
 
   // Sort by the angle, smallest first.
   await dialog.locator('thead button', { hasText: 'オフナディア角' }).click();
-  await expect(rows.locator('td:nth-child(4)')).toHaveText(['IMG-C', 'IMG-A', 'IMG-B']);
+  await expect(rows.locator('td:nth-child(5)')).toHaveText(['IMG-C', 'IMG-A', 'IMG-B']);
 
   // A local path cannot be opened yet; its path can be copied.
   await rows.filter({ hasText: 'IMG-B' }).click();
@@ -117,6 +130,8 @@ test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
   await page.locator('#images li .name').first().click();
   await expect(page.locator('#info')).toContainText('IMG-A');
   await expect(page.locator('#info')).toContainText('テストカタログ');
+  await expect(page.locator('#info')).toContainText('衛星方位角120.5°');
+  await expect(page.locator('#info')).toContainText('システム登録日時');
   expect(errors).toEqual([]);
 });
 
