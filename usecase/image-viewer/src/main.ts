@@ -531,6 +531,8 @@ const loader = new LoadImageControl({
     // config.json's imageRules: the correction and bands an image starts with, by its file name.
     const rule = applyImageRule(config.imageRules, loaded.name, loaded.source, say);
     showRset(images.add(loaded));
+    // Opening a link: back to its `#view=` before the fit to the image is drawn, so the view doesn't jump after.
+    if (linkedView) bookmarks.applyHash(linkedView);
     status.textContent = rule ? `${loaded.name} を開きました（設定「${rule.label}」を適用）` : `${loaded.name} を開きました`;
     // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
@@ -894,6 +896,8 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   }
 }
 
+// A link's `#view=` wins over where the layers opening at start would zoom to.
+let linkedView: string | null = location.hash || null;
 const started = (async () => {
   const opening: LayerConfig[] = [...config.layers];
   for (const url of start.getAll('url')) opening.push({ type: 'cog', url });
@@ -902,14 +906,13 @@ const started = (async () => {
   for (const ref of start.getAll('service').map(paramToRef)) {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
   }
-  // A link's `#view=` wins over where the layers opening would zoom to.
-  const linked = location.hash;
   for (const layer of opening) await openAtStart(layer);
   // The temporary layers of earlier visits, on top.
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));
   if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
-  bookmarks.applyHash(linked);
+  if (linkedView) bookmarks.applyHash(linkedView);
+  linkedView = null;
 })();
 bookmarks.applyHash();
 // A project opened meanwhile replaces these layers once they are open.
