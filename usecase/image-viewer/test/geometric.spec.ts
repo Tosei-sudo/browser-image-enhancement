@@ -381,6 +381,8 @@ const svc = 'http://localhost:4175/svc/arcgis/rest/services';
 
 /** Adds an elevation service in the panel's 標高サービス, as a person would. */
 async function addElevationService(page: Page, url: string) {
+  // With nothing to correct, the 幾何補正 section stays folded.
+  await page.evaluate(() => (document.querySelector<HTMLDetailsElement>('details[data-fold="geometry"]')!.open = true));
   await page.locator('#geometry summary', { hasText: '標高サービス' }).click();
   await page.locator('#geometry input[name=elevation-url]').fill(url);
   await page.locator('#geometry [data-action=add-elevation]').click();
