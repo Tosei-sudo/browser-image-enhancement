@@ -35,6 +35,7 @@ import {
   passShapes,
   satelliteOf,
   satellitesFromText,
+  scenesTaken,
   tleEpoch,
   type CoverPlan,
   type Opportunity,
@@ -195,7 +196,7 @@ const coverText = (op: Opportunity) =>
         : `${op.strips * op.frames} シーン（${op.strips > 1 ? `横 ${op.strips}` : ''}${op.strips > 1 && op.frames > 1 ? ' × ' : ''}${op.frames > 1 ? `パス方向 ${op.frames}` : ''}）`;
 const coverTitle = (op: Opportunity, sat: SatelliteSpec) =>
   op.cells
-    ? `この回の ${sat.scenesPerPass} シーン（観測幅 ${round(sat.swath)} km）で対象の ${percent(op.coverage)} を撮像。対象の幅 ${round(op.width, 0)} km を覆うには ${op.strips} シーン分`
+    ? `この回は ${scenesTaken(op, sat)} シーン（観測幅 ${round(sat.swath)} km × シーン長 ${round(sat.length)} km をパス方向に連続、1 パス最大 ${sat.scenesPerPass} シーン）で対象の ${percent(op.coverage)} を撮像。対象全体は横 ${op.strips} 列 × パス方向 ${op.frames} 枚`
     : op.strips * op.frames > 1
       ? `幅 ${round(op.width, 0)} km ÷ 観測幅 ${round(sat.swath)} km で横に ${op.strips} 列、長さ ${round(op.length, 0)} km ÷ シーン長 ${round(sat.length)} km でパス方向に ${op.frames} 枚`
       : '';
@@ -559,7 +560,7 @@ export class ImagingPlanPanel {
         `最大 ${round(sat.maxOffNadir)}°`,
         sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '',
         `幅 ${round(sat.swath)} km`,
-        sat.scenesPerPass > 1 ? `1 パス ${sat.scenesPerPass} シーン` : '',
+        sat.scenesPerPass > 1 ? `連続 ${sat.scenesPerPass} シーン` : '',
         sat.minInterval > 0 ? `間隔 ${round(sat.minInterval)} 分` : '',
         sat.maxPerDay > 0 ? `1 日 ${sat.maxPerDay} 回` : '',
         sat.leadTime > 0 ? `${round(sat.leadTime)} 時間前までに発注` : '',
