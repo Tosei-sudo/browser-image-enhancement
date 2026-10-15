@@ -475,6 +475,15 @@ export interface Opportunity {
   /** In a combination ({@link coverPlan}): share newly covered by this pass, and covered so far. */
   gain?: number;
   cumulative?: number;
+  /**
+   * In a combination: the shot this belongs to (numbered from 1 in time
+   * order); points that one scene takes together share it.
+   */
+  shot?: number;
+  /** The points one shared scene takes (1 when the scene is this target's alone). */
+  shotTargets?: number;
+  /** For a scene shared by several points: from and to along the track, as the moments the satellite passes them (ms). */
+  scene?: [number, number];
   /** Days between the TLE's epoch and this moment. */
   tleAge: number;
   /** The satellite's distance from the Earth's centre, km (for looking elsewhere across the track). */
@@ -756,6 +765,32 @@ export interface CoverPlan {
   blocked: number;
 }
 
+/** How fast a satellite's ground track moves, radians of the Earth per second (Earth's turning left out). */
+const trackRate = (orbitRadius: number) => Math.sqrt(398600.4418 / orbitRadius ** 3);
+
+/**
+ * The points (other than `op`'s, from `candidates` of the same pass) one
+ * scene of `op`'s satellite can take together with it: within the scene's
+ * length along the track after it, and its width across it. Returns them
+ * with `op` and where across the track the scene goes.
+ */
+function sharedScene(op: Opportunity, candidates: Opportunity[], sat: SatelliteSpec): { members: Opportunity[]; window: [number, number] } {
+  const width = (sat.swath / R) * sat.scenesPerPass;
+  const x0 = (op.window[0] + op.window[1]) / 2;
+  const span = (sat.length / R / trackRate(op.orbitRadius)) * 1000;
+  const near = [op, ...candidates.filter((c) => c.time >= op.time && c.time - op.time <= span && Math.abs((c.window[0] + c.window[1]) / 2 - x0) <= width)];
+  const xOf = (o: Opportunity) => (o.window[0] + o.window[1]) / 2;
+  // The scene across the track: from each point's angle, as wide as the scene, with op inside; the one taking most.
+  let best = [op];
+  for (const left of near.map(xOf).filter((x) => x <= x0 && x >= x0 - width)) {
+    const inside = near.filter((o) => xOf(o) >= left - 1e-12 && xOf(o) <= left + width + 1e-12);
+    if (inside.length > best.length) best = inside;
+  }
+  const xs = best.map(xOf);
+  const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+  return { members: best, window: [mid - width / 2, mid + width / 2] };
+}
+
 /**
  * Strings passes (of any satellite) together to cover the targets, earliest
  * first: going through the opportunities in time order, a pass is taken when
@@ -763,9 +798,12 @@ export interface CoverPlan {
  * an area, until `goal` of it is covered; a point needs just one pass. The
  * targets share the satellites, so a shot is only taken when its satellite
  * is free: `minInterval` minutes after its last shot (of any target), and
- * fewer than `maxPerDay` shots in the 24 hours before.
+ * fewer than `maxPerDay` shots in the 24 hours before. With `share`, points
+ * close together on a pass are taken in one scene: a shot for one point
+ * also takes the others that fit in the same scene (its width across the
+ * track, its length along it), so they need no shots of their own.
  */
-export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], sats: SatelliteSpec[], goal = 0.95, minGain = 0.02): CoverPlan[] {
+export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], sats: SatelliteSpec[], goal = 0.95, minGain = 0.02, share = true): CoverPlan[] {
   const plans: CoverPlan[] = targets.map((_, ti) => ({ target: ti, steps: [], coverage: 0, done: null, blocked: 0 }));
   const covered = targets.map((t) => new Uint8Array(t.cells?.length ?? 0));
   const totals = targets.map(() => 0);
@@ -777,29 +815,49 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
     if (last !== undefined && sat.minInterval > 0 && time - last < sat.minInterval * 60000) return true;
     return sat.maxPerDay > 0 && taken.filter((t) => time - t < 86400000).length >= sat.maxPerDay;
   };
-  for (const op of [...opportunities].sort((a, b) => a.time - b.time)) {
+  const sorted = [...opportunities].sort((a, b) => a.time - b.time);
+  let shot = 0;
+  const isPoint = (o: Opportunity) => !covered[o.target].length && o.width === 0;
+  sorted.forEach((op, i) => {
     const plan = plans[op.target];
-    if (!plan || plan.done !== null) continue;
+    if (!plan || plan.done !== null) return;
     const n = covered[op.target].length;
     const sat = sats[op.satellite];
     if (!n) {
       if (busy(op.satellite, op.time)) {
         plan.blocked++;
-        continue;
+        return;
       }
       shots[op.satellite].push(op.time);
-      plan.steps.push({ ...op, gain: 1, cumulative: 1 });
-      plan.coverage = 1;
-      plan.done = op.time;
-      continue;
+      shot++;
+      // Other points still to take, seen by the same satellite on this pass (seconds later).
+      const others: Opportunity[] = [];
+      if (share && sat && isPoint(op)) {
+        for (let j = i + 1; j < sorted.length && sorted[j].time - op.time < 600000; j++) {
+          const o = sorted[j];
+          if (o.satellite === op.satellite && o.target !== op.target && isPoint(o) && plans[o.target].done === null && !others.some((x) => x.target === o.target)) others.push(o);
+        }
+      }
+      const { members, window } = others.length ? sharedScene(op, others, sat) : { members: [op], window: op.window };
+      const times = members.map((m) => m.time);
+      const scene: [number, number] | undefined = members.length > 1 ? [Math.min(...times), Math.max(...times)] : undefined;
+      for (const m of members) {
+        const p = plans[m.target];
+        const mid = (window[0] + window[1]) / 2;
+        const shared = members.length > 1 ? { window, scene, ...lookAt(mid, m.orbitRadius), side: mid > 0 ? ('left' as const) : ('right' as const) } : {};
+        p.steps.push({ ...m, ...shared, gain: 1, cumulative: 1, shot, shotTargets: members.length });
+        p.coverage = 1;
+        p.done = m.time;
+      }
+      return;
     }
-    if (!op.cells || !sat) continue;
+    if (!op.cells || !sat) return;
     const cov = covered[op.target];
     const best = bestWindow(op.cells, (sat.swath / R) * sat.scenesPerPass, (i) => !cov[i]);
-    if (!best || best.count / n < Math.min(minGain, goal - totals[op.target] / n - 1e-9)) continue;
+    if (!best || best.count / n < Math.min(minGain, goal - totals[op.target] / n - 1e-9)) return;
     if (busy(op.satellite, op.time)) {
       plan.blocked++;
-      continue;
+      return;
     }
     const [a, b] = best.window;
     let gain = 0;
@@ -810,13 +868,14 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
       }
     });
     shots[op.satellite].push(op.time);
+    shot++;
     totals[op.target] += gain;
     const total = totals[op.target] / n;
     const mid = (a + b) / 2;
-    plan.steps.push({ ...op, window: best.window, ...lookAt(mid, op.orbitRadius), side: mid > 0 ? 'left' : 'right', gain: gain / n, cumulative: total });
+    plan.steps.push({ ...op, window: best.window, ...lookAt(mid, op.orbitRadius), side: mid > 0 ? 'left' : 'right', gain: gain / n, cumulative: total, shot, shotTargets: 1 });
     plan.coverage = total;
     if (total >= goal) plan.done = op.time;
-  }
+  });
   return plans;
 }
 
@@ -883,8 +942,10 @@ export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportuni
   const sw = sat.swath / R;
   const [start, end] = op.window;
   const count = Math.max(1, Math.round((end - start) / sw));
-  const half = Math.max(sat.length / R, y1 - y0) / 2;
-  const mid = (y0 + y1) / 2;
+  // A scene shared by several points runs along the track from the first to the last of them.
+  const rate = trackRate(norm(st.r));
+  const half = op.scene ? Math.max(sat.length / R, ((op.scene[1] - op.scene[0]) / 1000) * rate) / 2 : Math.max(sat.length / R, y1 - y0) / 2;
+  const mid = op.scene ? (((op.scene[0] + op.scene[1]) / 2 - op.time) / 1000) * rate : (y0 + y1) / 2;
   const scenes: Array<Array<[number, number]>> = [];
   for (let j = 0; j < count; j++) {
     const a = start + j * sw;

@@ -282,4 +282,37 @@ describe('planning', () => {
     // Planned without a moment, lead times are not checked.
     expect(planAccess([iss({ leadTime: 2 })], [{ label: 'a', center: below, points: [] }], around(T)).tooSoon).toBe(0);
   });
+
+  it('takes points close together in one scene', () => {
+    // Three points near the track at the moment: two 4 km apart (one scene of 10 km takes both), one 60 km off.
+    const a: PlanTarget = { label: 'a', center: below, points: [] };
+    const b: PlanTarget = { label: 'b', center: east(below, 4), points: [] };
+    const c: PlanTarget = { label: 'c', center: east(below, 60), points: [] };
+    const sat = iss({ swath: 10, minInterval: 10 });
+    const options = { ...around(T, 60 * 24 * 2), start: T - 60000 };
+    const { opportunities } = planAccess([sat], [a, b, c], options);
+    const plans = coverPlan(opportunities, [a, b, c], [sat]);
+    const [pa, pb, pc] = plans.map((p) => p.steps[0]);
+    expect(pa.shot).toBe(pb.shot);
+    expect(pa.shotTargets).toBe(2);
+    expect(Math.abs(pa.time - T)).toBeLessThan(60000);
+    expect(Math.abs(pb.time - pa.time)).toBeLessThan(5000);
+    // The far one needs a shot of its own, after the interval.
+    expect(pc.shot).not.toBe(pa.shot);
+    expect(pc.time - pa.time).toBeGreaterThanOrEqual(10 * 60000);
+    // The shared scene covers both points.
+    const ring = passShapes(sat, a, pa)!.scenes[0];
+    const lons = ring.map((p) => p[0]);
+    const lats = ring.map((p) => p[1]);
+    for (const t of [a, b]) {
+      expect(t.center[0]).toBeGreaterThan(Math.min(...lons));
+      expect(t.center[0]).toBeLessThan(Math.max(...lons));
+      expect(t.center[1]).toBeGreaterThan(Math.min(...lats));
+      expect(t.center[1]).toBeLessThan(Math.max(...lats));
+    }
+    // Without sharing, the second point waits for the interval too.
+    const apart = coverPlan(opportunities, [a, b, c], [sat], 0.95, 0.02, false);
+    expect(apart[1].steps[0].time - apart[0].steps[0].time).toBeGreaterThanOrEqual(10 * 60000);
+  });
 });
+

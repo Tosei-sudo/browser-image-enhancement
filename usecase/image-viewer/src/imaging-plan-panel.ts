@@ -222,7 +222,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     '幅km',
     'シーン数',
     '被覆率%',
-    ...(combined ? ['追加%', '累計%'] : []),
+    ...(combined ? ['追加%', '累計%', 'シーン番号', '同じシーンの地点数'] : []),
     'TLE経過日数',
   ];
   const rows = ops.map((op) => {
@@ -245,7 +245,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       round(op.width, 1),
       op.strips,
       round(op.coverage * 100, 1),
-      ...(combined ? [round((op.gain ?? 0) * 100, 1), round((op.cumulative ?? 0) * 100, 1)] : []),
+      ...(combined ? [round((op.gain ?? 0) * 100, 1), round((op.cumulative ?? 0) * 100, 1), op.shot ?? '', op.shotTargets ?? ''] : []),
       round(op.tleAge, 1),
     ];
   });
@@ -258,7 +258,7 @@ interface Listed {
   box: HTMLInputElement;
 }
 
-type SortKey = 'time' | 'satellite' | 'target' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative';
+type SortKey = 'time' | 'satellite' | 'target' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative' | 'shot';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
   switch (feature.get('kind')) {
@@ -317,6 +317,7 @@ export class ImagingPlanPanel {
   private readonly firstOnly_: HTMLInputElement;
   private readonly view_: HTMLSelectElement;
   private readonly goal_: HTMLInputElement;
+  private readonly share_: HTMLInputElement;
   private readonly csv_: HTMLButtonElement;
   private readonly layer_: HTMLButtonElement;
   private readonly zoom_: HTMLButtonElement;
@@ -332,7 +333,7 @@ export class ImagingPlanPanel {
   /** The last plan: what was planned and what was found. */
   private plan_: { sats: SatelliteSpec[]; targets: PlanTarget[]; result: PlanResult; options: PlanOptions } | null = null;
   /** The combination of the last plan, for the goal it was made for. */
-  private cover_: { goal: number; plans: CoverPlan[] } | null = null;
+  private cover_: { goal: number; share: boolean; plans: CoverPlan[] } | null = null;
   private shown_: Opportunity[] = [];
   private chosen_: Opportunity | null = null;
   private sort_: { key: SortKey; descending: boolean } = { key: 'time', descending: false };
@@ -392,6 +393,7 @@ export class ImagingPlanPanel {
           <option value="cover">組み合わせ（全域を最短で）</option>
         </select>
         <label class="plan-goal" hidden title="面の対象をどこまで覆えば完了とするか">目標<input name="goal" type="number" min="10" max="100" step="1" value="95" />%</label>
+        <label class="check plan-share" hidden title="同じパスで 1 シーン（観測幅 × シーン長）に収まる地点を、1 回の撮像でまとめて撮ります"><input type="checkbox" name="share" checked />近い地点を 1 シーンにまとめる</label>
         <label class="check plan-first"><input type="checkbox" name="firstOnly" />衛星・対象ごとに最初の機会のみ</label>
       </div>
       <div class="catalog-results"><table class="catalog-table plan-table"><thead></thead><tbody></tbody></table></div>
@@ -411,6 +413,7 @@ export class ImagingPlanPanel {
     this.firstOnly_ = this.dialog.querySelector('input[name=firstOnly]')!;
     this.view_ = this.dialog.querySelector('select[name=view]')!;
     this.goal_ = this.dialog.querySelector('input[name=goal]')!;
+    this.share_ = this.dialog.querySelector('input[name=share]')!;
     this.csv_ = this.dialog.querySelector('button[value=csv]')!;
     this.layer_ = this.dialog.querySelector('button[value=layer]')!;
     this.zoom_ = this.dialog.querySelector('button[value=zoom]')!;
@@ -440,6 +443,7 @@ export class ImagingPlanPanel {
     this.firstOnly_.addEventListener('change', () => this.render());
     this.view_.addEventListener('change', () => this.showView());
     this.goal_.addEventListener('change', () => this.showView());
+    this.share_.addEventListener('change', () => this.showView());
     this.csv_.addEventListener('click', () => this.saveCsv());
     this.layer_.addEventListener('click', () => this.addLayer());
     this.zoom_.addEventListener('click', () => this.zoomToChosen());
@@ -781,7 +785,8 @@ export class ImagingPlanPanel {
   coverPlans(): CoverPlan[] {
     const plan = this.plan_!;
     const goal = Math.min(1, Math.max(0.1, (Number(this.goal_.value) || 95) / 100));
-    if (this.cover_?.goal !== goal) this.cover_ = { goal, plans: coverPlan(plan.result.opportunities, plan.targets, plan.sats, goal) };
+    const share = this.share_.checked;
+    if (this.cover_?.goal !== goal || this.cover_.share !== share) this.cover_ = { goal, share, plans: coverPlan(plan.result.opportunities, plan.targets, plan.sats, goal, undefined, share) };
     return this.cover_.plans;
   }
 
@@ -791,9 +796,11 @@ export class ImagingPlanPanel {
     if (!plan) return;
     const combining = this.combining();
     this.goal_.closest('label')!.hidden = !combining;
+    // Sharing scenes is for points: shown when there are two or more.
+    this.share_.closest('label')!.hidden = !combining || plan.targets.filter((t) => !t.cells?.length).length < 2;
     this.firstOnly_.closest('label')!.hidden = combining;
     // A column the view does not have sorts by time instead.
-    if (combining ? this.sort_.key === 'cover' : this.sort_.key === 'gain' || this.sort_.key === 'cumulative') this.sort_ = { key: 'time', descending: false };
+    if (combining ? this.sort_.key === 'cover' : this.sort_.key === 'gain' || this.sort_.key === 'cumulative' || this.sort_.key === 'shot') this.sort_ = { key: 'time', descending: false };
     this.chosen_ = null;
     this.options.onChosen?.();
     this.render();
@@ -816,7 +823,12 @@ export class ImagingPlanPanel {
         plans.length <= 3
           ? plans.map(line).join('、')
           : `${plans.length} 対象のうち ${done.length} 対象が期間内に完了${done.length ? `（最後は ${localText(Math.max(...done.map((p) => p.done!)))}）` : ''}`;
-      this.status_.textContent = `${summary}。${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示します${problems}`;
+      // Scenes taken in all, and those that take several points at once.
+      const shots = new Map<number, number>();
+      for (const step of plans.flatMap((p) => p.steps)) if (step.shot !== undefined) shots.set(step.shot, step.shotTargets ?? 1);
+      const shared = [...shots.values()].filter((n) => n > 1);
+      const scenes = plans.length > 1 ? `全 ${shots.size} シーン${shared.length ? `（うち ${shared.length} シーンで ${shared.reduce((a, b) => a + b, 0)} 地点をまとめて撮像）` : ''}。` : '';
+      this.status_.textContent = `${summary}。${scenes}${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示します${problems}`;
     }
     if (this.shown_.length) this.choose(this.shown_[0]);
   }
@@ -845,6 +857,16 @@ export class ImagingPlanPanel {
         ? [
             { key: 'gain' as const, label: '追加', text: (op: Opportunity) => `+${percent(op.gain ?? 0)}`, title: () => 'この回で新たに撮像できる対象の割合' },
             { key: 'cumulative' as const, label: '累計', text: (op: Opportunity) => percent(op.cumulative ?? 0), title: () => 'この回までに撮像できた対象の割合' },
+            ...(many
+              ? [
+                  {
+                    key: 'shot' as const,
+                    label: 'シーン',
+                    text: (op: Opportunity) => `#${op.shot ?? ''}${(op.shotTargets ?? 1) > 1 ? `（${op.shotTargets} 地点）` : ''}`,
+                    title: (op: Opportunity) => ((op.shotTargets ?? 1) > 1 ? `この ${op.shotTargets} 地点は 1 回の撮像（1 シーン）でまとめて撮れます` : ''),
+                  },
+                ]
+              : []),
           ]
         : [{ key: 'cover' as const, label: '被覆', text: (op: Opportunity) => coverText(op, plan.sats[op.satellite]), title: (op: Opportunity) => coverTitle(op, plan.sats[op.satellite]) }]),
     ];
@@ -878,6 +900,8 @@ export class ImagingPlanPanel {
           return op.gain ?? 0;
         case 'cumulative':
           return op.target * 10 + (op.cumulative ?? 0);
+        case 'shot':
+          return op.shot ?? 0;
         default:
           return op.time;
       }
@@ -1055,7 +1079,7 @@ export class ImagingPlanPanel {
           sun: Math.round(op.sunElevation * 10) / 10,
           scenes: op.strips,
           coverage: Math.round(op.coverage * 1000) / 10,
-          ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10 } : {}),
+          ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10, shot: op.shot, shot_targets: op.shotTargets } : {}),
         }),
       );
     }
@@ -1074,7 +1098,7 @@ export class ImagingPlanPanel {
         field('sun', 'double', '太陽高度'),
         field('scenes', 'integer', 'シーン数'),
         field('coverage', 'double', '被覆率%'),
-        ...(this.combining() ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%')] : []),
+        ...(this.combining() ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%'), field('shot', 'integer', 'シーン番号'), field('shot_targets', 'integer', '同じシーンの地点数')] : []),
       ],
       crs: wgs84,
     };

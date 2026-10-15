@@ -199,6 +199,38 @@ test('combines passes of several satellites to cover a wide polygon', async ({ p
   expect(errors).toEqual([]);
 });
 
+test('takes points close together in one scene', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page);
+  // Three points within 2 km of each other: one scene (12 km) takes them all.
+  const cluster = {
+    type: 'FeatureCollection',
+    features: [
+      [139.7, 35.68, '丸の内'],
+      [139.71, 35.685, '神田'],
+      [139.705, 35.69, '大手町'],
+    ].map(([x, y, name]) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [x, y] }, properties: { name } })),
+  };
+  await openSites(page, cluster);
+  await openPanel(page);
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+
+  await dialog.locator('select[name=view]').selectOption('cover');
+  await expect(dialog.locator('input[name=share]')).toBeVisible();
+  await expect(dialog.locator('.service-status')).toContainText('全 1 シーン（うち 1 シーンで 3 地点をまとめて撮像）');
+  await expect(dialog.locator('tbody tr')).toHaveCount(3);
+  await expect(dialog.locator('tbody tr').first()).toContainText('#1（3 地点）');
+  // Each its own shot when sharing is off.
+  await dialog.locator('input[name=share]').uncheck();
+  await expect(dialog.locator('.service-status')).toContainText('全 3 シーン');
+  expect(errors).toEqual([]);
+});
+
 test('in 3D, the chosen pass stands up: the orbit at its height, the satellite and its beam to the target', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
