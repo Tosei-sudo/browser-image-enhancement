@@ -98,6 +98,14 @@ export interface ViewerConfig {
    * matches; one marked `default` applies when a layer opens.
    */
   serviceRules: ServiceRule[];
+  /** ArcGIS elevation services (image services of heights, elevation tile services) used as elevation data from the start. */
+  elevationServices: ElevationServiceConfig[];
+}
+
+/** An elevation service of config.json: its URL, and a token when it needs one. */
+export interface ElevationServiceConfig {
+  url: string;
+  token?: string;
 }
 
 /**
@@ -156,6 +164,7 @@ export const defaultConfig: ViewerConfig = {
   aiModels: sampleModels(),
   detectionOutputs: [],
   serviceRules: [],
+  elevationServices: [],
 };
 
 /**
@@ -209,7 +218,7 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -270,6 +279,20 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   }
 
   if ('serviceRules' in json) config.serviceRules = serviceRulesOf(json.serviceRules, problems);
+
+  if ('elevationServices' in json) {
+    if (Array.isArray(json.elevationServices)) {
+      config.elevationServices = json.elevationServices.flatMap((e, i): ElevationServiceConfig[] => {
+        // A URL alone will do.
+        const entry = typeof e === 'string' ? { url: e } : e;
+        if (!isRecord(entry) || typeof entry.url !== 'string' || !/^https?:\/\/.+\/ImageServer\/?$/i.test(entry.url.trim())) {
+          problems.push(`elevationServices[${i}] の url は …/ImageServer の URL にしてください`);
+          return [];
+        }
+        return [{ url: entry.url.trim(), ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
+      });
+    } else problems.push('elevationServices が配列ではありません');
+  }
 
   if ('satelliteCatalogs' in json) {
     if (Array.isArray(json.satelliteCatalogs)) {

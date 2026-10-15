@@ -84,6 +84,7 @@ import { GlobeSatellites } from './globe-satellite.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { isSceneServer, openSceneService } from './i3s.js';
 import type { ImageList, ViewerService } from './images.js';
+import type { ElevationSource } from './services/esri-elevation.js';
 import type { Selection } from './selection.js';
 
 /** What the 3D view uses of the viewer. */
@@ -93,6 +94,10 @@ export interface GlobeContext {
   selection: Selection;
   /** The DEM cells open now. */
   cells: () => Dted[];
+  /** The elevation services in use (read for the tiles of the relief). */
+  elevationSources?: () => ElevationSource[];
+  /** The open DEM cells and what the elevation services have over `[west, south, east, north]` (degrees). */
+  cellsFor?: (lonLat: readonly number[], maxPosts?: number) => Promise<Dted[]>;
   /** Shows a feature picked in 3D in the attribute table. */
   showFeature: (layer: ViewerService, feature: Feature) => void;
   say: (message: string) => void;
@@ -223,11 +228,11 @@ function tileExtent(x: number, y: number, level: number): Extent {
 }
 
 /**
- * Relief from DTED cells: heights above mean sea level plus the geoid (heights
- * above the ellipsoid, as Cesium wants), the geoid alone (mean sea level)
- * where no cell covers.
+ * Relief from DTED cells, and elevation services where no cell covers: heights
+ * above mean sea level plus the geoid (heights above the ellipsoid, as Cesium
+ * wants), the geoid alone (mean sea level) where neither does.
  */
-function demTerrain(cells: readonly Dted[], geoid: GeoidGrid): TerrainProvider {
+function demTerrain(cells: readonly Dted[], geoid: GeoidGrid, sources: readonly ElevationSource[] = []): TerrainProvider {
   const size = 65;
   const scheme = new GeographicTilingScheme();
   return new CustomHeightmapTerrainProvider({
@@ -237,16 +242,25 @@ function demTerrain(cells: readonly Dted[], geoid: GeoidGrid): TerrainProvider {
     callback: (x, y, level) => {
       const r = scheme.tileXYToRectangle(x, y, level);
       const [w, s, e, n] = [r.west, r.south, r.east, r.north].map(CesiumMath.toDegrees);
-      const covered = coversAny(cells, [w, s, e, n]);
-      const heights = new Float32Array(size * size);
-      for (let row = 0; row < size; row++) {
-        const lat = n - ((n - s) * row) / (size - 1);
-        for (let col = 0; col < size; col++) {
-          const lon = w + ((e - w) * col) / (size - 1);
-          heights[row * size + col] = (covered ? (elevationAt(cells, lon, lat) ?? 0) : 0) + geoidHeight(geoid, lon, lat);
+      const fill = (from: readonly Dted[]) => {
+        const heights = new Float32Array(size * size);
+        for (let row = 0; row < size; row++) {
+          const lat = n - ((n - s) * row) / (size - 1);
+          for (let col = 0; col < size; col++) {
+            const lon = w + ((e - w) * col) / (size - 1);
+            heights[row * size + col] = (from.length ? (elevationAt(from, lon, lat) ?? 0) : 0) + geoidHeight(geoid, lon, lat);
+          }
         }
-      }
-      return heights;
+        return heights;
+      };
+      if (coversAny(cells, [w, s, e, n])) return fill(cells);
+      const here = sources.filter((src) => src.lonLat[0] < e && src.lonLat[2] > w && src.lonLat[1] < n && src.lonLat[3] > s);
+      if (!here.length) return fill([]);
+      // A post beyond the tile on each side, so its edges have heights (and meet the next tile's).
+      const px = (e - w) / (size - 1);
+      const py = (n - s) / (size - 1);
+      const area = [w - px, s - py, e + px, n + py];
+      return Promise.all(here.map((src) => src.read(area, (size + 2) * (size + 2)).catch(() => null))).then((read) => fill(read.filter((c): c is Dted => !!c)));
     },
   });
 }
@@ -288,6 +302,7 @@ export class Globe {
   private changedWhileBusy_ = false;
   private open_ = false;
   private cells_: Dted[] = [];
+  private sources_: ElevationSource[] = [];
   private terrainOn_ = true;
   private heightMode_: HeightMode = 'auto';
   private patches_: Array<{ primitive: Primitive; ids: Array<{ layer: ViewerService; feature: Feature }> }> = [];
@@ -579,22 +594,25 @@ export class Globe {
     return this.widget.scene.verticalExaggeration;
   }
 
-  /** Whether the relief of open DEMs is shown. */
+  /** Whether the relief of open DEMs (or elevation services) is shown. */
   hasRelief(): boolean {
-    return this.terrainOn_ && this.context.cells().length > 0;
+    return this.terrainOn_ && (this.context.cells().length > 0 || (this.context.elevationSources?.().length ?? 0) > 0);
   }
 
   private async updateTerrain_(): Promise<void> {
     const cells = this.terrainOn_ ? this.context.cells() : [];
-    if (cells.length === this.cells_.length && cells.every((c, i) => c === this.cells_[i])) return;
+    const sources = this.terrainOn_ ? (this.context.elevationSources?.() ?? []) : [];
+    const same = <T>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+    if (same(cells, this.cells_) && same(sources, this.sources_)) return;
     this.cells_ = cells;
+    this.sources_ = sources;
     const scene = this.widget.scene;
-    if (!cells.length) {
+    if (!cells.length && !sources.length) {
       scene.terrainProvider = new EllipsoidTerrainProvider();
     } else {
       try {
         this.geoid_ ??= await loadGeoid();
-        scene.terrainProvider = demTerrain(cells, this.geoid_);
+        scene.terrainProvider = demTerrain(cells, this.geoid_, sources);
       } catch (error) {
         this.context.say(`起伏を表示できませんでした: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -901,13 +919,20 @@ export class Globe {
     const { say, cells } = this.context;
     const settings = this.panel_.viewshedSettings();
     const options: ViewshedOptions = { lon, lat, observerHeight: settings.observerHeight, targetHeight: settings.targetHeight, radius: settings.radius, refraction: settings.refraction };
-    const open = cells();
-    if (!open.length) {
-      say('可視解析には標高データ（DTED）が必要です。先に開いてください');
+    let open = cells();
+    const sources = this.context.elevationSources?.() ?? [];
+    if (!open.length && !sources.length) {
+      say('可視解析には標高データ（DTED か標高サービス）が必要です。先に用意してください');
       return;
     }
     say('可視解析: 標高を読み取っています…');
     try {
+      if (sources.length && this.context.cellsFor) {
+        // The ground within the radius, from the services too.
+        const dLat = options.radius / 110_574;
+        const dLon = options.radius / (111_320 * Math.max(0.01, Math.cos((lat * Math.PI) / 180)));
+        open = await this.context.cellsFor([lon - dLon, lat - dLat, lon + dLon, lat + dLat]);
+      }
       const grid = gridAround(open, options);
       const obstacles = settings.obstacles ? await this.addObstacles_(grid) : null;
       const started = performance.now();
@@ -1288,9 +1313,10 @@ class GlobePanel {
 
   update(): void {
     const cells = this.globe.context.cells();
-    this.terrainText_.textContent = cells.length
-      ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）`
-      : '標高データなし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を幾何補正の「標高データとして使う」にすると起伏を表示します）';
+    const used = [...(cells.length ? [`${cells.map((c) => c.level).join('、')}（${cells.length} 枚）`] : []), ...(this.globe.context.elevationSources?.() ?? []).map((s) => `${s.title}（サービス）`)];
+    this.terrainText_.textContent = used.length
+      ? `標高データ: ${used.join('、')}`
+      : '標高データなし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を幾何補正の「標高データとして使う」か、幾何補正の「標高サービス」を追加すると起伏を表示します）';
     const patches = this.globe.patchLayers();
     this.patchText_.textContent = patches.length
       ? patches.map(({ layer, count }) => `${layer.name}: ${count.toLocaleString()} 件`).join('、')

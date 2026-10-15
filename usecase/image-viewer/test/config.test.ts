@@ -166,6 +166,25 @@ describe('imageRules', () => {
   });
 });
 
+describe('elevationServices', () => {
+  it('takes image service URLs, with a token or alone, and drops the rest, saying why', () => {
+    const { config, problems } = parseConfig({
+      elevationServices: [
+        { url: 'https://example.com/arcgis/rest/services/Terrain3D/ImageServer', token: 't' },
+        'https://example.com/arcgis/rest/services/Elevation/ImageServer/',
+        { url: 'https://example.com/arcgis/rest/services/Base/MapServer' },
+        42,
+      ],
+    });
+    expect(config.elevationServices).toEqual([
+      { url: 'https://example.com/arcgis/rest/services/Terrain3D/ImageServer', token: 't' },
+      { url: 'https://example.com/arcgis/rest/services/Elevation/ImageServer/' },
+    ]);
+    expect(problems).toHaveLength(2);
+    expect(parseConfig({ elevationServices: {} }).problems).toEqual(['elevationServices が配列ではありません']);
+  });
+});
+
 describe('lookupUrl', () => {
   it('fills the authority and the code', () => {
     expect(lookupUrl(defaultConfig.projectionLookup, 'EPSG:6677')).toBe('https://spatialreference.org/ref/epsg/6677/ogcwkt/');

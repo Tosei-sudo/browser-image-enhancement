@@ -8,6 +8,7 @@ import { Buffer } from 'node:buffer';
 import { URL, URLSearchParams } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
+import { encodeLerc } from './lerc-encode.mjs';
 
 /** A solid PNG of `width` × `height` in the color [r, g, b, a]. */
 export function png(width, height, [r, g, b, a = 255]) {
@@ -219,6 +220,50 @@ const tokyoBox = () => {
   const [xmax, ymax] = mercator(139.8, 35.7);
   return { xmin, ymin, xmax, ymax, spatialReference: { wkid: 102100, latestWkid: 3857 } };
 };
+
+/** One band of 32-bit floats (`width` × `height`, row by row) as an uncompressed TIFF, as exportImage sends with format=tiff, pixelType=F32. */
+function floatTiff(values, width, height) {
+  const entries = [
+    [256, 4, width],
+    [257, 4, height],
+    [258, 3, 32],
+    [259, 3, 1],
+    [262, 3, 1],
+    [273, 4, 0], // strip offset, below
+    [277, 3, 1],
+    [278, 4, height],
+    [279, 4, width * height * 4],
+    [339, 3, 3], // floating point
+  ];
+  const ifdSize = 2 + entries.length * 12 + 4;
+  const dataAt = 8 + ifdSize;
+  const out = Buffer.alloc(dataAt + width * height * 4);
+  out.write('II', 0, 'ascii');
+  out.writeUInt16LE(42, 2);
+  out.writeUInt32LE(8, 4);
+  out.writeUInt16LE(entries.length, 8);
+  entries.forEach(([tag, type, value], i) => {
+    const at = 10 + i * 12;
+    out.writeUInt16LE(tag, at);
+    out.writeUInt16LE(type, at + 2);
+    out.writeUInt32LE(1, at + 4);
+    if (type === 3) out.writeUInt16LE(value, at + 8);
+    else out.writeUInt32LE(tag === 273 ? dataAt : value, at + 8);
+  });
+  for (let i = 0; i < values.length; i++) out.writeFloatLE(values[i], dataAt + i * 4);
+  return out;
+}
+
+/** The stand-in image service of heights covers this, with a 1500 m plateau (as the DTED of the geometric tests). */
+export const ELEVATION_BOX = [139, 35, 141, 37];
+/** The heights of the stand-in elevation tile service (Terrain3D): a slope up to the east and the north, none south of 30°. */
+export const terrainHeight = (lon, lat) => (lat < 30 ? NaN : 100 + 2000 * (lon - 139.7) + 1000 * (lat - 35.6));
+const WORLD = 20037508.342789244;
+
+/** Longitude / latitude of a Web Mercator x, y. */
+function lonLatOf(x, y) {
+  return [(x / WORLD) * 180, (Math.atan(Math.exp((y / WORLD) * Math.PI)) * 360) / Math.PI - 90];
+}
 
 export function resetServices() {
   rasterRequests.length = 0;
@@ -517,6 +562,61 @@ export async function serveService(req, res, url, base) {
   const detection = /^\/svc\/arcgis\/rest\/services\/Detections\/FeatureServer\/0(?:\/(applyEdits))?$/.exec(path);
   if (detection) return json(detection[1] && req.method === 'POST' ? detectionEdits(form) : detectionsLayer);
   if (path === '/svc/raster-requests') return json(rasterRequests);
+  // An image service of heights (exportImage only), and an elevation tile service of LERC tiles (as Esri's Terrain3D).
+  const elevation = /^\/svc\/arcgis\/rest\/services\/Elevation\/ImageServer(?:\/(exportImage))?$/.exec(path);
+  if (elevation) {
+    const q = Object.fromEntries(form);
+    if (!elevation[1]) {
+      const [xmin, ymin] = mercator(ELEVATION_BOX[0], ELEVATION_BOX[1]);
+      const [xmax, ymax] = mercator(ELEVATION_BOX[2], ELEVATION_BOX[3]);
+      return json({ currentVersion: 11.1, name: 'Elevation', extent: { xmin, ymin, xmax, ymax, spatialReference: { wkid: 102100, latestWkid: 3857 } }, pixelType: 'F32', bandCount: 1, pixelSizeX: 30, pixelSizeY: 30, capabilities: 'Image,Metadata,Mensuration', maxImageWidth: 4000, maxImageHeight: 4000 });
+    }
+    rasterRequests.push({ service: 'Elevation', op: 'exportImage', ...q });
+    const [w, so, e, n] = q.bbox.split(',').map(Number);
+    const [width, height] = q.size.split(',').map(Number);
+    const values = new Float32Array(width * height);
+    for (let r = 0; r < height; r++) {
+      for (let c = 0; c < width; c++) {
+        const lon = w + ((c + 0.5) * (e - w)) / width;
+        const lat = n - ((r + 0.5) * (n - so)) / height;
+        const inside = lon >= ELEVATION_BOX[0] && lon <= ELEVATION_BOX[2] && lat >= ELEVATION_BOX[1] && lat <= ELEVATION_BOX[3];
+        values[r * width + c] = inside ? 1500 : Number(q.noData);
+      }
+    }
+    return send('image/tiff', floatTiff(values, width, height));
+  }
+  const terrain = /^\/svc\/arcgis\/rest\/services\/Terrain3D\/ImageServer(?:\/tile\/(\d+)\/(\d+)\/(\d+))?$/.exec(path);
+  if (terrain) {
+    if (!terrain[1]) {
+      return json({
+        currentVersion: 11.1,
+        name: 'Terrain3D',
+        extent: { xmin: -WORLD, ymin: -WORLD, xmax: WORLD, ymax: WORLD, spatialReference: { wkid: 102100, latestWkid: 3857 } },
+        bandCount: 1,
+        pixelType: 'F32',
+        capabilities: 'Image,Tilemap',
+        singleFusedMapCache: true,
+        cacheType: 'Elevation',
+        tileInfo: {
+          rows: 256,
+          cols: 256,
+          format: 'LERC',
+          origin: { x: -WORLD, y: WORLD },
+          spatialReference: { wkid: 102100, latestWkid: 3857 },
+          lods: Array.from({ length: 17 }, (_, level) => ({ level, resolution: (2 * WORLD) / 256 / 2 ** level, scale: 0 })),
+        },
+      });
+    }
+    const [level, row, col] = terrain.slice(1).map(Number);
+    rasterRequests.push({ service: 'Terrain3D', op: 'tile', level, row, col });
+    const size = (2 * WORLD) / 2 ** level;
+    const values = new Float32Array(256 * 256);
+    for (let r = 0; r < 256; r++) {
+      for (let c = 0; c < 256; c++) values[r * 256 + c] = terrainHeight(...lonLatOf(-WORLD + (col + (c + 0.5) / 256) * size, WORLD - (row + (r + 0.5) / 256) * size));
+    }
+    if (values.every(Number.isNaN)) return send('text/plain', 'no tile', 404);
+    return send('application/octet-stream', encodeLerc(values, 256, 256));
+  }
   const image = /^\/svc\/arcgis\/rest\/services\/Scenes\/ImageServer(?:\/(exportImage|query|identify))?$/.exec(path);
   if (image) {
     const op = image[1];

@@ -16,6 +16,11 @@
  *   The move is in metres on the ground and goes into the saved GeoTIFF.
  * - A DEM can show contour lines (off at first): at a round interval for its
  *   range, or one chosen.
+ * - ArcGIS elevation services (an image service of heights, or an elevation
+ *   tile service such as Terrain3D) serve as elevation data too, read for the
+ *   area needed: the image being orthorectified, the 3D relief, the viewshed.
+ *   The view can be taken in from one as a DEM layer (for contour lines).
+ *   Files open come first where both cover.
  */
 import type OlMap from 'ol/Map.js';
 import PointerInteraction from 'ol/interaction/Pointer.js';
@@ -38,6 +43,7 @@ import type { Rpc } from './rpc.js';
 import { openTiff } from './satellite.js';
 import { displacement, sampleGrid, type GridMap, type SensorView, type SimpleOrthoInput } from './simple-ortho.js';
 import { getShift, setShift } from './shift.js';
+import { openElevationService, type ElevationSource } from './services/esri-elevation.js';
 
 /** A satellite image that can be orthorectified. */
 export interface SatelliteImage {
@@ -71,7 +77,18 @@ export interface GeometricOptions {
   onChange?: (image: ViewerImage) => void;
   /** Shows a new pipeline of the selected image in the correction panel (which then applies it). */
   onPipeline?: (pipeline: Pipeline) => void;
+  /** Called when elevation services are added or removed. */
+  onSources?: () => void;
 }
+
+/** An elevation service as saved (projects, config.json): its URL, and a token when it needs one. */
+export interface ElevationServiceRef {
+  url: string;
+  token?: string;
+}
+
+/** Posts read from elevation services for one image to orthorectify, at most. */
+const SERVICE_POSTS = 4_000_000;
 
 const resampleNames: Record<Resample, string> = { nearest: '最近傍', bilinear: 'バイリニア', bicubic: 'バイキュービック' };
 
@@ -88,6 +105,8 @@ export class GeometricMode {
   private readonly satellites_ = new WeakMap<ViewerImage, SatelliteImage>();
   private readonly orthos_ = new WeakMap<ViewerImage, OrthoImage>();
   private readonly geoImages_ = new WeakMap<ViewerImage, GeoImage>();
+  private sources_: Array<ElevationSource & { token?: string }> = [];
+  private sourcesOpen_ = false;
   private shifting_ = false;
   private busy_ = false;
   private readonly drag_: PointerInteraction;
@@ -143,6 +162,113 @@ export class GeometricMode {
   /** The DEM cells open now. */
   cells(): Dted[] {
     return [...this.dems_.values()];
+  }
+
+  /** The elevation services in use, in the order added. */
+  elevationSources(): ElevationSource[] {
+    return [...this.sources_];
+  }
+
+  /** The elevation services as saved in a project. */
+  elevationServiceRefs(): ElevationServiceRef[] {
+    return this.sources_.map((s) => ({ url: s.url, ...(s.token ? { token: s.token } : {}) }));
+  }
+
+  /** Adds an ArcGIS elevation service (an image service of heights, or an elevation tile service) as elevation data. */
+  async addElevationService(url: string, token?: string, quiet = false): Promise<ElevationSource | null> {
+    const { say } = this.options;
+    const clean = url.trim().replace(/\?.*$/, '').replace(/\/+$/, '');
+    const known = this.sources_.find((s) => s.url.toLowerCase() === clean.toLowerCase());
+    if (known) return known;
+    if (!quiet) say(`${clean} を読み込んでいます…`);
+    try {
+      const source = Object.assign(await openElevationService(clean, token || undefined), token ? { token } : {});
+      if (this.sources_.some((s) => s.url === source.url)) return source;
+      this.sources_.push(source);
+      if (!quiet) say(`${source.title} を標高データとして使います（${source.kind === 'tiles' ? '標高タイル' : 'イメージサービス'}${source.postSize ? `、最も細かい間隔 約 ${formatMetres(source.postSize)}` : ''}）`);
+      this.options.onSources?.();
+      this.render();
+      return source;
+    } catch (error) {
+      say(`標高サービスを使えませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /** Stops using an elevation service. */
+  removeElevationService(url: string): void {
+    const before = this.sources_.length;
+    this.sources_ = this.sources_.filter((s) => s.url !== url);
+    if (this.sources_.length === before) return;
+    this.options.onSources?.();
+    this.render();
+  }
+
+  /**
+   * The elevation data for `lonLat` (`[west, south, east, north]`, degrees):
+   * the DEMs open, then what the elevation services have there (read now, at
+   * most `maxPosts` posts each). A service that fails is left out, with a message.
+   */
+  async cellsFor(lonLat: readonly number[], maxPosts = SERVICE_POSTS): Promise<Dted[]> {
+    const cells = this.cells();
+    if (!this.sources_.length) return cells;
+    // A little beyond: posts are inside what they cover, and the edges must have heights too.
+    const [w, s, e, n] = lonLat;
+    const padX = (e - w) * 0.02;
+    const padY = (n - s) * 0.02;
+    const area = [w - padX, s - padY, e + padX, n + padY];
+    const read = await Promise.all(
+      this.sources_.map((source) =>
+        source.read(area, maxPosts).catch((error: unknown) => {
+          this.options.say(`${source.title} から標高を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        }),
+      ),
+    );
+    return [...cells, ...read.filter((c): c is Dted => !!c)];
+  }
+
+  /** Whether the open DEMs or an elevation service cover part of `lonLat`. */
+  covers(lonLat: readonly number[]): boolean {
+    return (this.cells().length > 0 && coversAny(this.cells(), lonLat)) || this.sources_.some((s) => s.lonLat[0] < lonLat[2] && s.lonLat[2] > lonLat[0] && s.lonLat[1] < lonLat[3] && s.lonLat[3] > lonLat[1]);
+  }
+
+  /**
+   * Reads the view from an elevation service (default: the first) into a DEM
+   * layer, as if a DTED of it had been opened: for contour lines, and to keep
+   * the heights in a GeoTIFF.
+   */
+  async importView(source = this.sources_[0]): Promise<ViewerImage | null> {
+    const { say } = this.options;
+    const size = this.map.getSize();
+    if (!source || !size || this.busy_) return null;
+    const view = this.map.getView();
+    const lonLat = transformExtent(view.calculateExtent(size), view.getProjection(), 'EPSG:4326');
+    this.busy_ = true;
+    this.render();
+    try {
+      say(`${source.title} から表示範囲の標高を読み込んでいます…`);
+      const posts = Math.min(SERVICE_POSTS, Math.round(size[0] * size[1] * devicePixelRatio * devicePixelRatio));
+      const cell = await source.read(lonLat, posts);
+      const range = cell && elevationRange(cell);
+      if (!cell || !range) throw new Error('この範囲に標高がありません');
+      const name = `${source.title}_標高.tif`;
+      const loaded = await this.loader.loadFile(dtedToGeoTIFF(cell), name).catch(() => null);
+      const image = loaded && this.find_(loaded);
+      if (!image) throw new Error('レイヤーにできませんでした');
+      this.dems_.set(image, cell);
+      this.images.setBadge(image, 'DEM');
+      this.setPipeline_(image, pipeline().autoStretch());
+      say(`${name} を作りました（標高 ${Math.round(range[0])}〜${Math.round(range[1])} m、${cell.width}×${cell.height} 点）`);
+      this.changed_(image);
+      return image;
+    } catch (error) {
+      say(`標高を取り込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    } finally {
+      this.busy_ = false;
+      this.render();
+    }
   }
 
   /** The DEM shown by `image`, if it is one. */
@@ -350,7 +476,8 @@ export class GeometricMode {
     try {
       say(`${baseName(image.name)} を読み込んでいます…`);
       const { raster, width, height } = await readForOrtho(satellite.from);
-      const cells = this.cells();
+      if (this.sources_.length) say(`${baseName(image.name)} の範囲の標高を読み込んでいます…`);
+      const cells = await this.cellsFor(this.lonLatExtent_(satellite.rpc));
       say(`${baseName(image.name)} をオルソ補正しています（${cells.length ? `標高データ ${cells.length} 枚` : '標高データなし'}、${resampleNames[resample]}）…`);
       const geoid = await this.geoid_();
       const result = await runOrtho({ raster, scale: [width / raster.width, height / raster.height], rpc: satellite.rpc, cells, geoid, resample });
@@ -385,7 +512,6 @@ export class GeometricMode {
     if (!image || !geo || !view || this.busy_) return null;
     const { say } = this.options;
     const projection = image.source.getProjection();
-    const cells = this.cells();
     if (!projection) {
       say('この画像の座標系が分からないため、簡易オルソ補正できません');
       return null;
@@ -395,6 +521,9 @@ export class GeometricMode {
     try {
       say(`${baseName(image.name)} を読み込んでいます…`);
       const { first, raster, width, height } = await readForOrtho(geo.from);
+      if (this.sources_.length && geo.lonLat) say(`${baseName(image.name)} の範囲の標高を読み込んでいます…`);
+      // Beyond the image too: the terrain moves points from outside it in.
+      const cells = geo.lonLat ? await this.cellsFor(padded(geo.lonLat, 0.1)) : this.cells();
       const { width: w, height: h } = raster;
       // Raster position → the image's CRS → Web Mercator, and back.
       const [ox, oy] = first.getOrigin();
@@ -520,12 +649,12 @@ export class GeometricMode {
       this.showShift_(image, readout);
     } else if (image && satellite) {
       const extent = this.lonLatExtent_(satellite.rpc);
-      const covered = cells.length > 0 && coversAny(cells, extent);
+      const covered = this.covers(extent);
       p(
         `RPC あり${satellite.rpc.errBias !== undefined ? `（誤差 ${satellite.rpc.errBias} m）` : ''}。` +
           (covered
-            ? `標高データ ${cells.length} 枚の地形でオルソ補正します。`
-            : `この範囲の標高データ（DTED）がありません。開かずに補正すると、RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m の平面として補正します。`),
+            ? `${[...(cells.length ? [`標高データ ${cells.length} 枚`] : []), ...(this.sources_.length ? ['標高サービス'] : [])].join('と')}の地形でオルソ補正します。`
+            : `この範囲の標高データ（DTED・標高サービス）がありません。そのまま補正すると、RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m の平面として補正します。`),
       );
       const select = document.createElement('select');
       select.setAttribute('aria-label', '再サンプリング');
@@ -537,10 +666,68 @@ export class GeometricMode {
         use.title = '値を標高（m、平均海面から）として、オルソ補正・等高線・3D の起伏・可視解析に使います';
       }
       this.renderSimple_(geo, image, cells, p, row, button);
+    } else if (this.imageServiceSelected_()) {
+      const raster = this.imageServiceSelected_()!;
+      const used = this.sources_.some((s) => s.url.toLowerCase() === raster.url.toLowerCase());
+      const use = row(button(used ? '標高データとして使用中' : '標高データとして使う', () => void this.addElevationService(raster.url), { disabled: used, name: 'use-service-dem' }));
+      use.title = 'このイメージサービスの値を標高（m、平均海面から）として、オルソ補正・3D の起伏・可視解析に使います';
     } else {
       p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）か、位置情報のある GeoTIFF を選ぶと、オルソ補正できます。');
     }
-    p(cells.length ? `標高データ: ${cells.map((c) => c.level).join('、')}（${cells.length} 枚）` : '標高データ: なし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を「標高データとして使う」と使います）', 'geometry-dems');
+    const used = [...(cells.length ? [`${cells.map((c) => c.level).join('、')}（${cells.length} 枚）`] : []), ...this.sources_.map((s) => `${s.title}（サービス）`)];
+    p(used.length ? `標高データ: ${used.join('、')}` : '標高データ: なし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を「標高データとして使う」か、標高サービスを追加すると使います）', 'geometry-dems');
+    this.renderSources_(button);
+  }
+
+  /** The elevation services: folded away until wanted; each can be taken in for the view, or removed. */
+  private renderSources_(button: (text: string, run: () => void, options?: { disabled?: boolean; name?: string }) => HTMLButtonElement): void {
+    const details = document.createElement('details');
+    details.className = 'geometry-details geometry-sources';
+    details.open = this.sourcesOpen_;
+    details.addEventListener('toggle', () => (this.sourcesOpen_ = details.open));
+    const summary = document.createElement('summary');
+    summary.textContent = this.sources_.length ? `標高サービス（${this.sources_.length}）` : '標高サービス';
+    summary.title = 'ArcGIS のイメージサービス（標高）や標高タイルサービス（Terrain3D など）を標高データに使います';
+    details.append(summary);
+    const row = (...children: HTMLElement[]) => {
+      const div = document.createElement('div');
+      div.className = 'geometry-row';
+      div.append(...children);
+      details.append(div);
+      return div;
+    };
+    for (const source of this.sources_) {
+      const name = document.createElement('span');
+      name.className = 'geometry-source';
+      name.textContent = source.title;
+      name.title = `${source.url}\n${source.kind === 'tiles' ? '標高タイル（LERC）' : 'イメージサービス（exportImage）'}${source.postSize ? `、最も細かい間隔 約 ${formatMetres(source.postSize)}` : ''}`;
+      const take = button(this.busy_ ? '読み込み中…' : '表示範囲を取り込む', () => void this.importView(source), { disabled: this.busy_, name: 'import-elevation' });
+      take.title = '表示範囲の標高を DEM レイヤーにします（等高線を描けます）';
+      const remove = button('×', () => this.removeElevationService(source.url), { name: 'remove-elevation' });
+      remove.title = '使うのをやめる';
+      remove.setAttribute('aria-label', `${source.title} を使うのをやめる`);
+      row(name, take, remove);
+    }
+    const url = document.createElement('input');
+    url.type = 'url';
+    url.name = 'elevation-url';
+    url.placeholder = 'https://…/ImageServer';
+    url.setAttribute('aria-label', '標高サービスの URL');
+    const token = document.createElement('input');
+    token.type = 'password';
+    token.name = 'elevation-token';
+    token.placeholder = 'トークン（必要なとき）';
+    token.setAttribute('aria-label', 'トークン');
+    token.autocomplete = 'off';
+    const add = button('追加', () => {
+      if (url.value.trim()) void this.addElevationService(url.value, token.value.trim() || undefined);
+    }, { name: 'add-elevation' });
+    url.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') add.click();
+    });
+    row(url);
+    row(token, add);
+    this.element.append(details);
   }
 
   /** The simple orthorectification's part of the panel: the satellite's direction, then the details most never need. */
@@ -552,10 +739,10 @@ export class GeometricMode {
     row: (...children: HTMLElement[]) => HTMLElement,
     button: (text: string, run: () => void, options?: { disabled?: boolean; name?: string }) => HTMLButtonElement,
   ): void {
-    const covered = cells.length > 0 && !!geo.lonLat && coversAny(cells, geo.lonLat);
+    const covered = !!geo.lonLat && this.covers(geo.lonLat);
     p(
       'RPC のない画像は、衛星の方向と標高データで簡易オルソ補正できます。' +
-        (covered ? '' : 'この範囲の標高データ（DTED）を開いてください。') +
+        (covered ? '' : 'この範囲の標高データ（DTED か標高サービス）を用意してください。') +
         (geo.view ? '' : '衛星の方位角と仰角を入れてください（.IMD を画像と一緒に開くと読み取ります）。'),
     );
     const angles = { azimuth: geo.view?.azimuth ?? NaN, elevation: geo.view?.elevation ?? NaN };
@@ -669,6 +856,13 @@ export class GeometricMode {
     return Math.cos((lat * Math.PI) / 180);
   }
 
+  /** The selected layer's image service, when it is a one-band image service (heights, perhaps). */
+  private imageServiceSelected_(): { url: string } | null {
+    const layer = this.images.selectedLayer();
+    const raster = layer?.type === 'service' ? layer.service.raster : undefined;
+    return raster?.kind === 'image' && raster.bandCount <= 1 ? raster : null;
+  }
+
   private orthoSelected_(): ViewerImage | null {
     const image = this.images.selected();
     return image && this.orthos_.has(image) ? image : null;
@@ -701,6 +895,18 @@ export class GeometricMode {
 /** The value outside the image when the file has none: 0 for integers, NaN for floats. */
 function defaultNoData(data: GeoTIFFSamples): number {
   return data instanceof Float32Array || data instanceof Float64Array ? NaN : 0;
+}
+
+/** `[west, south, east, north]` widened by `k` of its size on each side. */
+function padded([w, s, e, n]: readonly number[], k: number): number[] {
+  const x = (e - w) * k;
+  const y = (n - s) * k;
+  return [w - x, s - y, e + x, n + y];
+}
+
+/** A distance for the panel: metres, or kilometres from 1 km. */
+function formatMetres(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m >= 10 ? Math.round(m) : m.toFixed(1)} m`;
 }
 
 /** What the message adds when the image was corrected reduced. */
