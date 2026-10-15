@@ -57,7 +57,7 @@ export interface MosaicSettings {
 }
 
 /** PhotometricInterpretation and ExtraSamples of the result: RGB when every image is (YCbCr is read as RGB), else gray, and the rest extra. */
-function colorOf(plan: CompositePlan, images: readonly ViewerImage[], bands: number): { photometric: number; extraSamples?: number[] } {
+export function colorOf(plan: CompositePlan, images: readonly ViewerImage[], bands: number): { photometric: number; extraSamples?: number[] } {
   const rgb =
     bands >= 3 &&
     images.every((image) => {

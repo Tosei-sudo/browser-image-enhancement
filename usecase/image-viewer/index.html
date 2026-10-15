@@ -59,7 +59,7 @@
             </div>
             <p class="menu-heading">解析</p>
             <div class="point-tools">
-              <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・パンシャープン">プロセッシング</button>
+              <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・バンド演算・パンシャープンなど">プロセッシング</button>
             </div>
             <p class="menu-heading">AI</p>
             <div class="point-tools">
@@ -77,9 +77,13 @@
               <!-- Satellite passes over a layer's features: src/imaging-plan-panel.ts. -->
               <button type="button" id="plan-open" title="衛星カタログの軌道（TLE）と諸元から、レイヤーの地物を次にいつ撮像できるかを計算します">撮像計画</button>
             </div>
-            <p class="menu-heading">保存</p>
+            <p class="menu-heading">注記・保存</p>
             <div class="point-tools">
+              <!-- Arrows, lines, boxes and text on the map: src/annotations.ts. -->
+              <button type="button" id="annotate" aria-pressed="false" data-key="N" aria-keyshortcuts="N" title="地図に矢印・線・四角・文字を描きます（N）">注記を描く</button>
               <button type="button" id="save-view" title="表示範囲を PNG・GeoTIFF で保存します">表示範囲を保存</button>
+              <!-- A sheet with a title, scale bar, north arrow and legend: src/print-layout.ts. -->
+              <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例を付けて A4・A3 の PDF・PNG に保存します">印刷レイアウト…</button>
             </div>
           </div>
         </div>

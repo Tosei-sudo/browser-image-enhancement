@@ -187,6 +187,28 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 			white: rgb(s.white)
 		};
 	}
+	/**
+	* Fixes the raw stretch to `range` (the raw values that become black and
+	* white), as the `rawStretch` option does, or goes back to computing it
+	* from statistics (null). For images read raw (see `normalize`), such as a
+	* difference image shown from −x to +x so that 0 sits in the middle of its
+	* color scale.
+	*/
+	setRawStretch(range) {
+		this.rawStretchOption_ = range ?? {};
+		this.rawStretch_ = range;
+		this.rawStretchReady_ = null;
+		if (!range) {
+			this.wholeRaw_ = null;
+			this.viewRaw_ = null;
+		}
+		if (this.getState() === "ready") this.reload_();
+	}
+	/** The raw stretch fixed by {@link EnhancedGeoTIFF.setRawStretch} or the `rawStretch` option; null when it follows statistics. */
+	getFixedRawStretch() {
+		const o = this.rawStretchOption_;
+		return "black" in o && "white" in o ? o : null;
+	}
 	/** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
 	get autoRaw_() {
 		return this.rawValues_ && !("black" in this.rawStretchOption_ && "white" in this.rawStretchOption_);

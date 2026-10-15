@@ -69,6 +69,11 @@ import type { ProcessingResult } from './processing/common.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
 import { CompositeDialog } from './composite-dialog.js';
 import { MosaicDialog } from './mosaic-dialog.js';
+import { BandMathDialog } from './band-math-dialog.js';
+import { ChangeDialog } from './change-dialog.js';
+import { AlignDialog } from './align-dialog.js';
+import { Annotations } from './annotations.js';
+import { PrintDialog } from './print-dialog.js';
 import { ColorizeDialog } from './colorize-dialog.js';
 import { NoDataDialog } from './nodata-dialog.js';
 import { ViewExportDialog } from './view-export.js';
@@ -161,6 +166,7 @@ bindShortcuts({
   t: press('timeline-open'),
   b: press('dashboard-open'),
   m: () => bookmarks.add(),
+  n: press('annotate'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -346,11 +352,23 @@ const measure = new MeasureTool(map, images, {
   onStart: () => {
     points.setAdding(false);
     aiSegment.setActive(false);
+    annotations.setActive(false);
   },
 });
 document.getElementById('add-point')!.addEventListener('click', () => {
   if (points.isAdding()) measure.setMode(null);
   if (points.isAdding()) aiSegment.setActive(false);
+  if (points.isAdding()) annotations.setActive(false);
+});
+// Notes drawn on the map (arrows, lines, boxes, text): kept in the browser and in projects, and printed.
+const annotations: Annotations = new Annotations(map, {
+  say,
+  button: document.getElementById('annotate') as HTMLButtonElement,
+  onStart: () => {
+    points.setAdding(false);
+    measure.setMode(null);
+    aiSegment.setActive(false);
+  },
 });
 
 // Right click: copy the coordinates of the point.
@@ -381,7 +399,7 @@ const bookmarks: Bookmarks = new Bookmarks(map, document.getElementById('bookmar
 // or asks a WMS layer what is there.
 map.on('singleclick', (e) => {
   const layer = images.selectedLayer();
-  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
+  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || annotations.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
   const service = layer.service;
   if (service.vector) {
     const hit = service.style?.onGpu()
@@ -453,6 +471,9 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     addService(tempLayer(record, tempStore));
   },
   rasterTools: [
+    { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
+    { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
+    { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
     { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
     { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
     { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
@@ -498,6 +519,12 @@ const aiTransfer = new TransferDialog(aiTransferButton, selection, {
 
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
 const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
+// Printing: the view on a sheet with a title, scale bar, north arrow and legend, as a PDF or PNG.
+const printDialog = new PrintDialog(document.getElementById('print') as HTMLButtonElement, map, images, {
+  say,
+  visible: (layer) => images.isVisible(layer),
+  name: () => project.name(),
+});
 
 const addDialog = new AddServiceDialog(document.getElementById('add-service') as HTMLButtonElement, { onAdd: addService, context: serviceContext });
 
@@ -531,6 +558,8 @@ const loader = new LoadImageControl({
     // config.json's imageRules: the correction and bands an image starts with, by its file name.
     const rule = applyImageRule(config.imageRules, loaded.name, loaded.source, say);
     showRset(images.add(loaded));
+    // Opening a link: back to its `#view=` before the fit to the image is drawn, so the view doesn't jump after.
+    if (linkedView) bookmarks.applyHash(linkedView);
     status.textContent = rule ? `${loaded.name} を開きました（設定「${rule.label}」を適用）` : `${loaded.name} を開きました`;
     // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
@@ -591,6 +620,7 @@ const project = new ProjectControl({
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
   bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  notes: { get: () => annotations.get(), set: (saved) => annotations.set(saved) },
   layout: {
     collect: (indexOf) => collectLayout(layoutParts, indexOf),
     apply: (layout, listIndexOf) => applyLayout(layoutParts, layout, listIndexOf),
@@ -633,6 +663,21 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
 // Coloring one-band images, and RGB composites of them (from the processing dialog): two dates in red and cyan show what changed.
 const timeOfImage = async (image: ViewerImage) => (await imageTime(image))?.time ?? null;
 const colorize = new ColorizeDialog(images, { say, timeOf: timeOfImage, onChange: () => updateLink() });
+// Band math (from the processing dialog): NDVI and other indices by name, or any expression over the bands.
+const bandMath = new BandMathDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
+// Change detection (from the processing dialog): two dates compared, and what changed outlined as a temporary layer.
+const change = new ChangeDialog(images, loader, {
+  say,
+  timeOf: (image) => timeOfImage(image),
+  open: (file) => openImageFile(file, fileContext()),
+  onPolygons: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+});
+// Automatic alignment (from the processing dialog): an image lined up with a reference by matching their texture.
+const align = new AlignDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
 // Which pixels of an image are transparent: the file's no-data value and the usual fill values, the black collar, values typed.
 const noData = new NoDataDialog(images, { say });
 const composite = new CompositeDialog(images, loader, {
@@ -894,6 +939,8 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
   }
 }
 
+// A link's `#view=` wins over where the layers opening at start would zoom to.
+let linkedView: string | null = location.hash || null;
 const started = (async () => {
   const opening: LayerConfig[] = [...config.layers];
   for (const url of start.getAll('url')) opening.push({ type: 'cog', url });
@@ -902,14 +949,13 @@ const started = (async () => {
   for (const ref of start.getAll('service').map(paramToRef)) {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
   }
-  // A link's `#view=` wins over where the layers opening would zoom to.
-  const linked = location.hash;
   for (const layer of opening) await openAtStart(layer);
   // The temporary layers of earlier visits, on top.
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));
   if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
-  bookmarks.applyHash(linked);
+  if (linkedView) bookmarks.applyHash(linkedView);
+  linkedView = null;
 })();
 bookmarks.applyHash();
 // A project opened meanwhile replaces these layers once they are open.
@@ -956,6 +1002,11 @@ declare global {
       noData: NoDataDialog;
       composite: CompositeDialog;
       mosaic: MosaicDialog;
+      bandMath: BandMathDialog;
+      change: ChangeDialog;
+      align: AlignDialog;
+      annotations: Annotations;
+      print: PrintDialog;
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
       aiTransfer: TransferDialog;
@@ -977,4 +1028,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };

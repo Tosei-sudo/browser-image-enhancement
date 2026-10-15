@@ -2662,3 +2662,52 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+/* Drawing notes: a toolbar at the top of the map while 注記 is on, and the text box typed in place. */
+.annotation-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 2px 8px #0004;
+  font-size: 13px;
+}
+.annotation-bar[hidden] {
+  display: none;
+}
+.annotation-bar button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.annotation-bar input[type='color'] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: none;
+}
+.annotation-text {
+  min-width: 12rem;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+.print-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}

@@ -43,6 +43,7 @@ import {
 import type { ProjectLayout } from './layout.js';
 import { markRow } from './colorize-dialog.js';
 import type { Bookmark } from './bookmarks.js';
+import type { SavedNotes } from './annotations.js';
 
 /** Files opened together, as the viewer opened them. */
 export interface OpenedSet {
@@ -79,6 +80,8 @@ export interface ProjectOptions {
   layerTime?: { get: (layer: ViewerLayer) => ProjectLayer['time']; set: (layer: ViewerLayer, saved: NonNullable<ProjectLayer['time']>) => void };
   /** The bookmarks: saved with the project, and added to the viewer's when it opens. */
   bookmarks?: { get: () => Bookmark[]; merge: (list: Bookmark[]) => void };
+  /** The notes drawn on the map: saved with the project, and put back (or cleared) when it opens. */
+  notes?: { get: () => SavedNotes | null; set: (saved: SavedNotes | null) => void };
   /** The screen layout (panels, timeline, dashboard); indexes are of the project's layers. */
   layout?: {
     collect: (indexOf: (listIndex: number) => number) => ProjectLayout;
@@ -212,6 +215,7 @@ export class ProjectControl {
         selected: index < 0 ? null : index,
         ...(globe ? { globe } : {}),
         ...(this.options.bookmarks?.get().length ? { bookmarks: this.options.bookmarks.get() } : {}),
+        ...(this.options.notes?.get() ? { annotations: this.options.notes.get()! } : {}),
         ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
       },
       left,
@@ -368,6 +372,7 @@ export class ProjectControl {
       });
       if (!threeD) this.restoreView_(project);
       if (project.bookmarks?.length) this.options.bookmarks?.merge(project.bookmarks);
+      this.options.notes?.set(project.annotations ?? null);
       // The correction panel shows the selected layer's correction as it is now.
       const selected = project.selected !== null ? found[project.selected] : found.find((l) => l);
       images.select(null);
