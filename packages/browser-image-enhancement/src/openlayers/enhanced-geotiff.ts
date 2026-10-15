@@ -249,7 +249,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** The `nodata` of each of `sources` as given (OpenLayers' own option), put back when `auto` is set again. */
   private sourceNoData_: Array<{ has: boolean; value: unknown }> | null = null;
   private readonly autoNormalize_: boolean;
-  private readonly rawStretchOption_: RasterStretch | AutoStretchOptions;
+  private rawStretchOption_: RasterStretch | AutoStretchOptions;
   /** The raw stretch in use; null until the first statistics are read. */
   private rawStretch_: RasterStretch | null = null;
   private rawStretchReady_: Promise<void> | null = null;
@@ -328,6 +328,30 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
     if (!this.rawValues_ || !s) return null;
     const rgb = (v: number | readonly number[]) => [0, 1, 2].map((c) => (typeof v === 'number' ? v : (v[c] ?? v[0])));
     return { black: rgb(s.black), white: rgb(s.white) };
+  }
+
+  /**
+   * Fixes the raw stretch to `range` (the raw values that become black and
+   * white), as the `rawStretch` option does, or goes back to computing it
+   * from statistics (null). For images read raw (see `normalize`), such as a
+   * difference image shown from −x to +x so that 0 sits in the middle of its
+   * color scale.
+   */
+  setRawStretch(range: RasterStretch | null): void {
+    this.rawStretchOption_ = range ?? {};
+    this.rawStretch_ = range;
+    this.rawStretchReady_ = null;
+    if (!range) {
+      this.wholeRaw_ = null;
+      this.viewRaw_ = null;
+    }
+    if (this.getState() === 'ready') this.reload_();
+  }
+
+  /** The raw stretch fixed by {@link EnhancedGeoTIFF.setRawStretch} or the `rawStretch` option; null when it follows statistics. */
+  getFixedRawStretch(): RasterStretch | null {
+    const o = this.rawStretchOption_;
+    return 'black' in o && 'white' in o ? o : null;
   }
 
   /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */

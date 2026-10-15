@@ -170,7 +170,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   /** The `nodata` of each of `sources` as given (OpenLayers' own option), put back when `auto` is set again. */
   private sourceNoData_;
   private readonly autoNormalize_;
-  private readonly rawStretchOption_;
+  private rawStretchOption_;
   /** The raw stretch in use; null until the first statistics are read. */
   private rawStretch_;
   private rawStretchReady_;
@@ -202,6 +202,16 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
    * from are read, or when the image is not read raw.
    */
   getRawStretch(): RasterStretchRange | null;
+  /**
+   * Fixes the raw stretch to `range` (the raw values that become black and
+   * white), as the `rawStretch` option does, or goes back to computing it
+   * from statistics (null). For images read raw (see `normalize`), such as a
+   * difference image shown from −x to +x so that 0 sits in the middle of its
+   * color scale.
+   */
+  setRawStretch(range: RasterStretch | null): void;
+  /** The raw stretch fixed by {@link EnhancedGeoTIFF.setRawStretch} or the `rawStretch` option; null when it follows statistics. */
+  getFixedRawStretch(): RasterStretch | null;
   /** True when the raw stretch is computed from statistics (normalize: false without a fixed stretch). */
   private get autoRaw_();
   /** The pipeline's `autoStretch` options, when it has one. */

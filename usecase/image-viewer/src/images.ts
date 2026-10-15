@@ -128,7 +128,7 @@ export class ImageList {
   /**
    * Shows `source` on the image's layer in place of its source (the same
    * image read another way: with the RSET made for it), which is disposed.
-   * The correction, the bands shown, the DRA lock and a shift go with it.
+   * The correction, the bands shown, the DRA lock, a fixed raw stretch and a shift go with it.
    */
   replaceSource(image: ViewerImage, source: EnhancedGeoTIFF): void {
     const old = image.source;
@@ -136,6 +136,8 @@ export class ImageList {
     const select = old.getSelect();
     if (select) void source.setSelect(select).catch(() => {});
     source.setDraLocked(old.isDraLocked());
+    const stretch = old.getFixedRawStretch();
+    if (stretch) source.setRawStretch(stretch);
     const [dx, dy] = getShift(old);
     if (dx || dy) setShift(source, [dx, dy]);
     image.source = source;

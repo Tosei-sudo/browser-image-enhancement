@@ -482,7 +482,7 @@ export function pixelSize(image: ViewerImage): number {
 }
 
 /** Reads what a block needs of each chosen band: the window its mesh falls in, at full resolution unless that is far more than the block. */
-async function readBlock(
+export async function readBlock(
   plan: CompositePlan,
   channels: ReadonlyArray<Channel | null>,
   window: readonly [number, number, number, number],
