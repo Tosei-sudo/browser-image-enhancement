@@ -11,7 +11,7 @@
  * found, and the pass is an opportunity when that angle is within what the
  * satellite can do, on a side it can look to, and (for optical satellites)
  * in daylight. An area (a polygon) is sampled by points inside it: each pass
- * takes the scenes it can (`scenesPerPass` side by side) where they cover the
+ * takes the scenes it can (`scenesPerPass` one after another along the pass) where they cover the
  * most of what it can reach, and {@link coverPlan} strings passes of several
  * satellites together, earliest first, until the area is covered.
  *
@@ -44,7 +44,7 @@ export interface SatelliteFields {
   lookSide?: string;
   /** The kind of sensor; values matching `sarPattern` are SAR (they image at night too). */
   kind?: string;
-  /** How many scenes side by side one pass can take (an agile satellite turning between strips). */
+  /** How many scenes one after another along the pass one pass can take (consecutive shots). */
   scenesPerPass?: string;
   /** Minutes the satellite needs after one shot before the next (turning, cooling, downlink); 0 or empty for none. */
   minInterval?: string;
@@ -462,10 +462,22 @@ export interface Opportunity {
   width: number;
   /** Scenes side by side needed to cover it all from this pass. */
   strips: number;
+  /** How long the area is along the track, km (0 for a point). */
+  length: number;
+  /** Scenes one after another along the track (each the satellite's scene length) needed to cover that length. */
+  frames: number;
   /** Share of the area (0–1) the scenes this pass takes cover; 1 for a point. */
   coverage: number;
   /** Where the scenes are across the track: from and to, radians in the orbit's frame (left positive). */
   window: [number, number];
+  /**
+   * Where the scenes are along the track: from and to, radians in the orbit's
+   * frame at `time` (forward positive); a whole number of scene lengths, at
+   * most `scenesPerPass` of them.
+   */
+  along: [number, number];
+  /** For an area: how far along the track each of its cells is (radians, as `along`). */
+  cellsAlong?: Float32Array;
   /**
    * For an area: how far across the track each of its cells is (radians,
    * left positive), NaN where the satellite cannot look; for choosing
@@ -685,6 +697,55 @@ export function bestWindow(across: ArrayLike<number>, width: number, open?: (i: 
   return { count: best, window: [mid - width / 2, mid + width / 2] };
 }
 
+/**
+ * `count` scene lengths (`length`, radians) along the track over `from`–`to`:
+ * as many as it takes to cover it, at most `most`, centred on it.
+ */
+function framed(from: number, to: number, length: number, most: number): [number, number] {
+  const k = Math.min(most, Math.max(1, Math.ceil((to - from) / length - 1e-6)));
+  const mid = (from + to) / 2;
+  return [mid - (k * length) / 2, mid + (k * length) / 2];
+}
+
+/**
+ * Where to put one pass's scenes, `width` across the track and up to `most`
+ * scenes of `length` one after another along it, so they take the most
+ * cells: `across` and `along` hold each cell's angles (across NaN where it
+ * cannot be seen), `open` says which still count. The scenes are centred on
+ * the cells they take.
+ */
+export function bestScene(
+  across: ArrayLike<number>,
+  along: ArrayLike<number>,
+  width: number,
+  length: number,
+  most: number,
+  open?: (i: number) => boolean,
+): { count: number; window: [number, number]; along: [number, number]; members: number[] } | null {
+  const idx: number[] = [];
+  for (let i = 0; i < across.length; i++) if (!Number.isNaN(across[i]) && (!open || open(i))) idx.push(i);
+  if (!idx.length) return null;
+  idx.sort((a, b) => across[a] - across[b]);
+  const reach = length * most;
+  let best: number[] = [];
+  for (let j = 0; j < idx.length; j++) {
+    if (j > 0 && across[idx[j]] === across[idx[j - 1]]) continue;
+    // The cells within the width from this one across, by their place along the track.
+    const inside: number[] = [];
+    for (let k = j; k < idx.length && across[idx[k]] - across[idx[j]] <= width; k++) inside.push(idx[k]);
+    if (inside.length <= best.length) continue;
+    inside.sort((a, b) => along[a] - along[b]);
+    for (let p = 0, q = 0; q < inside.length; q++) {
+      while (along[inside[q]] - along[inside[p]] > reach) p++;
+      if (q - p + 1 > best.length) best = inside.slice(p, q + 1);
+    }
+  }
+  const xs = best.map((i) => across[i]);
+  const ys = best.map((i) => along[i]);
+  const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+  return { count: best.length, window: [mid - width / 2, mid + width / 2], along: framed(Math.min(...ys), Math.max(...ys), length, most), members: best };
+}
+
 /** Looking `x` radians across the track from `distance` km: the off-nadir angle, incidence, elevation (degrees) and range (km). */
 function lookAt(x: number, distance: number) {
   const lambda = Math.abs(x);
@@ -703,8 +764,10 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
   if (options.daylight === 'optical' && !sat.sar && sun < options.minSunElevation) return null;
   const f = frameOf(st);
   const distance = norm(st.r);
-  const { width } = spread(st, t);
-  const sw = (sat.swath / R) * sat.scenesPerPass;
+  const { width, y0, y1 } = spread(st, t);
+  const along = (y1 - y0) * R;
+  const sw = sat.swath / R;
+  const sl = sat.length / R;
   const common = {
     satellite: s,
     target: ti,
@@ -713,6 +776,8 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
     sunElevation: sun,
     width,
     strips: width > 0 ? Math.max(1, Math.ceil(width / sat.swath - 1e-9)) : 1,
+    length: along,
+    frames: framesFor(along, sat.length),
     tleAge: (time - epoch) / 86400000,
     orbitRadius: distance,
   };
@@ -726,7 +791,7 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
     const side = dot(d, f.n) > 0 ? 'left' : 'right';
     if (sat.lookSide !== 'both' && sat.lookSide !== side) return null;
     const x = trackAngles(unit(t.r), f)[0];
-    return { ...common, offNadir, incidence: 90 - elevation, elevation, side, range, coverage: 1, window: [x - sw / 2, x + sw / 2] };
+    return { ...common, offNadir, incidence: 90 - elevation, elevation, side, range, coverage: 1, window: [x - sw / 2, x + sw / 2], along: framed(y0, y1, sl, sat.scenesPerPass) };
   }
 
   // An area: the cells within reach (on a side it looks to, between its smallest and largest angles), and the
@@ -734,12 +799,14 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
   const near = sat.minOffNadir > 0 ? groundRange(sat.minOffNadir, distance) / R : 0;
   const far = groundRange(limit, distance) / R;
   const across = new Float32Array(t.cells.length);
+  const alongs = new Float32Array(t.cells.length);
   t.cells.forEach((p, i) => {
-    const x = trackAngles(p, f)[0];
+    const [x, y] = trackAngles(p, f);
     const ok = Math.abs(x) >= near && Math.abs(x) <= far && (sat.lookSide === 'both' || (x > 0) === (sat.lookSide === 'left'));
     across[i] = ok ? x : Number.NaN;
+    alongs[i] = y;
   });
-  const best = bestWindow(across, sw);
+  const best = bestScene(across, alongs, sw, sl, sat.scenesPerPass);
   if (!best) return null;
   const mid = (best.window[0] + best.window[1]) / 2;
   return {
@@ -748,7 +815,9 @@ function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: num
     side: mid > 0 ? 'left' : 'right',
     coverage: best.count / t.cells.length,
     window: best.window,
+    along: best.along,
     cells: across,
+    cellsAlong: alongs,
   };
 }
 
@@ -775,9 +844,10 @@ const trackRate = (orbitRadius: number) => Math.sqrt(398600.4418 / orbitRadius *
  * with `op` and where across the track the scene goes.
  */
 function sharedScene(op: Opportunity, candidates: Opportunity[], sat: SatelliteSpec): { members: Opportunity[]; window: [number, number] } {
-  const width = (sat.swath / R) * sat.scenesPerPass;
+  const width = sat.swath / R;
   const x0 = (op.window[0] + op.window[1]) / 2;
-  const span = (sat.length / R / trackRate(op.orbitRadius)) * 1000;
+  // Consecutive scenes reach further along the track: as far as `scenesPerPass` scene lengths.
+  const span = ((sat.length * sat.scenesPerPass) / R / trackRate(op.orbitRadius)) * 1000;
   const near = [op, ...candidates.filter((c) => c.time >= op.time && c.time - op.time <= span && Math.abs((c.window[0] + c.window[1]) / 2 - x0) <= width)];
   const xOf = (o: Opportunity) => (o.window[0] + o.window[1]) / 2;
   // The scene across the track: from each point's angle, as wide as the scene, with op inside; the one taking most.
@@ -851,18 +921,20 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
       }
       return;
     }
-    if (!op.cells || !sat) return;
+    if (!op.cells || !op.cellsAlong || !sat) return;
     const cov = covered[op.target];
-    const best = bestWindow(op.cells, (sat.swath / R) * sat.scenesPerPass, (i) => !cov[i]);
+    const best = bestScene(op.cells, op.cellsAlong, sat.swath / R, sat.length / R, sat.scenesPerPass, (i) => !cov[i]);
     if (!best || best.count / n < Math.min(minGain, goal - totals[op.target] / n - 1e-9)) return;
     if (busy(op.satellite, op.time)) {
       plan.blocked++;
       return;
     }
     const [a, b] = best.window;
+    const [c, d] = best.along;
     let gain = 0;
     op.cells.forEach((x, i) => {
-      if (!cov[i] && x >= a && x <= b) {
+      const y = op.cellsAlong![i];
+      if (!cov[i] && x >= a && x <= b && y >= c && y <= d) {
         cov[i] = 1;
         gain++;
       }
@@ -872,7 +944,7 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
     totals[op.target] += gain;
     const total = totals[op.target] / n;
     const mid = (a + b) / 2;
-    plan.steps.push({ ...op, window: best.window, ...lookAt(mid, op.orbitRadius), side: mid > 0 ? 'left' : 'right', gain: gain / n, cumulative: total, shot, shotTargets: 1 });
+    plan.steps.push({ ...op, window: best.window, along: best.along, ...lookAt(mid, op.orbitRadius), side: mid > 0 ? 'left' : 'right', gain: gain / n, cumulative: total, shot, shotTargets: 1 });
     plan.coverage = total;
     if (total >= goal) plan.done = op.time;
   });
@@ -909,17 +981,20 @@ export interface PassShapes {
   track: Array<[number, number]>;
   /** The edges of what the satellite can reach (its largest off-nadir angle), one line per side it can look to. */
   reach: Array<Array<[number, number]>>;
-  /** The scenes the pass takes, side by side. */
+  /** The scenes the pass takes: side by side across the track, and one after another along it. */
   scenes: Array<Array<[number, number]>>;
   /** Where the satellite is at the moment. */
   position: [number, number];
 }
 
-/** The ground track, reach and scenes of an opportunity (`minutes` before and after it). */
+/**
+ * The ground track, reach and scenes of an opportunity (`minutes` before and
+ * after it). Where the scenes go comes from the opportunity itself (`window`,
+ * `along`, `scene`); `target` is the target it was planned for.
+ */
 export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportunity, minutes = 5): PassShapes | null {
   const satrec = satrecOf(sat);
   if (typeof satrec === 'string') return null;
-  const t = prepare(target);
   const track: Array<[number, number]> = [];
   const sides = (sat.lookSide === 'both' ? ['left', 'right'] : [sat.lookSide]) as Array<'left' | 'right'>;
   const reach: Array<Array<[number, number]>> = sides.map(() => []);
@@ -938,29 +1013,41 @@ export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportuni
   }
   const st = stateAt(satrec, op.time)!;
   const g = eciToGeodetic({ x: st.eci[0], y: st.eci[1], z: st.eci[2] }, st.gmst);
-  const { frame, y0, y1 } = spread(st, t);
-  const sw = sat.swath / R;
-  const [start, end] = op.window;
-  const count = Math.max(1, Math.round((end - start) / sw));
-  // A scene shared by several points runs along the track from the first to the last of them.
+  const frame = frameOf(st);
+  // The scenes: one swath across the track, and along it the scenes taken one after another (for a scene shared
+  // by several points, from the first of them to the last).
   const rate = trackRate(norm(st.r));
-  const half = op.scene ? Math.max(sat.length / R, ((op.scene[1] - op.scene[0]) / 1000) * rate) / 2 : Math.max(sat.length / R, y1 - y0) / 2;
-  const mid = op.scene ? (((op.scene[0] + op.scene[1]) / 2 - op.time) / 1000) * rate : (y0 + y1) / 2;
+  const sceneLength = sat.length / R;
+  const [a, b] = op.window;
+  const [from0, to0] = op.scene
+    ? framed(((op.scene[0] - op.time) / 1000) * rate, ((op.scene[1] - op.time) / 1000) * rate, sceneLength, sat.scenesPerPass)
+    : op.along;
+  const frames = Math.max(1, Math.round((to0 - from0) / sceneLength));
   const scenes: Array<Array<[number, number]>> = [];
-  for (let j = 0; j < count; j++) {
-    const a = start + j * sw;
-    const b = a + sw;
+  for (let k = 0; k < frames; k++) {
+    const from = from0 + k * sceneLength;
+    const to = from + sceneLength;
     const ring: Array<[number, number]> = [];
-    // Each edge in a few pieces, so long scenes follow the curve of the track.
-    const edge = (x: number, from: number, to: number) => {
-      for (let i = 0; i <= 4; i++) ring.push(lonLatOf(pointAt(frame, x, from + ((to - from) * i) / 4)));
+    // Each edge in a few pieces, so the scenes follow the curve of the track.
+    const edge = (x: number, y0e: number, y1e: number) => {
+      for (let i = 0; i <= 4; i++) ring.push(lonLatOf(pointAt(frame, x, y0e + ((y1e - y0e) * i) / 4)));
     };
-    edge(a, mid - half, mid + half);
-    edge(b, mid + half, mid - half);
+    edge(a, from, to);
+    edge(b, to, from);
     ring.push(ring[0]);
     scenes.push(ring);
   }
   return { track, reach, scenes, position: [g.longitude * deg, g.latitude * deg] };
+}
+
+/** How many scenes an opportunity takes, one after another along the pass. */
+export function scenesTaken(op: Opportunity, sat: SatelliteSpec): number {
+  return Math.max(1, Math.round(((op.along[1] - op.along[0]) * R) / sat.length));
+}
+
+/** Scenes of `sceneLength` km one after another along the track to cover `length` km (at least one). */
+function framesFor(length: number, sceneLength: number): number {
+  return sceneLength > 0 ? Math.max(1, Math.ceil(length / sceneLength - 1e-6)) : 1;
 }
 
 /** The point `x` radians across the track and `y` along it, in an orbit's frame. */

@@ -35,6 +35,7 @@ import {
   passShapes,
   satelliteOf,
   satellitesFromText,
+  scenesTaken,
   tleEpoch,
   type CoverPlan,
   type Opportunity,
@@ -183,20 +184,22 @@ const round = (v: number, digits = 1) => String(Math.round(v * 10 ** digits) / 1
 const sideText = (op: Opportunity) => `${op.side === 'right' ? '右' : '左'}・${op.ascending ? '北行' : '南行'}`;
 const percent = (v: number) => (v >= 0.995 ? '100%' : `${Math.max(v > 0 ? 1 : 0, Math.round(v * 100))}%`);
 /** How much of the target a pass covers: a share for an area, scenes for a point or line. */
-const coverText = (op: Opportunity, sat: SatelliteSpec) =>
+const coverText = (op: Opportunity) =>
   op.cells
     ? op.coverage >= 0.995
       ? '全域'
       : percent(op.coverage)
-    : op.width === 0
+    : op.width === 0 && op.frames <= 1
       ? '1 シーン'
-      : op.strips === 1
+      : op.strips * op.frames === 1
         ? `1 シーン（幅 ${round(op.width, 0)} km）`
-        : `${op.strips} シーン（幅 ${round(op.width, 0)} km ／ 観測幅 ${round(sat.swath)} km）`;
+        : `${op.strips * op.frames} シーン（${op.strips > 1 ? `横 ${op.strips}` : ''}${op.strips > 1 && op.frames > 1 ? ' × ' : ''}${op.frames > 1 ? `パス方向 ${op.frames}` : ''}）`;
 const coverTitle = (op: Opportunity, sat: SatelliteSpec) =>
   op.cells
-    ? `この回の ${sat.scenesPerPass} シーン（観測幅 ${round(sat.swath)} km）で対象の ${percent(op.coverage)} を撮像。対象の幅 ${round(op.width, 0)} km を覆うには ${op.strips} シーン分`
-    : '';
+    ? `この回は ${scenesTaken(op, sat)} シーン（観測幅 ${round(sat.swath)} km × シーン長 ${round(sat.length)} km をパス方向に連続、1 パス最大 ${sat.scenesPerPass} シーン）で対象の ${percent(op.coverage)} を撮像。対象全体は横 ${op.strips} 列 × パス方向 ${op.frames} 枚`
+    : op.strips * op.frames > 1
+      ? `幅 ${round(op.width, 0)} km ÷ 観測幅 ${round(sat.swath)} km で横に ${op.strips} 列、長さ ${round(op.length, 0)} km ÷ シーン長 ${round(sat.length)} km でパス方向に ${op.frames} 枚`
+      : '';
 
 /** The CSV of a plan's opportunities (with a BOM, for spreadsheets). */
 export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: PlanTarget[]): string {
@@ -220,6 +223,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     '軌道',
     '太陽高度',
     '幅km',
+    '長さkm',
     'シーン数',
     '被覆率%',
     ...(combined ? ['追加%', '累計%', 'シーン番号', '同じシーンの地点数'] : []),
@@ -243,7 +247,8 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       op.ascending ? '北行' : '南行',
       round(op.sunElevation, 1),
       round(op.width, 1),
-      op.strips,
+      round(op.length, 1),
+      op.strips * op.frames,
       round(op.coverage * 100, 1),
       ...(combined ? [round((op.gain ?? 0) * 100, 1), round((op.cumulative ?? 0) * 100, 1), op.shot ?? '', op.shotTargets ?? ''] : []),
       round(op.tleAge, 1),
@@ -555,7 +560,7 @@ export class ImagingPlanPanel {
         `最大 ${round(sat.maxOffNadir)}°`,
         sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '',
         `幅 ${round(sat.swath)} km`,
-        sat.scenesPerPass > 1 ? `1 パス ${sat.scenesPerPass} シーン` : '',
+        sat.scenesPerPass > 1 ? `連続 ${sat.scenesPerPass} シーン` : '',
         sat.minInterval > 0 ? `間隔 ${round(sat.minInterval)} 分` : '',
         sat.maxPerDay > 0 ? `1 日 ${sat.maxPerDay} 回` : '',
         sat.leadTime > 0 ? `${round(sat.leadTime)} 時間前までに発注` : '',
@@ -868,7 +873,7 @@ export class ImagingPlanPanel {
                 ]
               : []),
           ]
-        : [{ key: 'cover' as const, label: '被覆', text: (op: Opportunity) => coverText(op, plan.sats[op.satellite]), title: (op: Opportunity) => coverTitle(op, plan.sats[op.satellite]) }]),
+        : [{ key: 'cover' as const, label: '被覆', text: (op: Opportunity) => coverText(op), title: (op: Opportunity) => coverTitle(op, plan.sats[op.satellite]) }]),
     ];
   }
 
@@ -895,7 +900,7 @@ export class ImagingPlanPanel {
         case 'sun':
           return op.sunElevation;
         case 'cover':
-          return op.cells ? op.coverage : op.strips * 1e6 + op.width;
+          return op.cells ? op.coverage : op.strips * op.frames * 1e6 + op.width;
         case 'gain':
           return op.gain ?? 0;
         case 'cumulative':
@@ -1020,7 +1025,9 @@ export class ImagingPlanPanel {
       steps.forEach((step, i) => {
         if (step.time === op.time && step.satellite === op.satellite) return;
         const other = passShapes(plan.sats[step.satellite], plan.targets[step.target], step);
-        for (const ring of other?.scenes ?? []) source.addFeature(new Feature({ kind: 'step', label: String(i + 1), geometry: new Polygon([ring.map(to)]) }));
+        // Its number once, on the middle scene, so scenes in a row along the pass do not repeat it.
+        const rings = other?.scenes ?? [];
+        rings.forEach((ring, k) => source.addFeature(new Feature({ kind: 'step', label: k === Math.floor(rings.length / 2) ? String(i + 1) : '', geometry: new Polygon([ring.map(to)]) })));
       });
     }
     source.addFeature(new Feature({ kind: 'satellite', label: `${sat.name} ${localText(op.time).slice(5)}`, geometry: new Point(to(shapes.position)) }));
@@ -1077,7 +1084,7 @@ export class ImagingPlanPanel {
           side: op.side === 'right' ? '右' : '左',
           pass: op.ascending ? '北行' : '南行',
           sun: Math.round(op.sunElevation * 10) / 10,
-          scenes: op.strips,
+          scenes: shapes.scenes.length,
           coverage: Math.round(op.coverage * 1000) / 10,
           ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10, shot: op.shot, shot_targets: op.shotTargets } : {}),
         }),

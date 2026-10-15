@@ -4,6 +4,7 @@ import {
   groundRange,
   lookSideOf,
   passShapes,
+  scenesTaken,
   planAccess,
   sampleSatellites,
   satelliteCatalogOf,
@@ -164,12 +165,15 @@ describe('planning', () => {
     expect(op.width).toBeGreaterThan(30);
     expect(op.width).toBeLessThan(65);
     expect(op.strips).toBe(Math.ceil(op.width / 12));
-    // A point-like target is taken in one scene; an agile satellite takes as many side by side as it can.
+    // What covering the whole box would take: strips across, scenes along.
+    expect(op.frames).toBe(Math.max(1, Math.ceil(op.length / 10 - 1e-6)));
+    // One pass takes one swath, and as many consecutive scenes along the pass as the satellite allows.
     expect(passShapes(iss({ swath: 12 }), { label: 'box', center: below, points: box }, op)!.scenes).toHaveLength(1);
-    const agile = iss({ swath: 12, scenesPerPass: op.strips });
+    const agile = iss({ swath: 12, scenesPerPass: 3 });
     const wide = planAccess([agile], [{ label: 'box', center: below, points: box }], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 60000)!;
     const shapes = passShapes(agile, { label: 'box', center: below, points: box }, wide)!;
-    expect(shapes.scenes).toHaveLength(op.strips);
+    expect(shapes.scenes.length).toBe(scenesTaken(wide, agile));
+    expect(shapes.scenes.length).toBeLessThanOrEqual(Math.min(3, wide.frames));
     expect(shapes.reach).toHaveLength(2);
     expect(shapes.track.length).toBeGreaterThan(50);
     // The satellite is above the target at the moment.
@@ -209,21 +213,46 @@ describe('planning', () => {
     for (const o of sar) expect([o.side, o.offNadir >= 20, o.offNadir <= 45]).toEqual(['right', true, true]);
   });
 
-  it('covers part of an area per pass, and all of it with scenes side by side', () => {
+  it('covers one swath of an area per pass, longer with consecutive scenes', () => {
     const target = boxTarget('box', below, 60, 20);
     const one = planAccess([iss({ swath: 12 })], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 120000)!;
-    // About 12 of 60 km across.
-    expect(one.coverage).toBeGreaterThan(0.12);
-    expect(one.coverage).toBeLessThan(0.35);
+    // One 12 × 10 km scene of a 60 × 20 km box: about a tenth.
+    expect(one.coverage).toBeGreaterThan(0.06);
+    expect(one.coverage).toBeLessThan(0.2);
     expect(one.cells).toHaveLength(400);
-    const all = planAccess([iss({ swath: 12, scenesPerPass: 6 })], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 120000)!;
-    expect(all.coverage).toBeGreaterThan(0.95);
-    expect(passShapes(iss({ swath: 12, scenesPerPass: 6 }), target, all)!.scenes).toHaveLength(6);
+    // Consecutive scenes reach further along the pass, but never wider than one swath.
+    const long = planAccess([iss({ swath: 12, scenesPerPass: 6 })], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 120000)!;
+    expect(long.coverage).toBeGreaterThan(one.coverage * 1.5);
+    expect(long.coverage).toBeLessThan(0.4);
+    expect(passShapes(iss({ swath: 12, scenesPerPass: 6 }), target, long)!.scenes.length).toBeLessThanOrEqual(6);
+  });
+
+  it('lays scenes of the scene length one after another along the pass', () => {
+    // Scenes 10 km wide and 20 km long over an area 10 km across and about 70 km along the track.
+    const sat = iss({ swath: 10, length: 20, scenesPerPass: 4 });
+    const ahead = subSatellitePoint(sat, T + 4500)!;
+    const behind = subSatellitePoint(sat, T - 4500)!;
+    const target: PlanTarget = { label: 'strip', center: below, points: [ahead, behind], cells: [behind, below, ahead] };
+    const op = planAccess([sat], [target], around(T)).opportunities.find((o) => Math.abs(o.time - T) < 60000)!;
+    expect(op.length).toBeGreaterThan(55);
+    expect(op.frames).toBe(Math.ceil(op.length / 20));
+    const { scenes } = passShapes(sat, target, op)!;
+    expect(scenes).toHaveLength(op.frames);
+    // Each scene: its long sides (along the pass) 20 km, its short sides (across) 10 km.
+    const km = (p: [number, number], q: [number, number]) => {
+      const r = Math.PI / 180;
+      const h = Math.sin(((q[1] - p[1]) * r) / 2) ** 2 + Math.cos(p[1] * r) * Math.cos(q[1] * r) * Math.sin(((q[0] - p[0]) * r) / 2) ** 2;
+      return 2 * 6371 * Math.asin(Math.sqrt(h));
+    };
+    for (const ring of scenes) {
+      expect(km(ring[0], ring[4])).toBeCloseTo(20, 0);
+      expect(km(ring[4], ring[5])).toBeCloseTo(10, 0);
+    }
   });
 
   it('combines passes of several satellites to cover a wide area', () => {
     const target = boxTarget('wide', [139.7, 35.7], 150, 60);
-    const sats = [iss({ swath: 30 }), iss({ name: 'ISS-2', swath: 30, tle2: line2.replace('325.0288', '145.0288') })];
+    const sats = [iss({ swath: 30, scenesPerPass: 4 }), iss({ name: 'ISS-2', swath: 30, scenesPerPass: 4, tle2: line2.replace('325.0288', '145.0288') })];
     const { opportunities } = planAccess(sats, [target], { start: epoch, end: epoch + 14 * 86400000, maxOffNadir: null, daylight: 'none', minSunElevation: 10 });
     const [plan] = coverPlan(opportunities, [target], sats, 0.9);
     expect(plan.steps.length).toBeGreaterThan(2);
