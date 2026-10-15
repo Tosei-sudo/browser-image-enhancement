@@ -25,6 +25,10 @@ export interface CatalogFields {
   sensor?: string;
   /** An angle in degrees (off-nadir, incidence…); the search can set an upper limit. */
   angle?: string;
+  /** The direction from north in degrees (the satellite's azimuth…); the search can set a range. */
+  azimuth?: string;
+  /** When the image was registered in the system (when it differs from `registered`). */
+  systemRegistered?: string;
   /**
    * Where the image is: a COG's URL or a local path, told apart by the value.
    * Several fields are tried in order and the first with a value is used,
@@ -58,7 +62,7 @@ export interface CatalogConfig {
 }
 
 /** Default headings of the roles. */
-export const roleLabels = { id: '画像ID', acquired: '撮像日時', registered: '登録日時', sensor: 'センサー', angle: '角度' } as const;
+export const roleLabels = { id: '画像ID', acquired: '撮像日時', registered: '登録日時', systemRegistered: 'システム登録日時', sensor: 'センサー', angle: '角度', azimuth: '方位角' } as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isName = (value: unknown): value is string => typeof value === 'string' && /^[\w.]+$/.test(value);
@@ -75,7 +79,7 @@ export function catalogOf(value: unknown, problems: string[], index: number): Ca
   if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）がありません`), null);
 
   const mapped: CatalogFields = { source: [] };
-  for (const role of ['id', 'acquired', 'registered', 'sensor', 'angle'] as const) {
+  for (const role of ['id', 'acquired', 'registered', 'systemRegistered', 'sensor', 'angle', 'azimuth'] as const) {
     const name = fields[role];
     if (name === undefined || name === '') continue;
     if (isName(name)) mapped[role] = name;
@@ -134,20 +138,29 @@ export interface CatalogRecord {
   registered: unknown;
   sensor: string;
   angle: number | null;
+  /** Degrees from north, 0 to 360. */
+  azimuth: number | null;
+  systemRegistered: unknown;
   source: CatalogSource | null;
 }
 
 /** The roles of a feature's attributes. */
 export function recordOf(feature: Feature, fields: CatalogFields): CatalogRecord {
   const get = (name?: string) => (name ? feature.get(name) : undefined);
-  const angle = Number(get(fields.angle));
+  const degrees = (name?: string) => {
+    const v = get(name);
+    const n = Number(v);
+    return v == null || v === '' || !Number.isFinite(n) ? null : n;
+  };
   return {
     feature,
     id: String(get(fields.id) ?? feature.getId() ?? ''),
     acquired: get(fields.acquired) ?? null,
     registered: get(fields.registered) ?? null,
     sensor: get(fields.sensor) == null ? '' : String(get(fields.sensor)),
-    angle: get(fields.angle) == null || get(fields.angle) === '' || !Number.isFinite(angle) ? null : angle,
+    angle: degrees(fields.angle),
+    azimuth: degrees(fields.azimuth),
+    systemRegistered: get(fields.systemRegistered) ?? null,
     source: fields.source.map((name) => sourceOf(get(name))).find((s) => s !== null) ?? null,
   };
 }
@@ -202,15 +215,32 @@ export interface CatalogSearch {
   acquiredTo: string;
   registeredFrom: string;
   registeredTo: string;
+  systemRegisteredFrom: string;
+  systemRegisteredTo: string;
   /** '' for any sensor. */
   sensor: string;
   /** Upper limit of the angle; null for none. */
   maxAngle: number | null;
+  /** Azimuth range in degrees; from > to goes through north (350 to 10). Null for no limit. */
+  azimuthFrom: number | null;
+  azimuthTo: number | null;
   /** Extra SQL, ANDed with the rest. */
   where: string;
 }
 
-export const emptySearch: CatalogSearch = { acquiredFrom: '', acquiredTo: '', registeredFrom: '', registeredTo: '', sensor: '', maxAngle: null, where: '' };
+export const emptySearch: CatalogSearch = {
+  acquiredFrom: '',
+  acquiredTo: '',
+  registeredFrom: '',
+  registeredTo: '',
+  systemRegisteredFrom: '',
+  systemRegisteredTo: '',
+  sensor: '',
+  maxAngle: null,
+  azimuthFrom: null,
+  azimuthTo: null,
+  where: '',
+};
 
 /** The `where` of a search. */
 export function whereOf(catalog: CatalogConfig, types: FieldTypes, search: CatalogSearch): string {
@@ -220,7 +250,17 @@ export function whereOf(catalog: CatalogConfig, types: FieldTypes, search: Catal
   if (fields.acquired) parts.push(...dayRange(fields.acquired, types[fields.acquired], search.acquiredFrom, search.acquiredTo));
   if (fields.registered) parts.push(...dayRange(fields.registered, types[fields.registered], search.registeredFrom, search.registeredTo));
   if (fields.sensor && search.sensor) parts.push(`${fields.sensor} = ${quote(search.sensor)}`);
+  if (fields.systemRegistered) parts.push(...dayRange(fields.systemRegistered, types[fields.systemRegistered], search.systemRegisteredFrom, search.systemRegisteredTo));
   if (fields.angle && search.maxAngle !== null && Number.isFinite(search.maxAngle)) parts.push(`${fields.angle} <= ${search.maxAngle}`);
+  if (fields.azimuth) {
+    const ok = (v: number | null): v is number => v !== null && Number.isFinite(v);
+    const [from, to] = [search.azimuthFrom, search.azimuthTo];
+    if (ok(from) && ok(to) && from > to) parts.push(`(${fields.azimuth} >= ${from} OR ${fields.azimuth} <= ${to})`);
+    else {
+      if (ok(from)) parts.push(`${fields.azimuth} >= ${from}`);
+      if (ok(to)) parts.push(`${fields.azimuth} <= ${to}`);
+    }
+  }
   if (search.where.trim()) parts.push(`(${search.where.trim()})`);
   return parts.length ? parts.join(' AND ') : '1=1';
 }
@@ -342,16 +382,16 @@ export function timeText(value: unknown): string {
 }
 
 /** The roles the list can sort by. */
-export type SortKey = 'id' | 'acquired' | 'registered' | 'sensor' | 'angle' | `column:${string}`;
+export type SortKey = 'id' | 'acquired' | 'registered' | 'systemRegistered' | 'sensor' | 'angle' | 'azimuth' | `column:${string}`;
 
 /** The records ordered by `key`; empty values last whichever way. */
 export function sortRecords(records: CatalogRecord[], key: SortKey, descending: boolean): CatalogRecord[] {
   const value = (r: CatalogRecord): number | string | null => {
-    if (key === 'acquired' || key === 'registered') {
+    if (key === 'acquired' || key === 'registered' || key === 'systemRegistered') {
       const t = timeOf(r[key]);
       return Number.isNaN(t) ? null : t;
     }
-    if (key === 'angle') return r.angle;
+    if (key === 'angle' || key === 'azimuth') return r[key];
     if (key === 'id' || key === 'sensor') return r[key] || null;
     const v = r.feature.get(key.slice('column:'.length));
     return v === null || v === undefined || v === '' ? null : typeof v === 'number' ? v : String(v);

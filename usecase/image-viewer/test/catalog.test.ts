@@ -6,7 +6,7 @@ import { parseConfig } from '../src/config.js';
 const entry = {
   label: '衛星画像',
   url: 'https://gis.example.com/arcgis/rest/services/Catalog/FeatureServer/0',
-  fields: { id: 'IMG_ID', acquired: 'ACQ_TIME', registered: 'REG_TIME', sensor: 'SENSOR', angle: 'OFF_NADIR', source: ['COG_URL', 'FILE_PATH'] },
+  fields: { id: 'IMG_ID', acquired: 'ACQ_TIME', registered: 'REG_TIME', systemRegistered: 'SYS_TIME', sensor: 'SENSOR', angle: 'OFF_NADIR', azimuth: 'AZIMUTH', source: ['COG_URL', 'FILE_PATH'] },
   labels: { angle: 'オフナディア角' },
   columns: [{ field: 'CLOUD', label: '雲量' }, 'ORBIT'],
   where: "STATUS = 'OK'",
@@ -62,7 +62,7 @@ describe('records', () => {
 
   it('takes the first source field with a value', () => {
     const r = recordOf(feature({ IMG_ID: 'A1', ACQ_TIME: 1700000000000, SENSOR: 'S1', OFF_NADIR: '12.5', COG_URL: null, FILE_PATH: '\\\\nas\\a.tif' }), catalog.fields);
-    expect(r).toMatchObject({ id: 'A1', sensor: 'S1', angle: 12.5, source: { kind: 'path', path: '\\\\nas\\a.tif' } });
+    expect(r).toMatchObject({ id: 'A1', sensor: 'S1', angle: 12.5, azimuth: null, source: { kind: 'path', path: '\\\\nas\\a.tif' } });
   });
 
   it('sorts newest first with empty values last', () => {
@@ -99,5 +99,10 @@ describe('where', () => {
       "(STATUS = 'OK') AND ACQ_TIME >= '2026-10-01' AND SENSOR = 'O''Neil' AND OFF_NADIR <= 20 AND (CLOUD < 10)",
     );
     expect(whereOf({ ...catalog, where: undefined }, {}, emptySearch)).toBe('1=1');
+    expect(whereOf({ ...catalog, where: undefined }, { SYS_TIME: 'esriFieldTypeString' }, { ...emptySearch, systemRegisteredTo: '2026-10-31', azimuthFrom: 90, azimuthTo: 180 })).toBe(
+      "SYS_TIME < '2026-11-01' AND AZIMUTH >= 90 AND AZIMUTH <= 180",
+    );
+    // A range through north.
+    expect(whereOf({ ...catalog, where: undefined }, {}, { ...emptySearch, azimuthFrom: 350, azimuthTo: 10 })).toBe('(AZIMUTH >= 350 OR AZIMUTH <= 10)');
   });
 });

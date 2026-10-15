@@ -1946,6 +1946,9 @@ body {
 .catalog-angle input {
   width: 7em;
 }
+.catalog-azimuth input {
+  width: 5em;
+}
 .catalog-more summary {
   color: var(--muted);
   cursor: pointer;
