@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatLatLon, formatMgrs, formatUtm, parseCoordinate } from '../../src/index.js';
+import { formatDms, formatLatLon, formatMgrs, formatUtm, parseCoordinate } from '../../src/index.js';
 
 // Tokyo Station.
 const TOKYO: [number, number] = [139.7671, 35.6812];
@@ -23,6 +23,15 @@ describe('format', () => {
     near(parseCoordinate(formatMgrs(TOKYO)!), TOKYO, 4);
     near(parseCoordinate(formatUtm(TOKYO)!), TOKYO, 4);
     near(parseCoordinate(formatUtm([-70.6, -33.45])!), [-70.6, -33.45], 4);
+    near(parseCoordinate(formatDms(TOKYO)), TOKYO, 5);
+    near(parseCoordinate(formatDms([-70.6, -33.45])), [-70.6, -33.45], 5);
+  });
+
+  it('writes degrees, minutes and seconds', () => {
+    expect(formatDms(TOKYO)).toBe(`35°40'52.32"N 139°46'01.56"E`);
+    expect(formatDms([-70.6, -33.45])).toBe(`33°27'00.00"S 070°36'00.00"W`);
+    // 59.999″ carries into the next minute rather than showing 60.00″.
+    expect(formatDms([0, 1 - 0.001 / 3600])).toBe(`01°00'00.00"N 000°00'00.00"E`);
   });
 });
 

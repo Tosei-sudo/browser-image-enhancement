@@ -223,6 +223,59 @@ test('right click copies the coordinates of the point in several notations', asy
   await expect(menu.locator('.coordinate-label')).toHaveText(['画素 (x, y)']);
 });
 
+test('the bottom left shows the latitude / longitude under the cursor', async ({ page }) => {
+  await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
+  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  const box = (await page.locator('#map').boundingBox())!;
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const label = page.locator('.cursor-position');
+  await expect(label).toBeHidden();
+
+  await page.mouse.move(center.x, center.y);
+  await expect(label).toBeVisible();
+  const [lat, lon] = (await label.textContent())!.split(', ').map(Number);
+  expect(lat).toBeCloseTo(35.675, 1);
+  expect(lon).toBeCloseTo(139.75, 1);
+
+  // The notation is picked at the bottom of the right-click menu.
+  const menu = page.getByRole('menu', { name: '座標をコピー' });
+  const pick = async (name: string) => {
+    await page.mouse.click(center.x, center.y, { button: 'right' });
+    await menu.getByRole('menuitemradio', { name }).click();
+    await expect(menu).toBeHidden();
+    await page.mouse.move(center.x + 2, center.y);
+  };
+  await expect(async () => {
+    await page.mouse.click(center.x, center.y, { button: 'right' });
+    await expect(menu.getByRole('menuitemradio', { name: '10進' })).toHaveAttribute('aria-checked', 'true');
+  }).toPass();
+  await page.keyboard.press('Escape');
+  await pick('度分秒');
+  await expect(label).toHaveText(/^35°\d{2}'\d{2}\.\d{2}"N 139°\d{2}'\d{2}\.\d{2}"E$/);
+  await pick('MGRS');
+  await expect(label).toHaveText(/^54S [A-Z]{2} \d{5} \d{5}$/);
+  await pick('UTM');
+  await expect(label).toHaveText(/^54N \d{6} \d{7}$/);
+  // Kept for the next visit.
+  await page.reload();
+  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await page.mouse.move(center.x + 5, center.y);
+  await expect(label).toHaveText(/^54N \d{6} \d{7}$/);
+  await pick('10進');
+  await expect(label).toHaveText(/^\d+\.\d{6}, \d+\.\d{6}$/);
+
+  // Leaving the map hides it.
+  await page.mouse.move(box.x - 20, center.y);
+  await expect(label).toBeHidden();
+
+  // On an ordinary picture, which has no location: nothing.
+  await choosePng(page, 'photo.png');
+  await expect(page.locator('#status')).toContainText('photo.png を開きました');
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.move(center.x + 3, center.y);
+  await expect(label).toBeHidden();
+});
+
 test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page }) => {
   await open(page);
   const field = page.getByRole('textbox', { name: '座標へ移動' });

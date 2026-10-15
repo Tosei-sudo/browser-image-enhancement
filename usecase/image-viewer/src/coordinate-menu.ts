@@ -13,6 +13,7 @@ import type { Coordinate } from 'ol/coordinate.js';
 import type { ImageList, ViewerImage } from './images.js';
 import { pixelOf } from './points.js';
 import { formatLatLon, formatMgrs, formatUtm, utmEpsg, utmZone, type LonLat } from './coordinates.js';
+import { CURSOR_NOTATIONS, type CursorPosition } from './cursor-position.js';
 
 /** One way to copy the point. */
 export interface CoordinateItem {
@@ -25,6 +26,8 @@ export interface CoordinateItem {
 export interface CoordinateMenuOptions {
   /** Shows a message to the user. */
   say: (message: string) => void;
+  /** The bottom-left cursor label, whose notation is picked at the bottom of the menu. */
+  cursor?: CursorPosition;
 }
 
 export class CoordinateMenu {
@@ -68,7 +71,7 @@ export class CoordinateMenu {
   /** The ways to copy the map coordinate `at` (view projection). */
   async itemsAt(at: Coordinate): Promise<CoordinateItem[]> {
     const viewProjection = this.map.getView().getProjection();
-    const image = await this.imageAt_(at);
+    const image = await this.imageAt(at);
     const items: CoordinateItem[] = [];
     let utm: string | null = null;
     if (image?.kind !== 'image') {
@@ -123,12 +126,40 @@ export class CoordinateMenu {
         return b;
       }),
     );
+    const cursor = this.options.cursor;
+    if (cursor && items.some((item) => item.label === '緯度, 経度')) menu.append(this.notationRow_(cursor));
     menu.hidden = false;
     // Keep it inside the viewport.
     const [w, h] = this.map.getSize() ?? [0, 0];
     menu.style.left = `${Math.max(0, Math.min(pixel[0], w - menu.offsetWidth - 4))}px`;
     menu.style.top = `${Math.max(0, Math.min(pixel[1], h - menu.offsetHeight - 4))}px`;
     menu.querySelector('button')?.focus();
+  }
+
+  /** 「左下の表示」: one button per notation of the cursor label. */
+  private notationRow_(cursor: CursorPosition): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'coordinate-notation';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', '左下の座標表示');
+    const label = document.createElement('span');
+    label.className = 'coordinate-notation-label';
+    label.textContent = '左下の表示';
+    row.append(label);
+    for (const notation of CURSOR_NOTATIONS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'menuitemradio');
+      b.textContent = notation.label;
+      b.title = `カーソル位置を${notation.label}で表示`;
+      b.setAttribute('aria-checked', String(cursor.notation === notation.id));
+      b.addEventListener('click', () => {
+        cursor.notation = notation.id;
+        this.close();
+      });
+      row.append(b);
+    }
+    return row;
   }
 
   close(): void {
@@ -158,7 +189,7 @@ export class CoordinateMenu {
   }
 
   /** The image the point is on: the selected one if it is on it, else the topmost visible one. */
-  private async imageAt_(at: Coordinate): Promise<ViewerImage | null> {
+  async imageAt(at: Coordinate): Promise<ViewerImage | null> {
     const selected = this.images.selected();
     const candidates = [...(selected ? [selected] : []), ...this.images.list().filter((i) => i !== selected && i.layer.getVisible())];
     for (const image of candidates) {

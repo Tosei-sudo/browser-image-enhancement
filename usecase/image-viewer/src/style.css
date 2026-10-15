@@ -140,8 +140,8 @@ body {
   font: 13px system-ui, sans-serif;
   cursor: pointer;
 }
-.measure-tools button[aria-pressed='true'],
-.point-tools button[aria-pressed='true'] {
+.measure-tools button[aria-checked='true'],
+.point-tools button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -437,7 +437,7 @@ body {
   font: inherit;
   cursor: pointer;
 }
-.edit-bar button[aria-pressed='true'] {
+.edit-bar button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -524,7 +524,7 @@ body {
   margin-left: -1px;
   border-radius: 0 4px 4px 0;
 }
-.table-modes button[aria-pressed='true'] {
+.table-modes button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -843,7 +843,26 @@ body {
   border-radius: 0 0 4px 4px;
   color: #dc2626;
 }
-.coordinate-label {
+/* Which notation the bottom-left cursor label uses. */
+.coordinate-notation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 4px 4px 0;
+  border-top: 1px solid var(--line);
+}
+.coordinate-menu .coordinate-notation button {
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.coordinate-menu .coordinate-notation button[aria-checked='true'] {
+  background: var(--accent-bg);
+  font-weight: 600;
+}
+.coordinate-label,
+.coordinate-notation-label {
   color: var(--muted);
   font-size: 11px;
 }
@@ -899,7 +918,7 @@ body {
   font: 13px system-ui, sans-serif;
   cursor: pointer;
 }
-.geometry-row button[aria-pressed='true'] {
+.geometry-row button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -980,6 +999,29 @@ body {
   font-size: 12px;
   /* A label only: clicks go through to the map (adding points, measuring). */
   pointer-events: none;
+}
+.cursor-shown .rset-shown {
+  bottom: 32px;
+}
+/* The latitude / longitude under the cursor: src/cursor-position.ts. */
+.cursor-position {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #000a;
+  color: #fff;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* A label only: clicks go through to the map (adding points, measuring). */
+  pointer-events: none;
+}
+.cursor-position[hidden],
+.globe-open .cursor-position {
+  display: none;
 }
 .rset-shown.raw {
   background: #15803ddd;
@@ -1495,7 +1537,7 @@ body {
   font: inherit;
   cursor: pointer;
 }
-.analysis-tools button[aria-pressed='true'] {
+.analysis-tools button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -1690,7 +1732,7 @@ body {
   font: 13px system-ui, sans-serif;
   cursor: pointer;
 }
-.globe-panel button[aria-pressed='true'] {
+.globe-panel button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
@@ -2016,7 +2058,7 @@ body {
   font: inherit;
   cursor: pointer;
 }
-.timeline-bar button[aria-pressed='true'] {
+.timeline-bar button[aria-checked='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
