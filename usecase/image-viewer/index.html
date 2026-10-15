@@ -37,6 +37,11 @@
           <input type="text" name="coordinate" placeholder="緯度経度・MGRS・UTM" aria-label="座標へ移動" autocomplete="off" />
           <button type="submit" class="bar-button">移動</button>
         </form>
+        <!-- Named views and the link of the view: src/bookmarks.ts. -->
+        <div class="menu bookmark-menu" id="bookmark-menu">
+          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="bookmark-panel" title="表示範囲に名前を付けて残す・リンクで共有">ブックマーク</button>
+          <div id="bookmark-panel" class="menu-panel" role="group" aria-label="ブックマーク" hidden></div>
+        </div>
         <!-- Everyday controls stay in the bar; the click tools and the rest are one menu away. -->
         <div class="menu" id="tools-menu">
           <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="tools-panel">ツール</button>

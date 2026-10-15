@@ -40,7 +40,9 @@ export class ToolMenu {
     this.panel = element.querySelector<HTMLElement>('.menu-panel')!;
     this.button.addEventListener('click', () => this.setOpen(this.panel.hidden));
     this.panel.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('button')) this.setOpen(false);
+      // Buttons marked data-keep-open (rename, delete in a list) work inside the open menu.
+      const button = (e.target as HTMLElement).closest('button');
+      if (button && !('keepOpen' in button.dataset)) this.setOpen(false);
     });
     element.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !this.panel.hidden) {
@@ -172,6 +174,7 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
       [['3'], '3D 表示に切り替え・2D に戻る'],
       [['T'], 'タイムラインを開く・閉じる'],
       [['B'], 'ダッシュボードを開く・閉じる'],
+      [['M'], '今の表示をブックマークに追加'],
       [['Esc'], '描いている計測を取り消す・メニューを閉じる'],
       [['Ctrl', 'S'], 'プロジェクトを保存'],
       [['Ctrl', 'Shift', 'S'], 'プロジェクトに名前を付けて保存'],

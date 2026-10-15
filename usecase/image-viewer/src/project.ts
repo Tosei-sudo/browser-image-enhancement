@@ -42,6 +42,7 @@ import {
 } from './project-file.js';
 import type { ProjectLayout } from './layout.js';
 import { markRow } from './colorize-dialog.js';
+import type { Bookmark } from './bookmarks.js';
 
 /** Files opened together, as the viewer opened them. */
 export interface OpenedSet {
@@ -76,6 +77,8 @@ export interface ProjectOptions {
   useAsDem?: (layer: ViewerLayer) => Promise<unknown>;
   /** Each layer's timeline settings. */
   layerTime?: { get: (layer: ViewerLayer) => ProjectLayer['time']; set: (layer: ViewerLayer, saved: NonNullable<ProjectLayer['time']>) => void };
+  /** The bookmarks: saved with the project, and added to the viewer's when it opens. */
+  bookmarks?: { get: () => Bookmark[]; merge: (list: Bookmark[]) => void };
   /** The screen layout (panels, timeline, dashboard); indexes are of the project's layers. */
   layout?: {
     collect: (indexOf: (listIndex: number) => number) => ProjectLayout;
@@ -208,6 +211,7 @@ export class ProjectControl {
         layers,
         selected: index < 0 ? null : index,
         ...(globe ? { globe } : {}),
+        ...(this.options.bookmarks?.get().length ? { bookmarks: this.options.bookmarks.get() } : {}),
         ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
       },
       left,
@@ -363,6 +367,7 @@ export class ProjectControl {
         return false;
       });
       if (!threeD) this.restoreView_(project);
+      if (project.bookmarks?.length) this.options.bookmarks?.merge(project.bookmarks);
       // The correction panel shows the selected layer's correction as it is now.
       const selected = project.selected !== null ? found[project.selected] : found.find((l) => l);
       images.select(null);
