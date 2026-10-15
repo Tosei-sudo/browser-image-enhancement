@@ -59,7 +59,15 @@ export interface CatalogConfig {
   where?: string;
   /** The most features one search lists. */
   maxResults: number;
+  /** What `fields.angle` holds, for the simple orthorectification's elevation: off-nadir (default), incidence or elevation. */
+  angleKind: AngleKind;
+  /** The satellite's height in km, to turn an off-nadir angle into an elevation (600 when not given). */
+  orbitHeight: number;
 }
+
+/** What the catalog's angle is. */
+export type AngleKind = 'offNadir' | 'incidence' | 'elevation';
+const angleKinds: AngleKind[] = ['offNadir', 'incidence', 'elevation'];
 
 /** Default headings of the roles. */
 export const roleLabels = { id: '画像ID', acquired: '撮像日時', registered: '登録日時', systemRegistered: 'システム登録日時', sensor: 'センサー', angle: '角度', azimuth: '方位角' } as const;
@@ -72,7 +80,7 @@ const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(htt
 export function catalogOf(value: unknown, problems: string[], index: number): CatalogConfig | null {
   const at = `imageCatalogs[${index}]`;
   if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
-  const { label, url, token, fields, labels, columns, where, maxResults } = value;
+  const { label, url, token, fields, labels, columns, where, maxResults, angleKind, orbitHeight } = value;
   if (!isUrl(url) || !/\/(FeatureServer|MapServer)\/\d+\/?$/i.test(url.split('?', 1)[0])) {
     return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤーの URL にしてください`), null);
   }
@@ -105,6 +113,8 @@ export function catalogOf(value: unknown, problems: string[], index: number): Ca
       extra.push({ field, label: heading });
     });
   } else if (columns !== undefined) problems.push(`${at} の columns が配列ではありません`);
+  if (angleKind !== undefined && !angleKinds.includes(angleKind as AngleKind)) problems.push(`${at} の angleKind は ${angleKinds.join(' / ')} のどれかにしてください`);
+  if (orbitHeight !== undefined && !(typeof orbitHeight === 'number' && orbitHeight > 0)) problems.push(`${at} の orbitHeight は衛星の高度（km）にしてください`);
 
   return {
     label: typeof label === 'string' && label ? label : `カタログ ${index + 1}`,
@@ -115,6 +125,8 @@ export function catalogOf(value: unknown, problems: string[], index: number): Ca
     columns: extra,
     ...(typeof where === 'string' && where.trim() ? { where: where.trim() } : {}),
     maxResults: typeof maxResults === 'number' && Number.isInteger(maxResults) && maxResults > 0 ? Math.min(maxResults, 5000) : 500,
+    angleKind: angleKinds.includes(angleKind as AngleKind) ? (angleKind as AngleKind) : 'offNadir',
+    orbitHeight: typeof orbitHeight === 'number' && orbitHeight > 0 ? orbitHeight : 600,
   };
 }
 
@@ -402,4 +414,28 @@ export function sortRecords(records: CatalogRecord[], key: SortKey, descending: 
     const order = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'ja', { numeric: true });
     return descending ? -order : order;
   });
+}
+
+const earthRadius = 6371;
+const toRadians = Math.PI / 180;
+
+/**
+ * Where the satellite was seen from the ground, for the simple orthorectification: the azimuth as it is,
+ * the elevation from the angle by `angleKind` (an off-nadir angle through the Earth's curvature
+ * at `orbitHeight`). Null without both.
+ */
+export function sensorViewOf(record: CatalogRecord, catalog: CatalogConfig): { azimuth: number; elevation: number } | null {
+  const { azimuth, angle } = record;
+  if (azimuth === null || angle === null || !Number.isFinite(azimuth) || !Number.isFinite(angle)) return null;
+  let incidence: number;
+  if (catalog.angleKind === 'elevation') incidence = 90 - angle;
+  else if (catalog.angleKind === 'incidence') incidence = angle;
+  else {
+    const sine = ((earthRadius + catalog.orbitHeight) / earthRadius) * Math.sin(Math.abs(angle) * toRadians);
+    if (sine >= 1) return null;
+    incidence = Math.asin(sine) / toRadians;
+  }
+  const elevation = Math.round((90 - Math.abs(incidence)) * 100) / 100;
+  if (!(elevation > 0 && elevation <= 90)) return null;
+  return { azimuth: Math.round((((azimuth % 360) + 360) % 360) * 100) / 100, elevation };
 }
