@@ -2619,3 +2619,43 @@ body {
 .ai-progress progress {
   flex: 1;
 }
+
+/* The 「ブックマーク」 menu: named views, and the link of the view. */
+.menu.bookmark-menu {
+  margin-left: 0;
+}
+.bookmark-menu .menu-panel {
+  min-width: 16rem;
+}
+.bookmark-list {
+  display: grid;
+  gap: 2px;
+  max-height: 50vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.bookmark {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.bookmark .bookmark-go,
+.bookmark .bookmark-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bookmark .bookmark-icon {
+  padding-inline: 6px;
+  color: var(--muted);
+}
+.bookmark-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}

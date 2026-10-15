@@ -34,6 +34,7 @@ import { CoordinateMenu } from './coordinate-menu.js';
 import { CursorPosition } from './cursor-position.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
+import { Bookmarks } from './bookmarks.js';
 import { glVector } from './gl-vector.js';
 import { clearStreamedCopies, streaming } from './streamed-shapefile.js';
 import { acceptFiles, openFiles, openImageFile, type OpenFilesContext } from './open-files.js';
@@ -159,6 +160,7 @@ bindShortcuts({
   '3': press('globe-toggle'),
   t: press('timeline-open'),
   b: press('dashboard-open'),
+  m: () => bookmarks.add(),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -357,6 +359,23 @@ const cursorPosition = new CursorPosition(map, { imageAt: (at): Promise<ViewerIm
 const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, { say, cursor: cursorPosition });
 // The header field: go to typed coordinates.
 const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say });
+// Named views (kept in the browser and in projects), and the view in the address (`#view=`) for links.
+new ToolMenu(document.getElementById('bookmark-menu')!);
+const bookmarks: Bookmarks = new Bookmarks(map, document.getElementById('bookmark-menu')!, {
+  visibility: () => images.layers().map((l) => [l.name, images.isVisible(l)]),
+  setVisibility: (visible) => {
+    let changed = false;
+    for (const l of images.layers()) {
+      const on = visible.get(l.name);
+      if (on === undefined || on === images.isVisible(l)) continue;
+      images.setVisible(l, on);
+      changed = true;
+    }
+    return changed;
+  },
+  say,
+  hasLocalFiles: () => images.layers().some((l) => (l.type === 'image' && !/^https?:/i.test(l.name)) || (l.type === 'service' && !l.service.ref)),
+});
 
 // A click selects features of the selected vector layer (Ctrl / Shift: add to the selection),
 // or asks a WMS layer what is there.
@@ -571,6 +590,7 @@ const project = new ProjectControl({
   isDem: (layer) => layer.type === 'image' && geometry.isGeoTiffDem(layer),
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
+  bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
   layout: {
     collect: (indexOf) => collectLayout(layoutParts, indexOf),
     apply: (layout, listIndexOf) => applyLayout(layoutParts, layout, listIndexOf),
@@ -882,12 +902,16 @@ const started = (async () => {
   for (const ref of start.getAll('service').map(paramToRef)) {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
   }
+  // A link's `#view=` wins over where the layers opening would zoom to.
+  const linked = location.hash;
   for (const layer of opening) await openAtStart(layer);
   // The temporary layers of earlier visits, on top.
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));
   if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
+  bookmarks.applyHash(linked);
 })();
+bookmarks.applyHash();
 // A project opened meanwhile replaces these layers once they are open.
 project.setReady(started);
 
@@ -949,7 +973,8 @@ declare global {
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
       rasterRules: RasterRulesDialog;
+      bookmarks: Bookmarks;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };

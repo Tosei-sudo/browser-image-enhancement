@@ -18,6 +18,7 @@ import { settingsOf } from './services/esri-rules.js';
 import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
 import type { ProjectLayout } from './layout.js';
+import { readBookmarks, type Bookmark } from './bookmarks.js';
 
 /** The extension of project files. */
 export const PROJECT_EXTENSION = '.ivproj';
@@ -131,6 +132,8 @@ export interface Project {
   globe?: ProjectGlobe;
   /** The screen: panel sizes, open sections, the timeline and the dashboard. */
   layout?: ProjectLayout;
+  /** Named views (bookmarks.ts). */
+  bookmarks?: Bookmark[];
 }
 
 /** Whether a file name is a project file's. */
@@ -189,6 +192,7 @@ export function readProject(text: string): { project: Project; skipped: number }
 
   const selected = isNumber(json.selected) && Number.isInteger(json.selected) && json.selected >= 0 && json.selected < layers.length ? json.selected : null;
   const globe = readGlobe(json.globe);
+  const bookmarks = readBookmarks(json.bookmarks);
   return {
     project: {
       format: PROJECT_FORMAT,
@@ -204,6 +208,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       selected: skipped ? null : selected,
       ...(globe ? { globe } : {}),
       ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
+      ...(bookmarks.length ? { bookmarks } : {}),
     },
     skipped,
   };
