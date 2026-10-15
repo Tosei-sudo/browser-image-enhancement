@@ -85,7 +85,7 @@ import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
-import type { CatalogConfig, CatalogRecord } from './catalog.js';
+import { sensorViewOf, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
@@ -699,12 +699,17 @@ const fromCatalog = new WeakMap<ViewerImage, Array<[string, string]>>();
 /** The catalog ids of images opened from a catalog (written on what the AI tools find in them). */
 const catalogIds = new WeakMap<ViewerImage, string>();
 const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
-const openCatalogUrl = async (url: string, record: CatalogRecord, catalog: CatalogConfig) => {
-  const image = images.find(await loader.loadUrl(url));
-  if (!image) return;
+/** Notes what the catalog says of an image opened from it; its angles start the simple orthorectification. */
+const openedFromCatalog = (image: ViewerImage, record: CatalogRecord, catalog: CatalogConfig) => {
   fromCatalog.set(image, catalogInfo(record, catalog));
   if (record.id) catalogIds.set(image, record.id);
+  const view = sensorViewOf(record, catalog);
+  if (view) geometry.suggestView(image.source, view);
   if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+};
+const openCatalogUrl = async (url: string, record: CatalogRecord, catalog: CatalogConfig) => {
+  const image = images.find(await loader.loadUrl(url));
+  if (image) openedFromCatalog(image, record, catalog);
 };
 const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as HTMLButtonElement, map, config.imageCatalogs, {
   say,
@@ -722,11 +727,7 @@ const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as
         const before = new Set(images.list());
         await project.openFiles(files);
         const image = images.list().find((i) => !before.has(i));
-        if (image) {
-          fromCatalog.set(image, catalogInfo(record, catalog));
-          if (record.id) catalogIds.set(image, record.id);
-          if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
-        }
+        if (image) openedFromCatalog(image, record, catalog);
         return true;
       }
     : undefined,

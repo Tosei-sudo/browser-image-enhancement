@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Feature from 'ol/Feature.js';
-import { catalogOf, dayRange, emptySearch, recordOf, sortRecords, sourceOf, timeOf, whereOf, type CatalogConfig } from '../src/catalog.js';
+import { catalogOf, sensorViewOf, dayRange, emptySearch, recordOf, sortRecords, sourceOf, timeOf, whereOf, type CatalogConfig } from '../src/catalog.js';
 import { parseConfig } from '../src/config.js';
 
 const entry = {
@@ -26,6 +26,8 @@ describe('catalogOf', () => {
       ],
       where: "STATUS = 'OK'",
       maxResults: 500,
+      angleKind: 'offNadir',
+      orbitHeight: 600,
     });
     expect(problems).toEqual([]);
   });
@@ -104,5 +106,34 @@ describe('where', () => {
     );
     // A range through north.
     expect(whereOf({ ...catalog, where: undefined }, {}, { ...emptySearch, azimuthFrom: 350, azimuthTo: 10 })).toBe('(AZIMUTH >= 350 OR AZIMUTH <= 10)');
+  });
+});
+
+describe('sensorViewOf', () => {
+  const catalog = catalogOf(entry, [], 0) as CatalogConfig;
+  const record = (angle: number | null, azimuth: number | null) => recordOf(new Feature({ OFF_NADIR: angle, AZIMUTH: azimuth, COG_URL: 'https://x/a.tif' }), catalog.fields);
+
+  it('turns an off-nadir angle into an elevation through the curve of the Earth', () => {
+    expect(sensorViewOf(record(10, 120.5), catalog)).toEqual({ azimuth: 120.5, elevation: 79.05 });
+    expect(sensorViewOf(record(0, -10), catalog)).toEqual({ azimuth: 350, elevation: 90 });
+    expect(sensorViewOf(record(10, 0), { ...catalog, orbitHeight: 500 })?.elevation).toBeCloseTo(79.21, 1);
+  });
+
+  it('takes incidence and elevation angles as they are', () => {
+    expect(sensorViewOf(record(30, 90), { ...catalog, angleKind: 'incidence' })).toEqual({ azimuth: 90, elevation: 60 });
+    expect(sensorViewOf(record(70, 90), { ...catalog, angleKind: 'elevation' })).toEqual({ azimuth: 90, elevation: 70 });
+  });
+
+  it('needs both angles, and one the satellite can see', () => {
+    expect(sensorViewOf(record(10, null), catalog)).toBeNull();
+    expect(sensorViewOf(record(null, 90), catalog)).toBeNull();
+    expect(sensorViewOf(record(80, 90), catalog)).toBeNull();
+  });
+
+  it('reads angleKind and orbitHeight from config.json', () => {
+    const problems: string[] = [];
+    expect(catalogOf({ ...entry, angleKind: 'incidence', orbitHeight: 520 }, problems, 0)).toMatchObject({ angleKind: 'incidence', orbitHeight: 520 });
+    catalogOf({ ...entry, angleKind: 'nadir', orbitHeight: -1 }, problems, 0);
+    expect(problems).toHaveLength(2);
   });
 });

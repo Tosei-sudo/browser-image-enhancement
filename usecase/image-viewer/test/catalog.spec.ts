@@ -132,6 +132,9 @@ test('searches, sorts, and opens a COG from the catalog', async ({ page }) => {
   await expect(page.locator('#info')).toContainText('テストカタログ');
   await expect(page.locator('#info')).toContainText('衛星方位角120.5°');
   await expect(page.locator('#info')).toContainText('システム登録日時');
+  // The catalog's azimuth and off-nadir angle (10° from 600 km: 79.05° above the horizon) start the simple orthorectification.
+  await expect(page.locator('#geometry input[name="方位角 °"]')).toHaveValue('120.5');
+  await expect(page.locator('#geometry input[name="仰角 °"]')).toHaveValue('79.05');
   expect(errors).toEqual([]);
 });
 
