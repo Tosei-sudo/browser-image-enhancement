@@ -10,17 +10,29 @@
 /** What the browser hands an installed app opened with files. */
 interface LaunchParams {
   files: FileSystemHandle[];
+  /** The address the app was opened at (a link handled by the app, with the manifest's `launch_handler`). */
+  targetURL?: string;
 }
 interface LaunchQueue {
   setConsumer(consumer: (params: LaunchParams) => void): void;
 }
 
-/** Calls `take` with the files the app was opened with from the operating system, if any. */
-export function onLaunchFiles(take: (handles: FileSystemFileHandle[]) => void): void {
+/**
+ * Calls `take` with the files the app was opened with from the operating
+ * system, if any, and `takeUrl` with the address of a link opened in the
+ * window already open (the manifest's `launch_handler` focuses it rather than
+ * opening another). The address the page itself was loaded at is not handed
+ * to `takeUrl`: the page reads that one as it starts.
+ */
+export function onLaunchFiles(take: (handles: FileSystemFileHandle[]) => void, takeUrl?: (url: string) => void): void {
   const queue = (window as { launchQueue?: LaunchQueue }).launchQueue;
+  const loadedAt = location.href;
+  let first = true;
   queue?.setConsumer((params) => {
     const files = params.files.filter((h): h is FileSystemFileHandle => h.kind === 'file');
     if (files.length) take(files);
+    else if (params.targetURL && takeUrl && !(first && params.targetURL === loadedAt)) takeUrl(params.targetURL);
+    first = false;
   });
 }
 

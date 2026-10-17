@@ -98,6 +98,7 @@ import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
+import { hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -193,7 +194,15 @@ const say = (message: string) => (status.textContent = message);
 const rsetShown = new RsetIndicator(map);
 const rsetProgress = new RsetProgress(mapElement);
 const selection = new Selection(map);
-const table = new AttributeTable(document.getElementById('table')!, map, selection, { say });
+const table = new AttributeTable(document.getElementById('table')!, map, selection, {
+  say,
+  // Features as a link (`?geom=` WKT), labeled as the layer's labels are: opened, it shows them as a temporary layer.
+  shapeLink: (features) => {
+    const layer = images.selectedLayer();
+    const service = layer?.type === 'service' ? layer.service : null;
+    return linkOfShapes(location.href, features, { name: service?.title, labelField: service?.style?.get().label.field ?? null });
+  },
+});
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
 const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say });
 
@@ -498,6 +507,38 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
   ],
 });
+
+/**
+ * Shapes in a link (`?geom=`, `?line=`, `?polygon=`, `?geojson=`, or a
+ * `web+imageviewer:` link handed to the installed app): one temporary layer,
+ * zoomed to unless the link says where to look (`#view=`).
+ */
+async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<void> {
+  if (!hasShapes(params)) return;
+  const shapes = readLinkShapes(params);
+  const skipped = shapes.errors.length ? `（読めなかったもの: ${shapes.errors.join(' / ')}）` : '';
+  if (!shapes.features.length) {
+    say(`リンクの図形を表示できませんでした${skipped}`);
+    return;
+  }
+  const record = recordOf({ title: shapes.title, features: shapes.features, fields: shapes.fields }, 'リンクから追加');
+  await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+  const service = tempLayer(record, tempStore);
+  const entry = images.addService(service);
+  if (shapes.color || shapes.labeled) {
+    const spec = service.style!.get();
+    if (shapes.color) spec.symbol = { ...spec.symbol, fill: shapes.color, stroke: shapes.color };
+    if (shapes.labeled) spec.label = { ...spec.label, field: 'label' };
+    service.style!.set(spec);
+  }
+  if (zoom) {
+    const only = shapes.features.length === 1 ? shapes.features[0].getGeometry() : null;
+    if (only?.getType() === 'Point') map.getView().animate({ center: (only as Point).getCoordinates(), zoom: shapes.zoom ?? 16, duration: 250 });
+    else void images.zoomTo(entry);
+  }
+  const n = shapes.features.length;
+  say(`リンクの図形 ${n.toLocaleString()} 個を一時レイヤー「${shapes.title}」に追加しました${skipped}`);
+}
 
 // New layers designed by the person (geometry type and attributes): empty temporary layers, drawn on at once.
 const newLayer = new NewLayerDialog(document.getElementById('new-layer') as HTMLButtonElement, {
@@ -1055,6 +1096,12 @@ const started = (async () => {
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));
   if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
+  // Shapes given in the link, on top of all; made into a layer once (a reload restores it), so they leave the address.
+  const shapeParams = shapeParamsOf(location.search);
+  if (hasShapes(shapeParams)) {
+    await addLinkShapes(shapeParams, !linkedView);
+    history.replaceState(history.state, '', `${location.pathname}${withoutShapes(location.search)}${location.hash}`);
+  }
   if (linkedView) bookmarks.applyHash(linkedView);
   linkedView = null;
 })();
@@ -1069,6 +1116,10 @@ onLaunchFiles((handles) => {
     void recent?.remember(handles.filter((h) => !/\.ivproj$/i.test(h.name)));
     await project.openFiles(files);
   })();
+}, (url) => {
+  // A link opened while the app is open (the manifest's launch_handler): its shapes join what is shown.
+  const target = new URL(url);
+  void started.then(() => addLinkShapes(shapeParamsOf(target.search), true));
 });
 void registerServiceWorker();
 
