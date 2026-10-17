@@ -78,6 +78,7 @@ import { CompositeDialog } from './composite-dialog.js';
 import { MosaicDialog } from './mosaic-dialog.js';
 import { BandMathDialog } from './band-math-dialog.js';
 import { ChangeDialog } from './change-dialog.js';
+import { ClassifyDialog } from './classify-dialog.js';
 import { AlignDialog } from './align-dialog.js';
 import { Annotations } from './annotations.js';
 import { PrintDialog } from './print-dialog.js';
@@ -87,6 +88,7 @@ import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
 import { SwipeTool } from './swipe.js';
+import { SplitView } from './split-view.js';
 import { HistogramPanel } from './histogram-panel.js';
 import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
@@ -182,6 +184,7 @@ bindShortcuts({
   b: press('dashboard-open'),
   m: () => bookmarks.add(),
   n: press('annotate'),
+  c: press('split'),
 });
 
 // Whether layers can correct on the GPU; if not, the sources correct their tiles in workers.
@@ -207,7 +210,7 @@ const table = new AttributeTable(document.getElementById('table')!, map, selecti
   },
 });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
-const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say });
+const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say, onChange: () => split?.refreshBase() });
 
 /** Features found by the last WMS GetFeatureInfo, per layer. */
 const featureInfo = new WeakMap<ViewerService, TableData>();
@@ -276,6 +279,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onChange: (list) => {
     timeline?.refresh();
+    split?.refresh();
     dashboard?.refresh();
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
@@ -353,6 +357,17 @@ const rasterRules = new RasterRulesDialog({
 const metadata = new MetadataDialog({ say });
 // Comparison and analysis, tucked under the information: the selected layer on one side of a line, and its histogram.
 const swipe = new SwipeTool(map, { button: document.getElementById('swipe') as HTMLButtonElement, say });
+// Side by side: two or four panes sharing the view, each after the first showing one layer over the base map.
+const split = new SplitView(map, {
+  app: layoutParts.app,
+  images,
+  baseLayers: () => baseMap.layers(),
+  button: document.getElementById('split') as HTMLButtonElement,
+  counts: document.getElementById('split-counts')!,
+  say,
+  onResize: () => {},
+});
+layoutParts.split = { view: split, layers: () => images.layers() };
 const histogramPanel = new HistogramPanel(map, { button: document.getElementById('histogram-open') as HTMLButtonElement, element: document.getElementById('histogram')! });
 histogramPanel.setLayer(null);
 metadataButton.addEventListener('click', () => {
@@ -492,6 +507,7 @@ const tempStore = browserStore();
 const rasterTools = [
   { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
   { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
+  { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open() },
   { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
   { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
   { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
@@ -780,6 +796,16 @@ const change = new ChangeDialog(images, loader, {
     images.addService(tempLayer(record, tempStore));
   },
 });
+// Land cover classification (from the processing dialog): k-means, or training polygons by an attribute; classes in colors, areas, outlines.
+const classify = new ClassifyDialog(images, loader, map, {
+  say,
+  open: (file) => openImageFile(file, fileContext()),
+  onPolygons: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+});
 // Automatic alignment (from the processing dialog): an image lined up with a reference by matching their texture.
 const align = new AlignDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
 // Which pixels of an image are transparent: the file's no-data value and the usual fill values, the black collar, values typed.
@@ -973,7 +999,7 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
 
 // The 3D view: the 2D layers draped over a WGS 84 globe, DEM relief, 3D Tiles, multipatches and the viewshed.
 // The tools that work on the 2D view wait while it is open; measuring and saving the view work on the globe instead.
-const twoDOnly = ['add-point', 'swipe', 'histogram-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
+const twoDOnly = ['add-point', 'swipe', 'split', 'histogram-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
 const threeDMeasure = { 'measure-distance': 'distance', 'measure-area': 'area' } as const;
 for (const [id, mode] of Object.entries(threeDMeasure)) {
   const button = document.getElementById(id) as HTMLButtonElement;
@@ -1027,6 +1053,7 @@ const globeToggle = new GlobeToggle(map, {
       measure.setMode(null);
       points.setAdding(false);
       if (swipe.isActive()) swipe.setActive(false);
+      if (split.getCount() > 1) split.setCount(1);
       if (histogramPanel.isOpen()) histogramPanel.setOpen(false);
     }
     for (const b of twoDOnly) {
@@ -1177,6 +1204,7 @@ declare global {
       mosaic: MosaicDialog;
       bandMath: BandMathDialog;
       change: ChangeDialog;
+      classify: ClassifyDialog;
       align: AlignDialog;
       annotations: Annotations;
       print: PrintDialog;
@@ -1187,6 +1215,7 @@ declare global {
       guide: Guide;
       help: HelpDialog;
       swipe: SwipeTool;
+      split: SplitView;
       histogram: HistogramPanel;
       viewExport: ViewExportDialog;
       project: ProjectControl;
@@ -1202,4 +1231,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };

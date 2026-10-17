@@ -138,6 +138,11 @@
           <button id="metadata-open" type="button" class="metadata-open" hidden>メタデータを表示…</button>
           <div class="analysis-tools" role="group" aria-label="比較・分析">
             <button id="swipe" type="button" aria-pressed="false" title="選択中のレイヤーを線の片側だけに表示し、下のレイヤーと見比べます">スワイプ比較</button>
+            <button id="split" type="button" aria-pressed="false" title="地図を2つ（または4つ）に分けて別のレイヤーを並べ、移動と拡大を連動させます（C）">並べて比較</button>
+            <span id="split-counts" class="split-counts" role="radiogroup" aria-label="画面の数" hidden>
+              <button type="button" role="radio" data-count="2" aria-checked="true">2画面</button>
+              <button type="button" role="radio" data-count="4" aria-checked="false">4画面</button>
+            </span>
             <button id="histogram-open" type="button" aria-pressed="false" title="選択中の画像の、表示範囲のヒストグラム">ヒストグラム</button>
           </div>
           <div id="histogram"></div>
