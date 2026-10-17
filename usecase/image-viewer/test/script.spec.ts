@@ -233,6 +233,30 @@ test('the editor suggests functions and layer names', async ({ page }) => {
   await expect(dialog(page)).toBeVisible();
 });
 
+test('the editor colours the script and keeps the colours on its text and scroll', async ({ page }) => {
+  await open(page);
+  await openScripts(page);
+  const editor = dialog(page).getByLabel('スクリプト（JavaScript）');
+  const colours = dialog(page).locator('.script-highlight');
+  const code = `${"const n = await viewer.layers(); // 一覧\nprint('件数', n.length, 1 < 2);\n".repeat(40)}`;
+  await editor.fill(code);
+  // The coloured copy has the same text (plus the space that holds a last empty line) and the textarea's own text is transparent.
+  expect(await colours.evaluate((el) => el.textContent)).toBe(`${code} `);
+  await expect(colours.locator('.hl-keyword').first()).toHaveText('const');
+  await expect(colours.locator('.hl-builtin').first()).toHaveText('viewer');
+  await expect(colours.locator('.hl-comment').first()).toHaveText('// 一覧');
+  expect(await editor.evaluate((el) => getComputedStyle(el).color)).toBe('rgba(0, 0, 0, 0)');
+  const keyword = (scheme: 'light' | 'dark') =>
+    page.emulateMedia({ colorScheme: scheme }).then(() => colours.locator('.hl-keyword').first().evaluate((el) => getComputedStyle(el).color));
+  expect(await keyword('light')).not.toBe(await keyword('dark'));
+  // Scrolling the editor scrolls the colours with it.
+  await editor.evaluate((el) => {
+    el.scrollTop = 200;
+    el.dispatchEvent(new Event('scroll'));
+  });
+  await expect.poll(() => colours.evaluate((el) => el.scrollTop)).toBe(await editor.evaluate((el) => el.scrollTop));
+});
+
 test('a script exports GeoJSON and CSV, plans imaging, and reads and makes rasters', async ({ page }) => {
   await open(page);
   await choose(page, 'parcels.geojson', parcels);

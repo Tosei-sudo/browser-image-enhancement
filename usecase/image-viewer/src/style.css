@@ -1107,6 +1107,89 @@ body {
   font-size: 12px;
 }
 
+/* New layer dialog: a name, a geometry type and the attributes. */
+.new-layer-fields {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.new-layer-fields legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+.new-layer-list {
+  display: grid;
+  gap: 4px;
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.new-layer-field-main {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.new-layer-field-main label.check {
+  white-space: nowrap;
+}
+.new-layer-more[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+.new-layer-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 4px 8px;
+  margin: 4px 0 6px 12px;
+}
+.new-layer-details label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.new-layer-details[hidden],
+.new-layer-details label[hidden] {
+  display: none;
+}
+.new-layer-details input,
+.new-layer-field-main input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.new-layer-field-main input[type='checkbox'] {
+  width: auto;
+}
+.new-layer-details .wide {
+  grid-column: 1 / -1;
+}
+.new-layer-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.new-layer-field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.new-layer-more-settings summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.new-layer-more-settings > .service-form {
+  margin-top: 6px;
+}
+.new-layer-note.error {
+  color: var(--danger, #c0392b);
+}
+
 /* Coloring and RGB composite dialogs. */
 .colorize-preview {
   height: 12px;
@@ -2809,17 +2892,65 @@ body {
   white-space: nowrap;
 }
 .script-code {
+  position: relative;
   flex: 1 1 16rem;
   min-height: 12rem;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
+  /* The text is drawn by the coloured copy underneath; the caret and the selection stay the textarea's. */
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
   font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   tab-size: 2;
   resize: vertical;
   white-space: pre;
+}
+.script-code::selection {
+  background: var(--accent-bg);
+  color: transparent;
+}
+/* The coloured copy of the script under the editor, kept on the same characters and scroll.
+   Colours follow color-scheme with light-dark(), so they change with the light and dark themes. */
+.script-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  /* Extra room at the end so it can scroll as far as the textarea with its scroll bars. */
+  padding: 8px 28px 28px 8px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  tab-size: 2;
+  white-space: pre;
+  pointer-events: none;
+}
+.hl-comment {
+  color: light-dark(#6a737d, #8b949e);
+  font-style: italic;
+}
+.hl-string {
+  color: light-dark(#0a7a32, #8fd18f);
+}
+.hl-regex {
+  color: light-dark(#b3261e, #ff9b8f);
+}
+.hl-number,
+.hl-literal {
+  color: light-dark(#a3500b, #f2b37a);
+}
+.hl-keyword {
+  color: light-dark(#a626a4, #d7a6ff);
+}
+.hl-builtin {
+  color: light-dark(#0b5cc0, #7cbcff);
+}
+.hl-function {
+  color: light-dark(#6f5000, #e3c07f);
 }
 .script-actions {
   align-items: center;
