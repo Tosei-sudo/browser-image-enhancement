@@ -1654,11 +1654,139 @@ body {
   font: inherit;
   cursor: pointer;
 }
-.analysis-tools button[aria-checked='true'] {
+.analysis-tools button[aria-checked='true'],
+.analysis-tools button[aria-pressed='true'] {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: var(--accent);
 }
+/* 2 / 4 panes, next to 「並べて比較」 while it is on. */
+.split-counts {
+  display: inline-flex;
+  gap: 2px;
+}
+.split-counts[hidden] {
+  display: none;
+}
+
+/* Side by side comparison (split-view.ts): the map shrinks into the first pane, the others cover the rest of its area. */
+.split-panes {
+  grid-area: map;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: none;
+}
+.split-panes[hidden] {
+  display: none;
+}
+.app.split-2 .split-panes {
+  grid-template-columns: 1fr 1fr;
+}
+.app.split-2 .split-pane {
+  grid-column: 2;
+}
+.app.split-2.split-rows .split-panes {
+  grid-template: 1fr 1fr / 1fr;
+}
+.app.split-2.split-rows .split-pane {
+  grid-area: 2 / 1;
+}
+.app.split-4 .split-panes {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
+.app.split-4 .split-pane:nth-child(1) {
+  grid-area: 1 / 2;
+}
+.app.split-4 .split-pane:nth-child(2) {
+  grid-area: 2 / 1;
+}
+.app.split-4 .split-pane:nth-child(3) {
+  grid-area: 2 / 2;
+}
+.app.split-2:not(.split-rows) .map,
+.app.split-4 .map {
+  justify-self: start;
+  width: 50%;
+}
+.app.split-2.split-rows .map,
+.app.split-4 .map {
+  align-self: start;
+  height: 50%;
+}
+.split-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+  box-shadow: inset 2px 2px 0 var(--bg);
+  background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px;
+}
+.split-pane.has-basemap {
+  background: none;
+}
+.split-pane-map {
+  position: absolute;
+  inset: 0;
+}
+.split-pane-head,
+.split-label {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  z-index: 2;
+  max-width: calc(100% - 96px);
+  transform: translateX(-50%);
+  font-size: 12px;
+}
+.split-label {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  pointer-events: none;
+}
+.split-label[hidden] {
+  display: none;
+}
+.split-pane-head select {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.split-pane.empty::after {
+  content: '上でレイヤーを選んでください';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+/* Where the cursor is, in the panes it is not in. */
+.split-cross {
+  position: relative;
+  width: 21px;
+  height: 21px;
+  pointer-events: none;
+  background:
+    linear-gradient(#fff, #fff) center / 3px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 3px no-repeat;
+  filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+}
+.split-cross::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(#e11, #e11) center / 1px 100% no-repeat,
+    linear-gradient(#e11, #e11) center / 100% 1px no-repeat;
+}
+
 .histogram {
   margin-top: 8px;
   font-size: 12px;

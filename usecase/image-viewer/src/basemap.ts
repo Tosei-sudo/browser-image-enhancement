@@ -35,7 +35,7 @@ export class BaseMapSwitch {
     target: HTMLElement,
     private readonly map: OlMap,
     private readonly baseMaps: readonly BaseMapConfig[],
-    private readonly options: { say?: (message: string) => void } = {},
+    private readonly options: { say?: (message: string) => void; onChange?: () => void } = {},
   ) {
     const label = document.createElement('label');
     label.className = 'basemap';
@@ -59,6 +59,7 @@ export class BaseMapSwitch {
     this.map.getTargetElement()?.classList.toggle('has-basemap', !!base);
     if (!base) {
       this.ready = Promise.resolve();
+      this.options.onChange?.();
       return;
     }
     const add = (layers: BaseLayer[]) => {
@@ -71,6 +72,7 @@ export class BaseMapSwitch {
         this.map.addLayer(layer);
       }
       this.layers_.push(...layers);
+      this.options.onChange?.();
     };
     if (base.type === 'xyz') {
       add([new TileLayer({ source: new XYZ({ url: base.url, attributions: base.attributions, maxZoom: base.maxZoom }) })]);
@@ -90,6 +92,11 @@ export class BaseMapSwitch {
 
   get(): string {
     return this.select.value;
+  }
+
+  /** The layers of the base map shown now (none while a style loads). */
+  layers(): readonly BaseLayer[] {
+    return this.layers_;
   }
 }
 
