@@ -1101,6 +1101,54 @@ body {
 .processing-settings {
   grid-template-columns: 1fr 1fr;
 }
+/* Land cover classification (classify-dialog.ts). */
+.classify-method {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.classify-dialog .classify-kmeans[hidden],
+.classify-dialog .classify-supervised[hidden] {
+  display: none;
+}
+.classify-bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+.classify-result {
+  max-height: 14rem;
+  overflow: auto;
+  margin: 8px 0;
+}
+.classify-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.classify-table th,
+.classify-table td {
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+.classify-table th:first-child,
+.classify-table td:first-child {
+  text-align: left;
+}
+.classify-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -2px;
+}
+
 .processing-hint {
   margin: 0;
   color: var(--muted);

@@ -77,6 +77,7 @@ import { CompositeDialog } from './composite-dialog.js';
 import { MosaicDialog } from './mosaic-dialog.js';
 import { BandMathDialog } from './band-math-dialog.js';
 import { ChangeDialog } from './change-dialog.js';
+import { ClassifyDialog } from './classify-dialog.js';
 import { AlignDialog } from './align-dialog.js';
 import { Annotations } from './annotations.js';
 import { PrintDialog } from './print-dialog.js';
@@ -514,6 +515,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
   rasterTools: [
     { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
     { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
+    { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open() },
     { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
     { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
     { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
@@ -773,6 +775,16 @@ const bandMath = new BandMathDialog(images, loader, { say, open: (file) => openI
 const change = new ChangeDialog(images, loader, {
   say,
   timeOf: (image) => timeOfImage(image),
+  open: (file) => openImageFile(file, fileContext()),
+  onPolygons: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+});
+// Land cover classification (from the processing dialog): k-means, or training polygons by an attribute; classes in colors, areas, outlines.
+const classify = new ClassifyDialog(images, loader, map, {
+  say,
   open: (file) => openImageFile(file, fileContext()),
   onPolygons: async (result, made) => {
     const record = recordOf(result, made);
@@ -1178,6 +1190,7 @@ declare global {
       mosaic: MosaicDialog;
       bandMath: BandMathDialog;
       change: ChangeDialog;
+      classify: ClassifyDialog;
       align: AlignDialog;
       annotations: Annotations;
       print: PrintDialog;
@@ -1204,4 +1217,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
