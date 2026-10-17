@@ -91,6 +91,7 @@ import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
+import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 
@@ -765,6 +766,28 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   view3d: (right): boolean => (globeToggle.isOpen() ? (globeToggle.globe()?.viewSatellite(right) ?? false) : false),
 });
 
+// Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
+const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
+  map,
+  layers: () => images.layers(),
+  selectedLayer: () => images.selectedLayer(),
+  selectLayer: (layer) => images.select(layer),
+  zoomTo: (layer) => images.zoomTo(layer),
+  selection,
+  editor,
+  say,
+  addTempLayer: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    return images.addService(tempLayer(record, tempStore));
+  },
+  openRaster: async (file) => {
+    const source = await openImageFile(file, fileContext());
+    return source ? (images.find(source) ?? null) : null;
+  },
+  satellites: () => imagingPlan.catalogSatellites(),
+});
+
 /** What opening files needs: where they go, and how RSETs being made are shown. */
 function fileContext(): OpenFilesContext {
   return {
@@ -1044,9 +1067,10 @@ declare global {
       timeline: Timeline;
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
+      scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };

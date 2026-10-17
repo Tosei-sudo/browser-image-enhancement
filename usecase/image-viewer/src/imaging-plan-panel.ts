@@ -838,18 +838,12 @@ export class ImagingPlanPanel {
     }
     const options = this.planOptions();
     this.worker_?.terminate();
-    const worker = new Worker(new URL('./imaging-plan-worker.ts', import.meta.url), { type: 'module' });
+    const { worker, result: planned } = startPlan(sats, targets, options, (done) => {
+      this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算しています… ${Math.round(done * 100)}%`;
+    });
     this.worker_ = worker;
     this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算しています…`;
-    const result = await new Promise<PlanResult | string>((resolve) => {
-      worker.onmessage = (e: MessageEvent<{ progress?: number; result?: PlanResult; error?: string }>) => {
-        if (e.data.progress !== undefined) this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算しています… ${Math.round(e.data.progress * 100)}%`;
-        else resolve(e.data.result ?? e.data.error ?? '計算できませんでした');
-      };
-      worker.onerror = (e) => resolve(e.message || '計算できませんでした');
-      worker.postMessage({ satellites: sats, targets, options } satisfies PlanJob);
-    });
-    worker.terminate();
+    const result = await planned;
     if (this.worker_ !== worker) return;
     this.worker_ = null;
     if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
@@ -1154,49 +1148,13 @@ export class ImagingPlanPanel {
   planLayer(): ProcessingResult | null {
     if (!this.plan_ || !this.shown_.length) return null;
     const { sats, targets } = this.plan_;
-    const features: Feature[] = [];
-    for (const op of this.shown_) {
-      const sat = sats[op.satellite];
-      const shapes = passShapes(sat, targets[op.target], op);
-      if (!shapes) continue;
-      const rings = shapes.scenes.map((ring) => [ring.map((c) => fromLonLat(c, 'EPSG:3857'))]);
-      features.push(
-        new Feature({
-          geometry: rings.length === 1 ? new Polygon(rings[0]) : new MultiPolygon(rings),
-          time: op.time,
-          satellite: sat.name,
-          satellite_id: sat.id,
-          target: targets[op.target].label,
-          off_nadir: Math.round(op.offNadir * 100) / 100,
-          incidence: Math.round(op.incidence * 100) / 100,
-          side: op.side === 'right' ? '右' : '左',
-          pass: op.ascending ? '北行' : '南行',
-          sun: Math.round(op.sunElevation * 10) / 10,
-          scenes: shapes.scenes.length,
-          coverage: Math.round(op.coverage * 1000) / 10,
-          ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10, shot: op.shot, shot_targets: op.shotTargets } : {}),
-        }),
-      );
-    }
-    return {
-      title: '撮像計画',
-      features,
-      fields: [
-        field('time', 'date', '撮像日時'),
-        field('satellite', 'string', '衛星'),
-        field('satellite_id', 'string', '衛星ID'),
-        field('target', 'string', '対象'),
-        field('off_nadir', 'double', 'オフナディア角'),
-        field('incidence', 'double', '入射角'),
-        field('side', 'string', '方向'),
-        field('pass', 'string', '軌道'),
-        field('sun', 'double', '太陽高度'),
-        field('scenes', 'integer', 'シーン数'),
-        field('coverage', 'double', '被覆率%'),
-        ...(this.combining() ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%'), field('shot', 'integer', 'シーン番号'), field('shot_targets', 'integer', '同じシーンの地点数')] : []),
-      ],
-      crs: wgs84,
-    };
+    return planFeatures(this.shown_, sats, targets, this.combining());
+  }
+
+  /** The satellites of the catalog (loaded when first asked), or the samples without one. */
+  async catalogSatellites(): Promise<SatelliteSpec[]> {
+    if (this.catalog_) await this.loadCatalog();
+    return this.catalogSats_.slice();
   }
 
   private addLayer(): void {
@@ -1207,3 +1165,71 @@ export class ImagingPlanPanel {
   }
 }
 
+/** Opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
+export function planFeatures(ops: readonly Opportunity[], sats: readonly SatelliteSpec[], targets: readonly PlanTarget[], combined: boolean): ProcessingResult {
+  const features: Feature[] = [];
+  for (const op of ops) {
+    const sat = sats[op.satellite];
+    const shapes = passShapes(sat, targets[op.target], op);
+    if (!shapes) continue;
+    const rings = shapes.scenes.map((ring) => [ring.map((c) => fromLonLat(c, 'EPSG:3857'))]);
+    features.push(
+      new Feature({
+        geometry: rings.length === 1 ? new Polygon(rings[0]) : new MultiPolygon(rings),
+        time: op.time,
+        satellite: sat.name,
+        satellite_id: sat.id,
+        target: targets[op.target].label,
+        off_nadir: Math.round(op.offNadir * 100) / 100,
+        incidence: Math.round(op.incidence * 100) / 100,
+        side: op.side === 'right' ? '右' : '左',
+        pass: op.ascending ? '北行' : '南行',
+        sun: Math.round(op.sunElevation * 10) / 10,
+        scenes: shapes.scenes.length,
+        coverage: Math.round(op.coverage * 1000) / 10,
+        ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10, shot: op.shot, shot_targets: op.shotTargets } : {}),
+      }),
+    );
+  }
+  return {
+    title: '撮像計画',
+    features,
+    fields: [
+      field('time', 'date', '撮像日時'),
+      field('satellite', 'string', '衛星'),
+      field('satellite_id', 'string', '衛星ID'),
+      field('target', 'string', '対象'),
+      field('off_nadir', 'double', 'オフナディア角'),
+      field('incidence', 'double', '入射角'),
+      field('side', 'string', '方向'),
+      field('pass', 'string', '軌道'),
+      field('sun', 'double', '太陽高度'),
+      field('scenes', 'integer', 'シーン数'),
+      field('coverage', 'double', '被覆率%'),
+      ...(combined ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%'), field('shot', 'integer', 'シーン番号'), field('shot_targets', 'integer', '同じシーンの地点数')] : []),
+    ],
+    crs: wgs84,
+  };
+}
+
+/**
+ * Plans `sats` over `targets` in a worker; `worker` stops it (terminate),
+ * `result` is the plan or why it could not be made.
+ */
+export function startPlan(
+  sats: SatelliteSpec[],
+  targets: PlanTarget[],
+  options: PlanOptions,
+  onProgress?: (done: number) => void,
+): { worker: Worker; result: Promise<PlanResult | string> } {
+  const worker = new Worker(new URL('./imaging-plan-worker.ts', import.meta.url), { type: 'module' });
+  const result = new Promise<PlanResult | string>((resolve) => {
+    worker.onmessage = (e: MessageEvent<{ progress?: number; result?: PlanResult; error?: string }>) => {
+      if (e.data.progress !== undefined) onProgress?.(e.data.progress);
+      else resolve(e.data.result ?? e.data.error ?? '計算できませんでした');
+    };
+    worker.onerror = (e) => resolve(e.message || '計算できませんでした');
+    worker.postMessage({ satellites: sats, targets, options } satisfies PlanJob);
+  }).finally(() => worker.terminate());
+  return { worker, result };
+}

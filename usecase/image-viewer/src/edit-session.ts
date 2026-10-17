@@ -270,6 +270,47 @@ export class EditSession extends Observable {
     return null;
   }
 
+  /**
+   * Sets an attribute to a value (not typed text), checked as a typed one
+   * would be: a date may be given as milliseconds. Returns why the value is
+   * not allowed, or null when it was set.
+   */
+  setValue(feature: Feature, field: Field, value: string | number | boolean | null): string | null {
+    const text = value === null ? '' : field.type === 'date' && typeof value === 'number' ? new Date(value).toISOString() : String(value);
+    return this.setAttribute(feature, field, text);
+  }
+
+  /** Runs `edit`; everything it changes becomes one step, taken back by one undo. */
+  group(edit: () => void): void {
+    const from = this.steps();
+    try {
+      edit();
+    } finally {
+      this.merge(from);
+    }
+  }
+
+  /** How many undo steps there are (a mark for {@link merge}). */
+  steps(): number {
+    return this.undo_.length;
+  }
+
+  /** Makes the steps since `from` (see {@link steps}) one step. */
+  merge(from: number): void {
+    const steps = this.undo_.splice(Math.min(from, this.undo_.length));
+    if (steps.length) {
+      const merged = new Map<Feature, () => void>();
+      for (const step of steps) {
+        for (const [feature, undo] of step) {
+          const before = merged.get(feature);
+          merged.set(feature, before ? () => (undo(), before()) : undo);
+        }
+      }
+      this.undo_.push(merged);
+    }
+    this.changed();
+  }
+
   /** Takes back the last edit. */
   undo(): void {
     const step = this.undo_.pop();
