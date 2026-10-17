@@ -34,6 +34,7 @@ import { CoordinateMenu, type PointAction } from './coordinate-menu.js';
 import { CursorPosition } from './cursor-position.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
+import { PlaceSearch } from './geocode.js';
 import { Bookmarks } from './bookmarks.js';
 import { glVector } from './gl-vector.js';
 import { clearStreamedCopies, streaming } from './streamed-shapefile.js';
@@ -432,7 +433,7 @@ const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, {
   actions: (): PointAction[] => [{ label: 'この地点で撮像計画を立てる', title: '撮像計画を開き、この地点を対象に撮像機会を計算します', run: (lonLat): void => void imagingPlan.planAt(lonLat) }],
 });
 // The header field: go to typed coordinates.
-const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say });
+const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say, places: new PlaceSearch(config.geocoders) });
 // Named views (kept in the browser and in projects), and the view in the address (`#view=`) for links.
 new ToolMenu(document.getElementById('bookmark-menu')!);
 const bookmarks: Bookmarks = new Bookmarks(map, document.getElementById('bookmark-menu')!, {
@@ -556,7 +557,7 @@ const zonal = new ZonalDialog(selection, {
 // Ctrl+K: every tool by name — the bar's buttons and menus, the side panel's, and the processing tools.
 const palette = new CommandPalette(() => [
   { id: 'open-file', label: 'ファイルを開く', detail: '画像・GeoTIFF・Shapefile・GeoJSON など', keys: 'O', run: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click() },
-  { id: 'jump', label: '座標へ移動', detail: '緯度経度・MGRS・UTM', keys: '/', run: () => document.querySelector<HTMLInputElement>('#jump input')!.focus() },
+  { id: 'jump', label: '座標・地名へ移動', detail: '緯度経度・MGRS・UTM・地名・住所', keys: '/', run: () => document.querySelector<HTMLInputElement>('#jump input')!.focus() },
   { id: 'bookmark-add', label: '今の表示をブックマークに追加', detail: 'ブックマーク', keys: 'M', run: () => bookmarks.add() },
   ...buttonCommands(document.querySelectorAll('.bar, .side .analysis-tools, #metadata-open')).filter((c) => c.id !== 'palette-open'),
   ...processingTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（ベクター）', run: () => processing.open(t.id) })),

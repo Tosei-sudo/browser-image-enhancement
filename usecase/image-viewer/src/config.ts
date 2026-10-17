@@ -12,6 +12,7 @@ import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.j
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
+import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
 
 /**
  * What a base map URL points to:
@@ -100,6 +101,8 @@ export interface ViewerConfig {
   serviceRules: ServiceRule[];
   /** ArcGIS elevation services (image services of heights, elevation tile services) used as elevation data from the start. */
   elevationServices: ElevationServiceConfig[];
+  /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
+  geocoders: GeocoderConfig[];
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -165,6 +168,7 @@ export const defaultConfig: ViewerConfig = {
   detectionOutputs: [],
   serviceRules: [],
   elevationServices: [],
+  geocoders: [...DEFAULT_GEOCODERS],
 };
 
 /**
@@ -212,13 +216,30 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
   };
 }
 
+const geocoderTypes: readonly GeocoderType[] = ['gsi', 'nominatim', 'arcgis', 'features', 'csv'];
+
+function geocoderOf(value: unknown, problems: string[], index: number): GeocoderConfig | null {
+  if (!isRecord(value)) return (problems.push(`geocoders[${index}] がオブジェクトではありません`), null);
+  const { type, url, label, token, field } = value;
+  if (!geocoderTypes.includes(type as GeocoderType)) return (problems.push(`geocoders[${index}] の type は ${geocoderTypes.join('・')} のどれかにしてください`), null);
+  if (!isUrl(url)) return (problems.push(`geocoders[${index}] に url（http(s) か相対パス）がありません`), null);
+  if (type === 'features' && (typeof field !== 'string' || !field)) return (problems.push(`geocoders[${index}] の features には名前の属性（field）が要ります`), null);
+  return {
+    type: type as GeocoderType,
+    url,
+    label: typeof label === 'string' && label ? label : String(type),
+    ...(typeof token === 'string' && token ? { token } : {}),
+    ...(typeof field === 'string' && field ? { field } : {}),
+  };
+}
+
 /**
  * The settings in a parsed `config.json`, each entry checked on its own: what
  * is missing or invalid takes the default, and `problems` says what was ignored.
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -292,6 +313,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
         return [{ url: entry.url.trim(), ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
       });
     } else problems.push('elevationServices が配列ではありません');
+  }
+
+  if ('geocoders' in json) {
+    if (Array.isArray(json.geocoders)) config.geocoders = json.geocoders.map((g, i) => geocoderOf(g, problems, i)).filter((g): g is GeocoderConfig => g !== null);
+    else problems.push('geocoders が配列ではありません');
   }
 
   if ('satelliteCatalogs' in json) {

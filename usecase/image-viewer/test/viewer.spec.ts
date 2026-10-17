@@ -281,8 +281,10 @@ test('the bottom left shows the latitude / longitude under the cursor', async ({
 });
 
 test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page }) => {
+  // Text that is no coordinate is looked up as a place name (geocode.spec.ts): here nothing is found.
+  await page.route('https://msearch.gsi.go.jp/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '[]' }));
   await open(page);
-  const field = page.getByRole('textbox', { name: '座標へ移動' });
+  const field = page.getByRole('combobox', { name: '座標・地名へ移動' });
   const go = async (text: string) => {
     await field.fill(text);
     await field.press('Enter');
@@ -303,7 +305,7 @@ test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page 
   await go('54SUE8843349290');
   await expectAt(139.7671, 35.6812);
   await go('ここはどこ');
-  await expect(page.locator('#status')).toContainText('座標として読めませんでした');
+  await expect(page.locator('#status')).toContainText('見つかりませんでした: ここはどこ');
 });
 
 test('shows the version and build at the bottom of the side panel', async ({ page }) => {

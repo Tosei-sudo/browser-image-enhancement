@@ -58,7 +58,7 @@ test('the click tools are in one menu, marked while one is on, with single-key s
 
   // Keys typed in a field are text, not shortcuts; / goes to the coordinate field.
   await page.keyboard.press('/');
-  const field = page.getByRole('textbox', { name: '座標へ移動' });
+  const field = page.getByRole('combobox', { name: '座標・地名へ移動' });
   await expect(field).toBeFocused();
   await page.keyboard.type('da');
   await expect(field).toHaveValue('da');
