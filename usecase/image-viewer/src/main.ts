@@ -98,7 +98,7 @@ import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
-import { hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
+import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -532,8 +532,11 @@ async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<vo
     service.style!.set(spec);
   }
   if (zoom) {
+    // Points alone (one, or a few close together) are shown with their surroundings, not as close as the map goes.
+    const pointsOnly = shapes.features.every((f) => ['Point', 'MultiPoint'].includes(f.getGeometry()?.getType() ?? ''));
     const only = shapes.features.length === 1 ? shapes.features[0].getGeometry() : null;
-    if (only?.getType() === 'Point') map.getView().animate({ center: (only as Point).getCoordinates(), zoom: shapes.zoom ?? 16, duration: 250 });
+    if (only?.getType() === 'Point') map.getView().animate({ center: (only as Point).getCoordinates(), zoom: shapes.zoom ?? POINT_ZOOM, duration: 250 });
+    else if (pointsOnly) map.getView().fit(service.extent!, { padding: [40, 40, 40, 40], maxZoom: shapes.zoom ?? POINT_ZOOM, duration: 250 });
     else void images.zoomTo(entry);
   }
   const n = shapes.features.length;
