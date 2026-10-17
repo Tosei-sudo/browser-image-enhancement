@@ -57,6 +57,8 @@ export interface ImageListOptions {
   onColorize?: (layer: ViewerImage) => void;
   /** Called by the display rules button of an Esri image or map service layer. */
   onRules?: (layer: ViewerService) => void;
+  /** Called by the projection button of an image without a projection (georef-dialog.ts). */
+  onGeoref?: (layer: ViewerImage) => void;
 }
 
 export class ImageList {
@@ -140,11 +142,24 @@ export class ImageList {
     if (stretch) source.setRawStretch(stretch);
     const [dx, dy] = getShift(old);
     if (dx || dy) setShift(source, [dx, dy]);
+    const noData = old.getNoData();
+    if (!noData.auto || noData.values.length) void source.setNoData(noData).catch(() => {});
     image.source = source;
     image.layer.setSource(source);
     old.dispose();
     // The correction panel, histogram and the rest follow the new source.
     if (this.selected_ === image) this.options.onSelect(image);
+  }
+
+  /**
+   * Marks an image as placed by its georeferencing (`geotiff`) or put where
+   * pictures go without a projection (`image`); the latter's row offers to
+   * set one.
+   */
+  setKind(image: ViewerImage, kind: ViewerImage['kind']): void {
+    image.kind = kind;
+    const button = image.row.querySelector<HTMLButtonElement>('button[data-action=georef]');
+    if (button) button.hidden = kind !== 'image';
   }
 
   /** Adds a layer of a service on top and selects it. */
@@ -360,6 +375,13 @@ export class ImageList {
         this.select(image);
         this.options.onRules!(image);
       });
+    }
+    if (image.type === 'image' && this.options.onGeoref) {
+      button('georef', '⌖', '投影を設定（この画像には座標系がありません）', () => {
+        this.select(image);
+        this.options.onGeoref!(image);
+      });
+      tools.lastElementChild!.toggleAttribute('hidden', image.kind !== 'image');
     }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));
     button('up', '↑', '上へ', () => this.move(image, 1));

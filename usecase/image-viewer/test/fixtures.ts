@@ -132,11 +132,12 @@ export const tokyoSjis = [0x93, 0x8c, 0x8b, 0x9e];
 
 /**
  * A GeoTIFF as plain as they come: one uncompressed strip of 8-bit RGB, no
- * tiles and no overviews, in WGS 84 / UTM zone 54N with 10 m pixels.
+ * tiles and no overviews, in WGS 84 / UTM zone 54N with 10 m pixels; with
+ * `geo: 'none'` a plain TIFF, with `geo: 'no-crs'` its coordinates in no CRS (no GeoKeys).
  */
-export function plainGeoTiff(width: number, height: number): Uint8Array<ArrayBuffer> {
+export function plainGeoTiff(width: number, height: number, { geo = 'utm' }: { geo?: 'utm' | 'none' | 'no-crs' } = {}): Uint8Array<ArrayBuffer> {
   const pixels = width * height * 3;
-  const entries: Array<[tag: number, type: number, values: number[]]> = [
+  const all: Array<[tag: number, type: number, values: number[]]> = [
     [256, 4, [width]],
     [257, 4, [height]],
     [258, 3, [8, 8, 8]],
@@ -151,6 +152,7 @@ export function plainGeoTiff(width: number, height: number): Uint8Array<ArrayBuf
     [33922, 12, [0, 0, 0, 500000, 4000000, 0]],
     [34735, 3, [1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 32654]],
   ];
+  const entries = all.filter(([tag]) => (geo === 'none' ? tag < 33550 : geo === 'no-crs' ? tag !== 34735 : true));
   const size = (type: number) => (type === 3 ? 2 : type === 4 ? 4 : 8);
   const ifdLength = 2 + entries.length * 12 + 4;
   let extra = 8 + ifdLength;

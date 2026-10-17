@@ -87,6 +87,35 @@ const presets: Preset[] = [
 /** The CRSs offered for conversion, in order: code (`EPSG:6677`) and name. */
 export const crsPresets: Array<{ code: string; name: string }> = presets.map(({ code, name }) => ({ code, name }));
 
+/** The name a WKT gives its CRS (the outermost `PROJCS["…"` or `GEOGCS["…"`), for comparing: lower case, without spaces, underscores or hyphens. */
+function wktName(wkt: string): string | null {
+  const name = /^\s*(?:PROJCS|GEOGCS|PROJCRS|GEOGCRS|GEODCRS)\s*\[\s*"([^"]*)"/i.exec(wkt)?.[1];
+  return name ? name.toLowerCase().replace(/[\s_-]+/g, '') : null;
+}
+
+/**
+ * The EPSG code (`EPSG:6677`) of a WKT: its own outermost EPSG authority,
+ * else a preset whose ESRI name it has (a .prj written by ArcGIS or QGIS:
+ * `JGD_2011_Japan_Zone_9`, `WGS_1984_UTM_Zone_54N`); null when neither.
+ */
+export function crsCodeOfWkt(wkt: string): string | null {
+  const own = /(?:AUTHORITY|ID)\s*\[\s*"EPSG"\s*,\s*"?(\d+)"?\s*\]\s*\]\s*$/i.exec(wkt.trim());
+  if (own) return `EPSG:${own[1]}`;
+  const name = wktName(wkt);
+  if (!name) return null;
+  const preset = presets.find((p) => p.wkt && wktName(p.wkt) === name);
+  if (preset) return preset.code;
+  const zone = /^jgd2000japanzone(\d+)$/.exec(name);
+  if (zone && Number(zone[1]) >= 1 && Number(zone[1]) <= 19) return `EPSG:${2442 + Number(zone[1])}`;
+  const aliases: Record<string, string> = { wgs84: 'EPSG:4326', gcswgs1984: 'EPSG:4326', wgs84pseudomercator: 'EPSG:3857', jgd2011: 'EPSG:6668', jgd2000: 'EPSG:4612' };
+  return aliases[name] ?? null;
+}
+
+/** The name of a preset CRS (`JGD2011 平面直角座標系 IX 系`), null for others. */
+export function crsPresetName(code: string): string | null {
+  return presets.find((p) => p.code === code)?.name ?? null;
+}
+
 /** Registers the built-in definitions of the preset CRSs with proj4 and OpenLayers. */
 export function registerJapaneseCrs(): void {
   for (const preset of presets) if (preset.proj4) proj4.defs(preset.code, preset.proj4);

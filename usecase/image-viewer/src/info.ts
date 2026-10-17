@@ -42,10 +42,12 @@ export async function showInfo(element: HTMLDListElement, image: ViewerLayer | n
   const sensor = sensorPlacement(projection);
   if (image.kind === 'geotiff' && sensor) {
     // Pixels warped through the sensor model as they are drawn: say how, and the ground size of a pixel.
-    rows.push(['座標系', 'WGS 84（センサーモデルで投影）']);
+    rows.push(['座標系', sensor.kind === 'affine' ? (sensor.crs ?? '') : 'WGS 84（センサーモデルで投影）']);
     rows.push([
       '投影',
-      sensor.kind === 'rpc'
+      sensor.kind === 'affine'
+        ? 'アフィン変換（回転あり）'
+        : sensor.kind === 'rpc'
         ? `RPC・高さ ${formatNumber(sensor.height ?? 0)} m（地形の補正はオルソ補正で）`
         : `GCP ${sensor.points} 点・${sensor.order} 次多項式（残差 ${(sensor.rms ?? 0).toFixed(2)} px）`,
     ]);
