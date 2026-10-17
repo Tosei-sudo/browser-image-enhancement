@@ -255,6 +255,10 @@ test('plans a point from the map\'s right-click menu', async ({ page }) => {
   const [center] = (target as Array<{ center: [number, number] }>).map((t) => t.center);
   expect(center[0]).toBeCloseTo(clicked[0], 3);
   expect(center[1]).toBeCloseTo(clicked[1], 3);
+  // The click on the menu does not reach the map: the point stays where it was right-clicked.
+  await page.waitForTimeout(600);
+  const after = (await page.evaluate(() => window.viewer.imagingPlan.targets())) as Array<{ center: [number, number] }>;
+  expect(after[0].center).toEqual(center);
   expect(errors).toEqual([]);
 });
 

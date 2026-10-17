@@ -57,6 +57,9 @@ export class CoordinateMenu {
     menu.setAttribute('aria-label', '座標をコピー');
     menu.hidden = true;
     map.getViewport().append(menu);
+    // The menu sits on the map: its clicks are not the map's (a click on 「この地点で撮像計画を立てる」 would also set a
+    // point where the button is).
+    for (const type of ['pointerdown', 'pointerup', 'click', 'dblclick', 'wheel']) menu.addEventListener(type, (e) => e.stopPropagation());
 
     map.getViewport().addEventListener('contextmenu', (e) => {
       if (menu.contains(e.target as Node)) return;
