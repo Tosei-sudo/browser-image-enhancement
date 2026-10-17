@@ -30,7 +30,7 @@ import { platformModifierKeyOnly } from 'ol/events/condition.js';
 import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
-import { CoordinateMenu } from './coordinate-menu.js';
+import { CoordinateMenu, type PointAction } from './coordinate-menu.js';
 import { CursorPosition } from './cursor-position.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
@@ -374,7 +374,11 @@ const annotations: Annotations = new Annotations(map, {
 // Right click: copy the coordinates of the point.
 // The latitude / longitude under the cursor at the bottom left; its notation is picked in the right-click menu.
 const cursorPosition = new CursorPosition(map, { imageAt: (at): Promise<ViewerImage | null> => coordinateMenu.imageAt(at) });
-const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, { say, cursor: cursorPosition });
+const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, {
+  say,
+  cursor: cursorPosition,
+  actions: (): PointAction[] => [{ label: 'この地点で撮像計画を立てる', title: '撮像計画を開き、この地点を対象に撮像機会を計算します', run: (lonLat): void => void imagingPlan.planAt(lonLat) }],
+});
 // The header field: go to typed coordinates.
 const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say });
 // Named views (kept in the browser and in projects), and the view in the address (`#view=`) for links.
