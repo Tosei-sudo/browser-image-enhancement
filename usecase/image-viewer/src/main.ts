@@ -30,6 +30,7 @@ import { platformModifierKeyOnly } from 'ol/events/condition.js';
 import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
+import { ShadowHeightTool } from './shadow-height.js';
 import { CoordinateMenu, type PointAction } from './coordinate-menu.js';
 import { CursorPosition } from './cursor-position.js';
 import { showBuildInfo } from './build-info.js';
@@ -181,6 +182,7 @@ bindShortcuts({
   '/': () => document.querySelector<HTMLInputElement>('#jump input')!.focus(),
   d: press('measure-distance'),
   a: press('measure-area'),
+  h: press('shadow-height'),
   p: press('add-point'),
   '3': press('globe-toggle'),
   t: press('timeline-open'),
@@ -406,9 +408,22 @@ const measure = new MeasureTool(map, images, {
     points.setAdding(false);
     aiSegment.setActive(false);
     annotations.setActive(false);
+    shadowHeight.setActive(false);
+  },
+});
+// Height from a shadow: the foot and the tip of the shadow, with the Sun's elevation from the image or its time.
+const shadowHeight: ShadowHeightTool = new ShadowHeightTool(map, images, {
+  button: document.getElementById('shadow-height') as HTMLButtonElement,
+  say,
+  onStart: () => {
+    points.setAdding(false);
+    measure.setMode(null);
+    aiSegment.setActive(false);
+    annotations.setActive(false);
   },
 });
 document.getElementById('add-point')!.addEventListener('click', () => {
+  if (points.isAdding()) shadowHeight.setActive(false);
   if (points.isAdding()) measure.setMode(null);
   if (points.isAdding()) aiSegment.setActive(false);
   if (points.isAdding()) annotations.setActive(false);
@@ -421,6 +436,7 @@ const annotations: Annotations = new Annotations(map, {
     points.setAdding(false);
     measure.setMode(null);
     aiSegment.setActive(false);
+    shadowHeight.setActive(false);
   },
 });
 
@@ -643,6 +659,7 @@ const aiSegment = new SegmentTool(document.getElementById('ai-segment') as HTMLB
   onStart: () => {
     points.setAdding(false);
     measure.setMode(null);
+    shadowHeight.setActive(false);
   },
 });
 // The AI layers into a database (config.json's detectionOutputs): new and corrected features, attributes mapped by role.
@@ -1085,7 +1102,7 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
 
 // The 3D view: the 2D layers draped over a WGS 84 globe, DEM relief, 3D Tiles, multipatches and the viewshed.
 // The tools that work on the 2D view wait while it is open; measuring and saving the view work on the globe instead.
-const twoDOnly = ['add-point', 'swipe', 'split', 'histogram-open', 'spectral-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
+const twoDOnly = ['add-point', 'shadow-height', 'swipe', 'split', 'histogram-open', 'spectral-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
 const threeDMeasure = { 'measure-distance': 'distance', 'measure-area': 'area' } as const;
 for (const [id, mode] of Object.entries(threeDMeasure)) {
   const button = document.getElementById(id) as HTMLButtonElement;
@@ -1137,6 +1154,7 @@ const globeToggle = new GlobeToggle(map, {
   onToggle: (open) => {
     if (open) {
       measure.setMode(null);
+      shadowHeight.setActive(false);
       points.setAdding(false);
       if (swipe.isActive()) swipe.setActive(false);
       if (split.getCount() > 1) split.setCount(1);
@@ -1264,6 +1282,7 @@ declare global {
       images: ImageList;
       points: PointTool;
       measure: MeasureTool;
+      shadowHeight: ShadowHeightTool;
       loader: LoadImageControl;
       enhance: EnhanceControl;
       onGpu: boolean;
@@ -1320,4 +1339,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
