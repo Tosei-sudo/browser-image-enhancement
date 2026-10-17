@@ -68,6 +68,7 @@ import { RasterRulesDialog } from './raster-rules-dialog.js';
 import { elevationRange } from './dem.js';
 import { NewLayerDialog } from './new-layer-dialog.js';
 import { ProcessingDialog, tools as processingTools } from './processing-dialog.js';
+import { bindPalette, buttonCommands, CommandPalette } from './command-palette.js';
 import { DetectDialog, SegmentTool } from './ai-tools.js';
 import { TransferDialog } from './ai-transfer.js';
 import { imageTime } from './timeline.js';
@@ -503,6 +504,18 @@ function addService(service: ServiceLayer): void {
 // Processing tools (buffers, lines from points, centroids, Voronoi / Thiessen, reprojection): results are
 // temporary layers, kept in the browser until they are closed.
 const tempStore = browserStore();
+const rasterTools = [
+  { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
+  { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
+  { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open() },
+  { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
+  { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
+  { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
+  { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open() },
+  { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
+  { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
+  { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
+];
 const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
   layers: () => images.layers(),
   selected: () => images.selectedLayer(),
@@ -512,19 +525,20 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
     addService(tempLayer(record, tempStore));
   },
-  rasterTools: [
-    { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
-    { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
-    { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open() },
-    { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
-    { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
-    { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
-    { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open() },
-    { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
-    { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
-    { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
-  ],
+  rasterTools,
 });
+
+// Ctrl+K: every tool by name — the bar's buttons and menus, the side panel's, and the processing tools.
+const palette = new CommandPalette(() => [
+  { id: 'open-file', label: 'ファイルを開く', detail: '画像・GeoTIFF・Shapefile・GeoJSON など', keys: 'O', run: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click() },
+  { id: 'jump', label: '座標へ移動', detail: '緯度経度・MGRS・UTM', keys: '/', run: () => document.querySelector<HTMLInputElement>('#jump input')!.focus() },
+  { id: 'bookmark-add', label: '今の表示をブックマークに追加', detail: 'ブックマーク', keys: 'M', run: () => bookmarks.add() },
+  ...buttonCommands(document.querySelectorAll('.bar, .side .analysis-tools, #metadata-open')).filter((c) => c.id !== 'palette-open'),
+  ...processingTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（ベクター）', run: () => processing.open(t.id) })),
+  ...rasterTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（画像）', run: t.open })),
+]);
+bindPalette(palette);
+document.getElementById('palette-open')!.addEventListener('click', () => palette.open());
 
 /**
  * Shapes in a link (`?geom=`, `?line=`, `?polygon=`, `?geojson=`, or a

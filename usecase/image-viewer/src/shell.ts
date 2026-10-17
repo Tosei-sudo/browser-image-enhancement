@@ -137,7 +137,7 @@ export class Guide {
       <ol>
         <li>左上のフォルダのボタンで画像・GeoTIFF・Shapefile などを開きます。地図へのドラッグ＆ドロップでも開けます。</li>
         <li>右上のパネルで明るさ・コントラストなどを調整します。調整は画像ごとに残ります。</li>
-        <li>計測やポイントは「ツール」に、細かな操作は「?」のショートカット一覧にまとめてあります。</li>
+        <li>計測やポイントは「ツール」に、細かな操作は「?」のショートカット一覧にまとめてあります。どの機能も <kbd>Ctrl</kbd>+<kbd>K</kbd> で名前から探せます。</li>
       </ol>
       <div class="guide-actions"><button type="button" class="bar-button">はじめる</button></div>`;
     el.querySelector('button')!.addEventListener('click', () => this.close());
@@ -167,6 +167,7 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
   [
     '基本',
     [
+      [['Ctrl', 'K'], '機能を名前で探して実行（コマンド）'],
       [['O'], 'ファイルを開く'],
       [['/'], '座標の入力欄へ'],
       [['D'], '距離を測る（もう一度で終了）'],
