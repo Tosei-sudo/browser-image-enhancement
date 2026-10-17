@@ -54,6 +54,7 @@ export {
   type LoadImageControlOptions,
   type LoadImageLabels,
 } from './load-image-control.js';
+export { decodeLzw, decodeLzwBlock, undoPredictor, type PredictorParameters } from './lzw.js';
 export { imageToGeoTIFF, rasterToGeoTIFF, type GeoTIFFPlacement, type GeoTIFFRaster, type GeoTIFFSamples } from './geotiff-writer.js';
 export {
   bandNamesFromGdalMetadata,

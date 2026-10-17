@@ -9,7 +9,12 @@
  * machine's byte order, no resampling) the tile is viewed as a typed array
  * instead and copied with a plain strided loop, or `set` when the samples
  * are contiguous. Anything else goes through geotiff.js as before.
+ *
+ * LZW tiles are decoded by the library's own decoder, in its workers
+ * (lzw-worker.ts): geotiff.js's is ten times slower.
  */
+
+import { lzwDecoderFor } from './lzw-worker.js';
 
 type TypedArray = Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array | Float64Array;
 type TypedArrayCtor = new (buffer: ArrayBufferLike, byteOffset?: number, length?: number) => TypedArray;
@@ -53,6 +58,7 @@ export function fastReadRasters(image: unknown): void {
   patched.add(img);
   const original = img._readRaster;
   img._readRaster = function (this: TiffImage, imageWindow, samples, valueArrays, interleave, poolOrDecoder, width, height, resampleMethod, signal) {
+    poolOrDecoder = lzwDecoderFor(this, poolOrDecoder);
     const plan = interleave || !Array.isArray(valueArrays) ? null : planFor(this, imageWindow, samples, valueArrays, width, height);
     if (!plan) return original.call(this, imageWindow, samples, valueArrays, interleave, poolOrDecoder, width, height, resampleMethod, signal);
     return readFast(this, plan, imageWindow, samples, valueArrays as TypedArray[], poolOrDecoder, signal);

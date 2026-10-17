@@ -4,6 +4,7 @@
  * a normalized difference), which pixels changed more than a threshold, and
  * the outlines of those pixels as polygons (mask-polygons.ts).
  */
+import { maxBefore, selectInPlace } from './select.js';
 
 /** How before (`A`) and after (`B`) are compared. */
 export interface ChangeMethod {
@@ -81,13 +82,14 @@ export function changeMask(values: ArrayLike<number>, thresholds: ChangeThreshol
  * a diverging color scale.
  */
 export function spreadOf(values: ArrayLike<number>, center: number, p = 0.98): number {
-  const distances: number[] = [];
+  const all = new Float64Array(values.length);
+  let n = 0;
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (v === v) distances.push(Math.abs(v - center));
+    if (v === v) all[n++] = Math.abs(v - center);
   }
-  if (!distances.length) return 1;
-  distances.sort((a, b) => a - b);
-  const d = distances[Math.min(distances.length - 1, Math.floor(p * distances.length))];
-  return d > 0 ? d : (distances[distances.length - 1] || 1);
+  if (!n) return 1;
+  const distances = all.subarray(0, n);
+  const d = selectInPlace(distances, Math.min(n - 1, Math.floor(p * n)));
+  return d > 0 ? d : maxBefore(distances, n) || 1;
 }

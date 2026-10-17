@@ -231,6 +231,46 @@ const map1 = (a: Values, f: (x: number) => number, n: number): Values => {
   return out;
 };
 
+// The four arithmetic operators each have their own loops: one loop calling
+// whichever operator it is handed cannot inline it, which makes it several
+// times slower on a block of millions of pixels.
+type Loop = (out: Float32Array, a: Float32Array, b: Float32Array, n: number) => void;
+type ScalarLoop = (out: Float32Array, a: Float32Array, b: number, n: number) => void;
+const arithmetic: Partial<Record<BinaryOp, { both: Loop; left: ScalarLoop; right: ScalarLoop }>> = {
+  '+': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] + b[i]; },
+    left: (out, b, a, n) => { for (let i = 0; i < n; i++) out[i] = a + b[i]; },
+    right: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] + b; },
+  },
+  '-': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] - b[i]; },
+    left: (out, b, a, n) => { for (let i = 0; i < n; i++) out[i] = a - b[i]; },
+    right: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] - b; },
+  },
+  '*': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] * b[i]; },
+    left: (out, b, a, n) => { for (let i = 0; i < n; i++) out[i] = a * b[i]; },
+    right: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] * b; },
+  },
+  '/': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] / b[i]; },
+    left: (out, b, a, n) => { for (let i = 0; i < n; i++) out[i] = a / b[i]; },
+    right: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = a[i] / b; },
+  },
+};
+
+/** `a op b` at every pixel, written over `a` or `b` when it is a step's result (not an input). */
+const operate = (a: Values, b: Values, op: BinaryOp, n: number, inputs: readonly Float32Array[]): Values => {
+  const loops = arithmetic[op];
+  if (!loops || (typeof a === 'number' && typeof b === 'number')) return map2(a, b, binary[op], n);
+  const scratch = (v: Values): v is Float32Array => typeof v !== 'number' && !inputs.includes(v);
+  const out = scratch(a) ? a : scratch(b) ? b : new Float32Array(n);
+  if (typeof a === 'number') loops.left(out, b as Float32Array, a, n);
+  else if (typeof b === 'number') loops.right(out, a, b, n);
+  else loops.both(out, a, b, n);
+  return out;
+};
+
 const map2 = (a: Values, b: Values, f: (x: number, y: number) => number, n: number): Values => {
   if (typeof a === 'number' && typeof b === 'number') return f(a, b);
   const out = new Float32Array(n);
@@ -277,7 +317,7 @@ export function evaluate(expr: Expr, inputs: readonly Float32Array[], n: number)
       case 'unary':
         return map1(run(e.arg), (x) => -x, n);
       case 'binary':
-        return map2(run(e.left), run(e.right), binary[e.op], n);
+        return operate(run(e.left), run(e.right), e.op, n, inputs);
       case 'call': {
         const args = e.args.map(run);
         const one = unaryFunctions[e.name];
@@ -301,10 +341,39 @@ export function evaluate(expr: Expr, inputs: readonly Float32Array[], n: number)
   };
   const result = run(expr);
   const out = typeof result === 'number' ? new Float32Array(n).fill(result) : result === inputs[0] || inputs.includes(result) ? Float32Array.from(result) : result;
-  for (let i = 0; i < n; i++) if (!Number.isFinite(out[i])) out[i] = NaN;
-  // A pixel where any input has no data has none.
-  for (const input of inputs) for (let i = 0; i < n; i++) if (input[i] !== input[i]) out[i] = NaN;
+  // Not finite (x - x is NaN for NaN and ±Infinity) becomes NaN.
+  for (let i = 0; i < n; i++) {
+    const v = out[i];
+    if (v - v !== 0) out[i] = NaN;
+  }
+  // A pixel where any input has no data has none (already so where every operation on the way passes NaN on).
+  if (!passesNaN(expr, inputs.length)) for (const input of inputs) for (let i = 0; i < n; i++) if (input[i] !== input[i]) out[i] = NaN;
   return out;
+}
+
+/**
+ * Whether `expr` is NaN wherever one of its `count` variables is: it reads
+ * every one, and everything on the way passes NaN on (`x ^ 0` and `if` need
+ * not, so they do not count).
+ */
+function passesNaN(expr: Expr, count: number): boolean {
+  const seen = new Set<number>();
+  const walk = (e: Expr): boolean => {
+    switch (e.kind) {
+      case 'number':
+        return true;
+      case 'variable':
+        seen.add(e.index);
+        return true;
+      case 'unary':
+        return walk(e.arg);
+      case 'binary':
+        return e.op !== '^' && walk(e.left) && walk(e.right);
+      case 'call':
+        return e.name !== 'if' && e.args.every(walk);
+    }
+  };
+  return walk(expr) && seen.size === count;
 }
 
 /** One index, by its usual band names. */

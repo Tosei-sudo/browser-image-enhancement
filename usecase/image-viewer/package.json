@@ -12,7 +12,8 @@
     "preview": "vite preview --base ./",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:browser": "vite build --emptyOutDir --base ./ && playwright test",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench": "vitest run --config bench/vitest.config.ts --disableConsoleIntercept"
   },
   "dependencies": {
     "@cesium/core": "^0.1.0",

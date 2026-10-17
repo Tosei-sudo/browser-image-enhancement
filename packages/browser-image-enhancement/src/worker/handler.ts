@@ -4,6 +4,7 @@
 import { compile, isMonochrome, processPixels, resolveMode, type Program, type ResolvedMode } from '../core/process.js';
 import { countPixels, resolveForPixels } from '../core/histogram.js';
 import { configureWasm } from '../core/wasm.js';
+import { decodeLzwBlock } from '../openlayers/lzw.js';
 import { drawTriangles } from '../openlayers/reproject-kernel.js';
 import type { OpSpec } from '../types.js';
 import type { Post as SharedPost } from '@browser-image/workers';
@@ -66,6 +67,11 @@ export function createWorkerHandler(post: Post): (request: WorkerRequest) => voi
           const { stitch, corners, float, ...rest } = request.job;
           const out = drawTriangles({ ...rest, stitch: float ? new Float32Array(stitch) : new Uint8ClampedArray(stitch), corners: new Float64Array(corners) });
           post({ type: 'reprojected', id, buffer: out.buffer as ArrayBuffer }, [out.buffer as ArrayBuffer]);
+          break;
+        }
+        case 'lzw': {
+          const out = decodeLzwBlock(request.buffer, request.parameters);
+          post({ type: 'lzwDecoded', id, buffer: out }, [out]);
           break;
         }
       }
