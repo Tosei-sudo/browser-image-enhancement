@@ -137,6 +137,8 @@ export interface Project {
   bookmarks?: Bookmark[];
   /** Notes drawn on the map (annotations.ts): GeoJSON in `EPSG:3857`. */
   annotations?: SavedNotes;
+  /** ArcGIS elevation services used as elevation data, by URL (tokens are not kept). */
+  elevationServices?: string[];
 }
 
 /** Whether a file name is a project file's. */
@@ -212,6 +214,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       ...(globe ? { globe } : {}),
       ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
       ...(bookmarks.length ? { bookmarks } : {}),
+      ...(Array.isArray(json.elevationServices) && json.elevationServices.some((u) => typeof u === 'string') ? { elevationServices: json.elevationServices.filter((u): u is string => typeof u === 'string') } : {}),
       ...(isObject(json.annotations) && json.annotations.type === 'FeatureCollection' && Array.isArray(json.annotations.features) ? { annotations: json.annotations as unknown as SavedNotes } : {}),
     },
     skipped,

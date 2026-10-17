@@ -246,7 +246,7 @@ END;`;
     { name: 'P001.RPB', bytes: rpb },
   ]);
   await expect.poll(() => names(page)).toEqual(['RPCP001.TIF']);
-  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED）がありません');
+  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED・標高サービス）がありません');
   await page.locator('#geometry [data-action=ortho]').click();
   await expect(page.locator('#status')).toContainText('P001_ortho.tif を作りました（標高データがないため RPC の基準高 500 m で補正）', { timeout: 30_000 });
 });
@@ -348,7 +348,7 @@ test('a georeferenced image without RPC is orthorectified from the satellite dir
   await expect(page.locator('#geometry input[name="仰角 °"]')).toHaveValue('45');
 
   // The image was placed at sea level, not at the mean height (the default).
-  await page.locator('#geometry summary').click();
+  await page.locator('#geometry summary', { hasText: '詳細' }).click();
   await page.locator('#geometry input[name="基準高 m"]').fill('0');
   await page.locator('#geometry [data-action=simple-ortho]').click();
   await expect(page.locator('#status')).toContainText('P002_ortho.tif を作りました', { timeout: 30_000 });
@@ -374,5 +374,115 @@ test('a georeferenced image without RPC is orthorectified from the satellite dir
   expect((spot[0] - placed[0]) * metresPerLon).toBeGreaterThan(1500 - 20);
   expect((spot[0] - placed[0]) * metresPerLon).toBeLessThan(1500 + 20);
   expect(Math.abs(spot[1] - placed[1]) * 111_000).toBeLessThan(20);
+  expect(errors).toEqual([]);
+});
+
+const svc = 'http://localhost:4175/svc/arcgis/rest/services';
+
+/** Adds an elevation service in the panel's 標高サービス, as a person would. */
+async function addElevationService(page: Page, url: string) {
+  // With nothing to correct, the 幾何補正 section stays folded.
+  await page.evaluate(() => (document.querySelector<HTMLDetailsElement>('details[data-fold="geometry"]')!.open = true));
+  await page.locator('#geometry summary', { hasText: '標高サービス' }).click();
+  await page.locator('#geometry input[name=elevation-url]').fill(url);
+  await page.locator('#geometry [data-action=add-elevation]').click();
+}
+
+test('a satellite image is orthorectified onto the terrain of an Esri image service of heights, with no DEM file', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.request.get('http://localhost:4175/svc/reset');
+  await open(page);
+  await choose(page, [{ name: 'scene.tif', bytes: scene() }]);
+  await expect.poll(() => names(page)).toEqual(['RPCscene.tif']);
+  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED・標高サービス）がありません');
+
+  await addElevationService(page, `${svc}/Elevation/ImageServer`);
+  await expect(page.locator('#status')).toContainText('Elevation を標高データとして使います（イメージサービス、最も細かい間隔 約 30 m）');
+  await expect(page.locator('#geometry')).toContainText('標高サービスの地形でオルソ補正します');
+  await expect(page.locator('#geometry .geometry-dems')).toContainText('標高データ: Elevation（サービス）');
+
+  await page.locator('#geometry [data-action=ortho]').click();
+  await expect(page.locator('#status')).toContainText('scene_ortho.tif を作りました', { timeout: 30_000 });
+  // Read for the image's area only, in longitude / latitude, as floats.
+  const asked = ((await (await page.request.get('http://localhost:4175/svc/raster-requests')).json()) as Array<Record<string, string>>).filter((r) => r.service === 'Elevation');
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toMatchObject({ bboxSR: '4326', imageSR: '4326', format: 'tiff', pixelType: 'F32' });
+  const [w, s, e, n] = asked[0].bbox.split(',').map(Number);
+  expect(e - w).toBeLessThan(0.3);
+  expect(n - s).toBeLessThan(0.3);
+
+  // On the 1500 m plateau of the service, as on the DTED's.
+  const spot = await page.evaluate(() => {
+    const { raster, geoTransform } = window.viewer.geometry.orthoOf(window.viewer.images.selected()!)!.result;
+    let sx = 0;
+    let sy = 0;
+    let count = 0;
+    for (let i = 0; i < raster.data.length; i++) {
+      if (raster.data[i] < 2000) continue;
+      sx += i % raster.width;
+      sy += Math.floor(i / raster.width);
+      count++;
+    }
+    const x = geoTransform[0] + (sx / count + 0.5) * geoTransform[1];
+    const y = geoTransform[3] + (sy / count + 0.5) * geoTransform[5];
+    return [(x / 6378137) * (180 / Math.PI), (Math.atan(Math.exp(y / 6378137)) * 360) / Math.PI - 90];
+  });
+  expect(Math.abs(spot[0] - TARGET[0]) * 90_000).toBeLessThan(12);
+  expect(Math.abs(spot[1] - TARGET[1]) * 111_000).toBeLessThan(12);
+  expect(errors).toEqual([]);
+});
+
+test('an elevation tile service (LERC, as Terrain3D) gives the view as a DEM layer with contour lines, and is saved in the project', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.request.get('http://localhost:4175/svc/reset');
+  await open(page);
+  await page.evaluate(([x, y]) => {
+    const view = window.viewer.map.getView();
+    view.setCenter([x, y]);
+    view.setZoom(13);
+  }, mercator(139.75, 35.65));
+
+  await addElevationService(page, `${svc}/Terrain3D/ImageServer`);
+  await expect(page.locator('#status')).toContainText('Terrain3D を標高データとして使います（標高タイル');
+  await expect(page.locator('#geometry summary', { hasText: '標高サービス' })).toHaveText('標高サービス（1）');
+  // The same one again is not added twice.
+  await page.locator('#geometry input[name=elevation-url]').fill(`${svc}/Terrain3D/ImageServer/`);
+  await page.locator('#geometry [data-action=add-elevation]').click();
+  await expect(page.locator('#geometry summary', { hasText: '標高サービス' })).toHaveText('標高サービス（1）');
+
+  await page.locator('#geometry [data-action=import-elevation]').click();
+  await expect(page.locator('#status')).toContainText('Terrain3D_標高.tif を作りました', { timeout: 30_000 });
+  expect(await names(page)).toEqual(['DEMTerrain3D_標高.tif']);
+  // The tiles of one level only, near the view.
+  const tiles = ((await (await page.request.get('http://localhost:4175/svc/raster-requests')).json()) as Array<{ service: string; level: number }>).filter((r) => r.service === 'Terrain3D');
+  expect(tiles.length).toBeGreaterThan(0);
+  expect(tiles.length).toBeLessThan(40);
+  expect(new Set(tiles.map((t) => t.level)).size).toBe(1);
+
+  // The heights are the service's (a plane sloping up to the east and the north), where they are.
+  const posts = await page.evaluate(() => {
+    const dem = window.viewer.geometry.demOf(window.viewer.images.selected()!)!;
+    const out: number[][] = [];
+    for (const [fx, fy] of [[0.2, 0.3], [0.5, 0.5], [0.8, 0.7]]) {
+      const i = Math.round(fx * (dem.width - 1));
+      const j = Math.round(fy * (dem.height - 1));
+      out.push([dem.west + i * dem.spacing[0], dem.south + (dem.height - 1 - j) * dem.spacing[1], dem.data[j * dem.width + i]]);
+    }
+    return out;
+  });
+  for (const [lon, lat, h] of posts) expect(Math.abs(h - (100 + 2000 * (lon - 139.7) + 1000 * (lat - 35.6)))).toBeLessThan(1);
+
+  await page.locator('#geometry [data-action=contours]').check();
+  await expect.poll(() => page.evaluate(() => window.viewer.geometry.hasContours(window.viewer.images.selected()!))).toBe(true);
+
+  // Kept by URL in the project file.
+  const saved = await page.evaluate(() => window.viewer.project.collect());
+  expect(saved.project.elevationServices).toEqual([`http://localhost:4175/svc/arcgis/rest/services/Terrain3D/ImageServer`]);
+
+  // Removed.
+  await page.locator('#geometry [data-action=remove-elevation]').click();
+  await expect(page.locator('#geometry summary', { hasText: '標高サービス' })).toHaveText('標高サービス');
   expect(errors).toEqual([]);
 });

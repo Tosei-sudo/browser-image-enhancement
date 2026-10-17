@@ -240,7 +240,11 @@ test('the bottom left shows the latitude / longitude under the cursor', async ({
   // The notation is picked at the bottom of the right-click menu.
   const menu = page.getByRole('menu', { name: '座標をコピー' });
   const pick = async (name: string) => {
-    await page.mouse.click(center.x, center.y, { button: 'right' });
+    // The menu fills in after an await, and on a busy runner it has not always opened: right-click again.
+    await expect(async () => {
+      if (await menu.isHidden()) await page.mouse.click(center.x, center.y, { button: 'right' });
+      await expect(menu.getByRole('menuitemradio', { name })).toBeVisible({ timeout: 2000 });
+    }).toPass();
     await menu.getByRole('menuitemradio', { name }).click();
     await expect(menu).toBeHidden();
     await page.mouse.move(center.x + 2, center.y);

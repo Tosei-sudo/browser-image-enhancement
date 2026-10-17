@@ -843,6 +843,13 @@ body {
   border-radius: 0 0 4px 4px;
   color: #dc2626;
 }
+/* Actions at the point (plan imaging here…). */
+.coordinate-actions {
+  display: grid;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
 /* Which notation the bottom-left cursor label uses. */
 .coordinate-notation {
   display: flex;
@@ -2887,4 +2894,19 @@ body {
 .script-suggest span {
   color: var(--muted);
   font-size: 11px;
+}
+/* Windows the user drags anywhere (move-windows.ts): dialogs by their title, the panels over the map by their background. */
+dialog h2,
+dialog .catalog-head,
+:is(.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide) {
+  cursor: move;
+}
+/* Controls keep their own cursor (lowest specificity, so their own rules still win). */
+:where(.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide, dialog h2, dialog .catalog-head)
+  :where(input, select, textarea, button, a, summary, label, [contenteditable]) {
+  cursor: auto;
+}
+.moving-window,
+.moving-window * {
+  user-select: none;
 }

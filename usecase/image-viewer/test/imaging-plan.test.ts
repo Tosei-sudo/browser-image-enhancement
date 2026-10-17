@@ -286,6 +286,33 @@ describe('planning', () => {
     expect(once[1].done! - once[0].done!).toBeGreaterThanOrEqual(86400000);
   });
 
+  it('gives the shots to the more important target first', () => {
+    // As above: a is seen first, b a minute later, and the satellite rests 10 minutes between shots.
+    const a: PlanTarget = { label: 'a', center: below, points: [] };
+    const b: PlanTarget = { label: 'b', center: subSatellitePoint(iss(), T + 50000)!, points: [] };
+    const options = { ...around(T, 60 * 24 * 2), start: T - 60000 };
+    const busy = iss({ minInterval: 10 });
+    const { opportunities } = planAccess([busy], [a, b], options);
+    // Equal priorities: time order, a first.
+    const even = coverPlan(opportunities, [{ ...a, priority: 1 }, { ...b, priority: 1 }], [busy]);
+    expect(even[0].done!).toBeLessThan(even[1].done!);
+    // b matters more: it takes this pass, and a waits for a later one, at least the interval away from b's shot.
+    const ranked = coverPlan(opportunities, [{ ...a, priority: 1 }, { ...b, priority: 2 }], [busy]);
+    expect(Math.abs(ranked[1].done! - T)).toBeLessThan(120000);
+    expect(ranked[0].done! - ranked[1].done!).toBeGreaterThanOrEqual(10 * 60000);
+    expect(ranked[0].blocked).toBeGreaterThan(0);
+    // Shots are numbered in time order: b's first.
+    expect(ranked[1].steps[0].shot).toBe(1);
+    expect(ranked[0].steps[0].shot).toBe(2);
+    // A target without a priority comes last.
+    const unranked = coverPlan(opportunities, [a, { ...b, priority: 0 }], [busy]);
+    expect(unranked[1].done!).toBeLessThan(unranked[0].done!);
+    // One a day: the less important one waits a day.
+    const daily = iss({ maxPerDay: 1 });
+    const once = coverPlan(planAccess([daily], [a, b], options).opportunities, [{ ...a, priority: 1 }, { ...b, priority: 2 }], [daily]);
+    expect(once[0].done! - once[1].done!).toBeGreaterThanOrEqual(86400000 - 120000);
+  });
+
   it('reads the series from a name', () => {
     expect(['SkySat-C12', 'ICEYE-X27', 'WorldView-3', 'ALOS-2', 'Sentinel-1A', 'GRUS 1C', 'ASNARO', 'Pleiades Neo 4 (PNEO4)'].map(seriesOf)).toEqual([
       'SkySat',

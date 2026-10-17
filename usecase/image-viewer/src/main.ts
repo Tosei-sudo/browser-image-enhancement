@@ -30,7 +30,7 @@ import { platformModifierKeyOnly } from 'ol/events/condition.js';
 import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
-import { CoordinateMenu } from './coordinate-menu.js';
+import { CoordinateMenu, type PointAction } from './coordinate-menu.js';
 import { CursorPosition } from './cursor-position.js';
 import { showBuildInfo } from './build-info.js';
 import { JumpTo } from './jump.js';
@@ -55,6 +55,7 @@ import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
+import { enableWindowMoving } from './move-windows.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from './services/index.js';
@@ -133,6 +134,9 @@ const map = new Map({
   target: mapElement,
   view: new View({ center: [0, 0], zoom: 2 }),
 });
+
+// Dialogs move by their title, and the panels over the map by their background.
+enableWindowMoving();
 
 // Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;
@@ -375,7 +379,11 @@ const annotations: Annotations = new Annotations(map, {
 // Right click: copy the coordinates of the point.
 // The latitude / longitude under the cursor at the bottom left; its notation is picked in the right-click menu.
 const cursorPosition = new CursorPosition(map, { imageAt: (at): Promise<ViewerImage | null> => coordinateMenu.imageAt(at) });
-const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, { say, cursor: cursorPosition });
+const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, {
+  say,
+  cursor: cursorPosition,
+  actions: (): PointAction[] => [{ label: 'この地点で撮像計画を立てる', title: '撮像計画を開き、この地点を対象に撮像機会を計算します', run: (lonLat): void => void imagingPlan.planAt(lonLat) }],
+});
 // The header field: go to typed coordinates.
 const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say });
 // Named views (kept in the browser and in projects), and the view in the address (`#view=`) for links.
@@ -621,6 +629,12 @@ const project = new ProjectControl({
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
   bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  elevationServices: {
+    get: () => geometry.elevationServiceRefs().map((s) => s.url),
+    add: async (urls) => {
+      for (const url of urls) await geometry.addElevationService(url, undefined, true);
+    },
+  },
   notes: { get: () => annotations.get(), set: (saved) => annotations.set(saved) },
   layout: {
     collect: (indexOf) => collectLayout(layoutParts, indexOf),
@@ -652,6 +666,7 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
     geometryChanged();
   },
   onPipeline: (p) => enhance.setPipeline(p),
+  onSources: () => geometryChanged(),
 });
 
 // Pan-sharpening (from the processing dialog): a panchromatic and a multispectral image make a new layer.
@@ -825,7 +840,8 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (dem) {
     const range = elevationRange(dem);
     const rows: Array<[string, string]> = [['標高データ', `${dem.level}（${(dem.spacing[1] * 3600).toFixed(0)}″ 間隔）`]];
-    if (range) rows.push(['標高', `${range[0]}〜${range[1]} m`]);
+    // DTED heights are whole metres; a GeoTIFF's or a service's, to a tenth.
+    if (range) rows.push(['標高', `${range.map((h) => Math.round(h * 10) / 10).join('〜')} m`]);
     if (dem.verticalAccuracy !== null) rows.push(['垂直精度', `${dem.verticalAccuracy} m`]);
     return rows;
   }
@@ -875,6 +891,8 @@ const globeToggle = new GlobeToggle(map, {
     images,
     selection,
     cells: () => geometry.cells(),
+    elevationSources: () => geometry.elevationSources(),
+    cellsFor: (lonLat, maxPosts) => geometry.cellsFor(lonLat, maxPosts),
     showFeature: (layer, feature) => {
       if (images.selectedLayer() !== layer) images.select(layer);
       selection.set([feature]);
@@ -974,6 +992,8 @@ const started = (async () => {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
   }
   for (const layer of opening) await openAtStart(layer);
+  // Elevation services of config.json, ready for orthorectification and 3D.
+  for (const service of config.elevationServices) await geometry.addElevationService(service.url, service.token, true);
   // The temporary layers of earlier visits, on top.
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));

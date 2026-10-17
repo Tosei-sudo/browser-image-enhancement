@@ -110,7 +110,8 @@ export function foldSections(side: HTMLElement): void {
   if (geometry && panel) {
     let actions = false;
     new MutationObserver(() => {
-      const now = !!panel.querySelector('[data-action]');
+      // The elevation services' buttons are always there: they are not something to do for the layer.
+      const now = [...panel.querySelectorAll('[data-action]')].some((b) => !b.closest('.geometry-sources'));
       if (now && !actions) geometry.open = true;
       actions = now;
     }).observe(panel, { childList: true, subtree: true });

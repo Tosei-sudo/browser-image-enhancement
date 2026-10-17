@@ -168,8 +168,9 @@ export class ScriptDialog {
     this.code_.focus();
   }
 
-  /** Below the top of the map with room for the edit toolbar, so its 「保存」 stays in reach. */
+  /** Below the top of the map with room for the edit toolbar, so its 「保存」 stays in reach (unless the user moved it). */
   private place_(): void {
+    if ('moved' in this.dialog.dataset) return;
     const top = document.getElementById('map')?.getBoundingClientRect().top;
     if (top !== undefined) this.dialog.style.top = `${Math.round(top + 52)}px`;
   }
