@@ -72,7 +72,11 @@ export class AttributeTable {
     readonly element: HTMLElement,
     private readonly map: OlMap,
     private readonly selection: Selection,
-    private readonly options: { say: (message: string) => void },
+    private readonly options: {
+      say: (message: string) => void;
+      /** A link to the viewer showing `features` (`?geom=`), or null when they are too many for a link. */
+      shapeLink?: (features: Feature[]) => string | null;
+    },
   ) {
     element.classList.add('table-panel');
     const bar = document.createElement('div');
@@ -256,6 +260,21 @@ export class AttributeTable {
     this.map.getView().fit(extent, { padding: [60, 60, 60, 60], maxZoom: 18, duration: 250 });
   }
 
+  /** Copies a link that shows `features` in the viewer (as a temporary layer), for mail or chat. */
+  async copyShapeLink(features: Feature[]): Promise<void> {
+    const link = this.options.shapeLink?.(features);
+    if (!link) {
+      this.options.say('図形が大きすぎてリンクにできません（頂点を減らすか、ファイルに書き出してください）');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      this.options.say(`図形 ${features.length.toLocaleString()} 個を表示するリンクをコピーしました`);
+    } catch {
+      this.options.say(`リンクをコピーできませんでした: ${link.length > 200 ? `${link.slice(0, 200)}…` : link}`);
+    }
+  }
+
   /** Copies the rows of `features` (visible columns, with a header) as tab-separated text, for a spreadsheet. */
   async copyRows(features: Feature[]): Promise<void> {
     const text = toTsv(this.visibleFields_(), features);
@@ -292,6 +311,7 @@ export class AttributeTable {
       { label: several ? `${several}の行をコピー` : '行をコピー', run: () => void this.copyRows(features) },
       { label: '選択を解除', run: () => this.selection.clear() },
     ];
+    if (this.options.shapeLink) items.splice(2, 0, { label: several ? `${several}の図形のリンクをコピー` : '図形のリンクをコピー', run: () => void this.copyShapeLink(features) });
     const remove = this.data_?.onDelete;
     if (remove) items.push({ label: several ? `${several}を削除…` : '削除…', danger: true, run: () => remove(features) });
     this.menu_.open(items, x, y);
