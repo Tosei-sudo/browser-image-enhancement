@@ -57,6 +57,7 @@ import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
 import { enableWindowMoving } from './move-windows.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
+import { Theme } from './theme.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from './services/index.js';
 import { IMAGE_CHOICE, isImageServerUrl, isMapServerUrl, MAP_CHOICE } from './services/esri-raster.js';
@@ -156,6 +157,8 @@ makeResizer({
 
 // The shell: the click tools in one menu, a guide on the first visit, 「?」 for every shortcut.
 const toolMenu = new ToolMenu(document.getElementById('tools-menu')!);
+// 「表示」 in the menu: light, dark or the system's setting.
+new Theme(document.getElementById('theme-choices')!);
 const guide = new Guide(mapElement);
 const help = new HelpDialog(guide);
 document.getElementById('help')!.addEventListener('click', () => help.open());

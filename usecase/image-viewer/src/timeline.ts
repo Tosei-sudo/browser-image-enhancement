@@ -242,6 +242,7 @@ export class Timeline extends Observable {
     options.button.addEventListener('click', () => this.setOpen(!this.open_));
     this.bindChart_();
     new ResizeObserver(() => this.draw_()).observe(this.canvas_);
+    document.addEventListener('themechange', () => this.draw_());
   }
 
   /** Whether the timeline is open (and filtering). */

@@ -10,6 +10,17 @@
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <link rel="stylesheet" href="./src/style.css" />
+    <!-- Light or dark before the first paint, from the 「表示」 menu's choice (src/theme.ts). -->
+    <script>
+      (function () {
+        var choice = null;
+        try {
+          choice = localStorage.getItem('image-viewer.theme');
+        } catch (e) {}
+        if (choice !== 'light' && choice !== 'dark') choice = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = choice;
+      })();
+    </script>
   </head>
   <body>
     <div class="app">
@@ -86,6 +97,13 @@
               <button type="button" id="save-view" title="表示範囲を PNG・GeoTIFF で保存します">表示範囲を保存</button>
               <!-- A sheet with a title, scale bar, north arrow and legend: src/print-layout.ts. -->
               <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例を付けて A4・A3 の PDF・PNG に保存します">印刷レイアウト…</button>
+            </div>
+            <!-- Light, dark or the system's setting: src/theme.ts. -->
+            <p class="menu-heading">表示</p>
+            <div class="point-tools theme-choices" id="theme-choices" role="radiogroup" aria-label="表示">
+              <button type="button" role="radio" data-keep-open data-theme-choice="auto" aria-checked="true" title="システムの設定に合わせます">自動</button>
+              <button type="button" role="radio" data-keep-open data-theme-choice="light" aria-checked="false">ライト</button>
+              <button type="button" role="radio" data-keep-open data-theme-choice="dark" aria-checked="false">ダーク</button>
             </div>
           </div>
         </div>
