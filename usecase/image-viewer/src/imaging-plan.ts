@@ -415,6 +415,14 @@ export interface PlanTarget {
    * them. Absent or empty for a point, which is covered whole or not at all.
    */
   cells?: Array<[number, number]>;
+  /**
+   * How much the target matters (larger first; from an attribute of its
+   * feature). In a combination, more important targets get the satellites'
+   * shots first; absent counts as the least important.
+   */
+  priority?: number;
+  /** How the priority reads (the attribute's value), for lists. */
+  priorityText?: string;
 }
 
 export interface PlanOptions {
@@ -872,23 +880,35 @@ function sharedScene(op: Opportunity, candidates: Opportunity[], sat: SatelliteS
  * close together on a pass are taken in one scene: a shot for one point
  * also takes the others that fit in the same scene (its width across the
  * track, its length along it), so they need no shots of their own.
+ *
+ * Targets with a `priority` are planned in its order, most important
+ * first: the targets of one priority get their shots, and the next ones fit
+ * in with what the satellites have left (so a less important target never
+ * takes the shot a more important one needs). Within a priority it is time
+ * order as above.
  */
 export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], sats: SatelliteSpec[], goal = 0.95, minGain = 0.02, share = true): CoverPlan[] {
   const plans: CoverPlan[] = targets.map((_, ti) => ({ target: ti, steps: [], coverage: 0, done: null, blocked: 0 }));
   const covered = targets.map((t) => new Uint8Array(t.cells?.length ?? 0));
   const totals = targets.map(() => 0);
   const shots = sats.map(() => [] as number[]);
+  // Whether the satellite cannot take a shot at `time`: too close to one it takes (before or after, as more important
+  // targets are planned first), or a 24 hours round it already full.
   const busy = (s: number, time: number) => {
     const sat = sats[s];
     const taken = shots[s];
-    const last = taken[taken.length - 1];
-    if (last !== undefined && sat.minInterval > 0 && time - last < sat.minInterval * 60000) return true;
-    return sat.maxPerDay > 0 && taken.filter((t) => time - t < 86400000).length >= sat.maxPerDay;
+    if (sat.minInterval > 0 && taken.some((t) => Math.abs(time - t) < sat.minInterval * 60000)) return true;
+    if (sat.maxPerDay <= 0) return false;
+    const near = taken.filter((t) => Math.abs(time - t) < 86400000);
+    return [time, ...near.filter((t) => t > time - 86400000 && t <= time)].some((from) => near.filter((t) => t >= from && t < from + 86400000).length + 1 > sat.maxPerDay);
   };
   const sorted = [...opportunities].sort((a, b) => a.time - b.time);
   let shot = 0;
   const isPoint = (o: Opportunity) => !covered[o.target].length && o.width === 0;
-  sorted.forEach((op, i) => {
+  const rank = (t: number) => targets[t]?.priority ?? -Infinity;
+  const tiers = [...new Set(targets.map((_, t) => rank(t)))].sort((a, b) => b - a);
+  for (const tier of tiers) sorted.forEach((op, i) => {
+    if (rank(op.target) !== tier) return;
     const plan = plans[op.target];
     if (!plan || plan.done !== null) return;
     const n = covered[op.target].length;
@@ -948,6 +968,15 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
     plan.coverage = total;
     if (total >= goal) plan.done = op.time;
   });
+  // Shots were numbered as they were taken; in a plan by priority, number them again in time order.
+  if (tiers.length > 1) {
+    const order = [...new Set(plans.flatMap((p) => p.steps.map((s) => s.shot!)))].sort((a, b) => a - b);
+    const times = new Map<number, number>();
+    for (const p of plans) for (const s of p.steps) times.set(s.shot!, s.time);
+    order.sort((a, b) => times.get(a)! - times.get(b)! || a - b);
+    const renumber = new Map(order.map((n, i) => [n, i + 1]));
+    for (const p of plans) for (const s of p.steps) s.shot = renumber.get(s.shot!);
+  }
   return plans;
 }
 

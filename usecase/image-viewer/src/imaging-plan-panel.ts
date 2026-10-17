@@ -160,6 +160,14 @@ export function cellsOf(areas: Array<Polygon | MultiPolygon>): Array<[number, nu
 }
 
 /** A feature's name for the list: a name-like attribute, its id, or its number. */
+/** An attribute value as a priority number, or null when it is not a number. */
+export function priorityOf(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string' || !v.trim()) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function nameOf(feature: Feature, index: number): string {
   for (const key of ['name', 'NAME', 'Name', '名称', 'title', 'TITLE']) {
     const v = feature.get(key);
@@ -208,6 +216,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
   const combined = ops.some((op) => op.cumulative !== undefined);
+  const prioritized = targets.some((t) => t.priority !== undefined);
   const head = [
     '日時（UTC）',
     '日時（ローカル）',
@@ -215,6 +224,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     '衛星',
     '衛星ID',
     '対象',
+    ...(prioritized ? ['優先度'] : []),
     '経度',
     '緯度',
     'オフナディア角',
@@ -239,6 +249,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       sat.name,
       sat.id,
       t.label,
+      ...(prioritized ? [t.priorityText ?? ''] : []),
       round(t.center[0], 6),
       round(t.center[1], 6),
       round(op.offNadir, 2),
@@ -263,7 +274,7 @@ interface Listed {
   box: HTMLInputElement;
 }
 
-type SortKey = 'time' | 'satellite' | 'target' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative' | 'shot';
+type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative' | 'shot';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
   switch (feature.get('kind')) {
@@ -377,6 +388,8 @@ export class ImagingPlanPanel {
               <label>日照条件<select name="daylight"><option value="optical">光学衛星は日中のみ</option><option value="none">考慮しない</option></select></label>
               <label>太陽高度（以上）<input name="minSun" type="number" min="-18" max="90" step="any" value="10" /></label>
               <label class="check"><input name="each" type="checkbox" checked />地物ごとに計算</label>
+              <label class="plan-priority" title="組み合わせで、優先度の高い地物から衛星の撮像を割り当てます（撮像間隔・1 日の上限で取り合いになるとき、高い方が先に撮れます）">優先度の属性<select name="priority"><option value="">なし</option></select></label>
+              <label class="plan-priority">優先する値<select name="priorityOrder"><option value="small">小さいほど優先（1 が最優先）</option><option value="large">大きいほど優先</option></select></label>
               <label class="wide">TLE を貼り付けて追加<textarea name="tle" rows="3" placeholder="ISS (ZARYA)&#10;1 25544U 98067A   …&#10;2 25544  51.6416 …" spellcheck="false"></textarea></label>
               <div class="plan-pasted wide">
                 <label>最大オフナディア角<input name="pasteMax" type="number" min="0" max="80" step="any" value="${builtInDefaults.maxOffNadir}" /></label>
@@ -440,7 +453,11 @@ export class ImagingPlanPanel {
       e.preventDefault();
       void this.run();
     });
-    this.target_.addEventListener('change', () => this.showTargets());
+    this.target_.addEventListener('change', () => {
+      this.listPriorityFields();
+      this.showTargets();
+    });
+    (this.form_.elements.namedItem('each') as HTMLInputElement).addEventListener('change', () => this.listPriorityFields());
     this.dialog.querySelector('.plan-sats button[value=all]')!.addEventListener('click', () => this.checkAll(true));
     this.dialog.querySelector('.plan-sats button[value=none]')!.addEventListener('click', () => this.checkAll(false));
     this.sats_.addEventListener('change', () => this.countSats());
@@ -484,6 +501,15 @@ export class ImagingPlanPanel {
 
   close(): void {
     this.dialog.close();
+  }
+
+  /** Opens the panel with the point `lonLat` (WGS 84) as the target and plans it (the map's right-click menu). */
+  async planAt(lonLat: [number, number]): Promise<void> {
+    if (!this.dialog.open) this.open();
+    this.clicked_ = lonLat;
+    this.target_.value = 'click';
+    this.showTargets();
+    await this.run();
   }
 
   /** The satellites listed (catalog and pasted), and whether each is checked. */
@@ -668,7 +694,33 @@ export class ImagingPlanPanel {
     ];
     this.target_.replaceChildren(...options);
     this.target_.value = options.some((o) => o.value === before) ? before : options[0].value;
+    this.listPriorityFields();
     this.showTargets();
+  }
+
+  /** The features of the chosen target (null for a clicked point). */
+  private chosenFeatures(): Feature[] | null {
+    const choice = this.target_.value;
+    if (choice === 'click') return null;
+    if (choice === 'selection') return this.options.selection.list();
+    return this.vectorLayers()[Number(choice.slice('layer:'.length))]?.service.vector!.source.getFeatures() ?? [];
+  }
+
+  /** Fills the priority choice with the target's attributes that hold numbers (shown when planning features one by one). */
+  listPriorityFields(): void {
+    const select = this.form_.elements.namedItem('priority') as HTMLSelectElement;
+    const before = select.value;
+    const features = this.chosenFeatures() ?? [];
+    const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
+    const fields = new Set<string>();
+    for (const f of features.slice(0, 2000)) {
+      const geometryName = f.getGeometryName();
+      for (const [key, v] of Object.entries(f.getProperties())) if (key !== geometryName && priorityOf(v) !== null) fields.add(key);
+    }
+    select.replaceChildren(new Option('なし', ''), ...[...fields].sort((a, b) => a.localeCompare(b, 'ja')).map((k) => new Option(k, k)));
+    select.value = fields.has(before) ? before : (([...fields].find((k) => /priority|優先/i.test(k)) ?? '') as string);
+    const shown = each && features.length > 1 && fields.size > 0;
+    for (const label of this.dialog.querySelectorAll<HTMLElement>('.plan-priority')) label.hidden = !shown;
   }
 
   /** The targets the form asks for (in WGS 84), or the reason there are none. */
@@ -679,17 +731,14 @@ export class ImagingPlanPanel {
       if (!this.clicked_) return '地図をクリックして地点を指定してください';
       return [{ label: `${round(this.clicked_[1], 5)}, ${round(this.clicked_[0], 5)}`, center: this.clicked_, points: [] }];
     }
-    let features: Feature[];
     let name: string;
-    if (choice === 'selection') {
-      features = this.options.selection.list();
-      name = '選択中の地物';
-    } else {
+    if (choice === 'selection') name = '選択中の地物';
+    else {
       const layer = this.vectorLayers()[Number(choice.slice('layer:'.length))];
       if (!layer) return '対象のレイヤーがありません';
-      features = layer.service.vector!.source.getFeatures();
       name = layer.name;
     }
+    let features = this.chosenFeatures()!;
     features = features.filter((f) => f.getGeometry());
     if (!features.length) return '対象に図形がありません';
     const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
@@ -698,9 +747,13 @@ export class ImagingPlanPanel {
       return t ? [t] : '対象に図形がありません';
     }
     if (features.length > MAX_TARGETS) return `地物が ${features.length.toLocaleString()} 件あります。${MAX_TARGETS} 件以下を選択するか、「詳細条件」の「地物ごとに計算」を外してまとめて計算してください`;
+    const field = (this.form_.elements.namedItem('priority') as HTMLSelectElement).value;
+    const sign = (this.form_.elements.namedItem('priorityOrder') as HTMLSelectElement).value === 'large' ? 1 : -1;
     return features.flatMap((f, i) => {
       const t = targetOf([f], projection, nameOf(f, i));
-      return t ? [t] : [];
+      if (!t) return [];
+      const v = field ? priorityOf(f.get(field)) : null;
+      return [v === null ? t : { ...t, priority: sign * v, priorityText: String(f.get(field)) }];
     });
   }
 
@@ -715,7 +768,7 @@ export class ImagingPlanPanel {
       if (choice === 'click') source.addFeature(new Feature({ kind: 'target', target: 0, geometry: new Point(transform(this.clicked_!, 'EPSG:4326', projection)) }));
       else {
         // The features themselves, outlined.
-        const features = choice === 'selection' ? this.options.selection.list() : (this.vectorLayers()[Number(choice.slice(6))]?.service.vector!.source.getFeatures() ?? []);
+        const features = this.chosenFeatures() ?? [];
         const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
         features
           .filter((f) => f.getGeometry())
@@ -833,7 +886,8 @@ export class ImagingPlanPanel {
       for (const step of plans.flatMap((p) => p.steps)) if (step.shot !== undefined) shots.set(step.shot, step.shotTargets ?? 1);
       const shared = [...shots.values()].filter((n) => n > 1);
       const scenes = plans.length > 1 ? `全 ${shots.size} シーン${shared.length ? `（うち ${shared.length} シーンで ${shared.reduce((a, b) => a + b, 0)} 地点をまとめて撮像）` : ''}。` : '';
-      this.status_.textContent = `${summary}。${scenes}${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示します${problems}`;
+      const ranked = new Set(targets.map((t) => t.priority)).size > 1 ? '優先度の高い対象から撮像を割り当てました。' : '';
+      this.status_.textContent = `${summary}。${scenes}${ranked}${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示します${problems}`;
     }
     if (this.shown_.length) this.choose(this.shown_[0]);
   }
@@ -855,6 +909,9 @@ export class ImagingPlanPanel {
         title: (op) => `${plan.sats[op.satellite].source}・TLE ${round(op.tleAge, 0)} 日${plan.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれることがあります）' : ''}`,
       },
       ...(many ? [{ key: 'target' as const, label: '対象', text: (op: Opportunity) => plan.targets[op.target].label }] : []),
+      ...(many && plan.targets.some((t) => t.priority !== undefined)
+        ? [{ key: 'priority' as const, label: '優先度', text: (op: Opportunity) => plan.targets[op.target].priorityText ?? '', title: () => '対象の優先度（属性の値）。並べ替えると優先度の高い順' }]
+        : []),
       { key: 'offNadir', label: 'オフナディア角', text: (op) => `${round(op.offNadir)}°`, title: (op) => `入射角 ${round(op.incidence)}°・距離 ${round(op.range, 0)} km` },
       { key: 'side', label: '方向', text: sideText, title: () => '衛星の進行方向に対して対象が右か左か、北行（昇交）か南行（降交）か' },
       { key: 'sun', label: '太陽高度', text: (op) => `${round(op.sunElevation, 0)}°` },
@@ -893,6 +950,8 @@ export class ImagingPlanPanel {
           return plan.sats[op.satellite].name;
         case 'target':
           return plan.targets[op.target].label;
+        case 'priority':
+          return -(plan.targets[op.target].priority ?? -Infinity);
         case 'offNadir':
           return op.offNadir;
         case 'side':
