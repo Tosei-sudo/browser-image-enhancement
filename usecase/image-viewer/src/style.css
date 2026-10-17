@@ -3128,6 +3128,22 @@ body {
 .hl-function {
   color: light-dark(#6f5000, #e3c07f);
 }
+.script-ask {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent-bg);
+}
+.script-ask[hidden] {
+  display: none;
+}
+.script-ask span {
+  flex: 1 1 12rem;
+}
 .script-actions {
   align-items: center;
   margin-top: 0;

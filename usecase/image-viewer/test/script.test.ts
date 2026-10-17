@@ -84,6 +84,16 @@ describe('the worker source', () => {
   });
 });
 
+describe('suggestions in quotes', () => {
+  it('offers what the function takes: tools for viewer.tool, layers elsewhere', () => {
+    const choices = (fn: string) => (fn === 'tool' ? [{ name: 'band-math', detail: 'バンド演算' }, { name: 'buffer', detail: 'バッファ' }] : [{ name: 'parcels', detail: 'レイヤー' }]);
+    const text = "await viewer.tool('ba";
+    expect(suggestionsAt(text, text.length, choices)?.items.map((i) => i.label)).toEqual(['band-math']);
+    const other = "await viewer.setVisible('par";
+    expect(suggestionsAt(other, other.length, choices)?.items.map((i) => i.label)).toEqual(['parcels']);
+  });
+});
+
 describe('colouring of the script editor', () => {
   const text = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
