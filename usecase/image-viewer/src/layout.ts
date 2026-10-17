@@ -1,11 +1,14 @@
 /**
  * The screen layout kept in a project: the widths and heights of the panels
  * around the map, which side sections are open, whether the attribute table
- * is folded, and the timeline and the dashboard as they were.
+ * is folded, the timeline and the dashboard as they were, and the side by
+ * side comparison.
  */
 import type { AttributeTable } from './table.js';
 import type { Dashboard, DashboardState } from './dashboard.js';
 import type { Timeline, TimelineState } from './timeline.js';
+import type { SplitState, SplitView } from './split-view.js';
+import type { ViewerLayer } from './images.js';
 
 /** The layout part of a project file. */
 export interface ProjectLayout {
@@ -19,6 +22,8 @@ export interface ProjectLayout {
   timeline?: Partial<TimelineState>;
   /** The dashboard; its `layer` is an index in the project's layers. */
   dashboard?: Partial<DashboardState>;
+  /** The side by side comparison; its `layers` are indexes in the project's layers. Absent: off. */
+  split?: SplitState;
 }
 
 /** What the layout is made of. */
@@ -30,6 +35,8 @@ export interface LayoutParts {
   dashboard: Dashboard;
   /** Called after sizes change (the map needs updateSize). */
   onResize: () => void;
+  /** The side by side comparison, and the layer list its panes pick from. */
+  split?: { view: SplitView; layers: () => readonly ViewerLayer[] };
 }
 
 const sizes: Array<[key: 'sideWidth' | 'dashboardWidth' | 'tableHeight', property: string, element: (p: LayoutParts) => HTMLElement]> = [
@@ -54,6 +61,8 @@ export function collectLayout(parts: LayoutParts, indexOf: (listIndex: number) =
   const dashboard = parts.dashboard.getState();
   const layer = dashboard.layer === null ? -1 : indexOf(dashboard.layer);
   layout.dashboard = { ...dashboard, layer: layer >= 0 ? layer : null };
+  const split = parts.split?.view.getState((l) => indexOf(parts.split!.layers().indexOf(l)));
+  if (split) layout.split = split;
   return layout;
 }
 
@@ -75,5 +84,12 @@ export function applyLayout(parts: LayoutParts, layout: ProjectLayout, listIndex
     const index = typeof layout.dashboard.layer === 'number' ? listIndexOf(layout.dashboard.layer) : -1;
     parts.dashboard.setState({ ...layout.dashboard, layer: index >= 0 ? index : null });
   } else parts.dashboard.setOpen(false);
+  if (parts.split) {
+    const { view, layers } = parts.split;
+    view.setState(layout.split, (i) => {
+      const index = listIndexOf(i);
+      return index >= 0 ? (layers()[index] ?? null) : null;
+    });
+  }
   parts.onResize();
 }
