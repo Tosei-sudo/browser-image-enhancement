@@ -3159,3 +3159,86 @@ dialog.popped-out h2,
 dialog.popped-out .catalog-head {
   cursor: auto;
 }
+
+/* The command palette (Ctrl+K): a search field over a list of every tool. */
+.palette-button {
+  font-size: 16px;
+  line-height: 1;
+}
+.command-palette {
+  width: min(36rem, calc(100% - 32px));
+  max-height: min(70vh, 34rem);
+  margin-top: 12vh;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 8px 32px var(--shadow);
+  font-size: 13px;
+}
+.command-palette[open] {
+  display: flex;
+  flex-direction: column;
+}
+.command-palette input {
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  outline: none;
+}
+.command-palette ul {
+  flex: 1;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+}
+.command-palette li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.command-palette li[aria-selected='true'] {
+  background: var(--accent-bg);
+}
+.palette-detail {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-recent {
+  color: var(--accent);
+  font-size: 11px;
+}
+.command-palette kbd {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font: 11px ui-monospace, monospace;
+}
+.palette-empty,
+.palette-hint {
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.palette-hint {
+  border-top: 1px solid var(--line);
+}
+.palette-hint kbd {
+  margin-right: 2px;
+}
