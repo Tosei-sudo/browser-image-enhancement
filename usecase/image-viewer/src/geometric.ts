@@ -107,6 +107,8 @@ export class GeometricMode {
   private readonly geoImages_ = new WeakMap<ViewerImage, GeoImage>();
   private sources_: Array<ElevationSource & { token?: string }> = [];
   private sourcesOpen_ = false;
+  /** Sensor views known from elsewhere (an image catalog), used when the image's own files have none. */
+  private readonly suggestedViews_ = new WeakMap<EnhancedGeoTIFF, SensorView>();
   private shifting_ = false;
   private busy_ = false;
   private readonly drag_: PointerInteraction;
@@ -373,7 +375,7 @@ export class GeometricMode {
   setGeoreferenced(source: EnhancedGeoTIFF, from: Blob | string, view: SensorView | null = null): void {
     const image = this.find_(source);
     if (!image || this.satellites_.has(image) || this.dems_.has(image)) return;
-    const geo: GeoImage = { from, view, referenceHeight: null, lonLat: null };
+    const geo: GeoImage = { from, view: view ?? this.suggestedViews_.get(source) ?? null, referenceHeight: null, lonLat: null };
     this.geoImages_.set(image, geo);
     void source
       .getView()
@@ -384,6 +386,19 @@ export class GeometricMode {
       })
       .catch(() => {});
     this.changed_(image);
+  }
+
+  /**
+   * The satellite's direction from elsewhere (an image catalog) as the starting angles of the simple
+   * orthorectification; angles read from the image's own files (.IMD) or typed in stay.
+   */
+  suggestView(source: EnhancedGeoTIFF, view: SensorView): void {
+    this.suggestedViews_.set(source, view);
+    const image = this.find_(source);
+    const geo = image && this.geoImages_.get(image);
+    if (!image || !geo || geo.view) return;
+    geo.view = { ...view };
+    if (this.images.selected() === image) this.render();
   }
 
   /** Shows or hides the contour lines of a DEM. */
