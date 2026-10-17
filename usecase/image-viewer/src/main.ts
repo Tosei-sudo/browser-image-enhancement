@@ -90,6 +90,7 @@ import { registerJapaneseCrs } from './processing/reproject.js';
 import { SwipeTool } from './swipe.js';
 import { SplitView } from './split-view.js';
 import { HistogramPanel } from './histogram-panel.js';
+import { SpectralPanel } from './spectral.js';
 import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
@@ -270,6 +271,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     // Swipe comparison and the histogram follow the selection.
     swipe?.setLayer(layer?.layer ?? null, layer?.name);
     histogramPanel?.setLayer(layer?.layer ?? null, () => target?.getColorMode() ?? null);
+    spectral?.setImage(layer?.type === 'image' ? layer : null);
   },
   onRemove: (layer) => {
     if (layer.type === 'image') {
@@ -370,6 +372,16 @@ const split = new SplitView(map, {
 layoutParts.split = { view: split, layers: () => images.layers() };
 const histogramPanel = new HistogramPanel(map, { button: document.getElementById('histogram-open') as HTMLButtonElement, element: document.getElementById('histogram')! });
 histogramPanel.setLayer(null);
+// Every band's values at points clicked on the map, overlaid, for the selected image.
+const spectral = new SpectralPanel(map, {
+  button: document.getElementById('spectral-open') as HTMLButtonElement,
+  element: document.getElementById('spectral')!,
+  image: () => {
+    const layer = images.selectedLayer();
+    return layer?.type === 'image' ? layer : null;
+  },
+  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive(),
+});
 metadataButton.addEventListener('click', () => {
   const layer = images.selectedLayer();
   if (layer?.type === 'image') void metadata.open(layer);
@@ -1059,7 +1071,7 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
 
 // The 3D view: the 2D layers draped over a WGS 84 globe, DEM relief, 3D Tiles, multipatches and the viewshed.
 // The tools that work on the 2D view wait while it is open; measuring and saving the view work on the globe instead.
-const twoDOnly = ['add-point', 'swipe', 'split', 'histogram-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
+const twoDOnly = ['add-point', 'swipe', 'split', 'histogram-open', 'spectral-open'].map((id) => document.getElementById(id) as HTMLButtonElement);
 const threeDMeasure = { 'measure-distance': 'distance', 'measure-area': 'area' } as const;
 for (const [id, mode] of Object.entries(threeDMeasure)) {
   const button = document.getElementById(id) as HTMLButtonElement;
@@ -1115,6 +1127,7 @@ const globeToggle = new GlobeToggle(map, {
       if (swipe.isActive()) swipe.setActive(false);
       if (split.getCount() > 1) split.setCount(1);
       if (histogramPanel.isOpen()) histogramPanel.setOpen(false);
+      if (spectral.isOpen()) spectral.setOpen(false);
     }
     for (const b of twoDOnly) {
       b.disabled = open;
@@ -1277,6 +1290,7 @@ declare global {
       swipe: SwipeTool;
       split: SplitView;
       histogram: HistogramPanel;
+      spectral: SpectralPanel;
       viewExport: ViewExportDialog;
       project: ProjectControl;
       rset: typeof rsetSettings;
@@ -1291,4 +1305,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };

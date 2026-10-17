@@ -144,8 +144,11 @@
               <button type="button" role="radio" data-count="4" aria-checked="false">4画面</button>
             </span>
             <button id="histogram-open" type="button" aria-pressed="false" title="選択中の画像の、表示範囲のヒストグラム">ヒストグラム</button>
+            <!-- Every band's value at clicked points or over a dragged box: src/spectral.ts. -->
+            <button id="spectral-open" type="button" aria-pressed="false" title="地図をクリックした点（またはドラッグした範囲）の、全バンドの値をグラフにします">スペクトル</button>
           </div>
           <div id="histogram"></div>
+          <div id="spectral"></div>
         </details>
         <p id="build" class="build"></p>
       </aside>
