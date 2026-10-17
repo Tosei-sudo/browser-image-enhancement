@@ -14,6 +14,8 @@
  *   Voronoi), the imaging plan, geodesic measures and geometry operations.
  * - Files: GeoJSON, CSV, Shapefile and GeoPackage exports and text files,
  *   handed over as downloads (a few per run).
+ * - Everything else a person does (layers shown and ordered, correction,
+ *   styles, the view, tool dialogs, opening layers): automation.ts.
  */
 import Feature from 'ol/Feature.js';
 import type OlMap from 'ol/Map.js';
@@ -60,6 +62,7 @@ import {
   type ScriptFeatureCollection,
 } from './convert.js';
 import type { ScriptHandlers } from './sandbox.js';
+import { automationHandlers, type AutomationContext } from './automation.js';
 
 /** Most samples (width × height × bands) read or written in one call. */
 export const MAX_SAMPLES = 16_777_216;
@@ -70,7 +73,7 @@ const MAX_DOWNLOADS = 20;
 /** Largest text file a script may save. */
 const MAX_TEXT_FILE = 64 * 1024 * 1024;
 
-export interface ScriptContext {
+export interface ScriptContext extends AutomationContext {
   map: OlMap;
   layers: () => readonly ViewerLayer[];
   selectedLayer: () => ViewerLayer | null;
@@ -908,6 +911,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       return geojson.writeGeometryObject(geometry.transform(from, to));
     },
   };
+  Object.assign(handlers, automationHandlers(ctx, { layerOf, imageOf, vectorOf, info, layerId, download: count }));
   const finish = () => {
     // Only the session still being edited: an ended one has nothing left to undo.
     for (const [session, from] of marks) if (ctx.editor.session() === session) session.merge(from);

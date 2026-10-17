@@ -138,4 +138,38 @@ await viewer.createRaster(\`\${layer.name} 正規化差\`, { width: px.width, he
 print('作成しました');
 `,
   },
+  {
+    name: '画像の見え方をそろえる（補正・バンド・不透明度）',
+    code: `// 開いている画像すべてに同じ補正をかけ、3 バンド以上ならトゥルーカラー（3・2・1）に、不透明度を 0.9 にします。
+for (const l of await viewer.layers()) {
+  if (l.kind !== 'raster') continue;
+  if (l.bands >= 3) await viewer.setBands(l.id, [2, 1, 0]);
+  await viewer.setEnhance(l.id, { autoStretch: {}, contrast: 0.1, saturation: 0.1 });
+  await viewer.setOpacity(l.id, 0.9);
+  print(\`\${l.name}: 補正しました\`);
+}
+`,
+  },
+  {
+    name: 'すべての画像で NDVI（ツールを実行）',
+    code: `// 4 バンド以上の画像ごとに「バンド演算・指標」で NDVI を作ります。設定できる項目は viewer.toolOptions('band-math') で分かります。
+for (const l of await viewer.layers()) {
+  if (l.kind !== 'raster' || l.bands < 4) continue;
+  const result = await viewer.tool('band-math', { image: l.id, preset: 'ndvi' });
+  print(l.name, '→', result.layers.map((r) => r.name).join(', '));
+}
+`,
+  },
+  {
+    name: '属性で色分けしてラベルを付ける',
+    code: `// 選択中のベクターレイヤーを、1 つめの文字の属性で色分けし、その値をラベルにします。
+const layer = await viewer.selectedLayer();
+if (layer?.kind !== 'vector') throw new Error('ベクターレイヤーを選んでください');
+const field = layer.fields.find((f) => f.type === 'string');
+if (!field) throw new Error('文字の属性がありません');
+const style = await viewer.setStyle(layer.id, { mode: 'categorized', field: field.name, label: { field: field.name } });
+print(\`\${field.name} で \${style.categories.length} 色に分けました\`);
+await viewer.zoomTo(layer.id);
+`,
+  },
 ];

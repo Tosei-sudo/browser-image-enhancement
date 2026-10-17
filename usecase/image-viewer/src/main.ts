@@ -67,7 +67,7 @@ import { IMAGE_CHOICE, isImageServerUrl, isMapServerUrl, MAP_CHOICE } from './se
 import { RasterRulesDialog } from './raster-rules-dialog.js';
 import { elevationRange } from './dem.js';
 import { NewLayerDialog } from './new-layer-dialog.js';
-import { ProcessingDialog } from './processing-dialog.js';
+import { ProcessingDialog, tools as processingTools } from './processing-dialog.js';
 import { DetectDialog, SegmentTool } from './ai-tools.js';
 import { TransferDialog } from './ai-transfer.js';
 import { imageTime } from './timeline.js';
@@ -883,6 +883,8 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
 });
 
 // Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
+/** Menu buttons a script may press (viewer.command): ones that open a panel or a tool, not ones that save or open files. */
+const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open'];
 const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
   map,
   layers: () => images.layers(),
@@ -902,6 +904,64 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     return source ? (images.find(source) ?? null) : null;
   },
   satellites: () => imagingPlan.catalogSatellites(),
+  // Everything else a script may do (src/script/automation.ts); the objects are made below, used only once a script runs.
+  list: images,
+  setCorrection: (layer, pipeline) => {
+    const target = layer.type === 'image' ? layer.source : layer.service.correction;
+    target?.setPipeline(pipeline);
+    if (images.selectedLayer() === layer) enhance.setPipeline(pipeline);
+  },
+  setNoData: (image, value) => noData.set(image, value),
+  setColorScale: (image, scale, blend) => colorize.set(image, scale, blend),
+  baseMaps: () => config.baseMaps,
+  baseMap: () => baseMap.get(),
+  setBaseMap: (id) => baseMap.set(id),
+  bookmarks: () => bookmarks,
+  timeline: () => timeline,
+  split: () => split,
+  swipe: () => swipe,
+  globe: async (open) => {
+    await globeToggle.toggle(open);
+    return globeToggle.isOpen();
+  },
+  setTheme: (theme) => document.querySelector<HTMLButtonElement>(`[data-theme-choice="${theme}"]`)?.click(),
+  tools: () => [
+    ...processingTools.map((t) => ({ id: t.id, label: t.label, dialog: processing.dialog, open: () => processing.open(t.id), run: () => processing.run() })),
+    { id: 'band-math', label: 'バンド演算・指標（NDVI など）', dialog: bandMath.dialog, open: () => bandMath.open(), run: () => bandMath.run() },
+    { id: 'change', label: '変化抽出（2 時期の差・比）', dialog: change.dialog, open: () => change.open(), run: () => change.run() },
+    { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', dialog: classify.dialog, open: () => classify.open(), run: () => classify.run() },
+    { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', dialog: align.dialog, open: () => align.open(), run: () => align.run() },
+    { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', dialog: composite.dialog, open: () => composite.open(), run: () => composite.run() },
+    { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
+    { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
+    { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
+  ],
+  commands: () =>
+    SCRIPT_COMMANDS.flatMap((id) => {
+      const button = document.getElementById(id) as HTMLButtonElement | null;
+      return button && !button.hidden && !button.disabled ? [{ id, label: button.textContent?.trim() ?? id, press: () => button.click() }] : [];
+    }),
+  open: async (layer) => {
+    if (layer.type === 'cog') {
+      if (!(await openEsriUrl(layer.url))) await loader.loadUrl(layer.url);
+    } else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
+    else {
+      const { type: kind, ...ref } = layer;
+      addService(await openRef({ kind, ...ref }, serviceContext()));
+    }
+  },
+  serviceChoices: async (url, kind) => (await readService(url, kind)).choices,
+  knownHosts: () => {
+    const urls = [...config.layers.map((l) => l.url), ...config.baseMaps.map((b) => b.url), ...images.layers().map((l) => (l.type === 'service' ? l.service.ref?.url : undefined))];
+    return urls.flatMap((u) => {
+      try {
+        return u ? [new URL(u, location.href).origin] : [];
+      } catch {
+        return [];
+      }
+    });
+  },
+  openFiles: (files) => project.openFiles(files),
 });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
