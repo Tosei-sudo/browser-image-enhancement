@@ -2,7 +2,7 @@
  * Suggestions in the script editor: typing `viewer.` or `geo.` (or a few
  * letters of a name, or Ctrl+Space) lists the functions with their
  * arguments and what they do; inside the quotes of a `viewer.…(` call, the
- * open layers' names. ↑↓ choose, Enter or Tab puts it in, Esc closes.
+ * open layers' names (or the tools, menus, base maps the function takes). ↑↓ choose, Enter or Tab puts it in, Esc closes.
  */
 
 /** One function or name a script can use. */
@@ -40,6 +40,36 @@ export const ENTRIES: readonly ScriptEntry[] = [
   { name: 'viewer.saveText', args: "('名前.csv', text)", doc: '.csv・.tsv・.txt・.json・.geojson・.md を保存' },
   { name: 'viewer.zoomTo', args: '(layer か [西, 南, 東, 北] か features)', doc: '地図を移動' },
   { name: 'viewer.view', args: '()', doc: '表示範囲（中心・ズーム・範囲）' },
+  { name: 'viewer.setView', args: '({ center: [経度, 緯度], zoom, rotation, bbox, duration })', doc: '地図の中心・ズーム・回転、または範囲を設定' },
+  { name: 'viewer.setVisible', args: '(layer, true)', doc: 'レイヤーを表示・非表示' },
+  { name: 'viewer.setOpacity', args: '(layer, 0.5)', doc: '不透明度（0〜1）' },
+  { name: 'viewer.moveLayer', args: "(layer, 'top')", doc: "重ね順を変える（'top'・'bottom'・'up'・'down'・数）" },
+  { name: 'viewer.removeLayer', args: '(layer)', doc: 'レイヤーを閉じる（未保存の変更があるときは閉じません）' },
+  { name: 'viewer.enhance', args: '(layer)', doc: '画像の補正（手順の配列）' },
+  { name: 'viewer.setEnhance', args: '(layer, { brightness, contrast, exposure, gamma, saturation, autoStretch, sharpen… })', doc: '補正を変える（値 null でその手順を外す。全体を null で元に戻す）' },
+  { name: 'viewer.setBands', args: '(layer, [R, G, B])', doc: 'バンドの割り当て（0 から。null で元のまま）' },
+  { name: 'viewer.setNoData', args: '(layer, { auto, values })', doc: 'ノーデータの透明化（null で解除）' },
+  { name: 'viewer.colorize', args: "(layer, { scale: 'red', reverse, fade, blend })", doc: '単バンド画像の着色（null で解除）' },
+  { name: 'viewer.style', args: '(layer)', doc: 'ベクターレイヤーのスタイル' },
+  { name: 'viewer.setStyle', args: "(layer, { color, mode: 'categorized', field, symbol, label })", doc: 'スタイルを変える（指定した所だけ）' },
+  { name: 'viewer.baseMaps', args: '()', doc: '背景地図の一覧' },
+  { name: 'viewer.setBaseMap', args: "('id')", doc: "背景地図を切り替え（'' で背景なし）" },
+  { name: 'viewer.bookmarks', args: '()', doc: 'ブックマークの一覧' },
+  { name: 'viewer.goBookmark', args: "('名前')", doc: 'ブックマークの範囲へ移動' },
+  { name: 'viewer.addBookmark', args: "('名前')", doc: '今の範囲をブックマークに' },
+  { name: 'viewer.timeline', args: "({ from: '2026-01-01', to: '2026-03-31' })", doc: 'タイムラインの期間（null ですべて。引数なしで今の期間）' },
+  { name: 'viewer.split', args: '(2, [layer, layer])', doc: '並べて比較（1・2・4 画面）' },
+  { name: 'viewer.swipe', args: "(layer, { position: 0.5, orientation: 'vertical' })", doc: 'スワイプ比較（null で終える）' },
+  { name: 'viewer.globe', args: '(true)', doc: '3D 表示を開く・閉じる' },
+  { name: 'viewer.theme', args: "('dark')", doc: "テーマ（'auto'・'light'・'dark'）" },
+  { name: 'viewer.tools', args: '()', doc: '実行できるツールの一覧' },
+  { name: 'viewer.toolOptions', args: "('band-math')", doc: 'ツールの設定項目と選べる値' },
+  { name: 'viewer.tool', args: "('band-math', { image: layer, preset: 'ndvi' })", doc: 'ツールを設定して実行（できたレイヤーを返します）' },
+  { name: 'viewer.commands', args: '()', doc: '押せるメニューの一覧' },
+  { name: 'viewer.command', args: "('timeline-open')", doc: 'メニューを押す（パネルやツールを開く）' },
+  { name: 'viewer.open', args: "(url, { type: 'cog', layer })", doc: 'URL のレイヤーを開く（cog・file・wms・wmts・wfs・esri。初めてのサーバーは確認が出ます）' },
+  { name: 'viewer.serviceLayers', args: "(url, 'wms')", doc: 'サービスのレイヤーの一覧' },
+  { name: 'viewer.openFiles', args: "({ accept: '.tif', message })", doc: 'ファイルを選んでもらって開く' },
   { name: 'geo.area', args: '(geometry)', doc: '測地線の面積（m²）' },
   { name: 'geo.length', args: '(geometry)', doc: '測地線の長さ（m）。ポリゴンは周長' },
   { name: 'geo.distance', args: '(a, b)', doc: '距離（m）' },
@@ -75,17 +105,27 @@ interface Item {
   insert: string;
 }
 
-/** The word before the caret that suggestions complete, and what to offer for it. */
-export function suggestionsAt(text: string, caret: number, layers: readonly string[], forced = false): { from: number; items: Item[] } | null {
+/** What goes in the quotes of a function's first argument: its name and what it is. */
+export interface Choice {
+  name: string;
+  detail: string;
+}
+
+/**
+ * The word before the caret that suggestions complete, and what to offer
+ * for it. `choices` gives what goes in the quotes of `viewer.xxx('…` (by
+ * function name); a list of names is taken as layer names for every function.
+ */
+export function suggestionsAt(text: string, caret: number, choices: readonly string[] | ((fn: string) => readonly Choice[]), forced = false): { from: number; items: Item[] } | null {
   const before = text.slice(0, caret);
-  // Inside the quotes of `viewer.xxx('…`: layer names.
-  const quoted = /viewer\.\w+\(\s*(['"])([^'"\n]*)$/.exec(before);
+  const quoted = /viewer\.(\w+)\(\s*(['"])([^'"\n]*)$/.exec(before);
   if (quoted) {
-    const typed = quoted[2];
-    const items = layers
-      .filter((name) => name.toLowerCase().includes(typed.toLowerCase()))
+    const [, fn, quote, typed] = quoted;
+    const pool = typeof choices === 'function' ? choices(fn) : choices.map((name) => ({ name, detail: 'レイヤー' }));
+    const items = pool
+      .filter((c) => c.name.toLowerCase().includes(typed.toLowerCase()))
       .slice(0, 50)
-      .map((name) => ({ label: name, detail: 'レイヤー', insert: name.replaceAll('\\', '\\\\').replaceAll(quoted[1], `\\${quoted[1]}`) }));
+      .map((c) => ({ label: c.name, detail: c.detail, insert: c.name.replaceAll('\\', '\\\\').replaceAll(quote, `\\${quote}`) }));
     return items.length ? { from: caret - typed.length, items } : null;
   }
   const word = /(?:\b(viewer|geo)\.)?([A-Za-z_]\w*)?$/.exec(before);
@@ -134,7 +174,7 @@ export class Suggest {
 
   constructor(
     private readonly area: HTMLTextAreaElement,
-    private readonly layers: () => readonly string[],
+    private readonly choices: (fn: string) => readonly Choice[],
   ) {
     const list = (this.list = document.createElement('ul'));
     list.className = 'script-suggest';
@@ -165,7 +205,7 @@ export class Suggest {
 
   /** Shows what fits the word at the caret (Ctrl+Space: even before two letters). */
   update(forced: boolean): void {
-    const found = this.area.selectionStart === this.area.selectionEnd ? suggestionsAt(this.area.value, this.area.selectionStart, this.layers(), forced) : null;
+    const found = this.area.selectionStart === this.area.selectionEnd ? suggestionsAt(this.area.value, this.area.selectionStart, this.choices, forced) : null;
     if (!found) return this.close();
     this.items_ = found.items;
     this.from_ = found.from;

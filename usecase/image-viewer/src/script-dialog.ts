@@ -15,7 +15,7 @@ import { scriptHandlers, type ScriptContext } from './script/api.js';
 import { SAMPLES } from './script/samples.js';
 import { download } from './local-edit.js';
 import { highlight } from './script/highlight.js';
-import { ENTRIES, Suggest } from './script/suggest.js';
+import { ENTRIES, Suggest, type Choice } from './script/suggest.js';
 
 const SAVED_KEY = 'image-viewer.scripts';
 const DRAFT_KEY = 'image-viewer.script-draft';
@@ -56,12 +56,16 @@ export class ScriptDialog {
   private readonly stop_: HTMLButtonElement;
   private readonly delete_: HTMLButtonElement;
   private current_: ScriptRun | null = null;
+  /** The question of a script that wants files (viewer.openFiles): only the person's click opens the picker. */
+  private readonly ask_: HTMLElement;
+  /** Answers the question being asked with no files (the run stopped, or another question came). */
+  private declineAsk_: (() => void) | null = null;
   /** The suggestions of the editor. */
   readonly suggest: Suggest;
 
   constructor(
     button: HTMLButtonElement,
-    private readonly context: ScriptContext & { say: (message: string) => void },
+    private readonly context: Omit<ScriptContext, 'pickFiles'> & { say: (message: string) => void },
   ) {
     this.dialog = document.createElement('dialog');
     this.dialog.className = 'add-service script-dialog';
@@ -84,6 +88,11 @@ export class ScriptDialog {
         </details>
       </div>
       <div class="script-editor"><pre class="script-highlight" aria-hidden="true"></pre><textarea class="script-code" spellcheck="false" autocomplete="off" aria-label="スクリプト（JavaScript）"></textarea></div>
+      <div class="script-ask" role="group" aria-label="スクリプトからの確認" hidden>
+        <span></span>
+        <button type="button" value="pick" class="primary">ファイルを選ぶ…</button>
+        <button type="button" value="decline">やめる</button>
+      </div>
       <div class="service-actions script-actions">
         <progress max="1" hidden></progress>
         <span class="script-status" role="status"></span>
@@ -106,6 +115,7 @@ export class ScriptDialog {
     this.run_ = this.dialog.querySelector('button[value=run]')!;
     this.stop_ = this.dialog.querySelector('button[value=stop]')!;
     this.delete_ = this.dialog.querySelector('button[value=delete]')!;
+    this.ask_ = this.dialog.querySelector('.script-ask')!;
     const list = this.dialog.querySelector('dl')!;
     for (const entry of ENTRIES) {
       const dt = document.createElement('dt');
@@ -124,7 +134,7 @@ export class ScriptDialog {
     })();
     this.paint_();
     this.listChoices();
-    this.suggest = new Suggest(this.code_, () => this.context.layers().map((l) => l.name));
+    this.suggest = new Suggest(this.code_, (fn) => this.choices(fn));
 
     button.addEventListener('click', () => (this.dialog.open ? this.close() : this.open()));
     window.addEventListener('resize', () => this.dialog.open && this.place_());
@@ -166,6 +176,18 @@ export class ScriptDialog {
         this.code_.dispatchEvent(new Event('input'));
       }
     });
+  }
+
+  /** What goes in the quotes of `viewer.fn('…`: the tools, menus, base maps or themes it takes, else the layers. */
+  private choices(fn: string): Choice[] {
+    const c = this.context;
+    if (fn === 'tool' || fn === 'toolOptions') return c.tools().map((t) => ({ name: t.id, detail: t.label }));
+    if (fn === 'command') return c.commands().map((t) => ({ name: t.id, detail: t.label }));
+    if (fn === 'setBaseMap') return c.baseMaps().map((b) => ({ name: b.id, detail: b.label }));
+    if (fn === 'theme') return [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']].map(([name, detail]) => ({ name, detail }));
+    if (fn === 'goBookmark') return c.bookmarks().get().map((b) => ({ name: b.name, detail: 'ブックマーク' }));
+    if (fn === 'open' || fn === 'serviceLayers' || fn === 'saveText' || fn === 'addBookmark') return [];
+    return c.layers().map((l) => ({ name: l.name, detail: 'レイヤー' }));
   }
 
   /** Shows the panel (non-modal, so layers can be selected and edits saved while it is open). */
@@ -225,7 +247,7 @@ export class ScriptDialog {
     this.setRunning(true);
     this.status_.textContent = '実行しています…';
     const started = performance.now();
-    const { handlers, finish } = scriptHandlers(this.context);
+    const { handlers, finish } = scriptHandlers({ ...this.context, pickFiles: (message, accept, multiple) => this.pickFiles(message, accept, multiple) });
     const run = new ScriptRun(this.code_.value, handlers, {
       onLog: (text, level) => this.print(text, level),
       onProgress: (fraction, message) => {
@@ -236,6 +258,7 @@ export class ScriptDialog {
       },
       onEnd: (error, value) => {
         finish();
+        if (run === this.current_) this.declineAsk_?.();
         if (run !== this.current_) return;
         this.setRunning(false);
         const seconds = ((performance.now() - started) / 1000).toFixed(1);
@@ -252,6 +275,7 @@ export class ScriptDialog {
   }
 
   stop(): void {
+    this.declineAsk_?.();
     this.current_?.stop();
   }
 
@@ -319,6 +343,40 @@ export class ScriptDialog {
     writeSaved(list);
     this.listChoices();
     this.status_.textContent = `「${script.name}」を削除しました`;
+  }
+
+  /**
+   * Asks the person for files for the running script: a line in the panel
+   * with a button, since a file picker opens only on the person's own click.
+   * Resolves with no files when they decline or the run ends.
+   */
+  pickFiles(message: string, accept: string, multiple: boolean): Promise<File[]> {
+    this.declineAsk_?.();
+    if (!this.dialog.open) this.open();
+    this.ask_.querySelector('span')!.textContent = message;
+    this.ask_.hidden = false;
+    const pick = this.ask_.querySelector<HTMLButtonElement>('button[value=pick]')!;
+    const decline = this.ask_.querySelector<HTMLButtonElement>('button[value=decline]')!;
+    pick.focus();
+    return new Promise((resolve) => {
+      const done = (files: File[]) => {
+        this.ask_.hidden = true;
+        pick.onclick = decline.onclick = null;
+        this.declineAsk_ = null;
+        resolve(files);
+      };
+      this.declineAsk_ = () => done([]);
+      decline.onclick = () => done([]);
+      pick.onclick = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.multiple = multiple;
+        input.addEventListener('change', () => done([...(input.files ?? [])]), { once: true });
+        input.addEventListener('cancel', () => done([]), { once: true });
+        input.click();
+      };
+    });
   }
 
   /** Opens a .js file into the editor (shown, not run). */
