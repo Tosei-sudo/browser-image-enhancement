@@ -414,8 +414,9 @@ function opened(source: EnhancedGeoTIFF, origin: RasterOrigin | null, side: Side
   if (side && !(side.crs && (side.transform ?? origin.own))) {
     say(`${name}: ${side.from} だけでは配置できません（${side.crs ? `${crsLabel(side.crs)} のほかに配置` : '座標系'}を選んでください）`);
     askGeoref?.(source, side);
-  } else {
-    say(`${name} には投影の情報がありません。レイヤーの ⌖ で座標系と配置を設定できます`);
+  } else if (origin.tiff === origin.file) {
+    // Pictures never have one: their row's ⌖ says so. A TIFF is expected to.
+    say(`${name} を開きました（投影の情報がありません。レイヤーの ⌖ で座標系と配置を設定できます）`);
   }
 }
 

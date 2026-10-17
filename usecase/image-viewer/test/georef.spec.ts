@@ -87,7 +87,7 @@ test('a world file without a CRS asks for one, filled in', async ({ page }) => {
 test('a TIFF without georeferencing gets an extent from its ⌖ button, kept in the project', async ({ page }) => {
   const errors = await open(page);
   await openFiles(page, { tiff: { name: 'plain.tif', bytes: plainGeoTiff(300, 200, { geo: 'none' }) } });
-  await expect(page.locator('#status')).toContainText('plain.tif には投影の情報がありません');
+  await expect(page.locator('#status')).toContainText('plain.tif を開きました（投影の情報がありません');
   let got = await placed(page);
   expect(got.kind).toBe('image');
   await expect(page.locator('#info')).toContainText('なし（レイヤーの ⌖ で設定）');
@@ -134,7 +134,7 @@ test('a TIFF without georeferencing gets an extent from its ⌖ button, kept in 
 test('coordinates in no CRS are kept, and four corners place a rotated image', async ({ page }) => {
   const errors = await open(page);
   await openFiles(page, { tiff: { name: 'nocrs.tif', bytes: plainGeoTiff(300, 200, { geo: 'no-crs' }) } });
-  await expect(page.locator('#status')).toContainText('nocrs.tif には投影の情報がありません');
+  await expect(page.locator('#status')).toContainText('nocrs.tif を開きました（投影の情報がありません');
   await page.locator('#images button[data-action=georef]').click();
   const dialog = page.locator('dialog.georef-dialog');
   // Its own coordinates are offered first.
