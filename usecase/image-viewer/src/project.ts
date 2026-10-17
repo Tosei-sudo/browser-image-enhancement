@@ -15,7 +15,8 @@ import { transform } from 'ol/proj.js';
 import { Pipeline } from 'browser-image-enhancement';
 import { dropImageRule, imageRuleOf } from './image-rules.js';
 import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
-import type { ImageList, ViewerLayer } from './images.js';
+import type { ImageList, ViewerImage, ViewerLayer } from './images.js';
+import type { Georef } from './georef.js';
 import type { BaseMapSwitch } from './basemap.js';
 import { openRef } from './add-service.js';
 import { fetchFile } from './config.js';
@@ -84,6 +85,8 @@ export interface ProjectOptions {
   bookmarks?: { get: () => Bookmark[]; merge: (list: Bookmark[]) => void };
   /** The notes drawn on the map: saved with the project, and put back (or cleared) when it opens. */
   notes?: { get: () => SavedNotes | null; set: (saved: SavedNotes | null) => void };
+  /** The projections set for images without one (georef-dialog.ts): saved, and set again when the project opens. */
+  georef?: { get: (layer: ViewerImage) => Georef | null; apply: (layer: ViewerImage, saved: Georef) => Promise<void> };
   /** The screen layout (panels, timeline, dashboard); indexes are of the project's layers. */
   layout?: {
     collect: (indexOf: (listIndex: number) => number) => ProjectLayout;
@@ -181,6 +184,8 @@ export class ProjectControl {
         if (bands) layer.bands = [...bands];
         const noData = l.source.getNoData();
         if (!noData.auto || noData.values.length) layer.noData = noData;
+        const georef = this.options.georef?.get(l);
+        if (georef) layer.georef = { ...georef, transform: [...georef.transform] };
       }
       if (correction?.isDraLocked()) layer.draLocked = true;
       if (l.type === 'image') {
@@ -333,6 +338,14 @@ export class ProjectControl {
 
       // In the saved order, as they were.
       images.arrange(found.filter((l): l is ViewerLayer => !!l));
+      // Projections set in the viewer first: the image is read again, and the settings below go on its new source.
+      for (const [i, saved] of project.layers.entries()) {
+        const l = found[i];
+        if (l?.type !== 'image' || !saved.georef || !this.options.georef) continue;
+        const now = this.options.georef.get(l);
+        if (now && JSON.stringify(now) === JSON.stringify(saved.georef)) continue;
+        await this.options.georef.apply(l, saved.georef).catch((error: unknown) => void problems.push(`${saved.name} の投影（${error instanceof Error ? error.message : String(error)}）`));
+      }
       const pending: Array<Promise<void>> = [];
       project.layers.forEach((saved, i) => {
         const l = found[i];

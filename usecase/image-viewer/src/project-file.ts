@@ -20,6 +20,7 @@ import type { TargetCrs } from './vector-write.js';
 import type { ProjectLayout } from './layout.js';
 import { readBookmarks, type Bookmark } from './bookmarks.js';
 import type { SavedNotes } from './annotations.js';
+import type { Georef, GeorefMethod } from './georef.js';
 
 /** The extension of project files. */
 export const PROJECT_EXTENSION = '.ivproj';
@@ -83,6 +84,8 @@ export interface ProjectLayer {
   blend?: LayerBlendMode;
   /** Which pixels of an image are transparent, when not the default (`auto` on, no more values; see nodata-dialog.ts). */
   noData?: { auto: boolean; values: number[] };
+  /** The projection set in the viewer for an image without one (see georef.ts). */
+  georef?: Georef;
   /** Symbols and labels, for vector layers. */
   style?: VectorStyleSpec;
   /** A GeoTIFF used as elevation data. */
@@ -241,6 +244,8 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
   if (isObject(raw.noData) && typeof raw.noData.auto === 'boolean' && Array.isArray(raw.noData.values)) {
     layer.noData = { auto: raw.noData.auto, values: raw.noData.values.filter((v): v is number => isNumber(v)) };
   }
+  const georef = readGeoref(raw.georef);
+  if (georef && layer.type === 'image') layer.georef = georef;
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
   if (raw.dem === true) layer.dem = true;
   if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
@@ -252,6 +257,15 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
     if (isNumber(t.time)) layer.time.time = t.time;
   }
   return layer;
+}
+
+const georefMethods: readonly GeorefMethod[] = ['worldfile', 'aux', 'extent', 'corners', 'keep'];
+
+/** A saved projection: a CRS, six finite numbers and how it was set. */
+function readGeoref(raw: unknown): Georef | null {
+  if (!isObject(raw) || typeof raw.crs !== 'string' || !raw.crs.trim() || !Array.isArray(raw.transform) || raw.transform.length !== 6 || !raw.transform.every(isNumber)) return null;
+  const method = georefMethods.includes(raw.method as GeorefMethod) ? (raw.method as GeorefMethod) : 'extent';
+  return { crs: raw.crs, transform: [...raw.transform], method, ...(typeof raw.from === 'string' ? { from: raw.from } : {}) };
 }
 
 const blendModes: readonly LayerBlendMode[] = ['normal', 'screen', 'lighten', 'darken', 'multiply', 'difference'];

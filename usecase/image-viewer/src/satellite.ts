@@ -18,6 +18,7 @@ import { rpcFromTag, type Rpc } from './rpc.js';
 import { sensorViewFromText, type SensorView } from './simple-ortho.js';
 import { gcpModel, geoKeysCrs, rpcModel, sensorGeo, sensorProjection } from './sensor-projection.js';
 import type Projection from 'ol/proj/Projection.js';
+import { ownTransform } from './georef.js';
 
 /** The RPC model and georeferencing state of a TIFF. */
 export interface TiffInfo {
@@ -30,6 +31,10 @@ export interface TiffInfo {
   gcps: { tiepoints: number[]; crs: string | null } | null;
   /** Where the satellite looked from, when the GDAL metadata says. */
   view: SensorView | null;
+  /** For a georeferenced image: its GeoTransform (see georef.ts), whatever its CRS. */
+  transform: number[] | null;
+  /** Whether it has GeoKeys at all (without them, its coordinates are in no known CRS). */
+  hasGeoKeys: boolean;
   width: number;
   height: number;
 }
@@ -71,7 +76,12 @@ export async function tiffInfo(from: Blob | string): Promise<TiffInfo> {
     gcpGeo = gcpBox(tiepoints, width, height, { geoKeyDirectory: keys, geoDoubleParams: doubles, geoAsciiParams: ascii });
     gcps = { tiepoints, crs: keys ? geoKeysCrs(keys) : 'EPSG:4326' };
   }
-  return { rpc, georeferenced, gcpGeo, gcps, view, width, height };
+  let transform: number[] | null = null;
+  if (georeferenced) {
+    const numbers = async (tag: number) => (fd.hasTag(tag) ? Array.from((await fd.loadValue(tag)) as ArrayLike<number>, Number) : undefined);
+    transform = ownTransform(await numbers(33550), tiepoints, await numbers(34264));
+  }
+  return { rpc, georeferenced, gcpGeo, gcps, view, transform, hasGeoKeys: fd.hasTag(34735), width, height };
 }
 
 /**

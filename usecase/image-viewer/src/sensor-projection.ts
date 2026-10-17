@@ -32,8 +32,10 @@ export interface SensorModel {
 
 /** How a sensor projection places its image, for the layer's information. */
 export interface SensorPlacement {
-  /** 'rpc': by the RPC model at `height`; 'gcp': by a polynomial through the ground control points. */
-  kind: 'rpc' | 'gcp';
+  /** 'rpc': by the RPC model at `height`; 'gcp': by a polynomial through the ground control points; 'affine': by a rotated placement set in the viewer (georef.ts). */
+  kind: 'rpc' | 'gcp' | 'affine';
+  /** For 'affine': the CRS the placement is in, for people. */
+  crs?: string;
   /** For 'rpc': the height above the WGS 84 ellipsoid the image is put at, in metres. */
   height?: number;
   /** For 'gcp': the points and the order of the polynomial. */

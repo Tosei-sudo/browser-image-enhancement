@@ -3066,3 +3066,31 @@ dialog .catalog-head,
 .moving-window * {
   user-select: none;
 }
+
+/* 投影を設定: src/georef-dialog.ts. */
+.georef-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+.georef-part[hidden] {
+  display: none;
+}
+.georef-part > p {
+  margin: 4px 0 0;
+}
+.georef-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.georef-xy {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+.georef-xy input,
+.georef-grid input {
+  min-width: 0;
+}

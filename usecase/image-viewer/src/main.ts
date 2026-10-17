@@ -37,7 +37,9 @@ import { JumpTo } from './jump.js';
 import { Bookmarks } from './bookmarks.js';
 import { glVector } from './gl-vector.js';
 import { clearStreamedCopies, streaming } from './streamed-shapefile.js';
-import { acceptFiles, openFiles, openImageFile, type OpenFilesContext } from './open-files.js';
+import { acceptFiles, openFiles, openImageFile, originOf, placeImage, type OpenFilesContext } from './open-files.js';
+import { GeorefDialog } from './georef-dialog.js';
+import { describeGeoref, type Georef } from './georef.js';
 import { endBuilding, markBuilding, rsetOf, RsetIndicator, RsetProgress, rsetSettings, rsetText } from './rset.js';
 import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
@@ -274,6 +276,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onStyle: (layer) => styler.open(layer),
   onColorize: (layer) => void colorize.open(layer),
   onRules: (layer) => rasterRules.open(layer),
+  onGeoref: (layer) => georef.open(layer),
 });
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
 const timeline: Timeline = new Timeline(images, {
@@ -489,6 +492,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
     { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
     { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
+    { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open() },
     { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
     { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
     { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
@@ -659,6 +663,7 @@ const project = new ProjectControl({
     },
   },
   notes: { get: () => annotations.get(), set: (saved) => annotations.set(saved) },
+  georef: { get: (layer) => originOf(layer.source)?.georef ?? null, apply: (layer, saved) => placeLayer(layer, saved) },
   layout: {
     collect: (indexOf) => collectLayout(layoutParts, indexOf),
     apply: (layout, listIndexOf) => applyLayout(layoutParts, layout, listIndexOf),
@@ -719,6 +724,22 @@ const change = new ChangeDialog(images, loader, {
 const align = new AlignDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
 // Which pixels of an image are transparent: the file's no-data value and the usual fill values, the black collar, values typed.
 const noData = new NoDataDialog(images, { say });
+// Projections for images without one (pictures, scans, TIFFs without a CRS): world files, extents, corners; saved in projects.
+const georef = new GeorefDialog(images, { say, apply: (image, placement) => placeLayer(image, placement) });
+
+/** Shows `image` placed by `placement` (null: without a projection), on a new source with its settings. */
+async function placeLayer(image: ViewerImage, placement: Georef | null): Promise<void> {
+  await placeImage(image.source, placement, fileContext(), (source) => images.replaceSource(image, source));
+  images.setKind(image, placement ? 'geotiff' : 'image');
+  showRset(image);
+  if (placement) await images.zoomTo(image);
+  // The panels follow what it now is.
+  if (images.selectedLayer() === image) {
+    images.select(null);
+    images.select(image);
+  }
+  updateLink();
+}
 const composite = new CompositeDialog(images, loader, {
   say,
   timeOf: timeOfImage,
@@ -827,6 +848,17 @@ function fileContext(): OpenFilesContext {
       if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
       rsetShown.update();
     },
+    askGeoref: (source, side) => georef.openFor(source, side),
+    // A TIFF without a projection is shown where pictures go, and marked as one.
+    onUnplaced: (source) => {
+      const image = images.find(source);
+      if (!image || image.kind === 'image') return;
+      images.setKind(image, 'image');
+      if (images.selectedLayer() === image) {
+        images.select(null);
+        images.select(image);
+      }
+    },
     onRsetMade: (source, replaces) => {
       if (replaces) endBuilding(replaces);
       const image = images.find(replaces ?? source);
@@ -853,7 +885,9 @@ function showRset(image: ViewerImage): void {
 /** Rows the information panel adds for an image: its RSET, and what the geometric mode knows of it. */
 function layerInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (layer?.type !== 'image') return geometryInfo(layer);
-  return [...(fromCatalog.get(layer) ?? []), ...fileInfoOf(layer.source), ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
+  const origin = originOf(layer.source);
+  const placed: Array<[string, string]> = origin?.georef ? [['投影の設定', describeGeoref(origin.georef)]] : origin?.unplaced ? [['投影', 'なし（レイヤーの ⌖ で設定）']] : [];
+  return [...(fromCatalog.get(layer) ?? []), ...fileInfoOf(layer.source), ...placed, ['RSET', rsetText(rsetOf(layer.source))], ...geometryInfo(layer)];
 }
 
 /** Rows the information panel adds for elevation data, satellite images and orthorectified layers. */
@@ -1068,6 +1102,7 @@ declare global {
       panSharpen: PanSharpenDialog;
       colorize: ColorizeDialog;
       noData: NoDataDialog;
+      georef: GeorefDialog;
       composite: CompositeDialog;
       mosaic: MosaicDialog;
       bandMath: BandMathDialog;
@@ -1097,4 +1132,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
