@@ -17,7 +17,7 @@ describe('what crosses between a script and the viewer', () => {
     const [item] = readFeatures({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [139.7, 35.7] }, properties: { n: 1 } }] }, 'EPSG:3857');
     const xy = (item.geometry as Point).getCoordinates();
     expect(xy[0]).toBeCloseTo(fromLonLat([139.7, 35.7])[0], 6);
-    const f = new Feature({ geometry: item.geometry, n: 1 });
+    const f = new Feature({ geometry: item.geometry!, n: 1 });
     const fc = writeFeatures([f], 'EPSG:3857');
     expect(fc.features[0].id).toMatch(/^f\d+$/);
     expect((fc.features[0].geometry as { coordinates: number[] }).coordinates[0]).toBeCloseTo(139.7, 9);
