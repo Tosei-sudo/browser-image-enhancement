@@ -55,6 +55,7 @@ import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
+import { enableWindowMoving } from './move-windows.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from './services/index.js';
@@ -132,6 +133,9 @@ const map = new Map({
   target: mapElement,
   view: new View({ center: [0, 0], zoom: 2 }),
 });
+
+// Dialogs move by their title, and the panels over the map by their background.
+enableWindowMoving();
 
 // Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;

@@ -2718,3 +2718,19 @@ body {
   flex-wrap: wrap;
   gap: 4px 14px;
 }
+
+/* Windows the user drags anywhere (move-windows.ts): dialogs by their title, the panels over the map by their background. */
+dialog h2,
+dialog .catalog-head,
+:is(.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide) {
+  cursor: move;
+}
+/* Controls keep their own cursor (lowest specificity, so their own rules still win). */
+:where(.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide, dialog h2, dialog .catalog-head)
+  :where(input, select, textarea, button, a, summary, label, [contenteditable]) {
+  cursor: auto;
+}
+.moving-window,
+.moving-window * {
+  user-select: none;
+}
