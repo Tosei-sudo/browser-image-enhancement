@@ -83,4 +83,7 @@ test('the installed app handles web+imageviewer: links', async ({ page, request 
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(page.locator('#status')).toContainText('リンクの図形 1 個を一時レイヤー');
   await expect.poll(() => new URL(page.url()).search).toBe('');
+  // A point alone is shown with its surroundings (zoom 14), not as close as the map goes.
+  await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
+  expect(await page.evaluate(() => window.viewer.map.getView().getZoom())).toBeCloseTo(14, 1);
 });

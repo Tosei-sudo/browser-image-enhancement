@@ -47,6 +47,8 @@ export const MAX_SHAPES = 1000;
 /** Most vertices of all the shapes together. */
 export const MAX_VERTICES = 100_000;
 const MAX_LABEL = 200;
+/** The zoom level points are shown at when the link gives none (about a town's streets). */
+export const POINT_ZOOM = 14;
 const MAX_NAME = 100;
 
 /** What a link's shapes became. */
