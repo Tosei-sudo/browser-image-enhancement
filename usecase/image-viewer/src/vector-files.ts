@@ -1,7 +1,8 @@
 /**
  * Reading vector files: Shapefiles (a .zip, or the .shp with its .dbf, .prj
- * and .cpg chosen together), GeoJSON and GeoPackages, as OpenLayers features
- * in the map's projection with their attributes.
+ * and .cpg chosen together), GeoJSON, GeoPackages, KML / KMZ, GPX and
+ * FlatGeobuf (vector-formats.ts), as OpenLayers features in the map's
+ * projection with their attributes.
  */
 import type Feature from 'ol/Feature.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -15,6 +16,7 @@ import { readGeoPackage, type GeoPackageTable } from './geopackage.js';
 import { epsgCode } from './services/common.js';
 import { wgs84, type TargetCrs } from './vector-write.js';
 import { dbfTextEncoding } from './shp-stream.js';
+import { readFgb, readGpx, readKml, readKmz } from './vector-formats.js';
 import { footprintOf, MULTIPATCH_SHAPE_TYPE, readMultiPatches, setMultiPatch, transformMultiPatch, type MultiPatch } from './multipatch.js';
 
 /** A file by name, as bytes: chosen, dropped, or found in a .zip. */
@@ -37,7 +39,7 @@ export interface FileOrigin {
 export interface VectorFile {
   /** File name without its extension. */
   title: string;
-  format: 'Shapefile' | 'GeoJSON' | 'GeoPackage';
+  format: 'Shapefile' | 'GeoJSON' | 'GeoPackage' | 'KML' | 'KMZ' | 'GPX' | 'FlatGeobuf';
   /** Features in `EPSG:3857`. */
   features: Feature[];
   fields: Field[];
@@ -63,7 +65,7 @@ export interface VectorFile {
 export type ProjectionLookup = (crs: string) => Promise<{ getCode(): string } | null>;
 
 /** What the viewer reads as vectors, by extension. */
-export const vectorExtensions = ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.qml', '.geojson', '.json', '.gpkg'];
+export const vectorExtensions = ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.qml', '.geojson', '.json', '.gpkg', '.kml', '.kmz', '.gpx', '.fgb'];
 
 export function isVectorName(name: string): boolean {
   const lower = name.toLowerCase();
@@ -93,7 +95,7 @@ export async function unzipFiles(zip: Uint8Array): Promise<NamedBytes[]> {
 }
 
 /**
- * Reads every Shapefile, GeoJSON and GeoPackage among `files` (a .zip is opened first).
+ * Reads every Shapefile, GeoJSON, GeoPackage, KML / KMZ, GPX and FlatGeobuf among `files` (a .zip is opened first).
  * Files of one Shapefile are matched by name: `roads.shp` with `roads.dbf`,
  * `roads.prj` and `roads.cpg`.
  */
@@ -116,6 +118,14 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
       out.push({ ...(await readGeoJson(new TextDecoder().decode(f.bytes), stem(f.name), projectionOf)), origin });
     } else if (ext === '.gpkg') {
       out.push(...(await readGeoPackage(f.bytes, stem(f.name), projectionOf)).map((layer) => ({ ...layer, origin })));
+    } else if (ext === '.kml') {
+      out.push({ ...readKml(new TextDecoder().decode(f.bytes), stem(f.name)), origin });
+    } else if (ext === '.kmz') {
+      out.push({ ...readKmz(await unzipFiles(f.bytes), stem(f.name)), origin });
+    } else if (ext === '.gpx') {
+      out.push({ ...readGpx(new TextDecoder().decode(f.bytes), stem(f.name)), origin });
+    } else if (ext === '.fgb') {
+      out.push({ ...(await readFgb(f.bytes, stem(f.name), projectionOf)), origin });
     } else if (['.shp', '.shx', '.dbf', '.prj', '.cpg', '.qml'].includes(ext)) {
       const key = f.name.slice(0, -ext.length);
       const entry = byStem.get(key) ?? { parts: {}, zip: f.zip };
@@ -133,7 +143,7 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
     const styleQml = decode(parts['.qml']);
     out.push({ ...file, origin: { files: parts, zip }, ...(styleQml ? { styleQml } : {}) });
   }
-  if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage のどれも見つかりませんでした');
+  if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage・KML・GPX・FlatGeobuf のどれも見つかりませんでした');
   return out;
 }
 

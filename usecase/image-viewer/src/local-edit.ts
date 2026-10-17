@@ -1,5 +1,6 @@
 /**
- * Editing layers read from local files (GeoJSON, Shapefile, GeoPackage).
+ * Editing layers read from local files (GeoJSON, Shapefile, GeoPackage, KML /
+ * KMZ, GPX, FlatGeobuf).
  * "Save" writes the file again in its own format and CRS: over the original
  * when it was opened with a handle the browser lets us write (it asks
  * first), else as a download of the same name. A GeoPackage gets only the
@@ -13,6 +14,7 @@ import { encodeGeometry, quote, type GeoPackageTable } from './geopackage.js';
 import type { Field } from './services/index.js';
 import type { SqlValue } from './sqlite.js';
 import type { NamedBytes, VectorFile } from './vector-files.js';
+import { writeFgb, writeGpx, writeKml, writeKmz } from './vector-formats.js';
 import { sqlValue, wgs84, writeGeoJson, writeShapefile, zipFiles, type TargetCrs } from './vector-write.js';
 
 /** How a file was saved. */
@@ -97,6 +99,11 @@ export function localTarget(file: VectorFile, source: VectorSource<Feature>, fie
         const json = Object.values(file.origin!.files)[0];
         const text = writeGeoJson(source.getFeatures(), fields, crs);
         saved = await saveFiles([{ handle: json.handle, bytes: text }], () => download(fileName(json.name), text, 'application/geo+json'));
+      } else if (file.format !== 'Shapefile') {
+        // KML, KMZ, GPX and FlatGeobuf: the whole file again, in its own format.
+        const one = Object.values(file.origin!.files)[0];
+        const { bytes, type } = rewrite(file, source.getFeatures(), fields, crs);
+        saved = await saveFiles([{ handle: one.handle, bytes }], () => download(fileName(one.name), bytes, type));
       } else {
         saved = await saveShapefile(file, source.getFeatures(), fields, crs);
       }
@@ -104,6 +111,20 @@ export function localTarget(file: VectorFile, source: VectorSource<Feature>, fie
     },
   };
   return target;
+}
+
+/** A KML, KMZ, GPX or FlatGeobuf file written again from `features`. */
+function rewrite(file: VectorFile, features: Feature[], fields: Field[], crs: TargetCrs): { bytes: Uint8Array<ArrayBuffer> | string; type: string } {
+  switch (file.format) {
+    case 'KML':
+      return { bytes: writeKml(features, fields), type: 'application/vnd.google-earth.kml+xml' };
+    case 'KMZ':
+      return { bytes: writeKmz(features, fields), type: 'application/vnd.google-earth.kmz' };
+    case 'GPX':
+      return { bytes: writeGpx(features, fields).text, type: 'application/gpx+xml' };
+    default:
+      return { bytes: writeFgb(file.title, features, fields, crs), type: 'application/octet-stream' };
+  }
 }
 
 /** Writes a Shapefile again: into its .zip, over its parts, or as a download of `name.zip`. */
