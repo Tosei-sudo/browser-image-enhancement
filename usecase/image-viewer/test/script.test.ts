@@ -6,6 +6,7 @@ import { fromLonLat } from 'ol/proj.js';
 import { cleanProperties, featuresCsv, fileName, inferFields, readFeatures, readFields, writeFeatures } from '../src/script/convert.js';
 import { suggestionsAt } from '../src/script/suggest.js';
 import { workerSource } from '../src/script/sandbox.js';
+import { highlight } from '../src/script/highlight.js';
 
 describe('what crosses between a script and the viewer', () => {
   it('keeps only plain attribute values', () => {
@@ -80,5 +81,35 @@ describe('the worker source', () => {
     expect(source.split('\n')[offset]).toBe('print(1)');
     expect(source).toContain(`const USER_LINE_OFFSET = ${offset};`);
     expect(source).toContain('const VIEWER_METHODS = ["layers"]');
+  });
+});
+
+describe('colouring of the script editor', () => {
+  const text = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+  it('wraps each kind of token', () => {
+    const html = highlight("const a = await viewer.features('x', { limit: 10 }); // note\nif (a < 2 && b) print(/a+b/g, null);");
+    expect(html).toContain('<span class="hl-keyword">const</span>');
+    expect(html).toContain('<span class="hl-keyword">await</span>');
+    expect(html).toContain('<span class="hl-builtin">viewer</span>.<span class="hl-function">features</span>');
+    expect(html).toContain(`<span class="hl-string">'x'</span>`);
+    expect(html).toContain('<span class="hl-number">10</span>');
+    expect(html).toContain('<span class="hl-comment">// note</span>');
+    expect(html).toContain('<span class="hl-regex">/a+b/g</span>');
+    expect(html).toContain('<span class="hl-literal">null</span>');
+    expect(html).toContain(' &lt; ');
+    expect(html).toContain(' &amp;&amp; ');
+  });
+
+  it('tells division from a regular expression', () => {
+    expect(highlight('x = a / b / c')).not.toContain('hl-regex');
+    expect(highlight('return /x/i.test(s)')).toContain('<span class="hl-regex">/x/i</span>');
+    expect(highlight('area / 100')).not.toContain('hl-regex');
+  });
+
+  it('never loses or changes a character, even in broken code', () => {
+    for (const code of ["const s = 'unclosed\nnext", '/* open comment', '`a ${b} c`', '/[/]/.test(x) </script> <b>', 'a.b.c(1e3, 0x1f, .5)', '日本語の名前 = 1;\n\n', '/', '"\\"']) {
+      expect(text(highlight(code))).toBe(code);
+    }
   });
 });
