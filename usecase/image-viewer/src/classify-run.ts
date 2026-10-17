@@ -24,6 +24,8 @@ const UINT8 = { format: 1, bits: 8 };
 const FLOAT32 = { format: 3, bits: 32 };
 /** Pixels k-means is trained on, over the whole image. */
 const MAX_SAMPLES = 60_000;
+/** Most bytes of first-pass reads kept for the second pass (k-means). */
+const MAX_KEPT_BYTES = 256 * 2 ** 20;
 /** Most classes (the class numbers are 8-bit, and a legend longer than this is not read). */
 export const MAX_CLASSES = 50;
 
@@ -47,6 +49,8 @@ export interface ClassifyRequest {
   onProgress?: (pass: 1 | 2, done: number) => void;
   /** Set `cancelled` to stop. */
   control?: { cancelled: boolean };
+  /** false: classify in JS only, not WebAssembly (for comparing). */
+  wasm?: boolean;
 }
 
 /** One class of the result. */
@@ -88,6 +92,7 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
   const blocks = blocksOf(grid);
   const total = grid.width * grid.height;
   const dims = bands.length;
+  const read = blockReader(plan, channels, resample);
 
   // Training polygons in the grid's pixels, with their bounding boxes.
   const training =
@@ -126,9 +131,13 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
   }
 
   // Pass 1: samples for k-means, or the training statistics.
+  // By block, so k-means sees them in the same order whichever worker finished first.
   const samples: Float32Array[] = [];
+  // k-means reads every block twice: keep the first reads for the second pass when they are not too large.
+  const keep = method.kind === 'kmeans' && (total * dims * plan.reference.tiff.getBytesPerPixel()) / plan.reference.tiff.getSamplesPerPixel() <= MAX_KEPT_BYTES;
+  const kept = new Map<number, BlockRead>();
   const stats = emptyStats(method.kind === 'supervised' ? method.training.length : 0, dims);
-  await runBlocks(blocks, control, request.onProgress && ((done) => request.onProgress!(1, done)), async (window, worker) => {
+  await runBlocks(blocks, control, request.onProgress && ((done) => request.onProgress!(1, done)), async (window, worker, index) => {
     const [x0, y0, x1, y1] = window;
     const polygons =
       method.kind === 'supervised'
@@ -148,28 +157,28 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
         : [];
     // Blocks without training polygons are not read at all.
     if (method.kind === 'supervised' && !polygons.length) return;
-    const read = await readBlock(plan, channels, window, FLOAT32, resample);
+    const block = await read(window);
+    if (keep) kept.set(index, copyOf(block));
     const task: SampleTask = {
       op: 'sample',
-      width: read.width,
-      height: read.height,
-      inputs: read.channels,
+      ...block,
       resample,
-      count: method.kind === 'kmeans' ? Math.ceil((MAX_SAMPLES * read.width * read.height) / total) : 0,
+      count: method.kind === 'kmeans' ? Math.ceil((MAX_SAMPLES * block.width * block.height) / total) : 0,
       seed: (method.kind === 'kmeans' ? (method.seed ?? 1) : 1) + x0 * 7919 + y0,
       ...(method.kind === 'supervised' ? { polygons, classes: method.training.length } : {}),
     };
-    const result = (await call(worker, task, buffersOf(read.channels))) as SampleResult;
-    if (result.samples.length) samples.push(result.samples);
+    const result = (await call(worker, task, buffersOf(block))) as SampleResult;
+    samples[index] = result.samples;
     if (result.stats) addStats(stats, result.stats);
   });
 
   let model: ClassModel;
   let names: string[];
   if (method.kind === 'kmeans') {
-    const all = new Float32Array(samples.reduce((n, s) => n + s.length, 0));
+    const all = new Float32Array(samples.reduce((n, s) => n + (s?.length ?? 0), 0));
     let at = 0;
     for (const s of samples) {
+      if (!s) continue;
       all.set(s, at);
       at += s.length;
     }
@@ -188,10 +197,11 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
   const pixels = new Float64Array(names.length);
   const areas = new Float64Array(names.length);
   const toLonLat = getTransform(plan.projection, 'EPSG:4326');
-  await runBlocks(blocks, control, request.onProgress && ((done) => request.onProgress!(2, done)), async (window, worker) => {
-    const read = await readBlock(plan, channels, window, FLOAT32, resample);
-    const task: ClassifyTask = { op: 'classify', width: read.width, height: read.height, inputs: read.channels, resample, model, colors, tileSize: TILE, tx0: read.tx0, ty0: read.ty0 };
-    const result = (await call(worker, task, buffersOf(read.channels))) as ClassifyResult;
+  await runBlocks(blocks, control, request.onProgress && ((done) => request.onProgress!(2, done)), async (window, worker, index) => {
+    const block = kept.get(index) ?? (await read(window));
+    kept.delete(index);
+    const task: ClassifyTask = { op: 'classify', ...block, resample, model, colors, tileSize: TILE, tx0: window[0] / TILE, ty0: window[1] / TILE, wasm: request.wasm };
+    const result = (await call(worker, task, buffersOf(block))) as ClassifyResult;
     classWriter.add(result.classTiles);
     colorWriter.add(result.colorTiles);
     const area = pixelArea(plan, (window[0] + window[2]) / 2, (window[1] + window[3]) / 2, toLonLat);
@@ -225,9 +235,65 @@ function pixelArea(plan: CompositePlan, x: number, y: number, toLonLat: ReturnTy
   return Math.abs(geodesicArea(ring).area) / (4 * s * s);
 }
 
+/** What a block of the classification is read as: the bands through their meshes, or as read. */
+interface BlockRead {
+  width: number;
+  height: number;
+  inputs: SampleTask['inputs'];
+  direct?: SampleTask['direct'];
+}
+
+/**
+ * Reads blocks of the grid. When the grid is the image's own (no shift, no
+ * other projection: always so unless the image is placed by a sensor model),
+ * a block is the image's pixels as they are: all the bands in one read,
+ * nothing to look up. Otherwise each band through its mesh, as a composite's.
+ */
+function blockReader(plan: CompositePlan, channels: Channel[], resample: Resampling): (window: [number, number, number, number]) => Promise<BlockRead> {
+  const { grid, reference } = plan;
+  const ox = (grid.origin[0] - reference.origin[0] - reference.shift[0]) / reference.resolution[0];
+  const oy = (grid.origin[1] - reference.origin[1] - reference.shift[1]) / reference.resolution[1];
+  const own =
+    plan.ownGrid &&
+    channels.every((c) => c.image === reference.image) &&
+    grid.resolution[0] === reference.resolution[0] &&
+    grid.resolution[1] === reference.resolution[1] &&
+    Math.abs(ox - Math.round(ox)) < 1e-6 &&
+    Math.abs(oy - Math.round(oy)) < 1e-6 &&
+    Math.round(ox) >= 0 &&
+    Math.round(oy) >= 0 &&
+    Math.round(ox) + grid.width <= reference.tiff.getWidth() &&
+    Math.round(oy) + grid.height <= reference.tiff.getHeight();
+  if (!own) {
+    return async (window) => {
+      const read = await readBlock(plan, channels, window, FLOAT32, resample);
+      return { width: read.width, height: read.height, inputs: read.channels };
+    };
+  }
+  const dx = Math.round(ox);
+  const dy = Math.round(oy);
+  const tiff = reference.tiff;
+  const samples = channels.map((c) => c.band);
+  return async ([x0, y0, x1, y1]) => {
+    const bands = (await tiff.readRasters({ window: [x0 + dx, y0 + dy, x1 + dx, y1 + dy], samples })) as unknown as ArrayLike<number>[];
+    return { width: x1 - x0, height: y1 - y0, inputs: channels.map(() => null), direct: { bands: Array.from(bands), noData: tiff.getGDALNoData() } };
+  };
+}
+
+/** A copy of a block's reads (the worker takes the originals). */
+function copyOf(block: BlockRead): BlockRead {
+  const copy = <T>(a: T): T => (a as unknown as { slice(): T }).slice();
+  return {
+    ...block,
+    inputs: block.inputs.map((c) => (c ? { ...c, data: copy(c.data), mesh: c.mesh.slice() } : null)),
+    direct: block.direct && { noData: block.direct.noData, bands: block.direct.bands.map(copy) },
+  };
+}
+
 /** The buffers of the bands read for a block, each once. */
-function buffersOf(reads: ReadonlyArray<{ data: ArrayLike<number> } | null>): ArrayBuffer[] {
-  return [...new Set(reads.flatMap((c) => (c ? [(c.data as unknown as { buffer: ArrayBuffer }).buffer] : [])))];
+function buffersOf(block: BlockRead): ArrayBuffer[] {
+  const arrays = [...block.inputs.flatMap((c) => (c ? [c.data] : [])), ...(block.direct?.bands ?? [])];
+  return [...new Set(arrays.map((a) => (a as unknown as { buffer: ArrayBuffer }).buffer))];
 }
 
 /** Runs `work` on every block in a few workers. */
@@ -235,7 +301,7 @@ async function runBlocks(
   blocks: Array<[number, number, number, number]>,
   control: { cancelled: boolean },
   onProgress: ((done: number) => void) | undefined,
-  work: (window: [number, number, number, number], worker: Worker) => Promise<void>,
+  work: (window: [number, number, number, number], worker: Worker, index: number) => Promise<void>,
 ): Promise<void> {
   let next = 0;
   let done = 0;
@@ -253,7 +319,8 @@ async function runBlocks(
         try {
           while (next < blocks.length) {
             stop();
-            await work(blocks[next++], worker);
+            const index = next++;
+            await work(blocks[index], worker, index);
             stop();
             done++;
             onProgress?.(done / blocks.length);

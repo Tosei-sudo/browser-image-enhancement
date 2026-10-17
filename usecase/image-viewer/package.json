@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build --emptyOutDir --base ./",
     "package": "node scripts/package.mjs",
+    "build:wasm": "node scripts/build-wasm.mjs",
     "preview": "vite preview --base ./",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:browser": "vite build --emptyOutDir --base ./ && playwright test",
