@@ -1,7 +1,7 @@
 /**
  * The "export" dialog of a vector layer (WFS, Esri, or a file): writes its
- * features (all, or the selected ones) to GeoJSON, a Shapefile (.zip) or a
- * GeoPackage, in WGS 84, Web Mercator or the layer's own CRS, and hands the
+ * features (all, or the selected ones) to GeoJSON, a Shapefile (.zip), a
+ * GeoPackage, FlatGeobuf, KML / KMZ or GPX, in WGS 84, Web Mercator or the layer's own CRS, and hands the
  * file over as a download. Unsaved edits are included: it writes what the
  * map shows. The layer's style goes with Shapefiles and GeoPackages (as
  * QGIS keeps styles), so QGIS and the viewer draw them the same way.
@@ -11,10 +11,14 @@ import { download } from './local-edit.js';
 import type { ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import type { VectorStyleSpec } from './vector-style.js';
+import { writeFgb, writeGpx, writeKml, writeKmz } from './vector-formats.js';
 import { webMercator, wgs84, writeGeoJson, writeGeoPackage, writeShapefile, zipFiles, type TargetCrs } from './vector-write.js';
 
 /** The formats a layer can be written to. */
-export type ExportFormat = 'geojson' | 'shapefile' | 'geopackage';
+export type ExportFormat = 'geojson' | 'shapefile' | 'geopackage' | 'kml' | 'kmz' | 'gpx' | 'fgb';
+
+/** Formats that are WGS 84 by definition (the CRS choice does not apply). */
+const LON_LAT_ONLY: readonly ExportFormat[] = ['kml', 'kmz', 'gpx'];
 
 /** A file name made of a layer title: no characters file systems refuse. */
 export function safeName(title: string): string {
@@ -34,6 +38,10 @@ export async function exportFile(
   const name = safeName(title);
   if (format === 'geojson') return { name: `${name}.geojson`, bytes: writeGeoJson(features, fields, crs), type: 'application/geo+json' };
   if (format === 'shapefile') return { name: `${name}.zip`, bytes: zipFiles(writeShapefile(name, features, fields, crs, style)), type: 'application/zip' };
+  if (format === 'kml') return { name: `${name}.kml`, bytes: writeKml(features, fields), type: 'application/vnd.google-earth.kml+xml' };
+  if (format === 'kmz') return { name: `${name}.kmz`, bytes: writeKmz(features, fields), type: 'application/vnd.google-earth.kmz' };
+  if (format === 'gpx') return { name: `${name}.gpx`, bytes: writeGpx(features, fields).text, type: 'application/gpx+xml' };
+  if (format === 'fgb') return { name: `${name}.fgb`, bytes: writeFgb(name, features, fields, crs), type: 'application/octet-stream' };
   return { name: `${name}.gpkg`, bytes: await writeGeoPackage(name, features, fields, crs, style), type: 'application/geopackage+sqlite3' };
 }
 
@@ -67,6 +75,10 @@ export class ExportDialog {
           <option value="geojson">GeoJSON（.geojson）</option>
           <option value="shapefile">Shapefile（.zip）</option>
           <option value="geopackage">GeoPackage（.gpkg）</option>
+          <option value="fgb">FlatGeobuf（.fgb）</option>
+          <option value="kml">KML（.kml、Google Earth）</option>
+          <option value="kmz">KMZ（.kmz、Google Earth）</option>
+          <option value="gpx">GPX（.gpx、GPS）</option>
         </select></label>
         <label>座標系<select name="crs" aria-label="座標系"></select></label>
         <label class="wide check"><input name="selected" type="checkbox" /><span>選択中の地物だけ</span></label>
@@ -132,14 +144,19 @@ export class ExportDialog {
   }
 
   private update_(): void {
-    const format = (this.form_.elements.namedItem('format') as HTMLSelectElement).value;
-    // GeoJSON has no place for a style, and a service's own drawing cannot be written.
-    this.withStyle_.closest('label')!.hidden = format === 'geojson' || !this.entry_ || !exportStyle(this.entry_);
+    const format = (this.form_.elements.namedItem('format') as HTMLSelectElement).value as ExportFormat;
+    // Only Shapefiles and GeoPackages keep a style, and a service's own drawing cannot be written.
+    this.withStyle_.closest('label')!.hidden = !(format === 'shapefile' || format === 'geopackage') || !this.entry_ || !exportStyle(this.entry_);
+    // KML and GPX are always WGS 84.
+    if (LON_LAT_ONLY.includes(format)) this.crs_.value = '0';
+    this.crs_.disabled = LON_LAT_ONLY.includes(format);
     const notes: string[] = [];
     if (this.entry_?.service.vector?.truncated) notes.push('このレイヤーは先頭 5 万件だけ読み込んでいます。書き出すのも読み込んだ地物だけです');
     if (this.entry_?.service.vector?.note) notes.push('このレイヤーは表示範囲の地物だけを（縮小時は間引いて）読み込んでいます。書き出すのも読み込んだ地物だけです');
     if (format === 'shapefile') notes.push('属性名は 10 バイトまでに切り詰め、文字は UTF-8（.cpg 付き）で書きます。点・線・面が混ざっていると種類ごとに別の Shapefile にします');
     if (format === 'geojson' && this.crs_.value !== '0') notes.push('WGS 84 以外の GeoJSON は標準外です（古い crs 指定を付けます）');
+    if (format === 'kml' || format === 'kmz') notes.push('KML は WGS 84 で書きます。name・description は KML の名前・説明に、ほかの属性は ExtendedData に入ります');
+    if (format === 'gpx') notes.push('GPX は WGS 84 で、点はウェイポイント、線はトラックになります（面は書けないので除きます）。属性は name・desc・ele・time だけが残ります');
     this.note_.textContent = notes.join('。');
   }
 }
