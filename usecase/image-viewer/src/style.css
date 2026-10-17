@@ -3477,3 +3477,25 @@ dialog.popped-out .catalog-head {
   border: 2px solid #3e7bfa;
   background: #3e7bfa1a;
 }
+
+/* The zonal statistics dialog (zonal-dialog.ts): bands and statistics as rows of check boxes. */
+.zonal-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  max-height: 8rem;
+  overflow: auto;
+}
+.zonal-choices legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+.zonal-choices label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
