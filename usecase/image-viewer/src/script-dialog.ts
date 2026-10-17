@@ -14,6 +14,7 @@ import { ScriptRun } from './script/sandbox.js';
 import { scriptHandlers, type ScriptContext } from './script/api.js';
 import { SAMPLES } from './script/samples.js';
 import { download } from './local-edit.js';
+import { highlight } from './script/highlight.js';
 import { ENTRIES, Suggest } from './script/suggest.js';
 
 const SAVED_KEY = 'image-viewer.scripts';
@@ -45,6 +46,8 @@ function writeSaved(list: SavedScript[]): boolean {
 export class ScriptDialog {
   readonly dialog: HTMLDialogElement;
   private readonly code_: HTMLTextAreaElement;
+  /** The coloured copy of the script drawn under the (transparent) text of the editor. */
+  private readonly highlight_: HTMLPreElement;
   private readonly choice_: HTMLSelectElement;
   private readonly output_: HTMLElement;
   private readonly status_: HTMLElement;
@@ -80,7 +83,7 @@ export class ScriptDialog {
           </div>
         </details>
       </div>
-      <div class="script-editor"><textarea class="script-code" spellcheck="false" autocomplete="off" aria-label="スクリプト（JavaScript）"></textarea></div>
+      <div class="script-editor"><pre class="script-highlight" aria-hidden="true"></pre><textarea class="script-code" spellcheck="false" autocomplete="off" aria-label="スクリプト（JavaScript）"></textarea></div>
       <div class="service-actions script-actions">
         <progress max="1" hidden></progress>
         <span class="script-status" role="status"></span>
@@ -95,6 +98,7 @@ export class ScriptDialog {
       </details>`;
     document.body.append(this.dialog);
     this.code_ = this.dialog.querySelector('textarea')!;
+    this.highlight_ = this.dialog.querySelector('.script-highlight')!;
     this.choice_ = this.dialog.querySelector('select[name=choice]')!;
     this.output_ = this.dialog.querySelector('.script-output')!;
     this.status_ = this.dialog.querySelector('.script-status')!;
@@ -118,6 +122,7 @@ export class ScriptDialog {
         return SAMPLES[0].code;
       }
     })();
+    this.paint_();
     this.listChoices();
     this.suggest = new Suggest(this.code_, () => this.context.layers().map((l) => l.name));
 
@@ -141,7 +146,9 @@ export class ScriptDialog {
     });
     this.run_.addEventListener('click', () => this.run());
     this.stop_.addEventListener('click', () => this.stop());
+    this.code_.addEventListener('scroll', () => this.scroll_());
     this.code_.addEventListener('input', () => {
+      this.paint_();
       try {
         localStorage.setItem(DRAFT_KEY, this.code_.value);
       } catch {
@@ -166,6 +173,18 @@ export class ScriptDialog {
     if (!this.dialog.open) this.dialog.show();
     this.place_();
     this.code_.focus();
+  }
+
+  /** Colours the script under the editor's text. */
+  private paint_(): void {
+    // A trailing newline needs a character after it to take up its line, as it does in the textarea.
+    this.highlight_.innerHTML = `${highlight(this.code_.value)} `;
+    this.scroll_();
+  }
+
+  private scroll_(): void {
+    this.highlight_.scrollTop = this.code_.scrollTop;
+    this.highlight_.scrollLeft = this.code_.scrollLeft;
   }
 
   /** Below the top of the map with room for the edit toolbar, so its 「保存」 stays in reach (unless the user moved it). */

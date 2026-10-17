@@ -2784,17 +2784,65 @@ body {
   white-space: nowrap;
 }
 .script-code {
+  position: relative;
   flex: 1 1 16rem;
   min-height: 12rem;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
+  /* The text is drawn by the coloured copy underneath; the caret and the selection stay the textarea's. */
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
   font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   tab-size: 2;
   resize: vertical;
   white-space: pre;
+}
+.script-code::selection {
+  background: var(--accent-bg);
+  color: transparent;
+}
+/* The coloured copy of the script under the editor, kept on the same characters and scroll.
+   Colours follow color-scheme with light-dark(), so they change with the light and dark themes. */
+.script-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  /* Extra room at the end so it can scroll as far as the textarea with its scroll bars. */
+  padding: 8px 28px 28px 8px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  tab-size: 2;
+  white-space: pre;
+  pointer-events: none;
+}
+.hl-comment {
+  color: light-dark(#6a737d, #8b949e);
+  font-style: italic;
+}
+.hl-string {
+  color: light-dark(#0a7a32, #8fd18f);
+}
+.hl-regex {
+  color: light-dark(#b3261e, #ff9b8f);
+}
+.hl-number,
+.hl-literal {
+  color: light-dark(#a3500b, #f2b37a);
+}
+.hl-keyword {
+  color: light-dark(#a626a4, #d7a6ff);
+}
+.hl-builtin {
+  color: light-dark(#0b5cc0, #7cbcff);
+}
+.hl-function {
+  color: light-dark(#6f5000, #e3c07f);
 }
 .script-actions {
   align-items: center;
