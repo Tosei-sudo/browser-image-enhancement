@@ -2,6 +2,7 @@ import { configureWasm } from "../core/wasm.js";
 import { compile, isMonochrome, processPixels, resolveMode } from "../core/process.js";
 import { countPixels, resolveForPixels } from "../core/histogram.js";
 import { drawTriangles } from "../openlayers/reproject-kernel.js";
+import { decodeLzwBlock } from "../openlayers/lzw.js";
 //#region src/worker/handler.ts
 /**
 * Worker-side message handling, kept free of worker globals so it can be tested directly.
@@ -83,6 +84,15 @@ function createWorkerHandler(post) {
 						id,
 						buffer: out.buffer
 					}, [out.buffer]);
+					break;
+				}
+				case "lzw": {
+					const out = decodeLzwBlock(request.buffer, request.parameters);
+					post({
+						type: "lzwDecoded",
+						id,
+						buffer: out
+					}, [out]);
 					break;
 				}
 			}

@@ -1,5 +1,6 @@
 import type { ResolvedMode } from '../core/process.js';
 import type { ColorMode, Histogram, OpSpec } from '../types.js';
+import type { PredictorParameters } from '../openlayers/lzw.js';
 import type { ReprojectJob } from '../openlayers/reproject-kernel.js';
 
 /**
@@ -21,6 +22,7 @@ import type { ReprojectJob } from '../openlayers/reproject-kernel.js';
  * - `release`: drop a strip held after `detect` (the job was cancelled).
  *
  * - `reproject`: draw a reprojected map tile (see openlayers/reproject-kernel.ts).
+ * - `lzw`: decode an LZW-compressed GeoTIFF tile (see openlayers/lzw.ts).
  *
  * `wasm` passes on the main thread's `configureWasm` setting.
  */
@@ -29,7 +31,8 @@ export type WorkerRequest =
   | { type: 'detect'; id: number; buffer: ArrayBuffer; width: number; core: [number, number]; stats: ResolvedMode | null }
   | { type: 'process'; id: number; ops: OpSpec[]; mode: ResolvedMode; wasm: boolean }
   | { type: 'release'; id: number }
-  | { type: 'reproject'; id: number; job: ReprojectMessage };
+  | { type: 'reproject'; id: number; job: ReprojectMessage }
+  | { type: 'lzw'; id: number; buffer: ArrayBuffer; parameters: PredictorParameters };
 
 /** A {@link ReprojectJob} with its arrays as transferable buffers. */
 export interface ReprojectMessage extends Omit<ReprojectJob, 'stitch' | 'corners'> {
@@ -43,4 +46,5 @@ export interface ReprojectMessage extends Omit<ReprojectJob, 'stitch' | 'corners
 export type WorkerResponse =
   | { type: 'detected'; id: number; mono: boolean; stats: Histogram | null }
   | { type: 'done'; id: number; buffer: ArrayBuffer; mode: ResolvedMode }
-  | { type: 'reprojected'; id: number; buffer: ArrayBuffer };
+  | { type: 'reprojected'; id: number; buffer: ArrayBuffer }
+  | { type: 'lzwDecoded'; id: number; buffer: ArrayBuffer };

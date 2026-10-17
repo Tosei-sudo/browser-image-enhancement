@@ -5,6 +5,7 @@
  * and multipolygons count); a polygon smaller than a pixel takes the pixel
  * under its centre, so every polygon over the image gets a value.
  */
+import { medianInPlace } from './select.js';
 
 /** A statistic that can be asked for. */
 export type ZonalStat = 'mean' | 'min' | 'max' | 'std' | 'count' | 'sum' | 'median';
@@ -70,7 +71,7 @@ export function zoneStats(bands: ReadonlyArray<ArrayLike<number>>, mask: ArrayLi
     let sum2 = 0;
     let min = Infinity;
     let max = -Infinity;
-    const kept: number[] | null = median ? [] : null;
+    const kept = median ? new Float64Array(values.length) : null;
     for (let i = 0; i < values.length; i++) {
       if (mask && !mask[i]) continue;
       const v = values[i];
@@ -80,16 +81,12 @@ export function zoneStats(bands: ReadonlyArray<ArrayLike<number>>, mask: ArrayLi
       sum2 += v * v;
       if (v < min) min = v;
       if (v > max) max = v;
-      kept?.push(v);
+      if (kept) kept[n - 1] = v;
     }
     if (!n) return { mean: NaN, min: NaN, max: NaN, std: NaN, count: 0, sum: 0, median: NaN };
     const mean = sum / n;
     let mid = NaN;
-    if (kept) {
-      kept.sort((a, b) => a - b);
-      const h = n >> 1;
-      mid = n % 2 ? kept[h] : (kept[h - 1] + kept[h]) / 2;
-    }
+    if (kept) mid = medianInPlace(kept.subarray(0, n));
     return { mean, min, max, std: Math.sqrt(Math.max(0, sum2 / n - mean * mean)), count: n, sum, median: mid };
   });
 }

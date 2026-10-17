@@ -112,66 +112,79 @@ export function resampleMesh(
   const rw = read.width;
   const rh = read.height;
   const noData = read.noData;
-  const valid = (v: number) => v === v && v !== noData;
+  const nearest = resample === 'nearest';
   let count = 0;
   for (let y = 0; y < height; y++) {
     const r = Math.floor(y / step);
     const fy = (y - r * step) / step;
-    for (let x = 0; x < width; x++) {
-      const c = Math.floor(x / step);
-      const fx = (x - c * step) / step;
+    for (let c = 0, x = 0; x < width; c++) {
+      // The mesh cell's left and right edges at this row; the image position is linear between them.
       const k00 = 2 * (r * cols + c);
-      const k10 = k00 + 2;
       const k01 = k00 + 2 * cols;
-      const k11 = k01 + 2;
-      // The image pixel position, interpolated between the four nodes, in read pixels.
-      const top = mesh[k00] + (mesh[k10] - mesh[k00]) * fx;
-      const bottom = mesh[k01] + (mesh[k11] - mesh[k01]) * fx;
-      const u = (top + (bottom - top) * fy - wx0) * sx;
-      const topY = mesh[k00 + 1] + (mesh[k10 + 1] - mesh[k00 + 1]) * fx;
-      const bottomY = mesh[k01 + 1] + (mesh[k11 + 1] - mesh[k01 + 1]) * fx;
-      const v = (topY + (bottomY - topY) * fy - wy0) * sy;
-      const o = (y * width + x) * bands + band;
-      let value = fill;
-      let got = false;
-      if (u >= 0 && v >= 0 && u < rw && v < rh) {
-        if (resample === 'nearest') {
-          const s = data[Math.floor(v) * rw + Math.floor(u)];
-          if (valid(s)) {
-            value = s;
-            got = true;
-          }
-        } else {
-          // Bilinear between the four nearest pixel centres; no data left out (and the weights of the rest renormalized).
-          const px = Math.min(Math.max(u - 0.5, 0), rw - 1);
-          const py = Math.min(Math.max(v - 0.5, 0), rh - 1);
-          const i0 = Math.floor(px);
-          const j0 = Math.floor(py);
-          const i1 = Math.min(i0 + 1, rw - 1);
-          const j1 = Math.min(j0 + 1, rh - 1);
-          const ax = px - i0;
-          const ay = py - j0;
-          let sum = 0;
-          let weight = 0;
-          const add = (i: number, j: number, w: number) => {
-            const s = data[j * rw + i];
-            if (w > 0 && valid(s)) {
-              sum += s * w;
-              weight += w;
+      const leftU = mesh[k00] + (mesh[k01] - mesh[k00]) * fy;
+      const rightU = mesh[k00 + 2] + (mesh[k01 + 2] - mesh[k00 + 2]) * fy;
+      const leftV = mesh[k00 + 1] + (mesh[k01 + 1] - mesh[k00 + 1]) * fy;
+      const rightV = mesh[k00 + 3] + (mesh[k01 + 3] - mesh[k00 + 3]) * fy;
+      const end = Math.min(width, (c + 1) * step);
+      for (; x < end; x++) {
+        const fx = (x - c * step) / step;
+        const u = (leftU + (rightU - leftU) * fx - wx0) * sx;
+        const v = (leftV + (rightV - leftV) * fx - wy0) * sy;
+        const o = (y * width + x) * bands + band;
+        let value = fill;
+        let got = false;
+        if (u >= 0 && v >= 0 && u < rw && v < rh) {
+          if (nearest) {
+            const s = data[Math.floor(v) * rw + Math.floor(u)];
+            if (s === s && s !== noData) {
+              value = s;
+              got = true;
             }
-          };
-          add(i0, j0, (1 - ax) * (1 - ay));
-          add(i1, j0, ax * (1 - ay));
-          add(i0, j1, (1 - ax) * ay);
-          add(i1, j1, ax * ay);
-          if (weight > 1e-9) {
-            value = sum / weight;
-            got = true;
+          } else {
+            // Bilinear between the four nearest pixel centres; no data left out (and the weights of the rest renormalized).
+            const px = Math.min(Math.max(u - 0.5, 0), rw - 1);
+            const py = Math.min(Math.max(v - 0.5, 0), rh - 1);
+            const i0 = Math.floor(px);
+            const j0 = Math.floor(py);
+            const i1 = Math.min(i0 + 1, rw - 1);
+            const j1 = Math.min(j0 + 1, rh - 1);
+            const ax = px - i0;
+            const ay = py - j0;
+            const w00 = (1 - ax) * (1 - ay);
+            const w10 = ax * (1 - ay);
+            const w01 = (1 - ax) * ay;
+            const w11 = ax * ay;
+            const s00 = data[j0 * rw + i0];
+            const s10 = data[j0 * rw + i1];
+            const s01 = data[j1 * rw + i0];
+            const s11 = data[j1 * rw + i1];
+            let sum = 0;
+            let weight = 0;
+            if (w00 > 0 && s00 === s00 && s00 !== noData) {
+              sum += s00 * w00;
+              weight += w00;
+            }
+            if (w10 > 0 && s10 === s10 && s10 !== noData) {
+              sum += s10 * w10;
+              weight += w10;
+            }
+            if (w01 > 0 && s01 === s01 && s01 !== noData) {
+              sum += s01 * w01;
+              weight += w01;
+            }
+            if (w11 > 0 && s11 === s11 && s11 !== noData) {
+              sum += s11 * w11;
+              weight += w11;
+            }
+            if (weight > 1e-9) {
+              value = sum / weight;
+              got = true;
+            }
           }
         }
+        out[o] = got ? offFill(round ? Math.round(value) : value, fill) : value;
+        if (got) count++;
       }
-      out[o] = got ? offFill(round ? Math.round(value) : value, fill) : value;
-      if (got) count++;
     }
   }
   return count;

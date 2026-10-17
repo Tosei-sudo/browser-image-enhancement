@@ -84,68 +84,82 @@ export function resampleBands(
   const sy = read.height / (wy1 - wy0);
   const rw = read.width;
   const rh = read.height;
-  const sums = new Float64Array(bands);
-  const weights = new Float64Array(bands);
   let count = 0;
   out.fill(NaN);
   valid.fill(0);
+  const nearest = resample === 'nearest';
   for (let y = 0; y < height; y++) {
     const r = Math.floor(y / step);
     const fy = (y - r * step) / step;
-    for (let x = 0; x < width; x++) {
-      const c = Math.floor(x / step);
-      const fx = (x - c * step) / step;
+    for (let c = 0, x = 0; x < width; c++) {
+      // The mesh cell's left and right edges at this row; the image position is linear between them.
       const k00 = 2 * (r * cols + c);
-      const k10 = k00 + 2;
       const k01 = k00 + 2 * cols;
-      const k11 = k01 + 2;
-      const top = mesh[k00] + (mesh[k10] - mesh[k00]) * fx;
-      const bottom = mesh[k01] + (mesh[k11] - mesh[k01]) * fx;
-      const u = (top + (bottom - top) * fy - wx0) * sx;
-      const topY = mesh[k00 + 1] + (mesh[k10 + 1] - mesh[k00 + 1]) * fx;
-      const bottomY = mesh[k01 + 1] + (mesh[k11 + 1] - mesh[k01 + 1]) * fx;
-      const v = (topY + (bottomY - topY) * fy - wy0) * sy;
-      if (!(u >= 0 && v >= 0 && u < rw && v < rh)) continue;
-      const p = y * width + x;
-      const o = p * bands;
-      if (resample === 'nearest') {
-        const i = (Math.floor(v) * rw + Math.floor(u)) * bands;
-        if (empty(data, i, bands, noData, zero)) continue;
-        for (let b = 0; b < bands; b++) out[o + b] = data[i + b];
-      } else {
-        // Bilinear between the four nearest pixel centres, pixels with no data left out (and the rest renormalized).
-        const px = Math.min(Math.max(u - 0.5, 0), rw - 1);
-        const py = Math.min(Math.max(v - 0.5, 0), rh - 1);
-        const i0 = Math.floor(px);
-        const j0 = Math.floor(py);
-        const i1 = Math.min(i0 + 1, rw - 1);
-        const j1 = Math.min(j0 + 1, rh - 1);
-        const ax = px - i0;
-        const ay = py - j0;
-        sums.fill(0);
-        weights.fill(0);
-        let any = false;
-        const add = (i: number, j: number, w: number) => {
-          if (w <= 0) return;
-          const at = (j * rw + i) * bands;
-          if (empty(data, at, bands, noData, zero)) return;
-          any = true;
+      const leftU = mesh[k00] + (mesh[k01] - mesh[k00]) * fy;
+      const rightU = mesh[k00 + 2] + (mesh[k01 + 2] - mesh[k00 + 2]) * fy;
+      const leftV = mesh[k00 + 1] + (mesh[k01 + 1] - mesh[k00 + 1]) * fy;
+      const rightV = mesh[k00 + 3] + (mesh[k01 + 3] - mesh[k00 + 3]) * fy;
+      const end = Math.min(width, (c + 1) * step);
+      for (; x < end; x++) {
+        const fx = (x - c * step) / step;
+        const u = (leftU + (rightU - leftU) * fx - wx0) * sx;
+        const v = (leftV + (rightV - leftV) * fx - wy0) * sy;
+        if (!(u >= 0 && v >= 0 && u < rw && v < rh)) continue;
+        const p = y * width + x;
+        const o = p * bands;
+        if (nearest) {
+          const i = (Math.floor(v) * rw + Math.floor(u)) * bands;
+          if (empty(data, i, bands, noData, zero)) continue;
+          for (let b = 0; b < bands; b++) out[o + b] = data[i + b];
+        } else {
+          // Bilinear between the four nearest pixel centres, pixels with no data left out (and the rest renormalized).
+          const px = Math.min(Math.max(u - 0.5, 0), rw - 1);
+          const py = Math.min(Math.max(v - 0.5, 0), rh - 1);
+          const i0 = Math.floor(px);
+          const j0 = Math.floor(py);
+          const i1 = Math.min(i0 + 1, rw - 1);
+          const j1 = Math.min(j0 + 1, rh - 1);
+          const ax = px - i0;
+          const ay = py - j0;
+          const a00 = (j0 * rw + i0) * bands;
+          const a10 = (j0 * rw + i1) * bands;
+          const a01 = (j1 * rw + i0) * bands;
+          const a11 = (j1 * rw + i1) * bands;
+          // Each corner's weight, 0 for one with no data.
+          const w00 = (1 - ax) * (1 - ay) > 0 && !empty(data, a00, bands, noData, zero) ? (1 - ax) * (1 - ay) : 0;
+          const w10 = ax * (1 - ay) > 0 && !empty(data, a10, bands, noData, zero) ? ax * (1 - ay) : 0;
+          const w01 = (1 - ax) * ay > 0 && !empty(data, a01, bands, noData, zero) ? (1 - ax) * ay : 0;
+          const w11 = ax * ay > 0 && !empty(data, a11, bands, noData, zero) ? ax * ay : 0;
+          if (!(w00 > 0 || w10 > 0 || w01 > 0 || w11 > 0)) continue;
           for (let b = 0; b < bands; b++) {
-            const s = data[at + b];
-            if (s !== s) continue;
-            sums[b] += s * w;
-            weights[b] += w;
+            let sum = 0;
+            let weight = 0;
+            const s00 = data[a00 + b];
+            const s10 = data[a10 + b];
+            const s01 = data[a01 + b];
+            const s11 = data[a11 + b];
+            if (w00 > 0 && s00 === s00) {
+              sum += s00 * w00;
+              weight += w00;
+            }
+            if (w10 > 0 && s10 === s10) {
+              sum += s10 * w10;
+              weight += w10;
+            }
+            if (w01 > 0 && s01 === s01) {
+              sum += s01 * w01;
+              weight += w01;
+            }
+            if (w11 > 0 && s11 === s11) {
+              sum += s11 * w11;
+              weight += w11;
+            }
+            if (weight > 1e-9) out[o + b] = sum / weight;
           }
-        };
-        add(i0, j0, (1 - ax) * (1 - ay));
-        add(i1, j0, ax * (1 - ay));
-        add(i0, j1, (1 - ax) * ay);
-        add(i1, j1, ax * ay);
-        if (!any) continue;
-        for (let b = 0; b < bands; b++) if (weights[b] > 1e-9) out[o + b] = sums[b] / weights[b];
+        }
+        valid[p] = 1;
+        count++;
       }
-      valid[p] = 1;
-      count++;
     }
   }
   return count;

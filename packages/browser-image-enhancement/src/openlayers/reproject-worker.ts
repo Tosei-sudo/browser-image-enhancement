@@ -4,9 +4,7 @@
  */
 import { getPool } from '../worker/pool.js';
 import type { Pixels, ReprojectJob } from './reproject-kernel.js';
-
-/** Negative ids, so they never meet the ids `execute` gives its strips on the same worker. */
-let nextId = -1;
+import { nextWorkerId } from './worker-ids.js';
 
 /** The tile drawn in a worker, or null when no worker can run (the caller then draws it itself). */
 export async function drawInWorker(job: ReprojectJob): Promise<Pixels | null> {
@@ -19,7 +17,7 @@ export async function drawInWorker(job: ReprojectJob): Promise<Pixels | null> {
   } catch {
     return null;
   }
-  const id = nextId--;
+  const id = nextWorkerId();
   const float = job.stitch instanceof Float32Array;
   const { stitch, corners, ...rest } = job;
   const response = await pool.request(

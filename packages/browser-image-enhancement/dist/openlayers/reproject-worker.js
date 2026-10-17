@@ -1,11 +1,10 @@
 import { getPool } from "../worker/pool.js";
+import { nextWorkerId } from "./worker-ids.js";
 //#region src/openlayers/reproject-worker.ts
 /**
 * Runs {@link drawTriangles} in the library's worker pool, so reprojecting
 * tiles does not hold up the main thread while the map pans.
 */
-/** Negative ids, so they never meet the ids `execute` gives its strips on the same worker. */
-let nextId = -1;
 /** The tile drawn in a worker, or null when no worker can run (the caller then draws it itself). */
 async function drawInWorker(job) {
 	if (typeof Worker === "undefined") return null;
@@ -17,7 +16,7 @@ async function drawInWorker(job) {
 	} catch {
 		return null;
 	}
-	const id = nextId--;
+	const id = nextWorkerId();
 	const float = job.stitch instanceof Float32Array;
 	const { stitch, corners, ...rest } = job;
 	const response = await pool.request(slot, {

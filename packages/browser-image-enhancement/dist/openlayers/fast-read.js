@@ -1,4 +1,20 @@
+import { lzwDecoderFor } from "./lzw-worker.js";
 //#region src/openlayers/fast-read.ts
+/**
+* A faster way for geotiff.js to copy decoded tiles into the arrays it
+* returns.
+*
+* geotiff.js reads every sample of a decoded tile through a `DataView`
+* getter called per value (`reader.call(dataView, offset, littleEndian)`),
+* which costs as much on the main thread as the reprojection that follows.
+* For the common layouts (byte-aligned 8/16/32/64-bit samples in the
+* machine's byte order, no resampling) the tile is viewed as a typed array
+* instead and copied with a plain strided loop, or `set` when the samples
+* are contiguous. Anything else goes through geotiff.js as before.
+*
+* LZW tiles are decoded by the library's own decoder, in its workers
+* (lzw-worker.ts): geotiff.js's is ten times slower.
+*/
 const hostLittleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 const patched = /* @__PURE__ */ new WeakSet();
 /** Makes `image` (a geotiff.js `GeoTIFFImage`) copy decoded tiles with typed arrays where it can. */
@@ -8,6 +24,7 @@ function fastReadRasters(image) {
 	patched.add(img);
 	const original = img._readRaster;
 	img._readRaster = function(imageWindow, samples, valueArrays, interleave, poolOrDecoder, width, height, resampleMethod, signal) {
+		poolOrDecoder = lzwDecoderFor(this, poolOrDecoder);
 		const plan = interleave || !Array.isArray(valueArrays) ? null : planFor(this, imageWindow, samples, valueArrays, width, height);
 		if (!plan) return original.call(this, imageWindow, samples, valueArrays, interleave, poolOrDecoder, width, height, resampleMethod, signal);
 		return readFast(this, plan, imageWindow, samples, valueArrays, poolOrDecoder, signal);
