@@ -69,6 +69,7 @@ import { elevationRange } from './dem.js';
 import { NewLayerDialog } from './new-layer-dialog.js';
 import { ProcessingDialog, tools as processingTools } from './processing-dialog.js';
 import { bindPalette, buttonCommands, CommandPalette } from './command-palette.js';
+import { ZonalDialog } from './zonal-dialog.js';
 import { DetectDialog, SegmentTool } from './ai-tools.js';
 import { TransferDialog } from './ai-transfer.js';
 import { imageTime } from './timeline.js';
@@ -527,6 +528,7 @@ const rasterTools = [
   { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
   { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
   { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
+  { id: 'zonal', label: 'ゾーン統計（ポリゴンごとの平均・最大など）', open: () => void zonal.open() },
 ];
 const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
   layers: () => images.layers(),
@@ -538,6 +540,17 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     addService(tempLayer(record, tempStore));
   },
   rasterTools,
+});
+// Zonal statistics (from the processing dialog): each polygon's mean, max… of an image's bands, as a temporary layer.
+const zonal = new ZonalDialog(selection, {
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  say,
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    addService(tempLayer(record, tempStore));
+  },
 });
 
 // Ctrl+K: every tool by name — the bar's buttons and menus, the side panel's, and the processing tools.
@@ -1268,6 +1281,7 @@ declare global {
       geometry: GeometricMode;
       recent: RecentMenu | null;
       processing: ProcessingDialog;
+      zonal: ZonalDialog;
       newLayer: NewLayerDialog;
       panSharpen: PanSharpenDialog;
       colorize: ColorizeDialog;
@@ -1305,4 +1319,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
