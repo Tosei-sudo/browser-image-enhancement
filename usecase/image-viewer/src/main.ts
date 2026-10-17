@@ -62,6 +62,7 @@ import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from '
 import { IMAGE_CHOICE, isImageServerUrl, isMapServerUrl, MAP_CHOICE } from './services/esri-raster.js';
 import { RasterRulesDialog } from './raster-rules-dialog.js';
 import { elevationRange } from './dem.js';
+import { NewLayerDialog } from './new-layer-dialog.js';
 import { ProcessingDialog } from './processing-dialog.js';
 import { DetectDialog, SegmentTool } from './ai-tools.js';
 import { TransferDialog } from './ai-transfer.js';
@@ -488,6 +489,25 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
     { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
     { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
   ],
+});
+
+// New layers designed by the person (geometry type and attributes): empty temporary layers, drawn on at once.
+const newLayer = new NewLayerDialog(document.getElementById('new-layer') as HTMLButtonElement, {
+  layers: () => images.layers().filter((l): l is ViewerService => l.type === 'service'),
+  say,
+  onCreate: async (record, draw) => {
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    const entry = images.addService(tempLayer(record, tempStore));
+    if (!editor.start(entry)) {
+      say(`${record.title} を追加しました`);
+      return;
+    }
+    showTable(entry);
+    if (draw) {
+      editor.setTool('add');
+      say(`${record.title} を作成しました。地図をクリックして描き始めてください（属性は属性テーブルで入力し、「保存」でブラウザに保存します）`);
+    }
+  },
 });
 
 // AI: models trained elsewhere (ONNX) run on the image: object detection over the view, and click segmentation.
@@ -1018,6 +1038,7 @@ declare global {
       geometry: GeometricMode;
       recent: RecentMenu | null;
       processing: ProcessingDialog;
+      newLayer: NewLayerDialog;
       panSharpen: PanSharpenDialog;
       colorize: ColorizeDialog;
       noData: NoDataDialog;
@@ -1049,4 +1070,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, newLayer, panSharpen, colorize, noData, composite, mosaic, bandMath, change, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, histogram: histogramPanel, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, rasterRules, bookmarks };
