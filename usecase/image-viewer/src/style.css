@@ -1080,6 +1080,89 @@ body {
   font-size: 12px;
 }
 
+/* New layer dialog: a name, a geometry type and the attributes. */
+.new-layer-fields {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.new-layer-fields legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+.new-layer-list {
+  display: grid;
+  gap: 4px;
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.new-layer-field-main {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.new-layer-field-main label.check {
+  white-space: nowrap;
+}
+.new-layer-more[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+.new-layer-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 4px 8px;
+  margin: 4px 0 6px 12px;
+}
+.new-layer-details label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.new-layer-details[hidden],
+.new-layer-details label[hidden] {
+  display: none;
+}
+.new-layer-details input,
+.new-layer-field-main input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.new-layer-field-main input[type='checkbox'] {
+  width: auto;
+}
+.new-layer-details .wide {
+  grid-column: 1 / -1;
+}
+.new-layer-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.new-layer-field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.new-layer-more-settings summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.new-layer-more-settings > .service-form {
+  margin-top: 6px;
+}
+.new-layer-note.error {
+  color: var(--danger, #c0392b);
+}
+
 /* Coloring and RGB composite dialogs. */
 .colorize-preview {
   height: 12px;

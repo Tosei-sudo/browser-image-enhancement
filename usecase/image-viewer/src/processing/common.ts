@@ -12,6 +12,7 @@ import { toLonLat, fromLonLat } from 'ol/proj.js';
 import type { LonLat } from '../coordinates.js';
 import type { Field } from '../services/index.js';
 import type { TargetCrs } from '../vector-write.js';
+import type { DrawableType } from '../edit-session.js';
 
 const { Geodesic } = ((geographiclib as unknown as { default?: typeof geographiclib }).default ?? geographiclib) as typeof geographiclib;
 const WGS84 = Geodesic.WGS84;
@@ -36,6 +37,10 @@ export interface ProcessingResult {
   crs?: TargetCrs;
   /** Lines for the status bar: what was made, what was skipped. */
   notes?: string[];
+  /** What new features are drawn as when the layer is edited (null: any); else the features' own type. */
+  geometryType?: DrawableType | null;
+  /** Attributes a new feature starts with. */
+  defaults?: Record<string, unknown>;
 }
 
 /** A field made by a tool (any attribute can be edited in a temporary layer). */
