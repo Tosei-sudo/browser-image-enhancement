@@ -2802,6 +2802,182 @@ body {
   gap: 4px 14px;
 }
 
+/* Scripts (src/script-dialog.ts): non-modal at the right like the imaging plan, so layers can be picked and edits saved;
+   low enough to leave the edit toolbar (at the top of the map) uncovered. */
+.script-dialog[open] {
+  position: fixed;
+  inset: 104px 16px auto auto; /* top: set below the map's top (script-dialog.ts) */
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(44rem, calc(100% - 32px));
+  max-height: calc(100vh - 160px);
+  margin: 0;
+  box-shadow: 0 4px 16px #0003;
+}
+.script-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.script-bar select {
+  flex: 1;
+  min-width: 0;
+}
+.script-bar select,
+.script-bar button,
+.script-menu button {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.script-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.script-more {
+  position: relative;
+}
+.script-more summary {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  list-style: none;
+  cursor: pointer;
+}
+.script-more summary::-webkit-details-marker {
+  display: none;
+}
+.script-menu {
+  position: absolute;
+  right: 0;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  white-space: nowrap;
+}
+.script-code {
+  flex: 1 1 16rem;
+  min-height: 12rem;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  tab-size: 2;
+  resize: vertical;
+  white-space: pre;
+}
+.script-actions {
+  align-items: center;
+  margin-top: 0;
+}
+.script-actions progress {
+  width: 6rem;
+}
+.script-status {
+  flex: 1;
+  color: var(--muted);
+}
+.script-output {
+  flex: 0 1 auto;
+  min-height: 3em;
+  max-height: 14rem;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.script-output:empty::before {
+  color: var(--muted);
+  content: 'print() の出力がここに出ます';
+}
+.script-warn {
+  color: #b7791f;
+}
+.script-error {
+  color: #d64545;
+}
+.script-reference summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.script-reference dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2px 12px;
+  max-height: 16rem;
+  margin: 6px 0 0;
+  overflow: auto;
+}
+.script-reference dt {
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.script-reference dd {
+  margin: 0;
+  color: var(--muted);
+}
+.script-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+.script-editor {
+  position: relative;
+  display: flex;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  min-height: 12rem;
+}
+.script-suggest {
+  position: absolute;
+  z-index: 2;
+  width: min(30rem, 90%);
+  max-height: 14rem;
+  margin: 0;
+  padding: 2px 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 4px 12px #0003;
+  list-style: none;
+}
+.script-suggest[hidden] {
+  display: none;
+}
+.script-suggest li {
+  display: grid;
+  gap: 1px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.script-suggest li[aria-selected='true'] {
+  background: var(--accent-bg);
+}
+.script-suggest code {
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.script-suggest span {
+  color: var(--muted);
+  font-size: 11px;
+}
 /* Windows the user drags anywhere (move-windows.ts): dialogs by their title, the panels over the map by their background. */
 dialog h2,
 dialog .catalog-head,
