@@ -3434,3 +3434,46 @@ dialog.popped-out .catalog-head {
 .palette-hint kbd {
   margin-right: 2px;
 }
+
+/* The spectral graph (spectral.ts): the profile chart's look, one colored line per point. */
+.spectral {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.spectral[hidden] {
+  display: none;
+}
+.spectral-controls select {
+  min-width: 0;
+  flex: 1;
+}
+.spectral-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.spectral-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 2px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 11px;
+  list-style: none;
+}
+.spectral-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.spectral-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  border-radius: 1px;
+}
+.spectral-box {
+  border: 2px solid #3e7bfa;
+  background: #3e7bfa1a;
+}

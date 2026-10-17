@@ -87,7 +87,7 @@ export function place(image: ViewerImage): Placed {
 }
 
 /** Coordinates from `from` to `to`, through WGS 84 when OpenLayers knows no direct way. */
-function transformer(from: Projection, to: Projection): TransformFunction {
+export function transformer(from: Projection, to: Projection): TransformFunction {
   if (equivalent(from, to)) return (input, output = input.slice()) => {
     for (let i = 0; i < input.length; i++) output[i] = input[i];
     return output;
