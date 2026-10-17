@@ -843,6 +843,13 @@ body {
   border-radius: 0 0 4px 4px;
   color: #dc2626;
 }
+/* Actions at the point (plan imaging here…). */
+.coordinate-actions {
+  display: grid;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
 /* Which notation the bottom-left cursor label uses. */
 .coordinate-notation {
   display: flex;

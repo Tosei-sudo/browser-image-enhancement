@@ -231,6 +231,75 @@ test('takes points close together in one scene', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('plans a point from the map\'s right-click menu', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.evaluate(() => window.viewer.map.getView().setCenter([15550000, 4250000]));
+  await page.locator('#map').click({ button: 'right', position: { x: 300, y: 300 } });
+  await page.locator('.coordinate-menu').getByRole('menuitem', { name: 'この地点で撮像計画を立てる' }).click();
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('.coordinate-menu')).toBeHidden();
+  await expect(dialog.locator('select[name=target]')).toHaveValue('click');
+  // Planned at once, for the point clicked.
+  await expect(dialog.locator('.service-status')).toContainText(/最短は|機会はありません/, { timeout: 30_000 });
+  const target = await page.evaluate(() => window.viewer.imagingPlan.targets());
+  expect(typeof target).not.toBe('string');
+  const clicked = await page.evaluate(() => {
+    const map = window.viewer.map;
+    const [x, y] = map.getCoordinateFromPixel([300, 300]);
+    return [(x / 20037508.34) * 180, (Math.atan(Math.exp((y / 20037508.34) * Math.PI)) * 360) / Math.PI - 90];
+  });
+  const [center] = (target as Array<{ center: [number, number] }>).map((t) => t.center);
+  expect(center[0]).toBeCloseTo(clicked[0], 3);
+  expect(center[1]).toBeCloseTo(clicked[1], 3);
+  expect(errors).toEqual([]);
+});
+
+test('ranks the targets by an attribute', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page);
+  const ranked = {
+    type: 'FeatureCollection',
+    features: [
+      [139.7, 35.68, '丸の内', 3],
+      [139.71, 35.685, '神田', 1],
+      [139.705, 35.69, '大手町', 2],
+    ].map(([x, y, name, rank]) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [x, y] }, properties: { name, 優先度: rank, memo: 'x' } })),
+  };
+  await openSites(page, ranked);
+  await openPanel(page);
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('.plan-more > summary').click();
+  // The attribute named like a priority is picked; only attributes holding numbers are offered.
+  const field = dialog.locator('select[name=priority]');
+  await expect(field).toBeVisible();
+  await expect(field).toHaveValue('優先度');
+  await expect(field.locator('option')).toHaveText(['なし', '優先度']);
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+  const priorities = await page.evaluate(() => (window.viewer.imagingPlan.targets() as Array<{ label: string; priority?: number }>).map((t) => [t.label, t.priority]));
+  // 1 comes first: smaller values are more important by default.
+  expect(priorities).toEqual([
+    ['丸の内', -3],
+    ['神田', -1],
+    ['大手町', -2],
+  ]);
+  await dialog.locator('select[name=view]').selectOption('cover');
+  await dialog.locator('input[name=share]').uncheck();
+  await expect(dialog.locator('thead')).toContainText('優先度');
+  await expect(dialog.locator('.service-status')).toContainText('優先度の高い対象から撮像を割り当てました');
+  // Sorted by priority, the most important first.
+  await dialog.locator('thead button', { hasText: '優先度' }).click();
+  await expect(dialog.locator('tbody tr').first()).toContainText('神田');
+  expect(errors).toEqual([]);
+});
+
 test('in 3D, the chosen pass stands up: the orbit at its height, the satellite and its beam to the target', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];

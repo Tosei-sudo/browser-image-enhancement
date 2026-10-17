@@ -78,6 +78,8 @@ export interface ProjectOptions {
   useAsDem?: (layer: ViewerLayer) => Promise<unknown>;
   /** Each layer's timeline settings. */
   layerTime?: { get: (layer: ViewerLayer) => ProjectLayer['time']; set: (layer: ViewerLayer, saved: NonNullable<ProjectLayer['time']>) => void };
+  /** The elevation services by URL: saved with the project, and added when it opens. */
+  elevationServices?: { get: () => string[]; add: (urls: string[]) => Promise<void> };
   /** The bookmarks: saved with the project, and added to the viewer's when it opens. */
   bookmarks?: { get: () => Bookmark[]; merge: (list: Bookmark[]) => void };
   /** The notes drawn on the map: saved with the project, and put back (or cleared) when it opens. */
@@ -215,6 +217,7 @@ export class ProjectControl {
         selected: index < 0 ? null : index,
         ...(globe ? { globe } : {}),
         ...(this.options.bookmarks?.get().length ? { bookmarks: this.options.bookmarks.get() } : {}),
+        ...(this.options.elevationServices?.get().length ? { elevationServices: this.options.elevationServices.get() } : {}),
         ...(this.options.notes?.get() ? { annotations: this.options.notes.get()! } : {}),
         ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
       },
@@ -360,7 +363,8 @@ export class ProjectControl {
         if (saved.time) this.options.layerTime?.set(l, saved.time);
       });
       await Promise.all(pending);
-      // GeoTIFFs used as elevation data.
+      // Elevation services, then GeoTIFFs used as elevation data.
+      if (project.elevationServices?.length) await this.options.elevationServices?.add(project.elevationServices);
       for (const [i, saved] of project.layers.entries()) {
         const l = found[i];
         if (l && saved.dem && !this.options.isDem?.(l)) await this.options.useAsDem?.(l);

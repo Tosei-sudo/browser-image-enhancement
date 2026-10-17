@@ -15,6 +15,7 @@ const project: Project = {
     { type: 'image', name: 'https://example.com/a.tif', source: { kind: 'url', url: 'https://example.com/a.tif' }, visible: true, opacity: 1, pipeline: { version: 1, ops: [{ op: 'brightness', amount: 0.2 }] as never }, bands: [3, 2, 1], draLocked: true },
   ],
   selected: 2,
+  elevationServices: ['https://example.com/arcgis/rest/services/Terrain3D/ImageServer'],
 };
 
 describe('project files', () => {

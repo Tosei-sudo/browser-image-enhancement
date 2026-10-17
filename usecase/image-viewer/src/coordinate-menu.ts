@@ -4,7 +4,8 @@
  * (for a GeoTIFF in another CRS), and pixel coordinates when the point is on
  * an image. The image is the selected one when the point is on it, else the
  * topmost visible image under the point. On an ordinary picture, which has
- * no location, latitude / longitude are left out.
+ * no location, latitude / longitude are left out. Below them come actions
+ * for the point (such as planning imaging there), on a located point only.
  */
 import type OlMap from 'ol/Map.js';
 import { containsCoordinate } from 'ol/extent.js';
@@ -23,11 +24,22 @@ export interface CoordinateItem {
   value: string;
 }
 
+/** Something to do at the clicked point, listed below the coordinates. */
+export interface PointAction {
+  label: string;
+  /** Tooltip. */
+  title?: string;
+  /** Does it at the point (longitude, latitude). */
+  run: (lonLat: LonLat) => void;
+}
+
 export interface CoordinateMenuOptions {
   /** Shows a message to the user. */
   say: (message: string) => void;
   /** The bottom-left cursor label, whose notation is picked at the bottom of the menu. */
   cursor?: CursorPosition;
+  /** Actions for a located point (not on an ordinary picture). */
+  actions?: () => PointAction[];
 }
 
 export class CoordinateMenu {
@@ -126,8 +138,29 @@ export class CoordinateMenu {
         return b;
       }),
     );
+    const located = items.some((item) => item.label === '緯度, 経度');
+    const actions = located ? (this.options.actions?.() ?? []) : [];
+    if (actions.length) {
+      const lonLat = transform(at, this.map.getView().getProjection(), 'EPSG:4326') as LonLat;
+      const group = document.createElement('div');
+      group.className = 'coordinate-actions';
+      group.setAttribute('role', 'group');
+      for (const action of actions) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('role', 'menuitem');
+        b.textContent = action.label;
+        if (action.title) b.title = action.title;
+        b.addEventListener('click', () => {
+          this.close();
+          action.run(lonLat);
+        });
+        group.append(b);
+      }
+      menu.append(group);
+    }
     const cursor = this.options.cursor;
-    if (cursor && items.some((item) => item.label === '緯度, 経度')) menu.append(this.notationRow_(cursor));
+    if (cursor && located) menu.append(this.notationRow_(cursor));
     menu.hidden = false;
     // Keep it inside the viewport.
     const [w, h] = this.map.getSize() ?? [0, 0];
