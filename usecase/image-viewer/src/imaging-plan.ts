@@ -382,10 +382,20 @@ function stateAt(satrec: SatRec, ms: number): { r: Vec; v: Vec; north: boolean; 
 
 /** Elevation of the Sun at a place, in degrees. */
 export function sunElevation(lonLat: [number, number], ms: number): number {
+  return sunAngles(lonLat, ms).elevation;
+}
+
+/** Where the Sun is seen from a place: elevation above the horizon and azimuth clockwise from north, in degrees. */
+export function sunAngles([lon, lat]: [number, number], ms: number): { elevation: number; azimuth: number } {
   const jd = julian(ms);
   const s = sunPos(jd).rsun;
   const e = eciToEcf(s, gstime(jd));
-  return Math.asin(dot(unit([e.x, e.y, e.z]), upOf(lonLat))) * deg;
+  const toSun = unit([e.x, e.y, e.z]);
+  const east: Vec = [-Math.sin(lon * rad), Math.cos(lon * rad), 0];
+  const north: Vec = [-Math.sin(lat * rad) * Math.cos(lon * rad), -Math.sin(lat * rad) * Math.sin(lon * rad), Math.cos(lat * rad)];
+  const elevation = Math.asin(dot(toSun, upOf([lon, lat]))) * deg;
+  const azimuth = (Math.atan2(dot(toSun, east), dot(toSun, north)) * deg + 360) % 360;
+  return { elevation, azimuth };
 }
 
 /** Off-nadir angle (degrees) of a point `centralAngle` radians away from the sub-satellite point, from `distance` km from the centre. */

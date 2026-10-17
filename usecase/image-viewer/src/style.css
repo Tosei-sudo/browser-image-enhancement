@@ -3299,11 +3299,11 @@ body {
 /* Windows the user drags anywhere (move-windows.ts): dialogs by their title, the panels over the map by their background. */
 dialog h2,
 dialog .catalog-head,
-:is(.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide) {
+:is(.ai-segment-panel, .shadow-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide) {
   cursor: move;
 }
 /* Controls keep their own cursor (lowest specificity, so their own rules still win). */
-:where(.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide, dialog h2, dialog .catalog-head)
+:where(.ai-segment-panel, .shadow-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide, dialog h2, dialog .catalog-head)
   :where(input, select, textarea, button, a, summary, label, [contenteditable]) {
   cursor: auto;
 }
@@ -3551,4 +3551,67 @@ dialog.popped-out .catalog-head {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Height from a shadow (shadow-height.ts): a small panel over the map, like click segmentation's. */
+.shadow-panel {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(27rem, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 2px 8px #0004;
+  font-size: 13px;
+}
+.shadow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.shadow-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.shadow-row input[type='number'] {
+  width: 5.5em;
+}
+.shadow-hint,
+.shadow-origin {
+  color: var(--muted);
+  font-size: 12px;
+}
+.shadow-origin {
+  margin: 4px 0;
+}
+.shadow-more {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.shadow-more label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.shadow-snap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.shadow-list {
+  max-height: 8rem;
+  margin: 4px 0;
+  padding-left: 1.6em;
+  overflow: auto;
+}
+.shadow-list[hidden] {
+  display: none;
 }

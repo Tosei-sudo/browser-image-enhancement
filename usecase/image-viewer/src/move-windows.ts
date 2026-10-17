@@ -15,7 +15,7 @@
 const DIALOG = 'dialog';
 const TITLE = 'h2, .catalog-head';
 /** Panels over the map, dragged by anything but a control. */
-const PANEL = '.ai-segment-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide';
+const PANEL = '.ai-segment-panel, .shadow-panel, .ai-progress, .rset-progress, .annotation-bar, .edit-bar, .guide';
 /** Where a press starts what the element does, not a move. */
 const CONTROL = 'input, select, textarea, button, a, summary, label, option, [contenteditable], [role=slider], canvas';
 /** How far the pointer moves before the press is a drag, in pixels. */

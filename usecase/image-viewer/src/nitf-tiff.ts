@@ -601,6 +601,13 @@ function gdalMetadata(nitf: NitfFile, image: NitfImage, sicd: SicdInfo | null, c
   const tres = [...new Set([...nitf.tres, ...image.tres].map((t: Tre) => t.tag))];
   item('NITF_TRE', tres.join(', '));
   for (const [field, value] of sicd?.fields ?? []) item(`SICD_${field}`, value);
+  // USE00A (exploitation usability): the Sun's elevation and azimuth when the image was taken.
+  const use = [...image.tres, ...nitf.tres].find((t) => t.tag === 'USE00A');
+  if (use && use.data.length >= 107) {
+    const field = (at: number) => new TextDecoder('latin1').decode(use.data.subarray(at, at + 5)).trim();
+    item('NITF_USE00A_SUN_EL', field(97));
+    item('NITF_USE00A_SUN_AZ', field(102));
+  }
   return `<GDALMetadata>${items.join('')}</GDALMetadata>`;
 }
 
