@@ -255,6 +255,10 @@ test('plans a point from the map\'s right-click menu', async ({ page }) => {
   const [center] = (target as Array<{ center: [number, number] }>).map((t) => t.center);
   expect(center[0]).toBeCloseTo(clicked[0], 3);
   expect(center[1]).toBeCloseTo(clicked[1], 3);
+  // The click on the menu does not reach the map: the point stays where it was right-clicked.
+  await page.waitForTimeout(600);
+  const after = (await page.evaluate(() => window.viewer.imagingPlan.targets())) as Array<{ center: [number, number] }>;
+  expect(after[0].center).toEqual(center);
   expect(errors).toEqual([]);
 });
 
@@ -268,7 +272,7 @@ test('ranks the targets by an attribute', async ({ page }) => {
       [139.7, 35.68, '丸の内', 3],
       [139.71, 35.685, '神田', 1],
       [139.705, 35.69, '大手町', 2],
-    ].map(([x, y, name, rank]) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [x, y] }, properties: { name, 優先度: rank, memo: 'x' } })),
+    ].map(([x, y, name, rank]) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [x, y] }, properties: { name, 優先度: rank, memo: 'x', code: `P${rank}` } })),
   };
   await openSites(page, ranked);
   await openPanel(page);
@@ -297,6 +301,12 @@ test('ranks the targets by an attribute', async ({ page }) => {
   // Sorted by priority, the most important first.
   await dialog.locator('thead button', { hasText: '優先度' }).click();
   await expect(dialog.locator('tbody tr').first()).toContainText('神田');
+  // The name can be any attribute: the list follows at once, without planning again.
+  const nameField = dialog.locator('select[name=nameField]');
+  await expect(nameField.locator('option')).toHaveText(['自動', 'name', '優先度', 'memo', 'code']);
+  await nameField.selectOption('code');
+  await expect(dialog.locator('tbody tr').first()).toContainText('P1');
+  await expect(dialog.locator('tbody')).not.toContainText('神田');
   expect(errors).toEqual([]);
 });
 

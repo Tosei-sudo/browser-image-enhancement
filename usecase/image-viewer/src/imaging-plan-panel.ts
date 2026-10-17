@@ -168,8 +168,8 @@ export function priorityOf(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function nameOf(feature: Feature, index: number): string {
-  for (const key of ['name', 'NAME', 'Name', '名称', 'title', 'TITLE']) {
+function nameOf(feature: Feature, index: number, field = ''): string {
+  for (const key of [...(field ? [field] : []), 'name', 'NAME', 'Name', '名称', 'title', 'TITLE']) {
     const v = feature.get(key);
     if (v !== null && v !== undefined && v !== '') return String(v);
   }
@@ -388,6 +388,7 @@ export class ImagingPlanPanel {
               <label>日照条件<select name="daylight"><option value="optical">光学衛星は日中のみ</option><option value="none">考慮しない</option></select></label>
               <label>太陽高度（以上）<input name="minSun" type="number" min="-18" max="90" step="any" value="10" /></label>
               <label class="check"><input name="each" type="checkbox" checked />地物ごとに計算</label>
+              <label class="plan-name" title="一覧・CSV・レイヤーで対象の名前に使う属性。自動は name・名称 などを探し、なければ ID">名前の属性<select name="nameField"><option value="">自動</option></select></label>
               <label class="plan-priority" title="組み合わせで、優先度の高い地物から衛星の撮像を割り当てます（撮像間隔・1 日の上限で取り合いになるとき、高い方が先に撮れます）">優先度の属性<select name="priority"><option value="">なし</option></select></label>
               <label class="plan-priority">優先する値<select name="priorityOrder"><option value="small">小さいほど優先（1 が最優先）</option><option value="large">大きいほど優先</option></select></label>
               <label class="wide">TLE を貼り付けて追加<textarea name="tle" rows="3" placeholder="ISS (ZARYA)&#10;1 25544U 98067A   …&#10;2 25544  51.6416 …" spellcheck="false"></textarea></label>
@@ -458,6 +459,7 @@ export class ImagingPlanPanel {
       this.showTargets();
     });
     (this.form_.elements.namedItem('each') as HTMLInputElement).addEventListener('change', () => this.listPriorityFields());
+    (this.form_.elements.namedItem('nameField') as HTMLSelectElement).addEventListener('change', () => this.relabel());
     this.dialog.querySelector('.plan-sats button[value=all]')!.addEventListener('click', () => this.checkAll(true));
     this.dialog.querySelector('.plan-sats button[value=none]')!.addEventListener('click', () => this.checkAll(false));
     this.sats_.addEventListener('change', () => this.countSats());
@@ -698,6 +700,17 @@ export class ImagingPlanPanel {
     this.showTargets();
   }
 
+  /** Names the targets of the last plan again by the chosen attribute (no new calculation), and lists them. */
+  private relabel(): void {
+    const plan = this.plan_;
+    if (!plan) return;
+    const targets = this.targets();
+    // Only when the form still asks for the same targets.
+    if (typeof targets === 'string' || targets.length !== plan.targets.length || targets.some((t, i) => t.center.join() !== plan.targets[i].center.join())) return;
+    plan.targets = plan.targets.map((t, i) => ({ ...t, label: targets[i].label }));
+    this.render();
+  }
+
   /** The features of the chosen target (null for a clicked point). */
   private chosenFeatures(): Feature[] | null {
     const choice = this.target_.value;
@@ -706,17 +719,32 @@ export class ImagingPlanPanel {
     return this.vectorLayers()[Number(choice.slice('layer:'.length))]?.service.vector!.source.getFeatures() ?? [];
   }
 
-  /** Fills the priority choice with the target's attributes that hold numbers (shown when planning features one by one). */
+  /**
+   * Fills the attribute choices from the target's features: the name (any
+   * attribute) and the priority (attributes that hold numbers, shown when
+   * planning features one by one).
+   */
   listPriorityFields(): void {
     const select = this.form_.elements.namedItem('priority') as HTMLSelectElement;
     const before = select.value;
     const features = this.chosenFeatures() ?? [];
     const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
     const fields = new Set<string>();
+    const all = new Set<string>();
     for (const f of features.slice(0, 2000)) {
       const geometryName = f.getGeometryName();
-      for (const [key, v] of Object.entries(f.getProperties())) if (key !== geometryName && priorityOf(v) !== null) fields.add(key);
+      for (const [key, v] of Object.entries(f.getProperties())) {
+        if (key === geometryName || (v !== null && typeof v === 'object')) continue;
+        all.add(key);
+        if (priorityOf(v) !== null) fields.add(key);
+      }
     }
+    // The name: any attribute, or 自動 (name, 名称… else the ID).
+    const names = this.form_.elements.namedItem('nameField') as HTMLSelectElement;
+    const named = names.value;
+    names.replaceChildren(new Option('自動', ''), ...[...all].map((k) => new Option(k, k)));
+    names.value = all.has(named) ? named : '';
+    names.closest('label')!.hidden = !all.size;
     select.replaceChildren(new Option('なし', ''), ...[...fields].sort((a, b) => a.localeCompare(b, 'ja')).map((k) => new Option(k, k)));
     select.value = fields.has(before) ? before : (([...fields].find((k) => /priority|優先/i.test(k)) ?? '') as string);
     const shown = each && features.length > 1 && fields.size > 0;
@@ -739,18 +767,19 @@ export class ImagingPlanPanel {
       name = layer.name;
     }
     let features = this.chosenFeatures()!;
+    const nameField = (this.form_.elements.namedItem('nameField') as HTMLSelectElement).value;
     features = features.filter((f) => f.getGeometry());
     if (!features.length) return '対象に図形がありません';
     const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
     if (!each || features.length === 1) {
-      const t = targetOf(features, projection, features.length === 1 ? nameOf(features[0], 0) : name);
+      const t = targetOf(features, projection, features.length === 1 ? nameOf(features[0], 0, nameField) : name);
       return t ? [t] : '対象に図形がありません';
     }
     if (features.length > MAX_TARGETS) return `地物が ${features.length.toLocaleString()} 件あります。${MAX_TARGETS} 件以下を選択するか、「詳細条件」の「地物ごとに計算」を外してまとめて計算してください`;
     const field = (this.form_.elements.namedItem('priority') as HTMLSelectElement).value;
     const sign = (this.form_.elements.namedItem('priorityOrder') as HTMLSelectElement).value === 'large' ? 1 : -1;
     return features.flatMap((f, i) => {
-      const t = targetOf([f], projection, nameOf(f, i));
+      const t = targetOf([f], projection, nameOf(f, i, nameField));
       if (!t) return [];
       const v = field ? priorityOf(f.get(field)) : null;
       return [v === null ? t : { ...t, priority: sign * v, priorityText: String(f.get(field)) }];
