@@ -317,7 +317,7 @@ test('table: several features selected with Ctrl, Shift, check boxes, Ctrl+A and
   // Right click on a selected row: the menu works on the whole selection; WFS cannot delete.
   const menu = page.getByRole('menu', { name: '選択した地物' });
   await rows(page).filter({ hasText: '新宿' }).click({ button: 'right' });
-  await expect(menu.getByRole('menuitem')).toHaveText(['選択中の 2 件にズーム', '選択中の 2 件の行をコピー', '選択を解除']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['選択中の 2 件にズーム', '選択中の 2 件の行をコピー', '選択中の 2 件の図形のリンクをコピー', '選択を解除']);
   await menu.getByRole('menuitem', { name: '選択中の 2 件の行をコピー' }).click();
   await expect(menu).toBeHidden();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
