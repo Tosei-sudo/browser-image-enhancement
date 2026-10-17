@@ -620,6 +620,12 @@ const project = new ProjectControl({
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
   bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  elevationServices: {
+    get: () => geometry.elevationServiceRefs().map((s) => s.url),
+    add: async (urls) => {
+      for (const url of urls) await geometry.addElevationService(url, undefined, true);
+    },
+  },
   notes: { get: () => annotations.get(), set: (saved) => annotations.set(saved) },
   layout: {
     collect: (indexOf) => collectLayout(layoutParts, indexOf),
@@ -651,6 +657,7 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
     geometryChanged();
   },
   onPipeline: (p) => enhance.setPipeline(p),
+  onSources: () => geometryChanged(),
 });
 
 // Pan-sharpening (from the processing dialog): a panchromatic and a multispectral image make a new layer.
@@ -802,7 +809,8 @@ function geometryInfo(layer: ViewerLayer | null): Array<[string, string]> {
   if (dem) {
     const range = elevationRange(dem);
     const rows: Array<[string, string]> = [['標高データ', `${dem.level}（${(dem.spacing[1] * 3600).toFixed(0)}″ 間隔）`]];
-    if (range) rows.push(['標高', `${range[0]}〜${range[1]} m`]);
+    // DTED heights are whole metres; a GeoTIFF's or a service's, to a tenth.
+    if (range) rows.push(['標高', `${range.map((h) => Math.round(h * 10) / 10).join('〜')} m`]);
     if (dem.verticalAccuracy !== null) rows.push(['垂直精度', `${dem.verticalAccuracy} m`]);
     return rows;
   }
@@ -852,6 +860,8 @@ const globeToggle = new GlobeToggle(map, {
     images,
     selection,
     cells: () => geometry.cells(),
+    elevationSources: () => geometry.elevationSources(),
+    cellsFor: (lonLat, maxPosts) => geometry.cellsFor(lonLat, maxPosts),
     showFeature: (layer, feature) => {
       if (images.selectedLayer() !== layer) images.select(layer);
       selection.set([feature]);
@@ -951,6 +961,8 @@ const started = (async () => {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
   }
   for (const layer of opening) await openAtStart(layer);
+  // Elevation services of config.json, ready for orthorectification and 3D.
+  for (const service of config.elevationServices) await geometry.addElevationService(service.url, service.token, true);
   // The temporary layers of earlier visits, on top.
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));

@@ -157,6 +157,30 @@ test('the viewshed from a clicked point shows on the globe and on the 2D map', a
   expect(errors).toEqual([]);
 });
 
+test('an elevation tile service raises the relief where no DEM file is open, and the viewshed reads it', async ({ page }) => {
+  test.setTimeout(600_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.request.get('http://localhost:4175/svc/reset');
+  await open(page);
+  const added = await page.evaluate(async () => (await window.viewer.geometry.addElevationService('http://localhost:4175/svc/arcgis/rest/services/Terrain3D/ImageServer'))?.kind);
+  expect(added).toBe('tiles');
+  await page.locator('#globe-toggle').click();
+  await expect(page.locator('#globe-section')).toContainText('標高データ: Terrain3D（サービス）');
+  await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.75, lat: 35.6, height: 15000, heading: 0, pitch: -60 }));
+  await settled(page, 'over the service relief');
+  const tiles = ((await (await page.request.get('http://localhost:4175/svc/raster-requests')).json()) as Array<{ service: string }>).filter((r) => r.service === 'Terrain3D');
+  expect(tiles.length).toBeGreaterThan(0);
+  // The ground is the service's height plus the geoid (about 37 m here) above the ellipsoid.
+  const ground = await page.evaluate(() => window.viewer.globe.globe()!.widget.scene.globe.getHeight({ longitude: (139.75 * Math.PI) / 180, latitude: (35.65 * Math.PI) / 180, height: 0 } as never));
+  expect(ground).toBeDefined();
+  expect(Math.abs(ground! - (100 + 2000 * 0.05 + 1000 * 0.05 + 37))).toBeLessThan(25);
+
+  await page.evaluate(() => window.viewer.globe.globe()!.runViewshed(139.75, 35.65));
+  await expect(page.locator('#status')).toContainText('見える範囲', { timeout: 120_000 });
+  expect(errors).toEqual([]);
+});
+
 test('3D Tiles open by URL, and the 2D-only tools wait in 3D', async ({ page }) => {
   test.setTimeout(600_000);
   const errors: string[] = [];
