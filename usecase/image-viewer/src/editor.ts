@@ -18,7 +18,7 @@ import MultiPolygon from 'ol/geom/MultiPolygon.js';
 import type LineString from 'ol/geom/LineString.js';
 import type Point from 'ol/geom/Point.js';
 import type Polygon from 'ol/geom/Polygon.js';
-import { EditSession, editTargetOf, type DrawableType } from './edit-session.js';
+import { EditSession, editTargetOf, type DrawableType, type SaveOutcome } from './edit-session.js';
 import type { ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import type { AttributeTable } from './table.js';
@@ -34,7 +34,7 @@ const drawnAs: Record<DrawableType, 'Point' | 'LineString' | 'Polygon'> = {
 };
 
 /** A drawn geometry as the layer's type. */
-function asLayerType(geometry: Geometry, type: DrawableType): Geometry {
+export function asLayerType(geometry: Geometry, type: DrawableType): Geometry {
   if (type === 'MultiPoint' && geometry.getType() === 'Point') return new MultiPoint([(geometry as Point).getCoordinates()]);
   if (type === 'MultiLineString' && geometry.getType() === 'LineString') return new MultiLineString([(geometry as LineString).getCoordinates()]);
   if (type === 'MultiPolygon' && geometry.getType() === 'Polygon') return new MultiPolygon([(geometry as Polygon).getCoordinates()]);
@@ -228,21 +228,26 @@ export class Editor {
     this.options.say('未保存の変更を破棄しました');
   }
 
-  async save(): Promise<void> {
+  /** Saves the unsaved edits; returns what was saved (null when there was nothing to save, or a save is under way). */
+  async save(): Promise<SaveOutcome | null> {
     const session = this.session_;
-    if (!session || this.saving_ || session.count() === 0) return;
+    if (!session || this.saving_ || session.count() === 0) return null;
     this.saving_ = true;
     this.update_();
     this.options.say('保存しています…');
     try {
-      const { saved, failed, note } = await session.save();
+      const outcome = await session.save();
+      const { saved, failed, note } = outcome;
       this.options.say(
         failed.length === 0
           ? `${saved} 件の変更を保存しました${note ? `（${note}）` : ''}`
           : `${saved} 件を保存し、${failed.length} 件は保存できませんでした（${failed[0].message}）。保存できなかった行は赤で示しています`,
       );
+      return outcome;
     } catch (error) {
-      this.options.say(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.options.say(`保存できませんでした: ${message}`);
+      return { saved: 0, failed: [{ feature: null, message }] };
     } finally {
       this.saving_ = false;
       this.update_();
