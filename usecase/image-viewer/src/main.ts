@@ -58,6 +58,7 @@ import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
 import { makeResizer } from './resize.js';
 import { enableWindowMoving } from './move-windows.js';
+import { enablePopOut } from './pop-out.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { Theme } from './theme.js';
 import { AttributeTable, type TableData } from './table.js';
@@ -140,8 +141,9 @@ const map = new Map({
   view: new View({ center: [0, 0], zoom: 2 }),
 });
 
-// Dialogs move by their title, and the panels over the map by their background.
+// Dialogs move by their title, and the panels over the map by their background; a dialog also goes out into a window of its own.
 enableWindowMoving();
+enablePopOut();
 
 // Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;

@@ -3094,3 +3094,68 @@ dialog .catalog-head,
 .georef-grid input {
   min-width: 0;
 }
+
+/* 別ウィンドウで開く: src/pop-out.ts. The button at a dialog's title, and the dialog filling a window of its own. */
+.pop-out-button {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pop-out-button:hover,
+.pop-out-button:focus-visible {
+  color: var(--fg);
+}
+.pop-out-corner {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+dialog:has(> .pop-out-corner) h2 {
+  padding-right: 24px;
+}
+.pop-out-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pop-out-corner + .pop-out-note {
+  position: absolute;
+  top: 34px;
+  right: 10px;
+  z-index: 1;
+  max-width: 16em;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+}
+html.pop-out-window,
+html.pop-out-window body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+dialog.popped-out {
+  position: static !important;
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none !important;
+  overflow: auto;
+}
+dialog.popped-out h2,
+dialog.popped-out .catalog-head {
+  cursor: auto;
+}
