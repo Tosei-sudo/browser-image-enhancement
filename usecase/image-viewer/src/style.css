@@ -907,8 +907,61 @@ body {
 
 /* Go to coordinates. */
 .jump {
+  position: relative;
   display: flex;
   gap: 4px;
+}
+/* Places found by name under the jump field (jump.ts, geocode.ts). */
+.jump-places {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 30;
+  width: min(26rem, 90vw);
+  max-height: 60vh;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 6px 24px var(--shadow);
+  list-style: none;
+  font-size: 13px;
+}
+.jump-places[hidden] {
+  display: none;
+}
+.jump-places li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.jump-places li[aria-selected='true'],
+.jump-places li:hover {
+  background: var(--accent-bg);
+}
+.jump-place-source {
+  color: var(--muted);
+  font-size: 11px;
+}
+.jump-place-detail {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jump-places li.jump-place-none {
+  color: var(--muted);
+  cursor: default;
+}
+.jump-places li.jump-place-none:hover {
+  background: none;
 }
 .jump input {
   width: 17em;
