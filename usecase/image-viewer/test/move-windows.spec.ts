@@ -76,10 +76,20 @@ test('the modal object detection dialog moves by its title', async ({ page }) =>
   await tool(page, 'ai-detect');
   const dialog = page.locator('.ai-dialog');
   await expect(dialog).toBeVisible();
+  // Centred until moved, so it shifts while the model's description fills in: wait for the last one.
+  await expect(dialog.locator('.ai-model-info')).toContainText(/で実行|読み込めません/, { timeout: 30_000 });
+  const title = await boxOf(dialog.locator('h2'));
+  const x = title.x + 20;
+  const y = title.y + title.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
   const before = await boxOf(dialog);
-  await drag(page, dialog.locator('h2'), 200, -40);
-  await expect.poll(async () => (await boxOf(dialog)).x).toBeCloseTo(before.x + 200, 0);
-  expect((await boxOf(dialog)).y).toBeCloseTo(before.y - 40, 0);
+  await page.mouse.move(x + 100, y - 20);
+  await page.mouse.move(x + 200, y - 40);
+  await page.mouse.up();
+  const after = await boxOf(dialog);
+  expect(after.x).toBeCloseTo(before.x + 200, 0);
+  expect(after.y).toBeCloseTo(before.y - 40, 0);
   // Its buttons still work.
   await dialog.getByRole('button', { name: '閉じる' }).click();
   await expect(dialog).toBeHidden();

@@ -120,9 +120,9 @@ export function enableWindowMoving(doc: Document = document): void {
     if (e.button !== 0) return;
     const el = movableOf(e.target, e.clientX, e.clientY);
     if (!el) return;
-    const start = el.getBoundingClientRect();
     const x0 = e.clientX;
     const y0 = e.clientY;
+    let start = el.getBoundingClientRect();
     let dragging = false;
     const move = (ev: PointerEvent): void => {
       if (ev.pointerId !== e.pointerId) return;
@@ -131,6 +131,8 @@ export function enableWindowMoving(doc: Document = document): void {
       if (!dragging) {
         if (Math.hypot(dx, dy) < SLOP) return;
         dragging = true;
+        // Where it is now: a centred dialog shifts when its text changes after the press.
+        start = el.getBoundingClientRect();
         el.classList.add('moving');
         doc.documentElement.classList.add('moving-window');
         doc.getSelection()?.removeAllRanges();
