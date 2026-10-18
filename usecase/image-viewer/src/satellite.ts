@@ -19,6 +19,7 @@ import { sensorViewFromText, type SensorView } from './simple-ortho.js';
 import { gcpModel, geoKeysCrs, rpcModel, sensorGeo, sensorProjection } from './sensor-projection.js';
 import type Projection from 'ol/proj/Projection.js';
 import { ownTransform } from './georef.js';
+import { authorize } from './auth.js';
 
 /** The RPC model and georeferencing state of a TIFF. */
 export interface TiffInfo {
@@ -41,7 +42,11 @@ export interface TiffInfo {
 
 /** Opens a TIFF from a file or URL, reading only the parts asked for. */
 export async function openTiff(from: Blob | string): Promise<GeoTIFF> {
-  if (typeof from === 'string') return fromUrl(from);
+  if (typeof from === 'string') {
+    // With config.json's access rules (auth.ts).
+    const { url, headers } = authorize(from);
+    return fromUrl(url, { headers });
+  }
   return typeof FileReader === 'undefined' ? fromArrayBuffer(await from.arrayBuffer()) : fromBlob(from);
 }
 

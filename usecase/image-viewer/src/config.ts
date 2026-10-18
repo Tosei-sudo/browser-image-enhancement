@@ -12,7 +12,11 @@ import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.j
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
+import { movingFeedOf, type FeedConfig } from './moving.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
+import { defaultEmbed, embedConfigOf, type EmbedConfig } from './embed-protocol.js';
+import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type AuthRule } from './auth.js';
+import { DEFAULT_STAC_CATALOGS, stacCatalogOf, type StacCatalogConfig } from './stac.js';
 
 /**
  * What a base map URL points to:
@@ -63,7 +67,22 @@ const baseMapTypes: readonly BaseMapType[] = ['xyz', 'mvt', 'style', 'esri'];
 export type LayerConfig =
   | { type: 'cog'; url: string }
   | { type: 'file'; url: string }
-  | { type: 'wms' | 'wmts' | 'wfs' | 'esri'; url: string; layer: string; matrixSet?: string; format?: string; settings?: EsriRasterSettings };
+  | {
+      type: ServiceLayerType;
+      url: string;
+      layer: string;
+      matrixSet?: string;
+      format?: string;
+      settings?: EsriRasterSettings;
+      /** OGC API – Features, WCS, OGC API – Coverages: the area read (degrees: west, south, east, north). */
+      bbox?: [number, number, number, number];
+      /** OGC API – Features: the condition. */
+      filter?: string;
+    };
+
+/** The service kinds a `layers` entry can be (as `ServiceKind` in services/common.ts). */
+export type ServiceLayerType = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage' | 'xyz';
+const serviceLayerTypes: readonly string[] = ['wms', 'wmts', 'wfs', 'esri', 'ogc-features', 'ogc-tiles', 'wcs', 'ogc-coverage'];
 
 export interface ViewerConfig {
   /** Base maps in the order of the switch (after "none"). */
@@ -103,6 +122,25 @@ export interface ViewerConfig {
   elevationServices: ElevationServiceConfig[];
   /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
   geocoders: GeocoderConfig[];
+  /** Pages (exact origins) allowed to show the viewer in an iframe and drive it by postMessage (embed.ts); none turns it off. */
+  embed: EmbedConfig;
+  /** ArcGIS Online / Enterprise portals to sign in to (OAuth 2.0 with PKCE, auth.ts); none hides 「サインイン」. */
+  arcgisPortals: ArcgisPortalConfig[];
+  /** Headers or query parameters added to requests to URLs that start with a prefix (auth.ts). */
+  authRules: AuthRule[];
+  /** Feeds of ships and aircraft listed in 「移動体（AIS・ADS-B）」 (moving.ts). */
+  movingFeeds: FeedConfig[];
+  /** STAC APIs (or static catalogs) for the 「STAC 検索」 panel (stac.ts); [] hides it, so nothing leaves the page. */
+  stacCatalogs: StacCatalogConfig[];
+  /** Server-side processing services (ArcGIS GPServer, OGC API – Processes) offered in 「サーバ処理」. */
+  gpServices: GpServiceConfig[];
+}
+
+/** A processing service of config.json: its name in the list, its URL, and a token when it needs one. */
+export interface GpServiceConfig {
+  label: string;
+  url: string;
+  token?: string;
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -169,6 +207,12 @@ export const defaultConfig: ViewerConfig = {
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
+  embed: defaultEmbed,
+  arcgisPortals: [],
+  authRules: [],
+  movingFeeds: [],
+  stacCatalogs: [...DEFAULT_STAC_CATALOGS],
+  gpServices: [],
 };
 
 /**
@@ -239,7 +283,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -337,6 +381,50 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     } else problems.push('detectionOutputs が配列ではありません');
   }
 
+  if ('embed' in json) config.embed = embedConfigOf(json.embed, problems);
+  if ('arcgisPortals' in json) {
+    if (Array.isArray(json.arcgisPortals)) {
+      const seen = new Set<string>();
+      config.arcgisPortals = json.arcgisPortals
+        .map((p, i) => arcgisPortalOf(p, problems, i))
+        .filter((p): p is ArcgisPortalConfig => {
+          if (!p) return false;
+          if (seen.has(p.url)) return (problems.push(`arcgisPortals の url「${p.url}」が重複しています`), false);
+          seen.add(p.url);
+          return true;
+        });
+    } else problems.push('arcgisPortals が配列ではありません');
+  }
+
+  if ('authRules' in json) {
+    if (Array.isArray(json.authRules)) config.authRules = json.authRules.map((r, i) => authRuleOf(r, problems, i)).filter((r): r is AuthRule => r !== null);
+    else problems.push('authRules が配列ではありません');
+  }
+
+  if ('movingFeeds' in json) {
+    if (Array.isArray(json.movingFeeds)) config.movingFeeds = json.movingFeeds.map((f, i) => movingFeedOf(f, problems, i)).filter((f): f is FeedConfig => f !== null);
+    else problems.push('movingFeeds が配列ではありません');
+  }
+  if ('stacCatalogs' in json) {
+    if (Array.isArray(json.stacCatalogs)) config.stacCatalogs = json.stacCatalogs.map((c, i) => stacCatalogOf(c, problems, i)).filter((c): c is StacCatalogConfig => c !== null);
+    else problems.push('stacCatalogs が配列ではありません');
+  }
+  if ('gpServices' in json) {
+    if (Array.isArray(json.gpServices)) {
+      config.gpServices = json.gpServices.flatMap((e, i): GpServiceConfig[] => {
+        // A URL alone will do.
+        const entry = typeof e === 'string' ? { url: e } : e;
+        if (!isRecord(entry) || typeof entry.url !== 'string' || !/^https?:\/\/./i.test(entry.url.trim())) {
+          problems.push(`gpServices[${i}] の url は http(s) の URL にしてください`);
+          return [];
+        }
+        const url = entry.url.trim();
+        const label = typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : url;
+        return [{ label, url, ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
+      });
+    } else problems.push('gpServices が配列ではありません');
+  }
+
   return { config, problems };
 }
 
@@ -420,21 +508,30 @@ export function imageRuleFor(rules: readonly ImageRule[], name: string): ImageRu
 
 function layerOf(value: unknown, problems: string[], index: number): LayerConfig | null {
   if (!isRecord(value)) return (problems.push(`layers[${index}] がオブジェクトではありません`), null);
-  const { type, url, layer, matrixSet, format, settings } = value;
+  const { type, url, layer, matrixSet, format, settings, bbox, filter } = value;
   if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
   if (type === 'cog' || type === 'file') return { type, url };
-  if (type === 'wms' || type === 'wmts' || type === 'wfs' || type === 'esri') {
+  // XYZ tiles: a {z}/{x}/{y} template, one layer.
+  if (type === 'xyz') return { type, url, layer: 'tiles' };
+  if (typeof type === 'string' && serviceLayerTypes.includes(type)) {
+    const box =
+      Array.isArray(bbox) && bbox.length === 4 && bbox.every((n) => typeof n === 'number' && Number.isFinite(n)) && bbox[0] <= bbox[2] && bbox[1] <= bbox[3]
+        ? (bbox as [number, number, number, number])
+        : undefined;
+    if (bbox !== undefined && !box) problems.push(`layers[${index}].bbox は [西, 南, 東, 北]（度）の 4 つの数にしてください`);
     if (typeof layer !== 'string' || !layer) return (problems.push(`layers[${index}] に layer（レイヤー名）がありません`), null);
     return {
-      type,
+      type: type as ServiceLayerType,
       url,
       layer,
+      ...(box ? { bbox: box } : {}),
+      ...(typeof filter === 'string' && filter.trim() ? { filter: filter.trim() } : {}),
       ...(typeof matrixSet === 'string' && matrixSet ? { matrixSet } : {}),
       ...(typeof format === 'string' && format ? { format } : {}),
       ...(type === 'esri' && settings !== undefined ? { settings: settingsOf(settings, problems, `layers[${index}].settings`) } : {}),
     };
   }
-  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri のどれかにしてください`);
+  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・ogc-features・ogc-tiles・wcs・ogc-coverage・xyz のどれかにしてください`);
   return null;
 }
 
@@ -466,10 +563,13 @@ export async function loadConfig(url = new URL('config.json', document.baseURI).
 
 /** A file by URL, named after the last part of its path, to open like a local file. */
 export async function fetchFile(url: string): Promise<File> {
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const path = new URL(url, document.baseURI).pathname;
-  let name = path.slice(path.lastIndexOf('/') + 1) || 'layer';
+  const u = new URL(url, document.baseURI);
+  const path = u.pathname;
+  // `#file=<name>` names a file whose URL does not (a WCS GetCoverage); the fragment is never sent.
+  const hinted = /^#file=([^&]+)$/.exec(u.hash)?.[1];
+  let name = hinted ?? (path.slice(path.lastIndexOf('/') + 1) || 'layer');
   try {
     name = decodeURIComponent(name);
   } catch {

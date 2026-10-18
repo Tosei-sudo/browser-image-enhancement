@@ -16,6 +16,10 @@ import MVT from 'ol/format/MVT.js';
 import type { FeatureLike } from 'ol/Feature.js';
 import { Fill, Stroke, Style, Text } from 'ol/style.js';
 import type { BaseMapConfig } from './config.js';
+import type ImageTile from 'ol/ImageTile.js';
+import type Tile from 'ol/Tile.js';
+import TileState from 'ol/TileState.js';
+import { authFetch, loadAuthorizedImage, tokenFor } from './auth.js';
 
 /** The CSS class of base map layers, so they get a canvas of their own and their labels stay below the layers. */
 const className = 'ol-layer basemap-layer';
@@ -75,7 +79,7 @@ export class BaseMapSwitch {
       this.options.onChange?.();
     };
     if (base.type === 'xyz') {
-      add([new TileLayer({ source: new XYZ({ url: base.url, attributions: base.attributions, maxZoom: base.maxZoom }) })]);
+      add([new TileLayer({ source: new XYZ({ url: base.url, attributions: base.attributions, maxZoom: base.maxZoom, tileLoadFunction: authorizedTile }) })]);
       this.ready = Promise.resolve();
     } else if (base.type === 'mvt') {
       add([plainVectorTiles(base)]);
@@ -135,7 +139,7 @@ function withToken(url: string, token: string | undefined): string {
 async function fetchJson<T>(url: string, what: string): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url);
+    response = await authFetch(url);
   } catch {
     throw new Error(`${what}を取得できません（ネットワークか CORS の設定を確認してください）`);
   }
@@ -209,13 +213,14 @@ async function resolveEsriSources(style: StyleJson, styleUrl: string, token: str
 }
 
 /** The layers of a style (`style`) or of an ArcGIS `VectorTileServer` (`esri`), one per vector source the style draws. */
-async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[]> {
+export async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[]> {
   let styleUrl: string;
   let token: string | undefined;
   // The descriptions of the VectorTileServers asked so far, by root URL.
   const infos = new Map<string, Promise<VectorTileServerInfo>>();
   if (base.type === 'esri') {
-    token = base.token;
+    // A token of its own, else a signed-in portal's (auth.ts).
+    token = base.token ?? tokenFor(base.url);
     const root = serverRoot(absolute(base.url));
     if (base.style) styleUrl = absolute(base.style).href;
     else {
@@ -289,4 +294,10 @@ function plainVectorTiles(base: BaseMapConfig): VectorTileLayer {
     source: new VectorTileSource({ format: new MVT(), url: base.url, maxZoom: base.maxZoom, attributions: base.attributions }),
     style,
   });
+}
+
+/** Loads a raster tile with config.json's access rules (auth.ts); as OpenLayers would without one. */
+function authorizedTile(tile: Tile, src: string): void {
+  const image = (tile as ImageTile).getImage() as HTMLImageElement;
+  loadAuthorizedImage(src, { image }).catch(() => tile.setState(TileState.ERROR));
 }

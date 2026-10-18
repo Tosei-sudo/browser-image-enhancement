@@ -6,7 +6,9 @@
  * change; OK keeps the style for the next time the layer is opened, Cancel
  * goes back to what it was.
  */
-import type { ViewerService } from './images.js';
+import { baseName, type ViewerService } from './images.js';
+import { exportStyle, importStyle, readStyleFile, styleExtension, styleFormats, type StyleFormat } from './qgis-style.js';
+import { symbolKindOf, type SymbolKind } from './style-file.js';
 import {
   categoriesFor,
   categoryColor,
@@ -118,7 +120,13 @@ export class StyleDialog {
         </details>
       </form>
       <p class="service-status style-note" role="status"></p>
+      <div class="style-export" hidden>
+        <label>形式<select name="styleFormat" aria-label="書き出す形式">${optionsHtml(styleFormats)}</select></label>
+        <button type="button" value="save-style">保存</button>
+      </div>
       <div class="service-actions">
+        <button type="button" value="import" title="QGIS などのスタイル（.sld・.qml）を読み込みます">読み込み…</button>
+        <button type="button" value="export" title="スタイルを SLD・QML に書き出します" aria-expanded="false">書き出し…</button>
         <button type="button" value="reset" class="style-reset">初期設定に戻す</button>
         <button type="button" value="cancel">キャンセル</button>
         <button type="button" value="ok" class="primary">OK</button>
@@ -145,7 +153,25 @@ export class StyleDialog {
       this.fill_(this.style_.initial);
       this.preview_();
     });
-    // Escape too: back to the style the layer had.
+    // Styles of QGIS and other GIS programs, in and out.
+    const exportRow = this.dialog.querySelector<HTMLElement>('.style-export')!;
+    const exportButton = this.dialog.querySelector<HTMLButtonElement>('button[value=export]')!;
+    exportButton.addEventListener('click', () => {
+      exportRow.hidden = !exportRow.hidden;
+      exportButton.setAttribute('aria-expanded', String(!exportRow.hidden));
+    });
+    this.dialog.querySelector('button[value=save-style]')!.addEventListener('click', () => this.exportStyle(this.dialog.querySelector<HTMLSelectElement>('select[name=styleFormat]')!.value as StyleFormat));
+    this.dialog.querySelector('button[value=import]')!.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.sld,.qml,.xml,.se';
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (file) void this.importStyle(file);
+      });
+      input.click();
+    });
+        // Escape too: back to the style the layer had.
     this.dialog.addEventListener('close', () => this.end_());
     this.form_.addEventListener('input', (e) => {
       // The ranges follow the number of them as it is typed.
@@ -193,6 +219,59 @@ export class StyleDialog {
     this.fill_(this.before_);
     this.preview_();
     this.dialog.showModal();
+  }
+
+  /**
+   * Reads an SLD or QML into the form (the map follows; OK keeps it), and
+   * says what of it the viewer has no equivalent for.
+   */
+  async importStyle(file: File): Promise<void> {
+    if (!this.style_) return;
+    let read: ReturnType<typeof importStyle>;
+    try {
+      read = importStyle(await readStyleFile(file), this.read_());
+    } catch (error) {
+      this.note_.textContent = `${file.name} を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
+    const fields = new Set(this.entry_?.service.vector?.fields.map((f) => f.name) ?? []);
+    const missing = [read.spec.mode === 'categorized' || read.spec.mode === 'graduated' ? read.spec.field : null, read.spec.label.field].filter((f): f is string => !!f && !fields.has(f));
+    this.fill_(read.spec);
+    // The ranges as the file has them (not made again from the values).
+    if (read.spec.mode === 'graduated' && this.select_('gradField').value === read.spec.field) {
+      this.classList_ = read.spec.classes.map((c) => ({ ...c }));
+      this.loadClasses_(false);
+    }
+    this.preview_();
+    const parts = [`${file.name}（${read.format === 'sld' ? 'SLD' : 'QML'}）を読み込みました。OK で確定します`];
+    if (missing.length) parts.push(`レイヤーにない属性: ${[...new Set(missing)].join('、')}`);
+    if (read.unsupported.length) parts.push(`対応していないため省いたもの: ${read.unsupported.join('、')}`);
+    this.note_.textContent = parts.join('。');
+  }
+
+  /** Downloads the style in the form as `format`. */
+  exportStyle(format: StyleFormat): void {
+    const entry = this.entry_;
+    if (!entry) return;
+    const name = baseName(entry.name) || 'style';
+    const text = exportStyle(this.read_(), format, this.kind_(), name);
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/xml' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}${styleExtension[format]}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    this.note_.textContent = `${a.download} に書き出しました`;
+  }
+
+  /** The kind of geometry of the layer: the most common among its features (polygons when it has none). */
+  private kind_(): SymbolKind {
+    const counts = new Map<SymbolKind, number>();
+    for (const f of this.entry_?.service.vector?.source.getFeatures().slice(0, 2000) ?? []) {
+      const kind = symbolKindOf(f.getGeometry()?.getType());
+      if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'polygon';
   }
 
   /** Goes back to the style the layer had and closes. */

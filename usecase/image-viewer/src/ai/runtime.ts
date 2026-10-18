@@ -7,6 +7,7 @@
  */
 import type { InferenceSession, Tensor } from 'onnxruntime-web/webgpu';
 import { onnxMetadata, onnxSignature, type OnnxSignature } from './model-config.js';
+import { authFetch } from '../auth.js';
 
 type Ort = typeof import('onnxruntime-web/webgpu');
 
@@ -57,7 +58,7 @@ const fileKey = (file: File) => `file:${file.name}:${file.size}:${file.lastModif
 
 /** The bytes of a model at `url`, reporting progress (0–1) when the server gives the length. */
 export async function fetchModel(url: string, onProgress?: (done: number) => void): Promise<Uint8Array> {
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) throw new Error(`${url} を読めませんでした（HTTP ${response.status}）`);
   const total = Number(response.headers.get('content-length')) || 0;
   if (!response.body || !total || !onProgress) return new Uint8Array(await response.arrayBuffer());

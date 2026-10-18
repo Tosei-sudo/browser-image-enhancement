@@ -276,9 +276,10 @@ export class CompositeDialog {
   /**
    * Opens the dialog with the one-band images in red, green and blue, the
    * earliest in red: two images give red and cyan (the later one in green
-   * and blue).
+   * and blue). `preset`: the images for red, green and blue instead (their
+   * first band), such as the band assets of a STAC item.
    */
-  async open(): Promise<void> {
+  async open(preset?: ReadonlyArray<ViewerImage | null>): Promise<void> {
     this.images_ = [...this.images.list()].filter((i) => tiffOf(i));
     const options = this.images_.flatMap((image, i) => {
       const bands = image.source.getValueBandCount();
@@ -306,6 +307,12 @@ export class CompositeDialog {
       this.selects_[2].value = value(chosen[2] ?? chosen[1]);
     } else if (chosen.length === 0 && this.images_.length === 1 && this.images_[0].source.getValueBandCount() >= 3) {
       this.selects_.forEach((s, b) => (s.value = `0:${b}`));
+    }
+    if (preset) {
+      this.selects_.forEach((s, c) => {
+        const image = preset[c];
+        s.value = image && this.images_.includes(image) ? value(image) : '';
+      });
     }
     this.describe_(true);
   }

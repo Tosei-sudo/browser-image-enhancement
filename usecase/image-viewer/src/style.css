@@ -3615,3 +3615,356 @@ dialog.popped-out .catalog-head {
 .shadow-list[hidden] {
   display: none;
 }
+
+/* `?embed=1` (src/embed.ts): in another page's iframe, the map alone. */
+html.embed .app {
+  grid-template: 'map' 1fr / minmax(0, 1fr);
+}
+html.embed .bar,
+html.embed .side,
+html.embed .side-resize,
+html.embed #timeline,
+html.embed #dashboard,
+html.embed .dashboard-resize,
+html.embed #table,
+html.embed .table-resize,
+html.embed .guide,
+html.embed .ol-enhance {
+  display: none !important;
+}
+
+/* The 「サインイン」 menu: ArcGIS portals, who is signed in (src/auth-menu.ts). */
+.menu.signin-menu {
+  margin-left: 0;
+}
+.menu.signin-menu[hidden] {
+  display: none;
+}
+.signin-menu .menu-button.signed-in {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signin-portal {
+  display: grid;
+  gap: 4px;
+}
+.signin-user {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* Moving objects (AIS・ADS-B): the feeds dialog, its list, and the popup of a clicked object. */
+.moving-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.moving-details summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.moving-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 4px 8px;
+  margin-top: 6px;
+}
+.moving-settings label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.moving-settings input,
+.moving-settings select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.moving-heading {
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+.moving-list {
+  display: grid;
+  gap: 4px;
+  max-height: 30vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.moving-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.moving-row button {
+  margin-left: auto;
+}
+.moving-state {
+  color: var(--muted);
+}
+.moving-fields {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.moving-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+.moving-popup {
+  position: relative;
+  max-width: 18rem;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 6px 22px 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+.moving-popup table {
+  border-collapse: collapse;
+  margin-top: 4px;
+}
+.moving-popup th {
+  padding-right: 8px;
+  color: var(--muted);
+  font-weight: normal;
+  text-align: left;
+  white-space: nowrap;
+}
+.moving-popup td {
+  overflow-wrap: anywhere;
+}
+.moving-popup-close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.moving-popup-source {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+/* STAC search panel (src/stac-panel.ts): the image catalog panel's look, with thumbnails, collections and the assets to open. */
+.stac-dialog[open] {
+  position: fixed;
+  inset: 56px 16px auto auto;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(44rem, calc(100% - 32px));
+  max-height: calc(100vh - 96px);
+  margin: 0;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+.menu-panel .point-tools[hidden],
+.menu-heading[hidden] {
+  display: none;
+}
+.stac-cloud span,
+.stac-area span,
+.stac-static {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg);
+}
+.stac-cloud input {
+  width: 6em;
+}
+.stac-static input {
+  flex: 1;
+  min-width: 0;
+}
+.stac-collections {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.stac-collections legend {
+  padding: 0;
+  color: var(--muted);
+}
+.stac-collection-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  max-height: 5.5em;
+  overflow: auto;
+}
+.stac-table td.stac-thumb {
+  width: 40px;
+  padding: 2px 6px;
+}
+.stac-thumb img {
+  display: block;
+  border-radius: 2px;
+  background: var(--line);
+  object-fit: cover;
+}
+.stac-table tr.stac-none td {
+  color: var(--muted);
+}
+.stac-more {
+  align-self: center;
+  margin-top: 6px;
+}
+.stac-assets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.stac-assets label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stac-assets select {
+  max-width: 100%;
+}
+.stac-bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.stac-assets[hidden],
+.stac-bands[hidden] {
+  display: none;
+}
+/* Server-side processing dialog (src/gp-dialog.ts), in the add-a-service dialog's style. */
+.gp-dialog .gp-params:empty {
+  display: none;
+}
+.gp-dialog textarea {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  resize: vertical;
+}
+.gp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px 10px;
+}
+.gp-row > label:first-child:not(.check) {
+  flex: 1;
+}
+.gp-layer {
+  display: grid;
+  gap: 4px;
+}
+.gp-progress {
+  width: 100%;
+}
+.gp-results {
+  max-height: 30vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.gp-results h3 {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.gp-results ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.gp-messages pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* The clipboard (src/clipboard.ts): what was pasted or copied, briefly over the map; the columns of a pasted table. */
+.clip-toast {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  z-index: 40;
+  max-width: min(90%, 40rem);
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px var(--shadow);
+  font-size: 13px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.clip-toast[hidden] {
+  display: none;
+}
+.paste-columns label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0;
+}
+.paste-error {
+  min-height: 1em;
+  margin: 4px 0;
+  color: var(--danger);
+}
+/* ArcGIS Web Maps (webmap-dialog.ts): folded details, and what was or was not opened or written. */
+.webmap-details {
+  margin-top: 4px;
+}
+.webmap-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.webmap-details > .service-form {
+  margin-top: 6px;
+}
+.webmap-summary {
+  margin: 10px 0 4px;
+}
+.webmap-result {
+  max-height: 30vh;
+  margin: 4px 0;
+  padding-left: 1.2em;
+  overflow: auto;
+}
+.webmap-result:empty {
+  display: none;
+}
+.webmap-result .problem {
+  color: var(--danger, #c0392b);
+}
+/* Style dialog: SLD / QML out (src/style-dialog.ts). */
+.style-export {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+.style-export label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}

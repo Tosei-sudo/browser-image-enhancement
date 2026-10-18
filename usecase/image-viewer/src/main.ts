@@ -90,23 +90,37 @@ import { NoDataDialog } from './nodata-dialog.js';
 import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
+import { GpDialog } from './gp-dialog.js';
+import { openMapServer } from './services/esri-raster.js';
 import { SwipeTool } from './swipe.js';
 import { SplitView } from './split-view.js';
 import { HistogramPanel } from './histogram-panel.js';
 import { SpectralPanel } from './spectral.js';
 import { ProjectControl } from './project.js';
+import { WebMapDialogs } from './webmap-dialog.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
-import { sensorViewOf, type CatalogConfig, type CatalogRecord } from './catalog.js';
+import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
+import { MovingDialog } from './moving-dialog.js';
+import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
+import { EmbedApi } from './embed.js';
+import { layerId } from './script/api.js';
+import { configureAuth } from './auth.js';
+import { SignInMenu } from './auth-menu.js';
+import { AuthLoadImageControl } from './auth-cog.js';
+import { StacPanel } from './stac-panel.js';
+import { PcSigner, signingFetch, stacInfo } from './stac.js';
+import { ClipboardTools } from './clipboard.js';
+import { createEmpty, extend, isEmpty, type Extent } from 'ol/extent.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -116,6 +130,11 @@ for (let zone = 1; zone <= 60; zone++) {
 
 // Site settings (base maps, projection registry…) from config.json, so they change without a rebuild.
 const config = await loadConfig();
+// ArcGIS sign-in and the access rules (src/auth.ts), before anything is requested; this tab's sign-ins come back.
+configureAuth({ portals: config.arcgisPortals, rules: config.authRules });
+// Planetary Computer's blobs (a STAC catalog with "sign": "planetary-computer") are signed on each request,
+// so the URLs kept in layer names, links and projects stay without the token, and open again later with a fresh one.
+if (config.stacCatalogs.some((c) => c.sign === 'planetary-computer')) window.fetch = signingFetch(window.fetch.bind(window), new PcSigner());
 for (const [code, definition] of Object.entries(config.projections)) {
   try {
     proj4.defs(code, definition);
@@ -201,6 +220,8 @@ const enhance = new EnhanceControl({ labels: enhanceLabelsJa, collapsed: false }
 map.addControl(enhance);
 
 const say = (message: string) => (status.textContent = message);
+// 「サインイン」 in the header, when config.json lists ArcGIS portals.
+const signIn = new SignInMenu(document.getElementById('signin-menu')!, { say });
 // Whether the selected image is drawn from its raw pixels or an RSET level, and the RSETs being made.
 const rsetShown = new RsetIndicator(map);
 const rsetProgress = new RsetProgress(mapElement);
@@ -213,6 +234,8 @@ const table = new AttributeTable(document.getElementById('table')!, map, selecti
     const service = layer?.type === 'service' ? layer.service : null;
     return linkOfShapes(location.href, features, { name: service?.title, labelField: service?.style?.get().label.field ?? null });
   },
+  // 「GeoJSON でコピー」・「WKT でコピー」.
+  menuItems: (features) => clipboard.menuItems(features),
 });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
 const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say, onChange: () => split?.refreshBase() });
@@ -290,6 +313,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
     updateLink();
+    embed?.layersChanged();
   },
   onEdit: (layer) => {
     if (editor.start(layer)) showTable(layer);
@@ -522,7 +546,20 @@ boxSelect.on('boxend', () => {
 });
 map.addInteraction(boxSelect);
 
-const serviceContext = (): OpenContext => ({ gpu: onGpu, say, rules: config.serviceRules });
+const serviceContext = (): OpenContext => ({ gpu: onGpu, say, rules: config.serviceRules, area: serviceArea, openRaster: (file, url) => project.openFiles([file], url) });
+
+/** The area a service reads (OGC API, WCS): the view, or the selected features' extent. */
+function serviceArea(which: 'view' | 'selection'): Extent | null {
+  if (which === 'view') return map.getView().calculateExtent(map.getSize());
+  const features = selection.list();
+  if (!features.length) return null;
+  const extent = createEmpty();
+  for (const f of features) {
+    const g = f.getGeometry();
+    if (g) extend(extent, g.getExtent());
+  }
+  return isEmpty(extent) ? null : extent;
+}
 
 /** Adds a layer of a service (or a vector file) and zooms to it. */
 function addService(service: ServiceLayer): void {
@@ -570,6 +607,29 @@ const zonal = new ZonalDialog(selection, {
   },
 });
 
+// Server-side processing (ArcGIS GP services, OGC API – Processes): feature results are temporary layers too.
+const gp = new GpDialog(document.getElementById('gp-open') as HTMLButtonElement | null, selection, {
+  map,
+  services: () => config.gpServices,
+  layers: () => images.layers(),
+  say,
+  onFeatures: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+  openImage: async (url) => {
+    try {
+      await loader.loadUrl(url);
+    } catch (error) {
+      // Not a GeoTIFF: a picture (or anything else that opens as a file).
+      if (/\.tiff?(?:[?#]|$)/i.test(url)) throw error;
+      await project.openFiles([await fetchFile(url)], url);
+    }
+  },
+  addMapServer: async (url, token) => addService(await openMapServer(url, { ...serviceContext(), token })),
+});
+
 // Ctrl+K: every tool by name — the bar's buttons and menus, the side panel's, and the processing tools.
 const palette = new CommandPalette(() => [
   { id: 'open-file', label: 'ファイルを開く', detail: '画像・GeoTIFF・Shapefile・GeoJSON など', keys: 'O', run: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click() },
@@ -585,15 +645,16 @@ document.getElementById('palette-open')!.addEventListener('click', () => palette
 /**
  * Shapes in a link (`?geom=`, `?line=`, `?polygon=`, `?geojson=`, or a
  * `web+imageviewer:` link handed to the installed app): one temporary layer,
- * zoomed to unless the link says where to look (`#view=`).
+ * zoomed to unless the link says where to look (`#view=`). Returns the layer
+ * (null when no shape could be read), and what could not be read.
  */
-async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<void> {
-  if (!hasShapes(params)) return;
+async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<{ layer: ViewerService | null; count: number; errors: string[] }> {
+  if (!hasShapes(params)) return { layer: null, count: 0, errors: [] };
   const shapes = readLinkShapes(params);
   const skipped = shapes.errors.length ? `（読めなかったもの: ${shapes.errors.join(' / ')}）` : '';
   if (!shapes.features.length) {
     say(`リンクの図形を表示できませんでした${skipped}`);
-    return;
+    return { layer: null, count: 0, errors: shapes.errors };
   }
   const record = recordOf({ title: shapes.title, features: shapes.features, fields: shapes.fields }, 'リンクから追加');
   await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
@@ -615,6 +676,7 @@ async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<vo
   }
   const n = shapes.features.length;
   say(`リンクの図形 ${n.toLocaleString()} 個を一時レイヤー「${shapes.title}」に追加しました${skipped}`);
+  return { layer: entry, count: n, errors: shapes.errors };
 }
 
 // New layers designed by the person (geometry type and attributes): empty temporary layers, drawn on at once.
@@ -672,6 +734,28 @@ const aiTransfer = new TransferDialog(aiTransferButton, selection, {
   say,
 });
 
+// Moving objects (config.json's movingFeeds, or by URL; history files): ships and aircraft as layers that follow the timeline,
+// and AI detections checked against them.
+const moving = new MovingDialog(document.getElementById('moving-open') as HTMLButtonElement, {
+  map,
+  images,
+  feeds: config.movingFeeds,
+  timeline,
+  say,
+  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive() && !editor.isDrawing(),
+});
+const movingMatch = new MatchDialog(document.getElementById('moving-match') as HTMLButtonElement, {
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  feeds: () => moving.feeds(),
+  say,
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    return images.addService(tempLayer(record, tempStore));
+  },
+});
+
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
 const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
 // Printing: the view on a sheet with a title, scale bar, north arrow and legend, as a PDF or PNG.
@@ -696,7 +780,7 @@ function updateLink(): void {
 }
 baseMap.select.addEventListener('change', updateLink);
 
-const loader = new LoadImageControl({
+const loader = new AuthLoadImageControl({
   target: 'open',
   labels: { ...loadImageLabelsJa, url: 'URL を開く（COG・Esri ImageServer）', urlPlaceholder: 'https://…/image.tif、…/ImageServer' },
   // An Esri image (or map) service URL opens as its picture layer.
@@ -797,6 +881,23 @@ const saveProject = (as = false) => {
 };
 document.getElementById('project-save')!.addEventListener('click', () => void saveProject());
 document.getElementById('project-save-as')!.addEventListener('click', () => void saveProject(true));
+// ArcGIS Web Maps: opened from a portal or a JSON file, saved as JSON or to a portal.
+const webMaps = new WebMapDialogs({
+  map,
+  images,
+  baseMap,
+  baseMaps: config.baseMaps,
+  tempStore,
+  bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  context: serviceContext,
+  say,
+  name: () => project.name(),
+  onChange: updateLink,
+});
+document.getElementById('webmap-open')!.addEventListener('click', () => webMaps.open());
+document.getElementById('webmap-save')!.addEventListener('click', () => webMaps.openSave());
+document.getElementById('project-qgis-open')!.addEventListener('click', () => void project.chooseQgis());
+document.getElementById('project-qgis-export')!.addEventListener('click', () => project.exportQgis());
 // Ctrl+S (⌘S): save the project rather than the page; with Shift, under another name.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
@@ -923,6 +1024,25 @@ const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as
   forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
 });
 
+// STAC search (config.json's stacCatalogs, Earth Search by default): scenes by area, dates and cloud cover, opened as COGs.
+// Band assets (red, green, blue) open as layers and go into the RGB composite dialog, ready to run.
+const stac = new StacPanel(document.getElementById('stac-open') as HTMLButtonElement, map, config.stacCatalogs, {
+  say,
+  open: async (assets, item, catalog, rgb) => {
+    const opened: ViewerImage[] = [];
+    for (const { url, asset } of assets) {
+      const image = images.find(await loader.loadUrl(url));
+      if (!image) continue;
+      fromCatalog.set(image, stacInfo(item, catalog, [asset], timeText));
+      catalogIds.set(image, item.id);
+      images.setBadge(image, asset.commonName || asset.key);
+      if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+      opened.push(image);
+    }
+    if (rgb && opened.length === 3) await composite.open(opened);
+  },
+});
+
 // Imaging plans (config.json's satelliteCatalogs, or pasted TLEs): when the satellites can next image a layer's features.
 const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as HTMLButtonElement, map, config.satelliteCatalogs, {
   layers: () => images.layers(),
@@ -941,7 +1061,7 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
 
 // Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
 /** Menu buttons a script may press (viewer.command): ones that open a panel or a tool, not ones that save or open files. */
-const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open'];
+const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'moving-open', 'stac-open'];
 const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
   map,
   layers: () => images.layers(),
@@ -992,6 +1112,10 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
     { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
+    { id: 'moving-match', label: 'AI 検出と照合（移動体）', dialog: movingMatch.dialog, open: () => movingMatch.open(), run: () => movingMatch.run() },
+    { id: 'stac', label: 'STAC 検索', dialog: stac.dialog, open: () => stac.open(), run: () => stac.search() },
+    { id: 'gp', label: 'サーバ処理（ArcGIS GP・OGC API – Processes）', dialog: gp.dialog, open: () => gp.open(), run: () => gp.run() },
+    { id: 'webmap-open', label: 'ArcGIS Web マップを開く', dialog: webMaps.openDialog, open: () => webMaps.open(), run: () => webMaps.openTyped() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1004,7 +1128,8 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     } else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
     else {
       const { type: kind, ...ref } = layer;
-      addService(await openRef({ kind, ...ref }, serviceContext()));
+      const opened = await openRef({ kind, ...ref }, serviceContext());
+      if (opened) addService(opened);
     }
   },
   serviceChoices: async (url, kind) => (await readService(url, kind)).choices,
@@ -1204,7 +1329,8 @@ async function openEsriUrl(url: string): Promise<boolean> {
   try {
     const catalog = await readService(url, 'esri');
     const choice = catalog.choices.find((c) => c.name === IMAGE_CHOICE || c.name === MAP_CHOICE)!;
-    addService(await catalog.open(choice, serviceContext()));
+    const layer = await catalog.open(choice, serviceContext());
+    if (layer) addService(layer);
   } catch (error) {
     say(`${url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}（トークンが必要なサービスは「サービスを追加」から開いてください）`);
     throw error;
@@ -1222,7 +1348,8 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
     else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
     else {
       const { type: kind, ...ref } = layer;
-      addService(await openRef({ kind, ...ref }, serviceContext()));
+      const opened = await openRef({ kind, ...ref }, serviceContext());
+      if (opened) addService(opened);
     }
   } catch (error) {
     // The loader's onError has already said why a COG failed.
@@ -1238,7 +1365,7 @@ const started = (async () => {
   // A shared link lists the service layers in config.json too: open those once.
   const fromConfig = new Set(config.layers.filter((l) => l.type !== 'cog' && l.type !== 'file').map((l) => refKey({ ...l, kind: l.type })));
   for (const ref of start.getAll('service').map(paramToRef)) {
-    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
+    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings, bbox: ref.bbox, filter: ref.filter });
   }
   for (const layer of opening) await openAtStart(layer);
   // Elevation services of config.json, ready for orthorectification and 3D.
@@ -1273,6 +1400,28 @@ onLaunchFiles((handles) => {
   void started.then(() => addLinkShapes(shapeParamsOf(target.search), true));
 });
 void registerServiceWorker();
+
+// Embedding (config.json's `embed`): pages of the allowed origins show the viewer in an iframe and drive it by postMessage.
+const embed: EmbedApi | null = config.embed.allowedOrigins.length
+  ? new EmbedApi(config.embed, { map, selection, handlers: (adapt) => scripts.handlers(adapt), addShapes: addLinkShapes, layerId, ready: started })
+  : null;
+// The clipboard and sharing: Ctrl+V (or the menu) pastes GeoJSON, WKT, KML, coordinates and tables from Excel as the
+// temporary layer 「貼り付け」 and pictures as pictures; Ctrl+C copies the selected features as GeoJSON; 「共有…」 shares
+// the view's link; and what other apps share to the installed app (manifest share_target, sw.js) opens.
+const clipboard = new ClipboardTools(map, {
+  images,
+  selection,
+  tempStore,
+  say,
+  openFiles: (files) => project.openFiles(files),
+  openUrl: async (url) => {
+    if (!(await openEsriUrl(url))) await loader.loadUrl(url);
+  },
+  in3d: () => globeToggle.isOpen(),
+  updateHash: () => bookmarks.updateHash(),
+  buttons: { paste: document.getElementById('clip-paste') as HTMLButtonElement, copyView: document.getElementById('clip-copy-view') as HTMLButtonElement, share: document.getElementById('clip-share') as HTMLButtonElement },
+});
+void clipboard.takeSharedFromAddress(started);
 
 // For the browser test and the console.
 declare global {
@@ -1336,7 +1485,12 @@ declare global {
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
+      signIn: SignInMenu;
+      moving: MovingDialog;
+      movingMatch: MatchDialog;
+      stac: StacPanel;
+      webMaps: WebMapDialogs;
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

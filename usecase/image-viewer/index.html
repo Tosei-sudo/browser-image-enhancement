@@ -19,6 +19,8 @@
         } catch (e) {}
         if (choice !== 'light' && choice !== 'dark') choice = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.dataset.theme = choice;
+        // `?embed=1`: shown in another page's iframe (src/embed.ts), the map alone.
+        if (/[?&]embed=1(&|$)/.test(location.search)) document.documentElement.classList.add('embed');
       })();
     </script>
   </head>
@@ -35,6 +37,12 @@
               <button type="button" id="project-open" title="保存したプロジェクト（.ivproj）を開きます">開く…</button>
               <button type="button" id="project-save" aria-keyshortcuts="Control+S" title="開いているレイヤー・スタイル・補正・表示範囲を保存します（Ctrl+S）">保存</button>
               <button type="button" id="project-save-as" aria-keyshortcuts="Control+Shift+S" title="別のファイルに保存します（Ctrl+Shift+S）">名前を付けて保存…</button>
+              <!-- ArcGIS Web Maps: src/webmap-dialog.ts. -->
+              <button type="button" id="webmap-open" title="ArcGIS Online・Enterprise の Web マップ（アイテム URL・ID・JSON ファイル）のレイヤーを開きます">ArcGIS Web マップを開く…</button>
+              <button type="button" id="webmap-save" title="開いているサービスのレイヤー・表示範囲・背景地図・スタイルを Web マップ（JSON・ポータル）に保存します">ArcGIS Web マップとして保存…</button>
+              <!-- QGIS projects (.qgs, .qgz) in and out: src/qgis-project.ts. -->
+              <button type="button" id="project-qgis-open" title="QGIS のプロジェクト（.qgs・.qgz）のレイヤー・スタイル・表示範囲を開きます">QGIS プロジェクトを読み込む…</button>
+              <button type="button" id="project-qgis-export" title="開いているレイヤーとスタイル・表示範囲を QGIS のプロジェクト（.qgs）に書き出します">QGIS 形式で書き出す</button>
             </div>
           </div>
         </div>
@@ -52,6 +60,11 @@
         <div class="menu bookmark-menu" id="bookmark-menu">
           <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="bookmark-panel" title="表示範囲に名前を付けて残す・リンクで共有">ブックマーク</button>
           <div id="bookmark-panel" class="menu-panel" role="group" aria-label="ブックマーク" hidden></div>
+        </div>
+        <!-- ArcGIS sign-in, when config.json lists portals: src/auth-menu.ts. -->
+        <div class="menu signin-menu" id="signin-menu" hidden>
+          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="signin-panel">サインイン</button>
+          <div id="signin-panel" class="menu-panel" role="group" aria-label="サインイン" hidden></div>
         </div>
         <!-- Everyday controls stay in the bar; the click tools and the rest are one menu away. -->
         <div class="menu" id="tools-menu">
@@ -73,6 +86,7 @@
             <div class="point-tools">
               <button type="button" id="new-layer" title="ジオメトリ（ポイント・ライン・ポリゴン）と属性（名前と型）を決めて、空の一時レイヤーを作ります。作るとすぐ描けます">新規レイヤー…</button>
               <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・バンド演算・パンシャープンなど">プロセッシング</button>
+              <button type="button" id="gp-open" title="ArcGIS の GP サービス（GPServer）や OGC API – Processes の処理をサーバーで実行し、結果をレイヤーとして開きます">サーバ処理…</button>
               <!-- Analysis and editing written in JavaScript, run apart from the page: src/script-dialog.ts. -->
               <button type="button" id="script-open" title="JavaScript で解析・編集・撮像計画・書き出しを書いて実行します（ページから切り離された環境で動きます）">スクリプト…</button>
             </div>
@@ -99,6 +113,24 @@
               <button type="button" id="save-view" title="表示範囲を PNG・GeoTIFF で保存します">表示範囲を保存</button>
               <!-- A sheet with a title, scale bar, north arrow and legend: src/print-layout.ts. -->
               <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例を付けて A4・A3 の PDF・PNG に保存します">印刷レイアウト…</button>
+            </div>
+            <!-- Ships (AIS) and aircraft (ADS-B): src/moving-dialog.ts, src/moving-match-dialog.ts. -->
+            <p class="menu-heading">移動体</p>
+            <div class="point-tools">
+              <button type="button" id="moving-open" title="AIS・ADS-B などのフィード（WebSocket・SSE・ポーリング・ArcGIS Stream Service）や履歴ファイルを、向きのある記号と航跡で表示します">移動体（AIS・ADS-B）…</button>
+              <button type="button" id="moving-match" title="AI の検出結果を撮影時刻の移動体の位置と照らし合わせ、一致しない検出を赤で示します">AI 検出と照合…</button>
+            </div>
+            <p class="menu-heading">データ検索</p>
+            <div class="point-tools">
+              <!-- Scenes of STAC APIs and static catalogs (config.json's stacCatalogs; [] hides it): src/stac-panel.ts. -->
+              <button type="button" id="stac-open" title="STAC（Earth Search など）から範囲・撮像日・雲量でシーンを探して、COG で開きます">STAC 検索…</button>
+            </div>
+            <!-- Pasting shapes and pictures, copying the view, the share sheet: src/clipboard.ts. -->
+            <p class="menu-heading">クリップボード・共有</p>
+            <div class="point-tools">
+              <button type="button" id="clip-paste" aria-keyshortcuts="Control+V" title="クリップボードの GeoJSON・WKT・KML・座標・緯度経度の表（Excel）を一時レイヤー「貼り付け」に、画像を位置情報なしの画像として開きます（地図の上で Ctrl+V）">クリップボードから貼り付け</button>
+              <button type="button" id="clip-copy-view" title="表示範囲を PNG 画像としてクリップボードにコピーします">表示範囲の画像をコピー</button>
+              <button type="button" id="clip-share" title="今の表示のリンク（と表示範囲の画像）を他のアプリに共有します" hidden>共有…</button>
             </div>
             <!-- Light, dark or the system's setting: src/theme.ts. -->
             <p class="menu-heading">表示</p>

@@ -19,6 +19,7 @@ import { DTED_VOID, type Dted } from '../dted.js';
 import { resampleDem } from '../dem-geotiff.js';
 import { esriJson } from './esri.js';
 import { projectionOf, request, ServiceError, withParams } from './common.js';
+import { authFetch, freshTokenFor, tokenFor } from '../auth.js';
 
 /** Elevation data read on demand from a service. */
 export interface ElevationSource {
@@ -219,7 +220,7 @@ async function tileSource(
       cache.set(key, found);
       return found;
     }
-    found = limit(() => fetchTile(withParams(`${url}/tile/${level}/${row}/${col}`, { token }), cols, rows)).catch((error: unknown) => {
+    found = limit(() => fetchTile(withParams(`${url}/tile/${level}/${row}/${col}`, { token: token ?? tokenFor(url) }), cols, rows)).catch((error: unknown) => {
       cache.delete(key);
       throw error;
     });
@@ -296,7 +297,7 @@ async function tileSource(
 async function fetchTile(url: string, cols: number, rows: number): Promise<Float32Array | null> {
   let response: Response;
   try {
-    response = await fetch(url);
+    response = await authFetch(url);
   } catch {
     throw new ServiceError('標高タイルを読み込めませんでした（接続、または CORS を確認してください）');
   }
@@ -323,6 +324,7 @@ async function fetchTile(url: string, cols: number, rows: number): Promise<Float
 
 /** `exportImage` as a TIFF; an error in JSON becomes a ServiceError. The token in a POST. */
 async function exportHeights(url: string, params: Record<string, string>, token?: string): Promise<Blob> {
+  token ||= await freshTokenFor(url);
   const all = new URLSearchParams({ ...params, f: 'image', ...(token ? { token } : {}) });
   const response = token
     ? await request(`${url}/exportImage`, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })

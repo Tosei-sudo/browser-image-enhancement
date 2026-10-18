@@ -94,8 +94,9 @@ describe('layers', () => {
       { type: 'cog', url: 'https://example.com/a.tif' },
       { type: 'file', url: './data/b.geojson' },
       { type: 'wmts', url: 'https://example.com/wmts', layer: 'photo', matrixSet: 'GoogleMapsCompatible' },
+      { type: 'xyz', url: 'https://example.com/{z}/{x}/{y}.png', layer: 'tiles' },
     ]);
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(2);
   });
 });
 
@@ -189,5 +190,25 @@ describe('lookupUrl', () => {
   it('fills the authority and the code', () => {
     expect(lookupUrl(defaultConfig.projectionLookup, 'EPSG:6677')).toBe('https://spatialreference.org/ref/epsg/6677/ogcwkt/');
     expect(lookupUrl('https://epsg.io/{code}.proj4', 'EPSG:2451')).toBe('https://epsg.io/2451.proj4');
+  });
+});
+
+describe('gpServices', () => {
+  it('takes http(s) processing services, with a label and token or a URL alone, and drops the rest, saying why', () => {
+    const { config, problems } = parseConfig({
+      gpServices: [
+        { label: '解析', url: 'https://example.com/arcgis/rest/services/Tools/GPServer', token: 't' },
+        'https://example.com/ogc/processes',
+        { label: 'x', url: 'javascript:alert(1)' },
+        42,
+      ],
+    });
+    expect(config.gpServices).toEqual([
+      { label: '解析', url: 'https://example.com/arcgis/rest/services/Tools/GPServer', token: 't' },
+      { label: 'https://example.com/ogc/processes', url: 'https://example.com/ogc/processes' },
+    ]);
+    expect(problems).toHaveLength(2);
+    expect(parseConfig({ gpServices: {} }).problems).toEqual(['gpServices が配列ではありません']);
+    expect(parseConfig({}).config.gpServices).toEqual([]);
   });
 });

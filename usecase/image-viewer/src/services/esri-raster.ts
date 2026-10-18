@@ -14,6 +14,7 @@
  *
  * Images cannot carry a token in a POST, so a token, when given, goes in the
  * tile URLs (as ArcGIS's own clients do); other requests send it in a POST.
+ * Without one, a signed-in portal's token is added the same way (auth.ts).
  */
 import Feature from 'ol/Feature.js';
 import EsriJSON from 'ol/format/EsriJSON.js';
@@ -24,6 +25,7 @@ import TileGrid from 'ol/tilegrid/TileGrid.js';
 import type { Extent } from 'ol/extent.js';
 import type OlMap from 'ol/Map.js';
 import { esriJson, toField } from './esri.js';
+import { freshTokenFor } from '../auth.js';
 import { projectionOf, request, ServiceError, withParams, type Field, type LayerChoice, type OpenContext, type ServiceLayer } from './common.js';
 import {
   changesMap,
@@ -509,6 +511,7 @@ async function extentOf(e: EsriExtentJson | undefined): Promise<Extent | null> {
 
 /** A binary answer (`f=image`) of the REST API; the token in a POST. An error in JSON becomes a ServiceError. */
 async function esriBinary(url: string, params: Record<string, string>, token?: string): Promise<Blob> {
+  token ||= await freshTokenFor(url);
   const all = new URLSearchParams({ ...params, f: 'image', ...(token ? { token } : {}) });
   const response = token
     ? await request(url, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
