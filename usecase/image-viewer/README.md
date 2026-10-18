@@ -118,6 +118,8 @@
 - **ウィンドウ**: ダイアログ（撮像計画・画像カタログ・AI・スクリプトなど）はタイトルをドラッグして好きな位置へ動かせます（タイトルのダブルクリックで元の位置）。タイトルの ⧉ で別ウィンドウに持ち出せ、地図の横や別のモニターに置いたまま、地図を操作しながら使えます（Shift+クリックは常に手前に表示するウィンドウ。Chrome・Edge）。中身はタブと同じページで動くので、入力や結果はそのまま、ライト・ダークも追従します。持ち出したウィンドウを閉じるか ↩ でタブに戻り、ダイアログの × や「閉じる」でウィンドウも閉じます。既定では今まで通りタブの中に開きます
 - **プロジェクト（`.ivproj`）**: 上部の「プロジェクト」→「保存」（Ctrl+S）で、開いているレイヤーの順番・表示・不透明度・補正・バンド割当・DRA の固定・着色と重ね方・ノーデータの値・画像に設定した投影、ベクターのスタイルとラベル、レイヤーごとのタイムラインの設定、背景地図、表示範囲と、画面構成（レイヤーパネル・ダッシュボードの幅、属性テーブルの高さと折りたたみ、左の欄の開閉、タイムラインの期間・幅・累積、ダッシュボードの集計・絞り込み・ヒートマップ）を 1 つのファイルに保存します。「開く…」か、開くボタン・ドラッグ＆ドロップで `.ivproj` を選ぶと、そのときの状態に戻ります（開いているレイヤーは閉じます）。保存は JSON で、画素は入りません。COG とサービスは URL から開き直し、ローカルファイルは名前（とサイズ）で探します。File System Access API のあるブラウザ（Chrome・Edge）では、保存時のファイルのハンドルか「最近」のハンドルで探すので、許可を 1 回押すだけで開けます。見つからないファイルはダイアログで選び直すか、省いて開けます。一時レイヤー（プロセッシングの結果）は地物ごと保存します。オルソ補正・パンシャープン・RGB 合成・モザイクの結果の画像は保存されないので、GeoTIFF に書き出してから開いてください
 - **アプリとしてインストール（PWA）**: HTTPS で配信すると、Chrome・Edge のアドレスバーからアプリとしてインストールできます。サイトのファイルは Service Worker が保持するので、オフラインでも起動します（COG・サービス・背景地図はネットワークが必要です）。インストールしたアプリは `.ivproj` を開くアプリになり、エクスプローラーや Finder でダブルクリックすると開きます（GeoTIFF・GeoJSON・GeoPackage も「プログラムから開く」で開けます）。新しいビルドが配信されると画面下に「新しいバージョンがあります」と出て、「再読み込み」で切り替わります。`config.json` とページ本体は毎回ネットワークから取りに行くので、サーバーでの編集はすぐ反映されます。Service Worker はページとサイトのファイルに `Cross-Origin-Opener-Policy: same-origin` と `Cross-Origin-Embedder-Policy: credentialless` を付けてクロスオリジン分離し、AI の推論をマルチスレッドにします（Service Worker が入った次の読み込みから。Chrome・Edge・Firefox。Safari は対応していないので 1 スレッドのまま）。他のサイトの画像やタイルのうち CORS なしで読むものは Cookie なしで取りに行きます。サーバー側でこの 2 つのヘッダーを付けて配信しても同じです
+- **移動体（AIS・ADS-B）**: 「ツール」→「移動体（AIS・ADS-B）…」で、船舶（AIS）・航空機（ADS-B）のフィードをレイヤーとして表示します。`config.json` の `movingFeeds` に登録したものを選ぶか、URL を入れて接続します（WebSocket・Server-Sent Events・GeoJSON / JSON の定期取得・ArcGIS Stream Service。`ws`・`wss`・`http`・`https` のみ）。CSV（時刻・緯度・経度の列。MarineCadastre の AIS など）や GeoJSON の履歴ファイルも開けます。ID（MMSI・ICAO）・時刻・緯度・経度・方位・針路・速度・名前・種別の属性は mmsi・icao24・lat・longitude・cog・sog・heading・callsign・shipname・timestamp などの名前から自動で見つけ（aisstream.io のような入れ子は `MetaData.MMSI` のようにつなぎます。OpenSky の `states` も読めます）、「詳細」で指定もできます。各移動体は向きに回した船・航空機の記号と直近の航跡（既定: 船 30 分・航空機 5 分）で表示し、拡大すると名前（なければ ID）を添えます。最後の報告が古いものは薄く（船 10 分・航空機 1 分）、さらに古いものは消します（船 30 分・航空機 5 分）。クリックすると最新の属性を吹き出しで表示し、レイヤー一覧で選ぶと属性テーブルにも出ます。上限は 1 レイヤー 2 万件・1 件 5,000 点（合計 200 万点）で、1 秒 500 通・1 通 2 MB（定期取得は 20 MB）を超える受信や JSON でない受信は捨てます。タイムラインを開くと、期間の終わりの時刻にいた位置を、履歴ファイルとライブで受信した分（船 24 時間・航空機 6 時間分を保持）から補間して表示します。「撮影時刻に合わせる」は選んだ画像の撮影時刻（メタデータ・ファイル名など、タイムラインと同じ）でタイムラインを開き、その時刻の位置を表示します。「ライブに戻す」で最新の位置に戻ります。フィードはプロジェクトファイルには保存されません
+  - **AI 検出と照合**: 「ツール」→「AI 検出と照合…」で、検出結果（ポイント・ポリゴンのレイヤー）と移動体のフィードを選び、各検出の撮像日時（`image_time`）・画像の撮影時刻・入力した日時の ± 時間の幅（既定 10 分）に、距離（既定 500 m）以内にいた移動体を探します。結果は検出の写しに `ais_status`（一致・なし・時刻なし）・`ais_id`・`ais_name`・`ais_dist_m`・`ais_dt_s` を足した一時レイヤーで、一致しない検出（AIS を出していない船など）を赤、一致したものを緑で表示します
 
 サービスは、サーバーが CORS を許可している必要があります（このサイトは中継サーバーを使いません）。イメージサービス・マップサービスの画像はタイルの URL で読むので、トークンを入れたときはタイルの URL にトークンが入ります（ほかの要求は POST で送ります）。今回対応していないものは、WFS-T による WFS の編集、OGC API Features、XYZ タイルのレイヤー追加、Esri の添付ファイル・リレーションシップ・バージョン管理です。
 
@@ -290,6 +292,14 @@ COG は、サーバーが CORS と Range リクエストを許可している必
   "authRules": [
     { "prefix": "https://bucket.s3.ap-northeast-1.amazonaws.com/cogs/", "headers": { "x-api-key": "…" } },
     { "prefix": "https://tiles.example.com/", "query": { "key": "…" } }
+  ],
+  // 「移動体（AIS・ADS-B）」に並べるフィード。type は websocket・sse・poll・esri-stream
+  "movingFeeds": [
+    { "label": "AIS（WebSocket）", "type": "websocket", "url": "wss://ais.example.com/stream", "kind": "ship" }, // kind: ship・aircraft（省略時は属性名から判断）
+    { "label": "ADS-B（定期取得）", "type": "poll", "url": "https://adsb.example.com/aircraft.json", "interval": 5, // interval: 取得の間隔（秒。既定 10、最短 2）
+      "fields": { "id": "hex", "name": "flight", "course": "track" } },        // 役割ごとの属性名（任意。書かない役割は名前から自動）
+    { "label": "船舶（SSE）", "type": "sse", "url": "./ais/events" },
+    { "label": "Stream Service", "type": "esri-stream", "url": "https://example.com/arcgis/rest/services/Ships/StreamServer" } // 説明（?f=json）の WebSocket に接続
   ]
 }
 ```
@@ -336,6 +346,8 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 `arcgisPortals` を書くと、ヘッダーに「サインイン」が出ます。ポータルを選ぶとポップアップでそのポータルのサインイン画面が開き、サインインするとボタンがユーザー名に変わります（メニューから「サインアウト」）。OAuth 2.0 の認可コード＋PKCE なので、クライアントシークレットは要りません。ポータルでアプリ（「その他のアプリケーション」/ OAuth 認証情報）を登録し、リダイレクト URI にこのサイトの `oauth-callback.html`（例: `https://viewer.example.com/oauth-callback.html`）を加えて、そのクライアント ID を `clientId` に書きます。`url` はポータルのルート（`https://www.arcgis.com`、`https://gis.example.com/portal`）で、https だけです（http は localhost のみ）。サインイン中のトークンは、そのポータル・ArcGIS Online の組織のホストサービス（`services*.arcgis.com/<組織 ID>/…`）・ポータルのフェデレーションサーバー（`portals/self/servers`）への要求に、トークンを入力しなかったときだけ自動で付けます（サービスの追加・画像カタログ・撮像計画の衛星カタログ・標高サービス・DB へ転記・ジオコーダー・イメージサービスのタイルなど）。サーバーが期限切れ・無効（498・499）と答えたら 1 回だけ更新して送り直し、期限の前にも自動で更新します。トークンはこのタブ（sessionStorage）にだけ残り、リンク・プロジェクトファイルには入りません。
 
 `authRules` は URL の先頭（`prefix`）が一致する要求に `headers`（ヘッダー）か `query`（クエリパラメーター）を付けます。対象は COG の読み込み（Range 要求ごと）・WMS・WMTS・Esri・XYZ 背景地図のタイル・サービスの情報や地物の要求・URL で開くファイルです。`prefix` は `https://` で始まりホストの後の `/` まで含めて書き（http は localhost のみ）、文字列としての前方一致で、複数合えば最も長いものを使います。ほかのホストには送りません。ヘッダーを付ける要求は CORS の事前確認（preflight）になるので、サーバーがそのヘッダー（と `range`）を `Access-Control-Allow-Headers` で許可している必要があります。Cookie・Host などブラウザーが付けさせないヘッダーは無視します。ベクタータイル（`mvt`・`style`）の背景地図のタイルにはまだ付きません。
+
+`movingFeeds` の `fields` に書ける役割は `id`・`time`・`lat`・`lon`・`heading`・`course`・`speed`・`name`・`kind` です。入れ子の値は `MetaData.MMSI` のように `.` でつなぎ、GeoJSON・Esri のポイントの位置は書かなくても読みます。時刻は 1970 年からの秒・ミリ秒か日時の文字列で、時差のない文字列は UTC とみなします。ArcGIS Stream Service の `url` に `?token=` を付けると説明の取得と（同じホストなら）WebSocket に使います。
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 

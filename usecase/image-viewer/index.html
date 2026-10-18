@@ -107,6 +107,12 @@
               <!-- A sheet with a title, scale bar, north arrow and legend: src/print-layout.ts. -->
               <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例を付けて A4・A3 の PDF・PNG に保存します">印刷レイアウト…</button>
             </div>
+            <!-- Ships (AIS) and aircraft (ADS-B): src/moving-dialog.ts, src/moving-match-dialog.ts. -->
+            <p class="menu-heading">移動体</p>
+            <div class="point-tools">
+              <button type="button" id="moving-open" title="AIS・ADS-B などのフィード（WebSocket・SSE・ポーリング・ArcGIS Stream Service）や履歴ファイルを、向きのある記号と航跡で表示します">移動体（AIS・ADS-B）…</button>
+              <button type="button" id="moving-match" title="AI の検出結果を撮影時刻の移動体の位置と照らし合わせ、一致しない検出を赤で示します">AI 検出と照合…</button>
+            </div>
             <!-- Light, dark or the system's setting: src/theme.ts. -->
             <p class="menu-heading">表示</p>
             <div class="point-tools theme-choices" id="theme-choices" role="radiogroup" aria-label="表示">

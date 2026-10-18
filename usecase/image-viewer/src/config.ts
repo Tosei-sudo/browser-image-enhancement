@@ -12,6 +12,7 @@ import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.j
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
+import { movingFeedOf, type FeedConfig } from './moving.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
 import { defaultEmbed, embedConfigOf, type EmbedConfig } from './embed-protocol.js';
 import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type AuthRule } from './auth.js';
@@ -111,6 +112,8 @@ export interface ViewerConfig {
   arcgisPortals: ArcgisPortalConfig[];
   /** Headers or query parameters added to requests to URLs that start with a prefix (auth.ts). */
   authRules: AuthRule[];
+  /** Feeds of ships and aircraft listed in 「移動体（AIS・ADS-B）」 (moving.ts). */
+  movingFeeds: FeedConfig[];
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -180,6 +183,7 @@ export const defaultConfig: ViewerConfig = {
   embed: defaultEmbed,
   arcgisPortals: [],
   authRules: [],
+  movingFeeds: [],
 };
 
 /**
@@ -250,7 +254,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -366,6 +370,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('authRules' in json) {
     if (Array.isArray(json.authRules)) config.authRules = json.authRules.map((r, i) => authRuleOf(r, problems, i)).filter((r): r is AuthRule => r !== null);
     else problems.push('authRules が配列ではありません');
+  }
+
+  if ('movingFeeds' in json) {
+    if (Array.isArray(json.movingFeeds)) config.movingFeeds = json.movingFeeds.map((f, i) => movingFeedOf(f, problems, i)).filter((f): f is FeedConfig => f !== null);
+    else problems.push('movingFeeds が配列ではありません');
   }
 
   return { config, problems };
