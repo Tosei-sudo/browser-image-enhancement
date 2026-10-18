@@ -75,6 +75,45 @@ test('the click tools are in one menu, marked while one is on, with single-key s
   await expect(distance).toBeHidden();
 });
 
+test('the menu lays its groups out in columns that fit the window, and ← → move between them', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await open(page);
+  const menu = page.getByRole('button', { name: 'ツール' });
+  await menu.click();
+  const panel = page.locator('#tools-panel');
+  const box = (await panel.boundingBox())!;
+  // Wider than tall, and inside the window.
+  expect(box.width).toBeGreaterThan(box.height);
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(1280);
+  expect(box.y + box.height).toBeLessThanOrEqual(720);
+  const columns = panel.locator('.menu-column');
+  const left = await Promise.all((await columns.all()).map(async (c) => (await c.boundingBox())!.x));
+  expect(new Set(left).size).toBe(left.length);
+
+  await menu.press('ArrowDown');
+  await expect(page.locator('#measure-distance')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#measure-area')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#gp-open')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#measure-area')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#print')).toBeFocused();
+
+  // A narrow window: the columns wrap and the menu scrolls instead of leaving the window.
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 420, height: 500 });
+  await menu.click();
+  const narrow = (await panel.boundingBox())!;
+  expect(narrow.x).toBeGreaterThanOrEqual(0);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(420);
+  expect(narrow.y + narrow.height).toBeLessThanOrEqual(500);
+  await page.locator('#theme-choices button').first().scrollIntoViewIfNeeded();
+  await expect(page.locator('#theme-choices button').first()).toBeInViewport();
+});
+
 test('? lists the shortcuts', async ({ page }) => {
   await open(page);
   await page.keyboard.press('Shift+?');

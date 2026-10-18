@@ -55,6 +55,8 @@ export class ToolMenu {
         const next = e.key === 'ArrowDown' ? (at + 1) % items.length : (at - 1 + items.length) % items.length;
         items[at < 0 ? 0 : next]?.focus();
         e.preventDefault();
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && this.panel.contains(e.target as Node) && this.moveColumn_(e.key === 'ArrowRight' ? 1 : -1)) {
+        e.preventDefault();
       } else if (e.key === 'ArrowDown' && e.target === this.button) {
         this.setOpen(true);
         this.items_()[0]?.focus();
@@ -78,10 +80,34 @@ export class ToolMenu {
   setOpen(open: boolean): void {
     this.panel.hidden = !open;
     this.button.setAttribute('aria-expanded', String(open));
+    if (open) this.keepInWindow_();
   }
 
   private items_(): HTMLButtonElement[] {
-    return [...this.panel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    return [...this.panel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')].filter((b) => b.offsetParent !== null);
+  }
+
+  /** ← → in a menu of columns: to the same row of the next column (or its last item). */
+  private moveColumn_(step: number): boolean {
+    const columns = [...this.panel.querySelectorAll<HTMLElement>(':scope > .menu-column')]
+      .map((column) => [...column.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')].filter((b) => b.offsetParent !== null))
+      .filter((items) => items.length > 0);
+    const from = columns.findIndex((items) => items.includes(document.activeElement as HTMLButtonElement));
+    if (from < 0 || columns.length < 2) return false;
+    const row = columns[from].indexOf(document.activeElement as HTMLButtonElement);
+    const to = columns[(from + step + columns.length) % columns.length];
+    to[Math.min(row, to.length - 1)].focus();
+    return true;
+  }
+
+  /** A wide menu opened from a button far from the right edge would leave the window: slide it back in, and scroll what is below the window. */
+  private keepInWindow_(): void {
+    this.panel.style.translate = '';
+    this.panel.style.maxHeight = '';
+    const { left, right, top } = this.panel.getBoundingClientRect();
+    if (getComputedStyle(this.panel).overflowY === 'auto') this.panel.style.maxHeight = `${Math.max(160, Math.floor(innerHeight - top - 8))}px`;
+    const shift = left < 8 ? 8 - left : right > innerWidth - 8 ? innerWidth - 8 - right : 0;
+    if (shift) this.panel.style.translate = `${Math.round(shift)}px 0`;
   }
 
   /** Marks the menu button while a tool in it is on, naming the tool in its tooltip. */
