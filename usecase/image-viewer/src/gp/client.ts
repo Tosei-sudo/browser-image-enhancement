@@ -10,6 +10,7 @@
  * so it stays out of URLs; as a bearer header for OGC), never to a URL a
  * response names on another host.
  */
+import { tokenFor as authTokenFor } from '../auth.js';
 import { epsgCode, projectionOf, request, ServiceError } from '../services/common.js';
 import { crsCodeOfWkt } from '../processing/reproject.js';
 import {
@@ -41,12 +42,11 @@ export const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 /**
  * The token for a processing service: the one typed in the dialog (or given
- * in config.json). Kept in one place so that a sign-in (src/auth.ts) can be
- * looked up here later without touching the requests.
+ * in config.json), else that of a sign-in (src/auth.ts) covering its host.
  */
 export function gpToken(serviceUrl: string, typed?: string): string | undefined {
-  void serviceUrl;
-  return typed?.trim() || undefined;
+  // Nothing typed: the sign-in's token when the service is on a signed-in portal or its servers (auth.ts).
+  return typed?.trim() || authTokenFor(serviceUrl);
 }
 
 /** Whether `url` is on the same host (origin) as `serviceUrl`: only then does a token go with it. */

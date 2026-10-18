@@ -8,6 +8,7 @@
  * What the web map says is read in webmap.ts; here it is fetched, opened
  * with the service readers (services/*), and written back.
  */
+import { freshTokenFor } from './auth.js';
 import type OlMap from 'ol/Map.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import LayerGroup from 'ol/layer/Group.js';
@@ -56,12 +57,13 @@ import {
 
 /**
  * The token sent with a request to `url` for a web map of `portal`: the one
- * typed, and only to the portal's host (or ArcGIS Online's hosted services).
- * Every token of this feature is looked up here, so a sign-in (OAuth) can
- * answer instead of the typed field.
+ * typed, and only to the portal's host (or ArcGIS Online's hosted services);
+ * with nothing typed, the token of a sign-in that covers `url` (auth.ts).
  */
 export async function tokenFor(url: string, portal: string | null, typed: string | undefined): Promise<string | undefined> {
-  if (!typed || !portal) return undefined;
+  // Nothing typed: the sign-in's token for that host (auth.ts), if any.
+  if (!typed) return freshTokenFor(url);
+  if (!portal) return undefined;
   return tokenAllowed(url, portal) ? typed : undefined;
 }
 
