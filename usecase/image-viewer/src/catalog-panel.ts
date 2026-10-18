@@ -26,8 +26,10 @@ import {
   type CatalogLayerInfo,
   type CatalogRecord,
   type CatalogSearch,
+  type FieldTypes,
   type SortKey,
 } from './catalog.js';
+import type { WatchConditions } from './catalog-watch.js';
 
 export interface CatalogPanelOptions {
   /** Opens a COG of the catalog; rejects (having said why) when it cannot. */
@@ -40,6 +42,8 @@ export interface CatalogPanelOptions {
   openPath?: (path: string, record: CatalogRecord, catalog: CatalogConfig) => Promise<boolean>;
   /** Forgets the folders allowed for local paths (shown when given). */
   forgetFolders?: () => Promise<void>;
+  /** Makes a watch of the form's conditions (watch-panel.ts): new images matching them are notified. Shown when given. */
+  watch?: (catalog: CatalogConfig, types: FieldTypes, conditions: WatchConditions, point: { lon: number; lat: number } | null) => void;
   say: (message: string) => void;
 }
 
@@ -118,6 +122,7 @@ export class CatalogPanel {
       <p class="service-status" role="status"></p>
       <div class="catalog-results"><table class="catalog-table"><thead></thead><tbody></tbody></table></div>
       <div class="service-actions catalog-actions">
+        <button type="button" value="watch" class="catalog-watch" hidden title="この条件（センサー・角度・方位角・SQL）に合う画像が新しく入ったら、バッジと「通知」で知らせます">この条件で監視…</button>
         <button type="button" value="copy" disabled title="選んだ画像のローカルパスをコピーします">パスをコピー</button>
         <button type="button" value="zoom" disabled>範囲へ移動</button>
         <button type="button" value="open" class="primary" disabled>開く</button>
@@ -145,6 +150,9 @@ export class CatalogPanel {
     this.open_.addEventListener('click', () => void this.openChosen());
     this.zoom_.addEventListener('click', () => this.zoomToChosen());
     this.copy_.addEventListener('click', () => void this.copyPaths());
+    const watch = this.dialog.querySelector<HTMLButtonElement>('button[value=watch]')!;
+    watch.hidden = !options.watch;
+    watch.addEventListener('click', () => void this.watchSearch());
     const forget = this.dialog.querySelector<HTMLButtonElement>('.catalog-forget')!;
     forget.hidden = !options.forgetFolders;
     forget.addEventListener('click', () => {
@@ -281,6 +289,21 @@ export class CatalogPanel {
     } finally {
       if (turn === this.searching_) this.searching_ = 0;
     }
+  }
+
+  /** Hands the form's conditions (not its dates: what is new matters) to the watches, with a point to watch when given. */
+  async watchSearch(point: { lon: number; lat: number } | null = null): Promise<void> {
+    if (!this.catalog_) return;
+    const catalog = this.catalog_;
+    let types: FieldTypes = {};
+    try {
+      this.layer_ ??= readCatalogLayer(catalog);
+      types = (await this.layer_).types;
+    } catch {
+      this.layer_ = null;
+    }
+    const { sensor, maxAngle, azimuthFrom, azimuthTo, where } = this.searchOf();
+    this.options.watch?.(catalog, types, { sensor, maxAngle, azimuthFrom, azimuthTo, where }, point);
   }
 
   private columns(): Column[] {
