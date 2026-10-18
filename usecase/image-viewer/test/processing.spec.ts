@@ -183,3 +183,39 @@ test('a CSV opens as a table, and points are made from its X / Y columns', async
   ]);
   expect(errors).toEqual([]);
 });
+
+test('the tool can be changed again after one is chosen, from an image tool’s dialog too', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.getByRole('button', { name: 'プロセッシング' }).click();
+  const tool = dialog(page).getByLabel('処理');
+  await tool.selectOption({ label: 'ポイント→ライン' });
+  await tool.selectOption({ label: 'ポリゴンの重心' });
+  await expect(tool).toHaveValue('centroid');
+
+  // An image tool opens its own dialog, which has the same choice at its top.
+  await tool.selectOption({ label: 'バンド演算・指標（NDVI など）' });
+  await expect(dialog(page)).toBeHidden();
+  const bandMath = page.getByRole('dialog', { name: 'バンド演算・指標' });
+  await expect(bandMath).toBeVisible();
+  await expect(bandMath.getByLabel('処理')).toHaveValue('band-math');
+  await bandMath.getByLabel('処理').selectOption({ label: 'パンシャープン' });
+  await expect(bandMath).toBeHidden();
+  const pan = page.getByRole('dialog', { name: 'パンシャープン' });
+  await expect(pan).toBeVisible();
+
+  // And back to a vector tool.
+  await pan.getByLabel('処理').selectOption({ label: 'ボロノイ分割' });
+  await expect(pan).toBeHidden();
+  await expect(dialog(page)).toBeVisible();
+  await expect(tool).toHaveValue('voronoi');
+  await tool.selectOption({ label: 'ベクター投影変換' });
+  await expect(tool).toHaveValue('reproject');
+
+  // The image tool's choice shows its own tool when it opens again.
+  await tool.selectOption({ label: 'バンド演算・指標（NDVI など）' });
+  await expect(bandMath.getByLabel('処理')).toHaveValue('band-math');
+  expect(errors).toEqual([]);
+});

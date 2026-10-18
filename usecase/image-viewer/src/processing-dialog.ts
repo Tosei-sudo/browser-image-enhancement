@@ -198,7 +198,7 @@ export interface ProcessingDialogOptions {
   onResult: (result: ProcessingResult, made: string) => Promise<void>;
   say: (message: string) => void;
   /** Tools on images, with dialogs of their own: choosing one opens it in place of this one. */
-  rasterTools?: Array<{ id: string; label: string; open: () => void }>;
+  rasterTools?: Array<{ id: string; label: string; open: () => void; dialog?: () => HTMLDialogElement }>;
   /** Files as inputs, without adding them to the map (📂). */
   sources?: DataSources;
 }
@@ -245,12 +245,11 @@ export class ProcessingDialog {
     this.dialog.querySelector('button[value=cancel]')!.addEventListener('click', () => this.dialog.close());
     this.run_.addEventListener('click', () => void this.run());
     this.tool_.addEventListener('change', () => {
-      const raster = this.options.rasterTools?.find((t) => t.id === this.tool_.value);
-      if (!raster) return this.update_();
+      if (!this.options.rasterTools?.some((t) => t.id === this.tool_.value)) return this.update_();
       // Back to a vector tool for next time, then over to the image tool's own dialog.
+      const id = this.tool_.value;
       this.tool_.value = tools[0].id;
-      this.dialog.close();
-      raster.open();
+      this.switchTo_(id, this.dialog);
     });
     this.input_.addEventListener('change', () => this.update_(false));
     options.sources?.attach(this.input_, {
@@ -278,6 +277,38 @@ export class ProcessingDialog {
       this.update_(false);
     }
     this.dialog.showModal();
+  }
+
+  /**
+   * Puts the same 処理 choice at the top of each image tool's own dialog, so
+   * another tool can be chosen from there too. Called once those dialogs exist.
+   */
+  addSwitchers(): void {
+    for (const raster of this.options.rasterTools ?? []) {
+      const dialog = raster.dialog?.();
+      const title = dialog?.querySelector('form h2');
+      if (!dialog || !title || dialog.querySelector('.processing-switch')) continue;
+      const label = document.createElement('label');
+      label.className = 'wide processing-switch';
+      // No name: not one of the tool's own fields (forms, scripts and 📂 go by name).
+      label.innerHTML = `処理<select aria-label="処理">${this.toolOptions_()}</select>`;
+      const select = label.querySelector('select')!;
+      select.value = raster.id;
+      select.addEventListener('change', () => {
+        const id = select.value;
+        select.value = raster.id;
+        this.switchTo_(id, dialog);
+      });
+      title.after(label);
+    }
+  }
+
+  /** Closes `from` and opens tool `id`: an image tool's own dialog, or this one with a vector tool. */
+  private switchTo_(id: string, from: HTMLDialogElement): void {
+    from.close();
+    const raster = this.options.rasterTools?.find((t) => t.id === id);
+    if (raster) raster.open();
+    else this.open(id);
   }
 
   /** Runs the chosen tool on the chosen layer. */

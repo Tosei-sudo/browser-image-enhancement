@@ -603,17 +603,17 @@ const dataSources = new DataSources(images, {
 // temporary layers, kept in the browser until they are closed.
 const tempStore = browserStore();
 const rasterTools = [
-  { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open() },
-  { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
-  { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open() },
-  { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
-  { id: 'colorize', label: '単バンド画像の着色・色分け（カラースケール・区分・値ごと）', open: () => void colorize.open() },
-  { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
-  { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open() },
-  { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
-  { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open() },
-  { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open() },
-  { id: 'zonal', label: 'ゾーン統計（ポリゴンごとの平均・最大など）', open: () => void zonal.open() },
+  { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open(), dialog: () => bandMath.dialog },
+  { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open(), dialog: () => change.dialog },
+  { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open(), dialog: () => classify.dialog },
+  { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open(), dialog: () => align.dialog },
+  { id: 'colorize', label: '単バンド画像の着色・色分け（カラースケール・区分・値ごと）', open: () => void colorize.open(), dialog: () => colorize.dialog },
+  { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open(), dialog: () => noData.dialog },
+  { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open(), dialog: () => georef.dialog },
+  { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open(), dialog: () => composite.dialog },
+  { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open(), dialog: () => mosaic.dialog },
+  { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open(), dialog: () => panSharpen.dialog },
+  { id: 'zonal', label: 'ゾーン統計（ポリゴンごとの平均・最大など）', open: () => void zonal.open(), dialog: () => zonal.dialog },
 ];
 const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
   layers: () => images.inputs(),
@@ -1076,6 +1076,8 @@ const mosaic = new MosaicDialog(images, loader, {
   timeOf: timeOfImage,
   open: (file) => openImageFile(file, fileContext()),
 });
+// Every image tool's dialog now exists: each gets the processing dialog's 処理 choice, to change tools from there.
+processing.addSwitchers();
 
 // Image catalogs (config.json's imageCatalogs): search by date, sensor and angle, open the images found:
 // COGs by URL, local paths through pathMappings (a URL, or a folder allowed in the browser).
