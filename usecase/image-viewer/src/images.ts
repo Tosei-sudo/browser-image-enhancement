@@ -107,6 +107,8 @@ export interface ImageListOptions {
   onGeoref?: (layer: ViewerImage) => void;
   /** Called by the save button of a processing result (see {@link ImageList.setSavable}). */
   onSave?: (layer: ViewerImage) => void;
+  /** More items of a layer's right-click menu (such as 「似た画像を探す…」 for an image from a catalog), at its top. */
+  layerMenu?: (layer: ViewerLayer) => MenuItem[];
 }
 
 export class ImageList {
@@ -845,6 +847,7 @@ export class ImageList {
     const items: MenuItem[] = [{ label: '新しいグループに入れる…', run: () => this.askNewGroup_(layer) }];
     const save = layer.row.querySelector<HTMLButtonElement>('button[data-action=save]');
     if (layer.type === 'image' && save && !save.hidden) items.unshift({ label: '保存（COG・GeoTIFF）…', run: () => save.click() });
+    items.unshift(...(this.options.layerMenu?.(layer) ?? []));
     for (const group of this.groups()) {
       if (group !== current) items.push({ label: `グループ「${group.name}」に入れる`, run: () => this.setGroup(layer, group) });
     }
