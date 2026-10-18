@@ -51,6 +51,48 @@ const drawn = (page: Page) =>
     };
   });
 
+test('each category gets an outline of its own, and the categories\' colors can go on the outlines', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await choose(page, 'landuse.geojson', landuse);
+  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await page.locator('#images li').first().getByRole('button', { name: 'スタイル・ラベル' }).click();
+  const dialog = page.getByRole('dialog', { name: 'スタイル: landuse' });
+  await dialog.getByLabel('表示方法').selectOption('categorized');
+  await dialog.getByLabel('色分けする属性').selectOption('use');
+  await dialog.getByLabel('商業 の色').fill('#ff8800');
+  // The outline fields are folded away until the row's 「枠」 is pressed.
+  await expect(dialog.getByLabel('商業 の枠の色')).toBeHidden();
+  await dialog.getByRole('button', { name: '商業 の枠' }).click();
+  await dialog.getByLabel('商業 の枠の色').fill('#0000ff');
+  await dialog.getByLabel('商業 の枠の幅').fill('5');
+  await dialog.getByLabel('商業 の枠の線種').selectOption('dash');
+  const stroke = () =>
+    page.evaluate(() => {
+      const service = (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service;
+      const layer = service.layer as import('ol/layer/Vector.js').default;
+      const feature = service.vector!.source.getFeatures().find((f) => f.get('name') === '駅前')!;
+      const out = layer.getStyleFunction()!(feature, 1) as import('ol/style/Style.js').default;
+      const s = (Array.isArray(out) ? out[0] : out) as import('ol/style/Style.js').default;
+      return { fill: s.getFill()?.getColor(), color: s.getStroke()?.getColor(), width: s.getStroke()?.getWidth(), dash: s.getStroke()?.getLineDash() };
+    });
+  await expect.poll(stroke).toEqual({ fill: [255, 136, 0, 0.25], color: [0, 0, 255, 1], width: 5, dash: [10, 6] });
+  await page.screenshot({ path: 'test-results/style-outline.png' });
+  // The categories' colors on the outlines: the fill is the symbol's; the category's own outline stays.
+  await dialog.getByLabel('色を付ける先').selectOption('stroke');
+  await expect(dialog.getByLabel('商業 の枠の色')).toBeHidden();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const spec = await page.evaluate(() => (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!.get());
+  expect(spec.colorTarget).toBe('stroke');
+  const shop = spec.categories.find((c) => c.value === '商業')!;
+  expect([shop.stroke, shop.strokeWidth, shop.dash]).toEqual(['#0000ff', 5, 'dash']);
+  const now = await stroke();
+  expect(now.color).toEqual([0, 0, 255, 1]);
+  expect((now.fill as number[])[3]).toBe(0.25);
+  expect(errors).toEqual([]);
+});
+
 test('a vector layer is colored by an attribute and labelled, and keeps its style when opened again', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

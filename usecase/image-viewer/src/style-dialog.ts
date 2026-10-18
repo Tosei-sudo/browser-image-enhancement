@@ -15,6 +15,8 @@ import {
   classesFor,
   classMethods,
   colorRamps,
+  colorTargets,
+  hasOwnStroke,
   formatBound,
   lineDashes,
   MAX_CATEGORIES,
@@ -27,6 +29,8 @@ import {
   classIndex,
   type Category,
   type ClassMethod,
+  type ClassStroke,
+  type ColorTarget,
   type GradClass,
   type RampName,
   type LayerStyle,
@@ -57,6 +61,11 @@ export class StyleDialog {
   private committed_ = false;
   private categoryList_: Category[] = [];
   private counts_ = new Map<string, number>();
+  /** Whether the layer is of lines (their color is the category's; there is no fill). */
+  private lines_ = false;
+  /** Brings each category's or range's outline editor up to date with the form (the outline it is drawn with). */
+  private categorySyncs_: Array<(spec: VectorStyleSpec) => void> = [];
+  private classSyncs_: Array<(spec: VectorStyleSpec) => void> = [];
   private othersVisible_ = true;
   private classList_: GradClass[] = [];
   /** What the ranges were made of (attribute, method, count), so they are made again only when it changes. */
@@ -88,6 +97,7 @@ export class StyleDialog {
           <label data-for="graduated">段階の数<input type="number" name="classCount" min="1" max="${MAX_CLASSES}" step="1" aria-label="段階の数" /></label>
           <label data-for="graduated">色<select name="ramp" aria-label="色">${optionsHtml(rampNames)}</select></label>
           <label class="check" data-for="graduated"><input type="checkbox" name="reversed" /><span>色を逆順にする</span></label>
+          <label data-for="classed" title="分類・段階の色で塗るか、枠を描くか、両方か。各行の「枠」で 1 つずつ枠の色・太さ・線種を変えられます">色を付ける先<select name="colorTarget" aria-label="色を付ける先">${optionsHtml(colorTargets)}</select></label>
           <div class="style-categories wide" data-for="categorized" role="group" aria-label="分類"></div>
           <div class="style-categories style-classes wide" data-for="graduated" role="group" aria-label="段階"></div>
           <label data-for="symbol"><span data-text="fill">塗りの色</span><input type="color" name="fill" aria-label="塗りの色" /></label>
@@ -216,6 +226,8 @@ export class StyleDialog {
     this.select_('labelField').replaceChildren(new Option('なし', ''), ...fieldOptions);
     this.select_('mode').querySelector<HTMLOptionElement>('option[value=own]')!.hidden = !style.hasOwn();
     this.select_('mode').querySelector<HTMLOptionElement>('option[value=graduated]')!.hidden = !numeric.length;
+    this.lines_ = this.kind_() === 'line';
+    this.dialog.classList.toggle('style-lines', this.lines_);
     this.fill_(this.before_);
     this.preview_();
     this.dialog.showModal();
@@ -317,6 +329,7 @@ export class StyleDialog {
     this.input_('classCount').value = String(spec.classCount);
     this.select_('ramp').value = spec.ramp;
     this.input_('reversed').checked = spec.reversed;
+    this.select_('colorTarget').value = spec.colorTarget;
     const s = spec.symbol;
     this.input_('fill').value = s.fill;
     this.input_('fillOpacity').value = String(s.fillOpacity);
@@ -380,7 +393,8 @@ export class StyleDialog {
     const reversed = this.input_('reversed').checked;
     if (remake) this.classList_ = classesFor(features, field, this.select_('method').value as ClassMethod, this.classCountValue_(), ramp, reversed);
     this.madeOf_ = this.classesKey_();
-    const rows = this.classList_.map((c, i) => this.classRow_(c, i));
+    this.classSyncs_ = [];
+    const rows = this.classList_.flatMap((c, i) => this.classRow_(c, i));
     const other = document.createElement('label');
     other.className = 'style-category';
     const check = document.createElement('input');
@@ -396,7 +410,7 @@ export class StyleDialog {
     text.textContent = '値なし・範囲外';
     this.othersCount_ = document.createElement('span');
     this.othersCount_.className = 'style-count';
-    other.append(check, swatch, text, this.othersCount_);
+    other.append(check, swatch, text, this.othersCount_, document.createElement('span'));
     this.classes_.replaceChildren(...rows, other);
     this.updateClassRows_();
     this.note_.textContent = this.classList_.length ? '' : 'この属性には数値がありません';
@@ -425,7 +439,7 @@ export class StyleDialog {
     if (this.othersCount_) this.othersCount_.textContent = others.toLocaleString();
   }
 
-  private classRow_(range: GradClass, index: number): HTMLLabelElement {
+  private classRow_(range: GradClass, index: number): [HTMLLabelElement, HTMLElement] {
     const row = document.createElement('label');
     row.className = 'style-category';
     const visible = document.createElement('input');
@@ -461,9 +475,10 @@ export class StyleDialog {
     }
     const count = document.createElement('span');
     count.className = 'style-count';
-    row.append(visible, color, bounds, count);
+    const outline = this.outlineEditor_(range, `${index + 1} 段目`, color, this.classSyncs_);
+    row.append(visible, color, bounds, count, outline.button);
     this.classRows_.push({ min, visible, color, count });
-    return row;
+    return [row, outline.panel];
   }
 
   /** The values of the chosen attribute, as rows with a color each. */
@@ -477,7 +492,8 @@ export class StyleDialog {
     this.counts_ = new Map(valuesOf(features, field).map((v) => [v.value, v.count]));
     this.categoryList_ = categoriesFor(features, field, this.categoryList_);
     const others = this.counts_.size - this.categoryList_.length;
-    const rows = this.categoryList_.map((c, i) => this.categoryRow_(c, i));
+    this.categorySyncs_ = [];
+    const rows = this.categoryList_.flatMap((c, i) => this.categoryRow_(c, i));
     const other = document.createElement('label');
     other.className = 'style-category';
     const check = document.createElement('input');
@@ -488,7 +504,10 @@ export class StyleDialog {
     const swatch = document.createElement('span');
     swatch.className = 'style-swatch';
     swatch.title = '塗りの色で描きます';
-    other.append(check, swatch, `その他${others > 0 ? `（${others.toLocaleString()} 種類）` : ''}`);
+    const otherText = document.createElement('span');
+    otherText.className = 'style-value';
+    otherText.textContent = `その他${others > 0 ? `（${others.toLocaleString()} 種類）` : ''}`;
+    other.append(check, swatch, otherText, document.createElement('span'), document.createElement('span'));
     const recolor = document.createElement('button');
     recolor.type = 'button';
     recolor.textContent = '色を振り直す';
@@ -501,7 +520,7 @@ export class StyleDialog {
     this.note_.textContent = others > 0 ? `値が ${MAX_CATEGORIES} 種類を超えるため、多い順に ${MAX_CATEGORIES} 種類を色分けし、残りは「その他」として描きます` : '';
   }
 
-  private categoryRow_(category: Category, index: number): HTMLLabelElement {
+  private categoryRow_(category: Category, index: number): [HTMLLabelElement, HTMLElement] {
     const row = document.createElement('label');
     row.className = 'style-category';
     const visible = document.createElement('input');
@@ -520,8 +539,95 @@ export class StyleDialog {
     const count = document.createElement('span');
     count.className = 'style-count';
     count.textContent = (this.counts_.get(category.value) ?? 0).toLocaleString();
-    row.append(visible, color, text, count);
-    return row;
+    const outline = this.outlineEditor_(category, category.value || '（空）', color, this.categorySyncs_);
+    row.append(visible, color, text, count, outline.button);
+    return [row, outline.panel];
+  }
+
+  /**
+   * The outline of one category or range: a button showing it, and fields
+   * (folded away until the button is pressed) for its own color, width and
+   * pattern; empty fields are the symbol's (「共通」).
+   */
+  private outlineEditor_(item: ClassStroke & { color: string }, name: string, color: HTMLInputElement, syncs: Array<(spec: VectorStyleSpec) => void>): { button: HTMLButtonElement; panel: HTMLElement } {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'style-outline-button';
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-label', `${name} の枠`);
+    const chip = document.createElement('span');
+    chip.className = 'style-outline-chip';
+    button.append(chip, '枠');
+    const panel = document.createElement('div');
+    panel.className = 'style-outline';
+    panel.hidden = true;
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', `${name} の枠`);
+    const field = (text: string, input: HTMLElement) => {
+      const label = document.createElement('label');
+      label.append(text, input);
+      return label;
+    };
+    const strokeColor = document.createElement('input');
+    strokeColor.type = 'color';
+    strokeColor.setAttribute('aria-label', `${name} の枠の色`);
+    const colorField = field('枠の色', strokeColor);
+    const width = document.createElement('input');
+    width.type = 'number';
+    width.min = '0';
+    width.max = '20';
+    width.step = '0.5';
+    width.placeholder = '共通';
+    width.setAttribute('aria-label', `${name} の枠の幅`);
+    const dash = document.createElement('select');
+    dash.setAttribute('aria-label', `${name} の枠の線種`);
+    dash.append(new Option('共通', ''), ...Object.entries(lineDashes).map(([value, text]) => new Option(text, value)));
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = '共通に戻す';
+    panel.append(colorField, field('幅（px）', width), field('線種', dash), reset);
+    strokeColor.addEventListener('input', () => (item.stroke = strokeColor.value));
+    width.addEventListener('input', () => {
+      const v = Number(width.value);
+      if (width.value === '') delete item.strokeWidth;
+      else if (Number.isFinite(v) && v >= 0) item.strokeWidth = v;
+    });
+    // On input: the form's own input listener draws (and fills these fields again) before any change event.
+    dash.addEventListener('input', () => {
+      if (dash.value) item.dash = dash.value as LineDash;
+      else delete item.dash;
+    });
+    reset.addEventListener('click', () => {
+      delete item.stroke;
+      delete item.strokeWidth;
+      delete item.dash;
+      this.preview_();
+    });
+    button.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      button.setAttribute('aria-expanded', String(!panel.hidden));
+    });
+    const sync = (spec: VectorStyleSpec) => {
+      const s = spec.symbol;
+      // A line's color, and the outline when the category's color is the outline, are the row's own color.
+      const own = this.lines_ || spec.colorTarget === 'stroke';
+      const stroke = item.stroke ?? (own || spec.colorTarget === 'both' ? item.color : s.stroke);
+      const w = item.strokeWidth ?? (this.lines_ ? Math.max(1, s.strokeWidth) : s.strokeWidth);
+      const d = item.dash ?? s.dash;
+      colorField.hidden = own;
+      if (document.activeElement !== strokeColor) strokeColor.value = stroke;
+      if (document.activeElement !== width) width.value = item.strokeWidth == null ? '' : String(item.strokeWidth);
+      width.placeholder = `共通（${s.strokeWidth}）`;
+      dash.value = item.dash ?? '';
+      chip.style.borderColor = own ? color.value : stroke;
+      chip.style.borderWidth = `${Math.min(4, w > 0 ? Math.max(1, w) : 0)}px`;
+      chip.style.borderStyle = w > 0 ? (d === 'solid' ? 'solid' : d === 'dot' ? 'dotted' : 'dashed') : 'none';
+      chip.style.backgroundColor = this.lines_ || spec.colorTarget === 'stroke' ? 'transparent' : color.value;
+      button.classList.toggle('own', hasOwnStroke(item));
+      button.title = hasOwnStroke(item) ? 'この行だけの枠（押すと変更）' : '共通の枠（押すとこの行だけ変更）';
+    };
+    syncs.push(sync);
+    return { button, panel };
   }
 
   /** The spec in the form. */
@@ -554,6 +660,7 @@ export class StyleDialog {
       classCount: Math.max(1, Math.min(MAX_CLASSES, Math.round(num('classCount', 5)))),
       ramp: this.select_('ramp').value as RampName,
       reversed: this.input_('reversed').checked,
+      colorTarget: this.select_('colorTarget').value as ColorTarget,
       othersVisible: this.othersVisible_,
       label: {
         field: this.select_('labelField').value || null,
@@ -576,11 +683,16 @@ export class StyleDialog {
     for (const el of this.dialog.querySelectorAll<HTMLElement>('[data-for]')) {
       const part = el.dataset.for;
       el.hidden =
-        part === 'categorized' || part === 'graduated' ? spec.mode !== part : part === 'symbol' ? spec.mode === 'own' : part === 'label' ? !spec.label.field : false;
+        part === 'categorized' || part === 'graduated'
+          ? spec.mode !== part
+          : part === 'classed'
+            ? (spec.mode !== 'categorized' && spec.mode !== 'graduated') || this.lines_
+            : part === 'symbol' ? spec.mode === 'own' : part === 'label' ? !spec.label.field : false;
     }
     this.dialog.querySelector('[data-text=fill]')!.textContent =
       spec.mode === 'categorized' ? '塗りの色（その他）' : spec.mode === 'graduated' ? '塗りの色（値なし・範囲外）' : '塗りの色';
     if (spec.mode === 'single' || spec.mode === 'own') this.note_.textContent = '';
+    for (const sync of spec.mode === 'categorized' ? this.categorySyncs_ : spec.mode === 'graduated' ? this.classSyncs_ : []) sync(spec);
     if (spec.minScale && spec.maxScale && spec.maxScale >= spec.minScale) this.note_.textContent = '「拡大したら隠す」縮尺は「縮小したら隠す」縮尺より大きく（分母を小さく）してください';
     this.style_?.set(spec, false);
   }
