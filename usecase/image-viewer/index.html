@@ -119,6 +119,13 @@
               <!-- Scenes of STAC APIs and static catalogs (config.json's stacCatalogs; [] hides it): src/stac-panel.ts. -->
               <button type="button" id="stac-open" title="STAC（Earth Search など）から範囲・撮像日・雲量でシーンを探して、COG で開きます">STAC 検索…</button>
             </div>
+            <!-- Pasting shapes and pictures, copying the view, the share sheet: src/clipboard.ts. -->
+            <p class="menu-heading">クリップボード・共有</p>
+            <div class="point-tools">
+              <button type="button" id="clip-paste" aria-keyshortcuts="Control+V" title="クリップボードの GeoJSON・WKT・KML・座標・緯度経度の表（Excel）を一時レイヤー「貼り付け」に、画像を位置情報なしの画像として開きます（地図の上で Ctrl+V）">クリップボードから貼り付け</button>
+              <button type="button" id="clip-copy-view" title="表示範囲を PNG 画像としてクリップボードにコピーします">表示範囲の画像をコピー</button>
+              <button type="button" id="clip-share" title="今の表示のリンク（と表示範囲の画像）を他のアプリに共有します" hidden>共有…</button>
+            </div>
             <!-- Light, dark or the system's setting: src/theme.ts. -->
             <p class="menu-heading">表示</p>
             <div class="point-tools theme-choices" id="theme-choices" role="radiogroup" aria-label="表示">

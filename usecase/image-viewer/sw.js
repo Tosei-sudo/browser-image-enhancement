@@ -17,6 +17,9 @@
  *   Browsers without credentialless (Safari) just stay as they were.
  * - Everything else (COGs, services, base map tiles, range requests) is left
  *   to the network as it is.
+ * - What other apps share to the installed app (the manifest's share_target,
+ *   a POST to ./share-target) is kept in the cache SHARE_CACHE under an id, and
+ *   the page opens at ./?share=<id> to take it (src/share-target.ts).
  */
 const VERSION = '__VERSION__';
 const PRECACHE = /* __PRECACHE__ */ [];
@@ -73,6 +76,10 @@ async function isolated(response) {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+  if (request.method === 'POST' && request.url.split('?')[0] === shareAction) {
+    event.respondWith(receiveShare(request));
+    return;
+  }
   if (request.method !== 'GET' || request.headers.has('range')) return;
   const url = new URL(request.url);
   if (url.origin !== scope.origin || !url.href.startsWith(scope.href)) return;
@@ -105,3 +112,60 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// ------------------------------------------------------------ share target
+
+/** Where shared files wait for the page (not image-viewer-…, which activate clears). */
+const SHARE_CACHE = 'iv-share';
+const shareAction = local('share-target');
+const MAX_SHARE_FILES = 100;
+const MAX_SHARE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_SHARE_TEXT = 200000;
+/** Shares the page never took are dropped after a day. */
+const SHARE_KEEP_MS = 24 * 60 * 60 * 1000;
+
+/** Keeps a shared form's files and text, and sends the page to take them. */
+async function receiveShare(request) {
+  const id = self.crypto.randomUUID();
+  try {
+    const form = await request.formData();
+    const cache = await caches.open(SHARE_CACHE);
+    await dropOldShares(cache);
+    const key = (part) => local(`share/${id}/${part}`);
+    const files = [];
+    let bytes = 0;
+    for (const file of form.getAll('files')) {
+      if (typeof file === 'string' || !file.size) continue;
+      if (files.length >= MAX_SHARE_FILES || bytes + file.size > MAX_SHARE_BYTES) break;
+      bytes += file.size;
+      await cache.put(key(String(files.length)), new Response(file, { headers: { 'Content-Type': file.type || 'application/octet-stream' } }));
+      files.push({ name: String(file.name).slice(-200), type: file.type });
+    }
+    const text = (name) => {
+      const value = form.get(name);
+      return typeof value === 'string' ? value.slice(0, MAX_SHARE_TEXT) : '';
+    };
+    const meta = { created: Date.now(), files, title: text('title'), text: text('text'), url: text('url') };
+    await cache.put(key('meta'), new Response(JSON.stringify(meta), { headers: { 'Content-Type': 'application/json' } }));
+  } catch {
+    // Nothing kept: the page opens as it is.
+    return Response.redirect(scope.href, 303);
+  }
+  return Response.redirect(`${scope.href}?share=${id}`, 303);
+}
+
+/** Deletes shares older than SHARE_KEEP_MS. */
+async function dropOldShares(cache) {
+  const requests = await cache.keys();
+  const old = new Set();
+  for (const request of requests) {
+    const m = /\/share\/([0-9a-f-]+)\/meta$/.exec(request.url);
+    if (!m) continue;
+    const meta = await (await cache.match(request))?.json().catch(() => null);
+    if (!meta || !(Date.now() - meta.created < SHARE_KEEP_MS)) old.add(m[1]);
+  }
+  for (const request of requests) {
+    const m = /\/share\/([0-9a-f-]+)\//.exec(request.url);
+    if (m && old.has(m[1])) await cache.delete(request);
+  }
+}
