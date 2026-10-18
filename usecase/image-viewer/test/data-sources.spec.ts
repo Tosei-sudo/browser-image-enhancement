@@ -124,7 +124,7 @@ test('adds a file to a mosaic next to an open image, ticked', async ({ page }) =
   await expect(page.locator('#images .name')).toHaveCount(1);
   await dialog.getByRole('button', { name: '実行' }).click();
   await expect(page.locator('#images .name')).toHaveCount(2);
-  expect(await page.evaluate(() => window.viewer.images.list()[0].source.getTiffImages()[0][0].getWidth())).toBe(70);
+  expect(await page.evaluate(() => (window.viewer.images.list()[0].source.getTiffImages()[0][0] as { getWidth(): number }).getWidth())).toBe(70);
 });
 
 test('buffers a GeoJSON file chosen in the processing dialog', async ({ page }) => {
