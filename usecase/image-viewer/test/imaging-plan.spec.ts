@@ -379,3 +379,33 @@ test('in 3D, the chosen pass stands up: the orbit at its height, the satellite a
   await expect.poll(() => page.evaluate(() => window.viewer.globe.globe()!.satellites.passes()[0]?.time)).not.toBe(first);
   expect(errors).toEqual([]);
 });
+
+test('a pass planned in 2D does not stay in 3D once the panel is closed', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page);
+  await openSites(page);
+  await openPanel(page);
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+
+  // Closed in 2D, then 3D: no orbit, satellite or beam is left.
+  await dialog.locator('.catalog-close').click();
+  await expect(dialog).toBeHidden();
+  await page.locator('#globe-toggle').click();
+  await expect(page.locator('#globe-section')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.viewer.globe.globe() !== null)).toBe(true);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.viewer.globe.globe()!.satellites.passes().length)).toBe(0);
+
+  // Opened again, the chosen pass comes back; closed in 3D, it goes.
+  await openPanel(page);
+  await expect.poll(() => page.evaluate(() => window.viewer.globe.globe()!.satellites.passes().length)).toBe(1);
+  await dialog.locator('.catalog-close').click();
+  await expect.poll(() => page.evaluate(() => window.viewer.globe.globe()!.satellites.passes().length)).toBe(0);
+  expect(errors).toEqual([]);
+});

@@ -7,7 +7,7 @@
  * colors, labels and scales).
  */
 import { attr, descendants, kid, kids, parseXml, path, type XmlElement } from './safe-xml.js';
-import { normalizeSpec, type GradClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
+import { normalizeSpec, settleColorTarget, strokeBeside, symbolOfClass, type GradClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
 
 /** The kind of geometry a QML symbol is for. */
 export type SymbolKind = 'point' | 'line' | 'polygon';
@@ -80,7 +80,7 @@ export function rendererXml(spec: VectorStyleSpec, kind: SymbolKind): string {
   const s = spec.symbol;
   if (spec.mode === 'categorized' && spec.field) {
     const cats = spec.categories.map((c, i) => `<category symbol="${i}" value="${esc(c.value)}" label="${esc(c.value)}" render="${c.visible}" type="string"/>`);
-    const symbols = spec.categories.map((c, i) => symbolXml(String(i), kind, s, c.color));
+    const symbols = spec.categories.map((c, i) => symbolXml(String(i), kind, symbolOfClass(spec, c, kind === 'line'), null));
     // QGIS's 「すべての他の値」: an empty value.
     const n = spec.categories.length;
     if (!spec.categories.some((c) => c.value === '')) {
@@ -91,7 +91,7 @@ export function rendererXml(spec: VectorStyleSpec, kind: SymbolKind): string {
   }
   if (spec.mode === 'graduated' && spec.field) {
     const ranges = spec.classes.map((c, i) => `<range symbol="${i}" lower="${bound(c.min)}" upper="${bound(c.max)}" label="${esc(`${c.min} - ${c.max}`)}" render="${c.visible}"/>`);
-    const symbols = spec.classes.map((c, i) => symbolXml(String(i), kind, s, c.color));
+    const symbols = spec.classes.map((c, i) => symbolXml(String(i), kind, symbolOfClass(spec, c, kind === 'line'), null));
     const method = { equal: 'EqualInterval', quantile: 'Quantile', jenks: 'Jenks' }[spec.method];
     return `<renderer-v2 type="graduatedSymbol" attr="${esc(spec.field)}" graduatedMethod="GraduatedColor" symbollevels="0" forceraster="0" enableorderby="0"><ranges>${ranges.join('')}</ranges><symbols>${symbols.join('')}</symbols><classificationMethod id="${method}"/></renderer-v2>`;
   }
@@ -299,7 +299,7 @@ export function readQgisLayerStyle(root: XmlElement, base: VectorStyleSpec, note
     for (const c of cats) {
       const value = attr(c, 'value') ?? '';
       const symbol = symbols.get(attr(c, 'symbol') ?? '');
-      const { color } = readSymbol(symbol, spec.symbol, notes);
+      const { color, symbol: own } = readSymbol(symbol, spec.symbol, notes);
       const visible = attr(c, 'render') !== 'false';
       if (kid(c, 'value') || kid(c, 'Option')) notes.add('複数の値をまとめた分類');
       // The empty value is QGIS's 「すべての他の値」.
@@ -308,9 +308,10 @@ export function readQgisLayerStyle(root: XmlElement, base: VectorStyleSpec, note
         // A line's color is its stroke, which the symbol has already.
         if (color && attr(symbol, 'type') !== 'line') spec.symbol = { ...spec.symbol, fill: color };
       } else {
-        spec.categories.push({ value, color: color ?? spec.symbol.fill, visible });
+        spec.categories.push({ value, color: color ?? spec.symbol.fill, visible, ...strokeBeside(spec.symbol, own, attr(symbol, 'type') === 'line') });
       }
     }
+    settleColorTarget(spec, spec.categories);
     if (!cats.some((c) => (attr(c, 'value') ?? '') === '')) spec.othersVisible = false;
   } else if (type === 'graduatedSymbol' && attrName) {
     const ranges = kids(kid(renderer, 'ranges'), 'range');
@@ -318,14 +319,20 @@ export function readQgisLayerStyle(root: XmlElement, base: VectorStyleSpec, note
     spec.mode = 'graduated';
     spec.field = attrName;
     spec.classes = ranges
-      .map((r): GradClass => ({
-        min: Number(attr(r, 'lower')),
-        max: Number(attr(r, 'upper')),
-        color: readSymbol(symbols.get(attr(r, 'symbol') ?? ''), spec.symbol, notes).color ?? spec.symbol.fill,
-        visible: attr(r, 'render') !== 'false',
-      }))
+      .map((r): GradClass => {
+        const symbol = symbols.get(attr(r, 'symbol') ?? '');
+        const read = readSymbol(symbol, spec.symbol, notes);
+        return {
+          min: Number(attr(r, 'lower')),
+          max: Number(attr(r, 'upper')),
+          color: read.color ?? spec.symbol.fill,
+          visible: attr(r, 'render') !== 'false',
+          ...strokeBeside(spec.symbol, read.symbol, attr(symbol, 'type') === 'line'),
+        };
+      })
       .filter((c) => Number.isFinite(c.min) && Number.isFinite(c.max))
       .sort((a, b) => a.min - b.min);
+    settleColorTarget(spec, spec.classes);
     spec.classCount = Math.max(1, spec.classes.length);
     const method = (attr(kid(renderer, 'classificationMethod'), 'id') ?? attr(kid(renderer, 'mode'), 'name') ?? '').toLowerCase();
     spec.method = method.includes('quantile') ? 'quantile' : method.includes('equal') ? 'equal' : 'jenks';

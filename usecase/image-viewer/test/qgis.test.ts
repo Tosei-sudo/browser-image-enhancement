@@ -93,6 +93,21 @@ describe('SLD', () => {
     expect(lineBack.symbol.dash).toBe('dashdot');
   });
 
+  it('writes and reads back outlines of their own, and colors on the outlines', () => {
+    const spec = categorized();
+    spec.categories[1] = { ...spec.categories[1], stroke: '#ff0000', strokeWidth: 4, dash: 'dot' };
+    for (const version of ['sld10', 'se11'] as const) {
+      const back = importStyle(exportStyle(spec, version, 'polygon', 'landuse'), singleSpec('#000000')).spec;
+      expect(back.colorTarget).toBe('fill');
+      expect(back.categories).toEqual(spec.categories);
+    }
+    const outlined = { ...categorized(), colorTarget: 'stroke' as const };
+    const back = importStyle(exportStyle(outlined, 'se11', 'polygon', 'landuse'), singleSpec('#000000')).spec;
+    expect(back.colorTarget).toBe('stroke');
+    expect(back.categories).toEqual(outlined.categories);
+    expect(back.symbol.fill).toBe('#cccccc');
+  });
+
   it('reads an SLD QGIS wrote, listing what the viewer has no equivalent for', () => {
     const { spec, unsupported } = importStyle(data('landuse-categorized.sld'), singleSpec('#000000'));
     expect(spec.mode).toBe('categorized');
@@ -124,6 +139,23 @@ describe('QML', () => {
       expect(back.label.field).toBe(spec.label.field);
       expect(back.minScale).toBe(spec.minScale);
     }
+  });
+
+  it('carries outlines of their own and colors on the outlines through QGIS\'s parts', () => {
+    const spec = graduated();
+    spec.symbol = { ...spec.symbol, strokeWidth: 1, dash: 'solid' };
+    spec.classes[2] = { ...spec.classes[2], stroke: '#00ff00', strokeWidth: 3, dash: 'dash' };
+    for (const kind of ['polygon', 'line'] as const) {
+      const qgisOnly = exportStyle(spec, 'qml', kind, 'x').replace(/<customproperties>.*<\/customproperties>/s, '');
+      const back = importStyle(qgisOnly, singleSpec('#000000')).spec;
+      // A line's own color is its color: only the width and pattern are its own.
+      expect(back.classes[2]).toEqual(kind === 'line' ? { ...spec.classes[2], color: '#00ff00', stroke: undefined } : spec.classes[2]);
+      expect(back.classes[0]).toEqual(spec.classes[0]);
+    }
+    const both = { ...categorized(), colorTarget: 'both' as const };
+    const text = exportStyle(both, 'qml', 'polygon', 'x');
+    expect(importStyle(text, singleSpec('#000000')).spec).toEqual(both);
+    expect(importStyle(text.replace(/<customproperties>.*<\/customproperties>/s, ''), singleSpec('#000000')).spec.colorTarget).toBe('both');
   });
 
   it('reads a graduated QML QGIS made, and lists what it leaves out', () => {

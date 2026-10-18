@@ -21,7 +21,7 @@ import type { Bookmark } from './bookmarks.js';
 import type { EsriRenderer, EsriSymbol } from './services/esri.js';
 import type { Field, ServiceRef } from './services/common.js';
 import type { EsriRasterSettings } from './services/esri-rules.js';
-import { MAX_CATEGORIES, MAX_CLASSES, ownSpec, singleSpec, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
+import { MAX_CATEGORIES, MAX_CLASSES, ownSpec, settleColorTarget, singleSpec, strokeBeside, symbolOfClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
 
 /** The web map version written. */
 export const WEBMAP_VERSION = '2.31';
@@ -540,7 +540,11 @@ export function specOfRenderer(renderer: EsriRenderer | undefined, labelField: s
     const infos = (renderer.uniqueValueInfos ?? []).slice(0, MAX_CATEGORIES);
     spec.mode = 'categorized';
     spec.field = renderer.field1;
-    spec.categories = infos.map((u) => ({ value: String(u.value), color: symbolOfEsri(u.symbol, spec.symbol).color, visible: true }));
+    spec.categories = infos.map((u) => {
+      const read = symbolOfEsri(u.symbol, spec.symbol);
+      return { value: String(u.value), color: read.color, visible: true, ...strokeBeside(spec.symbol, read.symbol, u.symbol?.type === 'esriSLS') };
+    });
+    settleColorTarget(spec, spec.categories);
     return spec;
   }
   if (renderer.type === 'classBreaks' && renderer.field) {
@@ -550,10 +554,12 @@ export function specOfRenderer(renderer: EsriRenderer | undefined, labelField: s
     spec.field = renderer.field;
     let min = num(renderer.minValue) ?? num(infos[0].classMinValue) ?? infos[0].classMaxValue;
     spec.classes = infos.map((c) => {
-      const cls = { min: num(c.classMinValue) ?? min, max: c.classMaxValue, color: symbolOfEsri(c.symbol, spec.symbol).color, visible: true };
+      const read = symbolOfEsri(c.symbol, spec.symbol);
+      const cls = { min: num(c.classMinValue) ?? min, max: c.classMaxValue, color: read.color, visible: true, ...strokeBeside(spec.symbol, read.symbol, c.symbol?.type === 'esriSLS') };
       min = c.classMaxValue;
       return cls;
     });
+    settleColorTarget(spec, spec.classes);
     spec.classCount = spec.classes.length;
     return spec;
   }
@@ -618,7 +624,7 @@ export function rendererOfSpec(spec: VectorStyleSpec, kind: GeometryKind): EsriR
       type: 'uniqueValue',
       field1: spec.field,
       defaultSymbol: others,
-      uniqueValueInfos: spec.categories.filter((c) => c.visible).map((c) => ({ value: c.value, label: c.value || '（空）', symbol: esriSymbolOf(s, kind, c.color) })),
+      uniqueValueInfos: spec.categories.filter((c) => c.visible).map((c) => ({ value: c.value, label: c.value || '（空）', symbol: esriSymbolOf(symbolOfClass(spec, c, kind === 'line'), kind) })),
     } as EsriRenderer;
   }
   if (spec.mode === 'graduated' && spec.field && spec.classes.length) {
@@ -627,7 +633,7 @@ export function rendererOfSpec(spec: VectorStyleSpec, kind: GeometryKind): EsriR
       field: spec.field,
       minValue: spec.classes[0].min,
       defaultSymbol: others,
-      classBreakInfos: spec.classes.filter((c) => c.visible).map((c) => ({ classMinValue: c.min, classMaxValue: c.max, label: `${c.min} – ${c.max}`, symbol: esriSymbolOf(s, kind, c.color) })),
+      classBreakInfos: spec.classes.filter((c) => c.visible).map((c) => ({ classMinValue: c.min, classMaxValue: c.max, label: `${c.min} – ${c.max}`, symbol: esriSymbolOf(symbolOfClass(spec, c, kind === 'line'), kind) })),
     } as EsriRenderer;
   }
   return { type: 'simple', symbol: esriSymbolOf(s, kind) };

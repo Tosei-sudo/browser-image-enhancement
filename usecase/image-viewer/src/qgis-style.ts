@@ -10,7 +10,7 @@ import type { LayerColorScale } from 'browser-image-enhancement/openlayers';
 import type { ColorClass } from 'browser-image-enhancement';
 import { attr, descendants, escapeXml as esc, kid, kids, parseXml, path, textOf, type XmlElement } from './safe-xml.js';
 import { hexOf, readQgisLayerStyle, StyleNotes, styleQml, type SymbolKind } from './style-file.js';
-import { normalizeSpec, type Category, type GradClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
+import { normalizeSpec, settleColorTarget, strokeBeside, symbolOfClass, type Category, type GradClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
 
 /** The formats styles are written in. */
 export type StyleFormat = 'sld10' | 'se11' | 'qml';
@@ -82,14 +82,14 @@ export function styleSld(spec: VectorStyleSpec, kind: SymbolKind, version: '1.0'
   const rules: string[] = [];
   const s = spec.symbol;
   if (spec.mode === 'categorized' && spec.field) {
-    for (const c of spec.categories.filter((x) => x.visible)) rules.push(rule(c.value, `<ogc:Filter><ogc:PropertyIsEqualTo>${prop(spec.field)}${literal(c.value)}</ogc:PropertyIsEqualTo></ogc:Filter>`, symbolizer(s, c.color)));
+    for (const c of spec.categories.filter((x) => x.visible)) rules.push(rule(c.value, `<ogc:Filter><ogc:PropertyIsEqualTo>${prop(spec.field)}${literal(c.value)}</ogc:PropertyIsEqualTo></ogc:Filter>`, symbolizer(symbolOfClass(spec, c, kind === 'line'), null)));
     if (spec.othersVisible) rules.push(rule('その他', `<${p}ElseFilter/>`, symbolizer(s, null)));
   } else if (spec.mode === 'graduated' && spec.field) {
     spec.classes.forEach((c, i) => {
       if (!c.visible) return;
       const lower = i === 0 ? 'PropertyIsGreaterThanOrEqualTo' : 'PropertyIsGreaterThan';
       const filter = `<ogc:Filter><ogc:And><ogc:${lower}>${prop(spec.field!)}${literal(c.min)}</ogc:${lower}><ogc:PropertyIsLessThanOrEqualTo>${prop(spec.field!)}${literal(c.max)}</ogc:PropertyIsLessThanOrEqualTo></ogc:And></ogc:Filter>`;
-      rules.push(rule(`${num(c.min)} - ${num(c.max)}`, filter, symbolizer(s, c.color)));
+      rules.push(rule(`${num(c.min)} - ${num(c.max)}`, filter, symbolizer(symbolOfClass(spec, c, kind === 'line'), null)));
     });
     if (spec.othersVisible) rules.push(rule('その他', `<${p}ElseFilter/>`, symbolizer(s, null)));
   } else {
@@ -348,8 +348,9 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
         const value = (r.filter as { value: string }).value;
         if (seen.has(value)) return [];
         seen.add(value);
-        return [{ value, color: r.symbol.color ?? spec.symbol.fill, visible: true }];
+        return [{ value, color: r.symbol.color ?? spec.symbol.fill, visible: true, ...strokeBeside(spec.symbol, r.symbol.symbol, !!kid(r.rule, 'LineSymbolizer')) }];
       });
+    settleColorTarget(spec, spec.categories);
     spec.othersVisible = !!others;
     // The rest's color: a fill (a line's color is its stroke, which the symbol has).
     if (others?.symbol.color && !kid(others.rule, 'LineSymbolizer')) spec.symbol = { ...spec.symbol, fill: others.symbol.color };
@@ -363,9 +364,10 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
       .filter((r) => (r.filter as { field: string }).field === field)
       .map((r): GradClass => {
         const f = r.filter as { min: number; max: number };
-        return { min: f.min, max: f.max, color: r.symbol.color ?? spec.symbol.fill, visible: true };
+        return { min: f.min, max: f.max, color: r.symbol.color ?? spec.symbol.fill, visible: true, ...strokeBeside(spec.symbol, r.symbol.symbol, !!kid(r.rule, 'LineSymbolizer')) };
       })
       .sort((a, b) => a.min - b.min);
+    settleColorTarget(spec, spec.classes);
     spec.classCount = Math.max(1, spec.classes.length);
     spec.othersVisible = !!others;
   } else if (symbolRules.length) {
