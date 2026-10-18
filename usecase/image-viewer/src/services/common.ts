@@ -22,7 +22,7 @@ import type { TempRecord } from '../temp-layers.js';
 import { authFetch } from '../auth.js';
 
 /** The kinds of service the viewer reads. */
-export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage';
+export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage' | 'xyz';
 
 export const serviceNames: Record<ServiceKind, string> = {
   wms: 'WMS',
@@ -33,6 +33,7 @@ export const serviceNames: Record<ServiceKind, string> = {
   'ogc-tiles': 'OGC API – Tiles',
   wcs: 'WCS（画素値）',
   'ogc-coverage': 'OGC API – Coverages（画素値）',
+  xyz: 'XYZ タイル（{z}/{x}/{y}）',
 };
 
 /** Kinds whose layers open as a GeoTIFF of the values (through {@link OpenContext.openRaster}), not as a service layer. */

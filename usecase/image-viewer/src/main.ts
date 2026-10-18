@@ -896,6 +896,8 @@ const webMaps = new WebMapDialogs({
 });
 document.getElementById('webmap-open')!.addEventListener('click', () => webMaps.open());
 document.getElementById('webmap-save')!.addEventListener('click', () => webMaps.openSave());
+document.getElementById('project-qgis-open')!.addEventListener('click', () => void project.chooseQgis());
+document.getElementById('project-qgis-export')!.addEventListener('click', () => project.exportQgis());
 // Ctrl+S (⌘S): save the project rather than the page; with Shift, under another name.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {

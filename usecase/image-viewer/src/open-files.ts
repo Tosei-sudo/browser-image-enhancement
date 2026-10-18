@@ -87,7 +87,7 @@ export interface OpenFilesContext {
 
 /** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), world files and .aux.xml, NITF and SICD, Shapefiles (and their .qml style), GeoJSON, GeoPackages, KML / KMZ, GPX, FlatGeobuf, CSV, DTED, RPC and IMD files, and project files (opened by project.ts). */
 export const acceptFiles =
-  '.ivproj,.tif,.tiff,.ovr,.ntf,.nitf,.nsf,.r0,.sicd,image/*,.tfw,.tifw,.jgw,.jpgw,.pgw,.pngw,.gfw,.bpw,.j2w,.wld,.xml,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.kml,.kmz,.gpx,.fgb,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
+  '.ivproj,.tif,.tiff,.ovr,.ntf,.nitf,.nsf,.r0,.sicd,image/*,.tfw,.tifw,.jgw,.jpgw,.pgw,.pngw,.gfw,.bpw,.j2w,.wld,.xml,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.kml,.kmz,.gpx,.fgb,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd,.qgs,.qgz';
 
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   // World files, .aux.xml and an image's .prj (one with no Shapefile of its name) place the image of their name.

@@ -81,7 +81,7 @@ export type LayerConfig =
     };
 
 /** The service kinds a `layers` entry can be (as `ServiceKind` in services/common.ts). */
-export type ServiceLayerType = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage';
+export type ServiceLayerType = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage' | 'xyz';
 const serviceLayerTypes: readonly string[] = ['wms', 'wmts', 'wfs', 'esri', 'ogc-features', 'ogc-tiles', 'wcs', 'ogc-coverage'];
 
 export interface ViewerConfig {
@@ -511,6 +511,8 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
   const { type, url, layer, matrixSet, format, settings, bbox, filter } = value;
   if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
   if (type === 'cog' || type === 'file') return { type, url };
+  // XYZ tiles: a {z}/{x}/{y} template, one layer.
+  if (type === 'xyz') return { type, url, layer: 'tiles' };
   if (typeof type === 'string' && serviceLayerTypes.includes(type)) {
     const box =
       Array.isArray(bbox) && bbox.length === 4 && bbox.every((n) => typeof n === 'number' && Number.isFinite(n)) && bbox[0] <= bbox[2] && bbox[1] <= bbox[3]
@@ -529,7 +531,7 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
       ...(type === 'esri' && settings !== undefined ? { settings: settingsOf(settings, problems, `layers[${index}].settings`) } : {}),
     };
   }
-  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・ogc-features・ogc-tiles・wcs・ogc-coverage のどれかにしてください`);
+  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・ogc-features・ogc-tiles・wcs・ogc-coverage・xyz のどれかにしてください`);
   return null;
 }
 

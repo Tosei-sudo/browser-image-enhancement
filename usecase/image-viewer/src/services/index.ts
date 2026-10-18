@@ -15,6 +15,7 @@ import { readOgcTiles } from './ogc-tiles.js';
 import { readOgcCoverage } from './ogc-coverage.js';
 import { readWcs } from './wcs.js';
 import { conformance, conformsTo, readOgcService } from './ogc-api.js';
+import { isXyzUrl, readXyz } from './xyz.js';
 
 export * from './common.js';
 
@@ -27,11 +28,13 @@ const readers: Record<ServiceKind, (url: string, token?: string) => Promise<Serv
   'ogc-tiles': readOgcTiles,
   wcs: readWcs,
   'ogc-coverage': readOgcCoverage,
+  xyz: readXyz,
 };
 
 export async function readService(url: string, kind: ServiceKind | 'auto', token?: string): Promise<ServiceCatalog> {
   if (kind !== 'auto') return readers[kind](url, token);
   if (isEsriUrl(url)) return readEsri(url, token);
+  if (isXyzUrl(url)) return readXyz(url);
   const named = new URL(url, location.href).searchParams;
   const service = [...named].find(([k]) => k.toLowerCase() === 'service')?.[1]?.toLowerCase();
   if (service === 'wms' || service === 'wmts' || service === 'wfs' || service === 'wcs') return readers[service](url);

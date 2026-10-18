@@ -3954,3 +3954,17 @@ html.embed .ol-enhance {
 .webmap-result .problem {
   color: var(--danger, #c0392b);
 }
+/* Style dialog: SLD / QML out (src/style-dialog.ts). */
+.style-export {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+.style-export label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
