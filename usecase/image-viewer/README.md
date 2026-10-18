@@ -314,7 +314,37 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 
 `satelliteCatalogs` の `fields` は TLE（`tle`、または `tle1` と `tle2`）だけが必須です。`tle` は 2 行（前に衛星名の行があってもよい）を 1 つの属性に入れた形に対応します。諸元の属性がない・空の衛星は `defaults` の値を使います。撮像機会は、点や線は対象の中心で、ポリゴンは内側の格子点のうち届く範囲（最小〜最大オフナディア角・見られる向き）に入るもので判定し、軌道の面からの距離で候補を絞ってから、パスごとに最も近づく時刻を 0.05 秒以下まで詰めます。被覆のシーン数は、その時刻の軌道に直交する方向の領域の幅 ÷ 観測幅（切り上げ）です。カタログを書かないときは、決め打ちのサンプル衛星 2 機（実在の衛星ではありません）で計算します。Sentinel-2 相当の光学衛星（高度約 786 km・太陽同期 10:30 降交・最大オフナディア角 20°・観測幅 30 km）と、Sentinel-1 相当の右向き SAR 衛星（高度約 693 km・18:00 昇交・オフナディア角 20〜45°・観測幅 50 km）です。「詳細条件」に TLE を貼り付ければ、そこで指定した諸元の衛星を足せます。
 
+`embed` は、ほかの Web アプリがこのビューアを iframe に入れて postMessage で操作するための設定です（下の「埋め込み（iframe）」）。書かない・`allowedOrigins` が空のときは無効で、届いたメッセージはすべて無視します。
+
+```jsonc
+"embed": {
+  "allowedOrigins": ["https://app.example.com"], // 操作を許すページのオリジン（スキーム・ホスト・ポートを正確に。* やパスは不可）
+  "readOnly": false                              // true: 表示の移動と読み取りだけ（レイヤーの追加・変更・ツールは拒否）
+}
+```
+
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
+
+## 埋め込み（iframe）
+
+ほかの Web アプリのページに `<iframe src="https://viewer.example.com/index.html?embed=1">` で入れ、`postMessage` で操作できます（`config.json` の `embed.allowedOrigins` に、そのページのオリジンを書いたときだけ）。`?embed=1` はヘッダー・レイヤーパネル・属性テーブルなどを隠して地図だけにする表示の指定で、許可には関係しません。
+
+クライアント `embed-client.js`（ビルド不要の ES モジュール）と例 `embed-example.html` を同じ場所に置いています。
+
+```js
+import { connect } from 'https://viewer.example.com/embed-client.js';
+const viewer = await connect(document.querySelector('iframe'), 'https://viewer.example.com');
+await viewer.call('open', { url: 'https://data.example.com/scene.tif' });
+await viewer.call('setView', { center: [139.7671, 35.6812], zoom: 14 });
+await viewer.call('addShapes', { wkt: ['POLYGON((139.70 35.65, 139.80 35.65, 139.80 35.72, 139.70 35.65))'], labels: ['区域'], name: '対象' });
+viewer.on('click', ({ lon, lat }) => console.log(lon, lat));
+```
+
+- メッセージ: 要求 `{ type: 'image-viewer', v: 1, id, method, params }` → 応答 `{ type, v, id, result }` か `{ type, v, id, error: { code, message } }`。イベントは `{ type, v, event, data }`。最初に `hello`（`params.events` で受け取るイベントを絞れます）を送ると、以後そのオリジンにだけイベントを送ります
+- メソッド: `hello`・`getView`・`setView`（`center` [経度, 緯度]・`zoom`・`resolution`・`rotation`・`bbox` [西, 南, 東, 北]・`duration`）・`zoomTo`・`listLayers`・`selectLayer`・`getSelection`（`features: true` で選択地物の GeoJSON も）・`listBaseMaps`・`listTools`、変更するもの: `open`（`url`・`type` cog / file / wms / wmts / wfs / esri・`layer` ほか）・`setVisible`・`setOpacity`・`removeLayer`・`setBaseMap`・`addShapes`（`wkt` / 座標の配列・`geojson`・`labels`・`name`・`color`・`zoom`。リンクの図形と同じ読み方と上限で一時レイヤーに）・`runTool`（ツールのダイアログを `params` で埋めて実行。スクリプトの `viewer.tool` と同じ。表示範囲の保存は不可）。レイヤーは `listLayers` の `id` で指定します
+- イベント: `ready`（起動時のレイヤーを開き終えた）・`view`（表示範囲。200 ms に 1 回まで）・`selection`（選択地物の id）・`layers`（レイヤー一覧）・`click`（地図のクリック地点の `lon`・`lat`）
+- 安全: 親ウィンドウ（`event.source`）で、許可したオリジン（`event.origin`）のメッセージだけを読み、応答もそのオリジンにだけ送ります。メソッドは決まった一覧だけで、パラメーターは型と範囲を厳密に確かめ、要求は 1,000,000 文字・応答は 8,000,000 文字まで、同時に 8 件までです。中身を実行することはありません。地物の編集・保存・ダウンロード・ファイルを開くことはできず、ビューアがまだ使っていないサーバーを開くときは利用者に確認します（スクリプトと同じ）。`readOnly` では変更するメソッドを拒否します
+- 配置: 許可したページ以外に iframe で入れられないよう、Web サーバーで `Content-Security-Policy: frame-ancestors 'self' https://app.example.com`（`allowedOrigins` と同じオリジン）を返してください（古いブラウザ向けの `X-Frame-Options` は 1 オリジンしか書けないので、埋め込むときは使わず CSP にします）。埋め込みを使わないサイトでは `frame-ancestors 'self'` が安全です
 
 ## 動かし方
 

@@ -13,6 +13,7 @@ import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
+import { defaultEmbed, embedConfigOf, type EmbedConfig } from './embed-protocol.js';
 
 /**
  * What a base map URL points to:
@@ -103,6 +104,8 @@ export interface ViewerConfig {
   elevationServices: ElevationServiceConfig[];
   /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
   geocoders: GeocoderConfig[];
+  /** Pages (exact origins) allowed to show the viewer in an iframe and drive it by postMessage (embed.ts); none turns it off. */
+  embed: EmbedConfig;
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -169,6 +172,7 @@ export const defaultConfig: ViewerConfig = {
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
+  embed: defaultEmbed,
 };
 
 /**
@@ -336,6 +340,8 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
     } else problems.push('detectionOutputs が配列ではありません');
   }
+
+  if ('embed' in json) config.embed = embedConfigOf(json.embed, problems);
 
   return { config, problems };
 }

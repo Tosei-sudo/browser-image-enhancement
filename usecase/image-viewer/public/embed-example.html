@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>画像ビューアの埋め込み例</title>
+    <!--
+      An example of the embedding API: the viewer in an iframe, driven with embed-client.js.
+      The viewer answers only when this page's origin is in its config.json `embed.allowedOrigins`.
+      `?viewer=<URL>` embeds a viewer elsewhere (default: ./index.html?embed=1 on this server).
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 22rem;
+        gap: 12px;
+        height: 100vh;
+        margin: 0;
+        padding: 12px;
+        box-sizing: border-box;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 1px solid #8888;
+        border-radius: 6px;
+      }
+      aside {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+      }
+      aside input,
+      aside textarea {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      #log {
+        flex: 1;
+        min-height: 6rem;
+        margin: 0;
+        overflow: auto;
+        font-size: 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        border: 1px solid #8888;
+        padding: 4px;
+      }
+      @media (max-width: 720px) {
+        body {
+          grid-template-columns: 1fr;
+          grid-template-rows: 60vh auto;
+          height: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <iframe id="viewer" title="画像ビューア"></iframe>
+    <aside>
+      <h1 style="font-size: 1.1rem; margin: 0">埋め込み例</h1>
+      <p id="state" role="status">接続しています…</p>
+      <label>COG の URL <input id="url" value="" placeholder="https://…/image.tif" /></label>
+      <button type="button" id="open">開く</button>
+      <button type="button" id="tokyo">東京駅へ移動</button>
+      <label>図形（WKT か 緯度,経度。1 行に 1 つ） <textarea id="wkt" rows="3">POLYGON((139.70 35.65, 139.80 35.65, 139.80 35.72, 139.70 35.65))</textarea></label>
+      <button type="button" id="shapes">図形を追加</button>
+      <button type="button" id="selection">選択を取得</button>
+      <pre id="log" aria-label="ログ"></pre>
+    </aside>
+    <script type="module">
+      import { connect } from './embed-client.js';
+
+      const query = new URLSearchParams(location.search);
+      const viewerUrl = new URL(query.get('viewer') || './index.html?embed=1', location.href);
+      if (viewerUrl.protocol !== 'https:' && viewerUrl.protocol !== 'http:') throw new Error('viewer must be an http(s) URL');
+      const iframe = document.getElementById('viewer');
+      const state = document.getElementById('state');
+      const log = document.getElementById('log');
+      document.getElementById('url').value = new URL('./fixture.tif', viewerUrl).href;
+      /** What happened, for the page and for tests. */
+      window.embedLog = { events: [], received: 0 };
+      window.addEventListener('message', (e) => {
+        if (e.source === iframe.contentWindow) window.embedLog.received++;
+      });
+      const print = (text) => {
+        log.textContent += `${text}\n`;
+        log.scrollTop = log.scrollHeight;
+      };
+      iframe.src = viewerUrl.href;
+
+      try {
+        const viewer = await connect(iframe, viewerUrl.origin, { timeout: Number(query.get('timeout')) || 15000 });
+        window.viewerClient = viewer;
+        state.textContent = `接続しました（${viewer.info.readOnly ? '読み取り専用' : '操作可'}）`;
+        for (const name of viewer.info.events) {
+          viewer.on(name, (data) => {
+            window.embedLog.events.push({ name, data });
+            print(`${name}: ${JSON.stringify(data).slice(0, 300)}`);
+          });
+        }
+        const run = (method, params) =>
+          viewer.call(method, params).then(
+            (result) => (print(`${method} → ${JSON.stringify(result).slice(0, 300)}`), result),
+            (error) => print(`${method} ✕ ${error.code}: ${error.message}`),
+          );
+        document.getElementById('open').onclick = () => run('open', { url: document.getElementById('url').value });
+        document.getElementById('tokyo').onclick = () => run('setView', { center: [139.7671, 35.6812], zoom: 15, duration: 300 });
+        document.getElementById('shapes').onclick = () =>
+          run('addShapes', { wkt: document.getElementById('wkt').value.split('\n').map((s) => s.trim()).filter(Boolean), name: '埋め込みの図形' });
+        document.getElementById('selection').onclick = () => run('getSelection', { features: true });
+      } catch (error) {
+        state.textContent = `接続できませんでした: ${error.message}`;
+        window.embedLog.error = error.code;
+      }
+    </script>
+  </body>
+</html>

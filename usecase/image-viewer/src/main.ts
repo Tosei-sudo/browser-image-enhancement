@@ -107,6 +107,8 @@ import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
+import { EmbedApi } from './embed.js';
+import { layerId } from './script/api.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -290,6 +292,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
     updateLink();
+    embed?.layersChanged();
   },
   onEdit: (layer) => {
     if (editor.start(layer)) showTable(layer);
@@ -585,15 +588,16 @@ document.getElementById('palette-open')!.addEventListener('click', () => palette
 /**
  * Shapes in a link (`?geom=`, `?line=`, `?polygon=`, `?geojson=`, or a
  * `web+imageviewer:` link handed to the installed app): one temporary layer,
- * zoomed to unless the link says where to look (`#view=`).
+ * zoomed to unless the link says where to look (`#view=`). Returns the layer
+ * (null when no shape could be read), and what could not be read.
  */
-async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<void> {
-  if (!hasShapes(params)) return;
+async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<{ layer: ViewerService | null; count: number; errors: string[] }> {
+  if (!hasShapes(params)) return { layer: null, count: 0, errors: [] };
   const shapes = readLinkShapes(params);
   const skipped = shapes.errors.length ? `（読めなかったもの: ${shapes.errors.join(' / ')}）` : '';
   if (!shapes.features.length) {
     say(`リンクの図形を表示できませんでした${skipped}`);
-    return;
+    return { layer: null, count: 0, errors: shapes.errors };
   }
   const record = recordOf({ title: shapes.title, features: shapes.features, fields: shapes.fields }, 'リンクから追加');
   await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
@@ -615,6 +619,7 @@ async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<vo
   }
   const n = shapes.features.length;
   say(`リンクの図形 ${n.toLocaleString()} 個を一時レイヤー「${shapes.title}」に追加しました${skipped}`);
+  return { layer: entry, count: n, errors: shapes.errors };
 }
 
 // New layers designed by the person (geometry type and attributes): empty temporary layers, drawn on at once.
@@ -1273,6 +1278,11 @@ onLaunchFiles((handles) => {
   void started.then(() => addLinkShapes(shapeParamsOf(target.search), true));
 });
 void registerServiceWorker();
+
+// Embedding (config.json's `embed`): pages of the allowed origins show the viewer in an iframe and drive it by postMessage.
+const embed: EmbedApi | null = config.embed.allowedOrigins.length
+  ? new EmbedApi(config.embed, { map, selection, handlers: (adapt) => scripts.handlers(adapt), addShapes: addLinkShapes, layerId, ready: started })
+  : null;
 
 // For the browser test and the console.
 declare global {
