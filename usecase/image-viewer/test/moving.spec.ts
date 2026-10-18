@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
 
 /*
  * Moving objects: a polled feed and an SSE feed from config.json, a WebSocket
@@ -141,8 +140,6 @@ test('a history CSV follows the time set, and detections are checked against it'
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator('.moving-popup')).toContainText('EAST');
   await expect(page.locator('.moving-popup')).toContainText('補間');
-  mkdirSync('/mnt/project-files/integrations', { recursive: true });
-  await page.screenshot({ path: '/mnt/project-files/integrations/moving-history.png' }).catch(() => {});
 
   // Detections at 09:10: one on ship 1, one where ship 2 was (too long before), one at sea with nothing.
   const detections = {
@@ -191,5 +188,4 @@ test('a history CSV follows the time set, and detections are checked against it'
     mode: 'categorized',
     red: '#e03131',
   });
-  await page.screenshot({ path: '/mnt/project-files/integrations/moving-match.png' }).catch(() => {});
 });

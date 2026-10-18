@@ -8,7 +8,6 @@ import { crc32 } from 'node:zlib';
  * XYZ layers opened from the プロジェクト menu.
  */
 
-const shots = '/mnt/project-files/integrations';
 
 async function open(page: Page) {
   await page.goto('/index.html');
@@ -97,7 +96,6 @@ test('an SLD from QGIS is read into a vector layer’s style, and the style is w
   await expect(dialog.getByLabel('表示方法')).toHaveValue('categorized');
   await expect(dialog.getByLabel('商業 の色')).toHaveValue('#ff8800');
   await expect(dialog.getByLabel('ラベルにする属性')).toHaveValue('name');
-  await page.screenshot({ path: `${shots}/qgis-style-import.png` });
   await dialog.getByRole('button', { name: 'OK' }).click();
 
   const spec = await page.evaluate(() => (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!.get());
@@ -200,7 +198,6 @@ test('a QGIS project (.qgz) opens with its WMS, WFS and XYZ layers, styles and e
   expect(center[0]).toBeCloseTo(139.75, 2);
   expect(center[1]).toBeCloseTo(35.685, 2);
   await page.locator('#project-menu .menu-button').click();
-  await page.screenshot({ path: `${shots}/qgis-project-open.png` });
 
   // And out again, for QGIS.
   const downloading = page.waitForEvent('download');

@@ -9,7 +9,6 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 const base = 'http://localhost:4175';
-const shots = '/mnt/project-files/integrations';
 
 async function open(page: Page, config: object, query = '') {
   await page.request.get('/auth-test/reset');
@@ -52,7 +51,6 @@ test('signing in to an ArcGIS portal in a popup gives its token to the federated
 
   await menu.locator('.menu-button').click();
   await expect(menu.locator('.signin-user')).toHaveText('山田 太郎（taro）');
-  await page.screenshot({ path: `${shots}/auth-signed-in.png` }).catch(() => {});
   await page.keyboard.press('Escape');
 
   // A reload keeps the sign-in (this tab); a token the server no longer takes is renewed once and the request sent again.
@@ -98,5 +96,4 @@ test('authRules add their header to COG reads and base map tiles, and to nothing
   expect(headers.filter((h) => h.endsWith(':none'))).toEqual([]);
   expect(otherHeaders.length).toBeGreaterThan(0);
   expect(otherHeaders.every((h) => h === undefined)).toBe(true);
-  await page.screenshot({ path: `${shots}/auth-rules.png` }).catch(() => {});
 });

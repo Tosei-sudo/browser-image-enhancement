@@ -1,4 +1,3 @@
-import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
 /*
@@ -116,9 +115,7 @@ test('searches, pages, and opens true color and band assets', async ({ page }) =
   await dialog.locator('button.catalog-search').click();
   await expect(rows).toHaveCount(2);
   expect(seen.bodies.at(-1)).toMatchObject({ datetime: '2026-09-01T00:00:00Z/..', query: { 'eo:cloud_cover': { lte: 10 } } });
-  mkdirSync('/mnt/project-files/integrations', { recursive: true });
   await rows.nth(1).click();
-  await page.screenshot({ path: '/mnt/project-files/integrations/stac-search.png' }).catch(() => {});
 
   // The true color asset opens by default, with the item's attributes.
   await rows.filter({ hasText: 'S2_VISUAL' }).dblclick();

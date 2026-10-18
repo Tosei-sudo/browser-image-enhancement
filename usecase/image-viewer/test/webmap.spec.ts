@@ -38,7 +38,6 @@ test('a web map opens as layers in its order, styles, view and bookmarks; what c
   await expect(dialog.locator('.webmap-result')).toContainText('開けませんでした: KML の層 — KML レイヤーには対応していません');
   await expect(dialog.locator('.webmap-result')).toContainText('背景地図「テストの背景」はレイヤーとして下に追加しました');
   await expect(dialog.locator('.webmap-result')).toContainText('ブックマーク 1 件を追加しました');
-  await page.screenshot({ path: '/mnt/project-files/integrations/webmap-open.png' }).catch(() => {});
   await dialog.getByRole('button', { name: '閉じる' }).click();
 
   await expect(page.locator('#images .name')).toHaveText(['一時メモ', 'EsriWeb マップの公園', 'Web マップ背景: テストのタイル']);
@@ -138,7 +137,6 @@ test('what is open saves as a web map: a JSON file, a new portal item after aski
   expect(saved[0]).toMatchObject({ op: 'addItem', folder: 'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0', type: 'Web Map', title: '東京の公園', tags: '公園, テスト' });
   expect(JSON.parse(saved[0].text).operationalLayers).toHaveLength(2);
   expect(saved[0].extent.split(',')).toHaveLength(4);
-  await page.screenshot({ path: '/mnt/project-files/integrations/webmap-save.png' }).catch(() => {});
 
   // Again, over the item just made.
   await dialog.getByRole('textbox', { name: 'Web マップのタイトル' }).fill('東京の公園（改）');

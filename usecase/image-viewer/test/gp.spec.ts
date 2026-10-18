@@ -154,6 +154,5 @@ test('runs GP tasks (sync and as jobs) and OGC processes, opening their results 
   expect(centroid?.label).toBe('B');
   expect(centroid!.dx).toBeLessThan(15);
   expect(centroid!.dy).toBeLessThan(15);
-  await page.screenshot({ path: '/mnt/project-files/integrations/gp-dialog.png' }).catch(() => {});
   expect(errors).toEqual([]);
 });

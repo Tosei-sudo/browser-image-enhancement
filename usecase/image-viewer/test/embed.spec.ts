@@ -85,7 +85,6 @@ test('a page of an allowed origin opens a COG, moves the view, adds shapes and r
   expect(selection.ids).toHaveLength(1);
   expect(selection.features.features[0]).toMatchObject({ properties: { label: '東京駅' }, geometry: { type: 'Point' } });
 
-  await page.screenshot({ path: '/mnt/project-files/integrations/embed-example.png' }).catch(() => {});
 
   // Layers shown and hidden.
   expect((await call(page, 'setVisible', { layer: layerId, visible: false })).result).toBe(true);

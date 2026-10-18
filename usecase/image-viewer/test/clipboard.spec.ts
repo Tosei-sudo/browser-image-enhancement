@@ -64,7 +64,6 @@ test('GeoJSON pasted with Ctrl+V on the map becomes the temporary layer 「貼�
   await page.locator('#images li', { hasText: '貼り付け' }).click();
   await expect(rows(page)).toHaveCount(2);
   await expect(rows(page).first()).toContainText('<img src=x onerror=alert(1)>東京');
-  await page.screenshot({ path: '/mnt/project-files/integrations/clipboard-paste-geojson.png' }).catch(() => {});
 
   // Ctrl+V in a text field is the field's own.
   await write(page, 'POINT(139 35)');

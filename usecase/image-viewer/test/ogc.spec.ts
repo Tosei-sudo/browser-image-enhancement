@@ -294,7 +294,6 @@ test('WCS 2.0 and OGC API – Coverages: the values of the area shown open as a 
   const coverage = asked.find((a) => a.url.pathname === '/ogc/collections/dem/coverage')!;
   expect(coverage.url.searchParams.get('f')).toBe('geotiff');
   expect(coverage.url.searchParams.has('bbox')).toBe(false);
-  await page.screenshot({ path: '/mnt/project-files/integrations/ogc-coverage.png' }).catch(() => {});
   expect(errors).toEqual([]);
 });
 
@@ -366,7 +365,6 @@ test('WFS-T: an editable feature type saves its edits as one Transaction and rep
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.getByRole('button', { name: '追加', exact: true }).click();
-  await page.screenshot({ path: '/mnt/project-files/integrations/ogc-wfst-edit.png' }).catch(() => {});
   await page.getByRole('button', { name: '保存 (3)' }).click();
   await expect(page.locator('#status')).toContainText('3 件の変更を保存しました（WFS-T: 追加 1・更新 1・削除 1）');
 
