@@ -107,7 +107,7 @@ export const BULK_SHOW_FIRST = 8;
 
 /** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), world files and .aux.xml, NITF and SICD, Shapefiles (and their .qml style), GeoJSON, GeoPackages, KML / KMZ, GPX, FlatGeobuf, CSV, DTED, RPC and IMD files, and project files (opened by project.ts). */
 export const acceptFiles =
-  '.ivproj,.tif,.tiff,.ovr,.ntf,.nitf,.nsf,.r0,.sicd,image/*,.tfw,.tifw,.jgw,.jpgw,.pgw,.pngw,.gfw,.bpw,.j2w,.wld,.xml,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.kml,.kmz,.gpx,.fgb,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd';
+  '.ivproj,.tif,.tiff,.ovr,.ntf,.nitf,.nsf,.r0,.sicd,image/*,.tfw,.tifw,.jgw,.jpgw,.pgw,.pngw,.gfw,.bpw,.j2w,.wld,.xml,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.kml,.kmz,.gpx,.fgb,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd,.qgs,.qgz';
 
 /** Whether a file opens as an image of its own (not a vector file, nor a file that goes with an image). */
 export function isPicture(f: File): boolean {

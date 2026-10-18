@@ -13,7 +13,7 @@
  */
 import { colorScales, type PipelineJSON } from 'browser-image-enhancement';
 import type { LayerBlendMode, LayerColorScale } from 'browser-image-enhancement/openlayers';
-import { serviceNames, type Field, type ServiceRef } from './services/index.js';
+import { bboxOf, serviceNames, type Field, type ServiceRef } from './services/index.js';
 import { settingsOf } from './services/esri-rules.js';
 import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
@@ -92,6 +92,12 @@ export interface ProjectLayer {
   dem?: true;
   /** The timeline's settings of the layer: whether it follows the window, its time attributes, a typed time. */
   time?: { on: boolean; start?: string | null; end?: string | null; time?: number };
+  /**
+   * A layer of another program's project (QGIS), which names it its own way:
+   * it is the layer of its file set whose name has this in it (a GeoPackage's
+   * table), else the first one left. Not saved.
+   */
+  pick?: string;
   /** Index in the project's `groups` of the group the layer is in. */
   group?: number;
 }
@@ -347,6 +353,9 @@ function readSource(s: Record<string, unknown>, sets: number): LayerSource | nul
       if (typeof r.format === 'string') ref.format = r.format;
       const settings = settingsOf(r.settings);
       if (settings) ref.settings = settings;
+      const bbox = bboxOf(r.bbox);
+      if (bbox) ref.bbox = bbox;
+      if (typeof r.filter === 'string' && r.filter) ref.filter = r.filter;
       return { kind: 'service', ref };
     }
     case 'files':
@@ -383,10 +392,15 @@ export function matchFile<F extends { name: string; size: number }>(ref: FileRef
  * layer takes the first opened layer of the same type and name not yet taken.
  * Returns, in the order of `saved`, the matching opened layer or null.
  */
-export function matchLayers<L extends { type: string; name: string }>(saved: ReadonlyArray<{ type: string; name: string }>, opened: readonly L[]): Array<L | null> {
+export function matchLayers<L extends { type: string; name: string }>(saved: ReadonlyArray<{ type: string; name: string; pick?: string }>, opened: readonly L[]): Array<L | null> {
   const free = [...opened];
   return saved.map((s) => {
-    const i = free.findIndex((o) => o.type === s.type && o.name === s.name);
+    let i = free.findIndex((o) => o.type === s.type && o.name === s.name);
+    if (i < 0 && s.pick !== undefined) {
+      const pick = s.pick.toLowerCase();
+      i = pick ? free.findIndex((o) => o.name.toLowerCase().includes(pick)) : -1;
+      if (i < 0) i = free.length ? 0 : -1;
+    }
     return i < 0 ? null : free.splice(i, 1)[0];
   });
 }

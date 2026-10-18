@@ -76,6 +76,8 @@ export class AttributeTable {
       say: (message: string) => void;
       /** A link to the viewer showing `features` (`?geom=`), or null when they are too many for a link. */
       shapeLink?: (features: Feature[]) => string | null;
+      /** More commands for the selected features (copying them as GeoJSON or WKT), after the copy ones. */
+      menuItems?: (features: Feature[]) => MenuItem[];
     },
   ) {
     element.classList.add('table-panel');
@@ -312,6 +314,7 @@ export class AttributeTable {
       { label: '選択を解除', run: () => this.selection.clear() },
     ];
     if (this.options.shapeLink) items.splice(2, 0, { label: several ? `${several}の図形のリンクをコピー` : '図形のリンクをコピー', run: () => void this.copyShapeLink(features) });
+    if (this.options.menuItems) items.splice(items.length - 1, 0, ...this.options.menuItems(features));
     const remove = this.data_?.onDelete;
     if (remove) items.push({ label: several ? `${several}を削除…` : '削除…', danger: true, run: () => remove(features) });
     this.menu_.open(items, x, y);

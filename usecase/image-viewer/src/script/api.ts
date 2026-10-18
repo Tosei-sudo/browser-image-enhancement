@@ -111,7 +111,8 @@ export interface ScriptLayerInfo {
 const layerIds = new WeakMap<ViewerLayer, string>();
 let nextLayer = 1;
 
-function layerId(layer: ViewerLayer): string {
+/** The id scripts (and the embedding API, embed.ts) know a layer by. */
+export function layerId(layer: ViewerLayer): string {
   let id = layerIds.get(layer);
   if (!id) layerIds.set(layer, (id = `L${nextLayer++}`));
   return id;

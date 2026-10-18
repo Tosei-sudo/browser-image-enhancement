@@ -10,7 +10,7 @@
  * from a project file, a link or the browser's storage. Scripts are kept in
  * this browser (localStorage) and can be opened from and saved to .js files.
  */
-import { ScriptRun } from './script/sandbox.js';
+import { ScriptRun, type ScriptHandlers } from './script/sandbox.js';
 import { scriptHandlers, type ScriptContext } from './script/api.js';
 import { SAMPLES } from './script/samples.js';
 import { download } from './local-edit.js';
@@ -238,6 +238,14 @@ export class ScriptDialog {
   /** What the last run printed. */
   output(): string {
     return this.output_.textContent ?? '';
+  }
+
+  /**
+   * The script functions for a caller other than a script (the embedding API,
+   * embed.ts), with the context adapted by `adapt`; no files are picked.
+   */
+  handlers(adapt: (ctx: ScriptContext) => ScriptContext = (ctx) => ctx): ScriptHandlers {
+    return scriptHandlers(adapt({ ...this.context, pickFiles: async () => [] })).handlers;
   }
 
   /** Runs the script in the editor (stopping one still running). */

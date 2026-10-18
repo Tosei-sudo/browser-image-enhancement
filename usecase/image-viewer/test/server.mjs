@@ -8,6 +8,8 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { globals, writeArrayBuffer } from 'geotiff';
 import { serveService } from './services.mjs';
+import { serveAuth } from './auth-services.mjs';
+import { serveGp } from './gp-services.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.tif': 'image/tiff', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm', '.glb': 'model/gltf-binary' };
@@ -384,8 +386,10 @@ const scene = sceneService(139.76, 35.68);
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = normalize(decodeURIComponent(url.pathname));
+  if (await serveGp(req, res, url)) return;
   if (await serveService(req, res, url, `http://localhost:${port}`)) return;
-  const headers = { 'content-type': path.startsWith('/i3s/') && !path.includes('/geometries/') ? 'application/json' : (types[extname(path)] ?? 'application/octet-stream'), 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
+  if (await serveAuth(req, res, url, `http://localhost:${port}`, { '/fixture.tif': tif })) return;
+  const headers = { 'content-type': path.startsWith('/i3s/') && !path.includes('/geometries/') ? 'application/json' : (types[extname(path === '/' ? 'index.html' : path)] ?? 'application/octet-stream'), 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
   let body;
   try {
     // Scene services ask with trailing slashes.
