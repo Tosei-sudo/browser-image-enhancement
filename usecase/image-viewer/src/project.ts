@@ -430,7 +430,8 @@ export class ProjectControl {
           const image = await loader.loadUrl(source.url).catch(() => null);
           found[i] = (image && images.find(image)) || null;
         } else if (source.kind === 'service') {
-          found[i] = images.addService(await openRef(source.ref, this.options.serviceContext()));
+          const opened = await openRef(source.ref, this.options.serviceContext());
+          if (opened) found[i] = images.addService(opened);
         } else if (source.kind === 'temp') {
           const kept = open.find((l) => l.type === 'service' && l.service.temp?.id === source.layer.id);
           if (kept) found[i] = kept;

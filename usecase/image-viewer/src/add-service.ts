@@ -1,10 +1,11 @@
 /**
  * The "add a service" dialog: a URL (the kind is detected, or chosen), a
  * token for secured Esri services, then the service's layers to tick and
- * add. WMTS layers also pick their tile matrix set and image format.
+ * add. WMTS layers also pick their tile matrix set and image format; OGC API
+ * features and coverages (WCS) the area to read and a condition, under 「詳細」.
  */
 import { settingsOf } from './services/esri-rules.js';
-import { readService, serviceNames, type LayerChoice, type OpenContext, type ServiceCatalog, type ServiceKind, type ServiceLayer, type ServiceRef } from './services/index.js';
+import { bboxOf, readService, serviceNames, type LayerChoice, type OpenContext, type OpenPick, type ServiceCatalog, type ServiceKind, type ServiceLayer, type ServiceRef } from './services/index.js';
 
 export interface AddServiceOptions {
   /** Called with each layer opened. */
@@ -99,12 +100,15 @@ export class AddServiceDialog {
     // Bottom row first, so the list keeps the order shown here.
     for (const row of rows.reverse()) {
       const choice = catalog.choices[Number(row.dataset.index)];
-      const pick = {
+      const pick: OpenPick = {
         matrixSet: row.querySelector<HTMLSelectElement>('select[name=matrixSet]')?.value,
         format: row.querySelector<HTMLSelectElement>('select[name=format]')?.value,
+        area: row.querySelector<HTMLSelectElement>('select[name=area]')?.value as OpenPick['area'],
+        filter: row.querySelector<HTMLInputElement>('input[name=filter]')?.value.trim() || undefined,
       };
       try {
-        this.options.onAdd(await catalog.open(choice, context, pick));
+        const layer = await catalog.open(choice, context, pick);
+        if (layer) this.options.onAdd(layer);
       } catch (error) {
         failures.push(`${choice.title}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -146,7 +150,34 @@ export class AddServiceDialog {
       row.append(l);
     };
     select('matrixSet', 'タイル行列セット', choice.matrixSets);
-    select('format', '画像形式', choice.formats);
+    select('format', choice.formats?.some((f) => !f.startsWith('image/')) ? '形式' : '画像形式', choice.formats);
+    if (choice.area) {
+      const l = document.createElement('label');
+      l.className = 'pick';
+      const s = document.createElement('select');
+      s.name = 'area';
+      const options: Array<[string, string]> =
+        choice.area === 'vector' ? [['all', '全体（5 万件まで）'], ['view', '表示範囲'], ['selection', '選択中の地物の範囲']] : [['view', '表示範囲'], ['selection', '選択中の地物の範囲'], ['all', '全体']];
+      s.append(...options.map(([v, t]) => new Option(t, v)));
+      l.append('範囲', s);
+      row.append(l);
+    }
+    if (choice.filter) {
+      // The condition is folded away: most layers are added whole.
+      const details = document.createElement('details');
+      details.className = 'pick';
+      const summary = document.createElement('summary');
+      summary.textContent = '詳細';
+      const l = document.createElement('label');
+      const input = document.createElement('input');
+      input.name = 'filter';
+      input.type = 'text';
+      input.maxLength = 2000;
+      input.placeholder = choice.filter === 'cql2' ? "例: population > 1000 AND name LIKE '東%'" : '例: type=park&city=Tokyo';
+      l.append(choice.filter === 'cql2' ? '条件（CQL2）' : '条件（属性=値）', input);
+      details.append(summary, l);
+      row.append(details);
+    }
     return row;
   }
 
@@ -155,12 +186,12 @@ export class AddServiceDialog {
   }
 }
 
-/** Opens one layer again from a link (`?service=`). */
-export async function openRef(ref: ServiceRef, context: OpenContext): Promise<ServiceLayer> {
+/** Opens one layer again from a link (`?service=`); null when it opened as an image (WCS, OGC API – Coverages). */
+export async function openRef(ref: ServiceRef, context: OpenContext): Promise<ServiceLayer | null> {
   const catalog = await readService(ref.url, ref.kind);
   const choice = catalog.choices.find((c) => c.name === ref.layer);
   if (!choice) throw new Error(`レイヤー ${ref.layer} が見つかりません`);
-  return catalog.open(choice, context, { matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
+  return catalog.open(choice, context, { matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings, bbox: ref.bbox, filter: ref.filter, area: 'all' });
 }
 
 /** A layer as a `service` URL parameter, and back. */
@@ -170,7 +201,7 @@ export function refToParam(ref: ServiceRef): string {
 
 /** The same key for refs to the same layer, whatever their optional fields. */
 export function refKey(ref: ServiceRef): string {
-  return JSON.stringify([ref.kind, ref.url, ref.layer, ref.matrixSet ?? null, ref.format ?? null]);
+  return JSON.stringify([ref.kind, ref.url, ref.layer, ref.matrixSet ?? null, ref.format ?? null, ...(ref.bbox || ref.filter ? [ref.bbox ?? null, ref.filter ?? null] : [])]);
 }
 
 export function paramToRef(param: string): ServiceRef | null {
@@ -180,6 +211,10 @@ export function paramToRef(param: string): ServiceRef | null {
     const settings = settingsOf(ref.settings);
     if (settings) ref.settings = settings;
     else delete ref.settings;
+    const bbox = bboxOf(ref.bbox);
+    if (bbox) ref.bbox = bbox;
+    else delete ref.bbox;
+    if (typeof ref.filter !== 'string' || !ref.filter) delete ref.filter;
     return ref;
   } catch {
     return null;

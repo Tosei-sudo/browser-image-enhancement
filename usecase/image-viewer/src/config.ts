@@ -63,7 +63,22 @@ const baseMapTypes: readonly BaseMapType[] = ['xyz', 'mvt', 'style', 'esri'];
 export type LayerConfig =
   | { type: 'cog'; url: string }
   | { type: 'file'; url: string }
-  | { type: 'wms' | 'wmts' | 'wfs' | 'esri'; url: string; layer: string; matrixSet?: string; format?: string; settings?: EsriRasterSettings };
+  | {
+      type: ServiceLayerType;
+      url: string;
+      layer: string;
+      matrixSet?: string;
+      format?: string;
+      settings?: EsriRasterSettings;
+      /** OGC API – Features, WCS, OGC API – Coverages: the area read (degrees: west, south, east, north). */
+      bbox?: [number, number, number, number];
+      /** OGC API – Features: the condition. */
+      filter?: string;
+    };
+
+/** The service kinds a `layers` entry can be (as `ServiceKind` in services/common.ts). */
+export type ServiceLayerType = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage';
+const serviceLayerTypes: readonly string[] = ['wms', 'wmts', 'wfs', 'esri', 'ogc-features', 'ogc-tiles', 'wcs', 'ogc-coverage'];
 
 export interface ViewerConfig {
   /** Base maps in the order of the switch (after "none"). */
@@ -420,21 +435,28 @@ export function imageRuleFor(rules: readonly ImageRule[], name: string): ImageRu
 
 function layerOf(value: unknown, problems: string[], index: number): LayerConfig | null {
   if (!isRecord(value)) return (problems.push(`layers[${index}] がオブジェクトではありません`), null);
-  const { type, url, layer, matrixSet, format, settings } = value;
+  const { type, url, layer, matrixSet, format, settings, bbox, filter } = value;
   if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
   if (type === 'cog' || type === 'file') return { type, url };
-  if (type === 'wms' || type === 'wmts' || type === 'wfs' || type === 'esri') {
+  if (typeof type === 'string' && serviceLayerTypes.includes(type)) {
+    const box =
+      Array.isArray(bbox) && bbox.length === 4 && bbox.every((n) => typeof n === 'number' && Number.isFinite(n)) && bbox[0] <= bbox[2] && bbox[1] <= bbox[3]
+        ? (bbox as [number, number, number, number])
+        : undefined;
+    if (bbox !== undefined && !box) problems.push(`layers[${index}].bbox は [西, 南, 東, 北]（度）の 4 つの数にしてください`);
     if (typeof layer !== 'string' || !layer) return (problems.push(`layers[${index}] に layer（レイヤー名）がありません`), null);
     return {
-      type,
+      type: type as ServiceLayerType,
       url,
       layer,
+      ...(box ? { bbox: box } : {}),
+      ...(typeof filter === 'string' && filter.trim() ? { filter: filter.trim() } : {}),
       ...(typeof matrixSet === 'string' && matrixSet ? { matrixSet } : {}),
       ...(typeof format === 'string' && format ? { format } : {}),
       ...(type === 'esri' && settings !== undefined ? { settings: settingsOf(settings, problems, `layers[${index}].settings`) } : {}),
     };
   }
-  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri のどれかにしてください`);
+  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・ogc-features・ogc-tiles・wcs・ogc-coverage のどれかにしてください`);
   return null;
 }
 
@@ -468,8 +490,11 @@ export async function loadConfig(url = new URL('config.json', document.baseURI).
 export async function fetchFile(url: string): Promise<File> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const path = new URL(url, document.baseURI).pathname;
-  let name = path.slice(path.lastIndexOf('/') + 1) || 'layer';
+  const u = new URL(url, document.baseURI);
+  const path = u.pathname;
+  // `#file=<name>` names a file whose URL does not (a WCS GetCoverage); the fragment is never sent.
+  const hinted = /^#file=([^&]+)$/.exec(u.hash)?.[1];
+  let name = hinted ?? (path.slice(path.lastIndexOf('/') + 1) || 'layer');
   try {
     name = decodeURIComponent(name);
   } catch {
