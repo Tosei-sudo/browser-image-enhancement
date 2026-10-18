@@ -190,6 +190,19 @@ describe('renderers', () => {
     expect(specOfRenderer(r!)?.categories).toEqual([{ value: '1', color: '#00ff00', visible: true }]);
     expect(rendererOfSpec({ ...spec, mode: 'own' }, 'point')).toBeNull();
   });
+  it('writes and reads back outlines of their own', () => {
+    const spec = singleSpec('#ff0000');
+    spec.mode = 'categorized';
+    spec.field = 'KIND';
+    spec.symbol = { ...spec.symbol, stroke: '#111111', strokeWidth: 2 };
+    spec.categories = [
+      { value: '1', color: '#00ff00', visible: true },
+      { value: '2', color: '#0000ff', visible: true, stroke: '#ff00ff', strokeWidth: 4, dash: 'dash' },
+    ];
+    const r = rendererOfSpec(spec, 'polygon');
+    expect(r).toMatchObject({ uniqueValueInfos: [{}, { symbol: { outline: { style: 'esriSLSDash', color: [255, 0, 255, 255] } } }] });
+    expect(specOfRenderer(r!)?.categories).toEqual(spec.categories);
+  });
   it('reads label expressions', () => {
     expect(labelFieldOf([{ labelExpressionInfo: { expression: '$feature["名 前"]' } }])).toBe('名 前');
     expect(labelFieldOf([{ labelExpression: '[NAME]' }])).toBe('NAME');

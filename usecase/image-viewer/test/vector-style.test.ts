@@ -63,6 +63,44 @@ describe('styleFunction', () => {
     expect(line.getStroke()?.getColor()).toEqual([0, 255, 0, 1]);
   });
 
+  it('draws a category\'s own outline, and puts the categories\' color on the fill, the outline or both', () => {
+    const polygon = (kind: string) => new Feature({ geometry: new Polygon([[[0, 0], [1, 0], [1, 1], [0, 0]]]), kind });
+    const spec: VectorStyleSpec = {
+      ...singleSpec('#000000'),
+      mode: 'categorized',
+      field: 'kind',
+      categories: [
+        { value: 'a', color: '#00ff00', visible: true },
+        { value: 'b', color: '#0000ff', visible: true, stroke: '#ff0000', strokeWidth: 5, dash: 'dot' },
+      ],
+    };
+    spec.symbol = { ...spec.symbol, fill: '#888888', stroke: '#111111', strokeWidth: 2, dash: 'solid' };
+    let fn = styleFunction(spec);
+    const [a] = styles(fn, polygon('a'));
+    expect(a.getFill()?.getColor()).toEqual([0, 255, 0, 0.25]);
+    expect(a.getStroke()?.getColor()).toEqual([17, 17, 17, 1]);
+    const [b] = styles(fn, polygon('b'));
+    expect(b.getFill()?.getColor()).toEqual([0, 0, 255, 0.25]);
+    expect(b.getStroke()?.getColor()).toEqual([255, 0, 0, 1]);
+    expect(b.getStroke()?.getWidth()).toBe(5);
+    expect(b.getStroke()?.getLineDash()).toEqual([1, 5]);
+    // A line of a category takes its own line color and width.
+    const [line] = styles(fn, new Feature({ geometry: new LineString([[0, 0], [1, 1]]), kind: 'b' }));
+    expect(line.getStroke()?.getColor()).toEqual([255, 0, 0, 1]);
+    expect(line.getStroke()?.getWidth()).toBe(5);
+    // The color on the outline: the fill is the symbol's.
+    fn = styleFunction({ ...spec, colorTarget: 'stroke' });
+    const [a2] = styles(fn, polygon('a'));
+    expect(a2.getFill()?.getColor()).toEqual([136, 136, 136, 0.25]);
+    expect(a2.getStroke()?.getColor()).toEqual([0, 255, 0, 1]);
+    // Both: fill and outline in the category's color, unless it has an outline of its own.
+    fn = styleFunction({ ...spec, colorTarget: 'both' });
+    const [a3] = styles(fn, polygon('a'));
+    expect(a3.getFill()?.getColor()).toEqual([0, 255, 0, 0.25]);
+    expect(a3.getStroke()?.getColor()).toEqual([0, 255, 0, 1]);
+    expect(styles(fn, polygon('b'))[0].getStroke()?.getColor()).toEqual([255, 0, 0, 1]);
+  });
+
   it('adds a label from an attribute, and none where the value is empty', () => {
     const spec = singleSpec('#ff0000');
     spec.label.field = 'name';
@@ -258,7 +296,29 @@ describe('normalizeSpec', () => {
     );
     expect(spec.mode).toBe('graduated');
     expect(spec.classes).toEqual([{ min: 0, max: 1, color: '#000000', visible: true }]);
+    expect(spec.colorTarget).toBe('fill');
     expect([spec.method, spec.classCount, spec.ramp]).toEqual(['quantile', 20, 'reds']);
     expect([spec.minScale, spec.maxScale, spec.label.maxScale]).toEqual([5000, null, 2000]);
+  });
+
+  it('keeps each class\'s own outline and where colors go, and drops what is not one', () => {
+    const spec = normalizeSpec(
+      {
+        mode: 'categorized',
+        field: 'k',
+        colorTarget: 'both',
+        categories: [
+          { value: 'a', color: '#000000', stroke: '#ff0000', strokeWidth: 4, dash: 'dash' },
+          { value: 'b', color: '#000000', stroke: 'red', strokeWidth: -1, dash: 'wavy' },
+        ],
+      },
+      singleSpec('#ffffff'),
+    );
+    expect(spec.colorTarget).toBe('both');
+    expect(spec.categories).toEqual([
+      { value: 'a', color: '#000000', visible: true, stroke: '#ff0000', strokeWidth: 4, dash: 'dash' },
+      { value: 'b', color: '#000000', visible: true },
+    ]);
+    expect(normalizeSpec({ colorTarget: 'everything' }, singleSpec('#ffffff')).colorTarget).toBe('fill');
   });
 });

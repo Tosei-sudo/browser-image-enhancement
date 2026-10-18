@@ -54,15 +54,31 @@ export interface SymbolSpec {
   size: number;
 }
 
+/**
+ * A category's or range's own outline (a line's own line): what is left out
+ * (or null) is drawn as `colorTarget` and the symbol say.
+ */
+export interface ClassStroke {
+  /** Outline color (`#rrggbb`); a line's color. */
+  stroke?: string | null;
+  /** Pixels; 0 draws no outline. */
+  strokeWidth?: number | null;
+  dash?: LineDash | null;
+}
+
+/** Where the color of a category or range goes: the fill, the outline, or both. */
+export type ColorTarget = 'fill' | 'stroke' | 'both';
+export const colorTargets: Record<ColorTarget, string> = { fill: '塗り', stroke: '枠', both: '塗りと枠' };
+
 /** One value of the attribute a categorized style colors by. */
-export interface Category {
+export interface Category extends ClassStroke {
   value: string;
   color: string;
   visible: boolean;
 }
 
 /** One range of the number a graduated style colors by: `min` < value ≤ `max` (the first range includes its `min`). */
-export interface GradClass {
+export interface GradClass extends ClassStroke {
   min: number;
   max: number;
   color: string;
@@ -124,6 +140,12 @@ export interface VectorStyleSpec {
   ramp: RampName;
   /** Whether the ramp runs from high to low. */
   reversed: boolean;
+  /**
+   * Where the color of each category or range goes: `fill` (the outline is
+   * the symbol's), `stroke` (the fill is the symbol's) or `both`. Lines take
+   * it as their color whatever this says.
+   */
+  colorTarget: ColorTarget;
   /** Whether features whose value is not listed (or in no range) are drawn (in the symbol's colors). */
   othersVisible: boolean;
   label: LabelSpec;
@@ -147,6 +169,7 @@ export function singleSpec(color: string): VectorStyleSpec {
     classCount: 5,
     ramp: 'reds',
     reversed: false,
+    colorTarget: 'fill',
     othersVisible: true,
     label: { field: null, size: 13, color: '#222222', bold: false, halo: '#ffffff', haloWidth: 3, overlap: false, maxScale: null },
     minScale: null,
@@ -180,20 +203,97 @@ export function normalizeSpec(spec: unknown, base: VectorStyleSpec): VectorStyle
     symbol,
     field: typeof s.field === 'string' ? s.field : null,
     categories: Array.isArray(s.categories)
-      ? s.categories.filter((c): c is Category => !!c && typeof c.value === 'string' && typeof c.color === 'string').map((c) => ({ value: c.value, color: c.color, visible: c.visible !== false }))
+      ? s.categories.filter((c): c is Category => !!c && typeof c.value === 'string' && typeof c.color === 'string').map((c) => ({ value: c.value, color: c.color, visible: c.visible !== false, ...classStrokeOf(c) }))
       : [],
     classes: Array.isArray(s.classes)
-      ? s.classes.filter((c): c is GradClass => !!c && isNumber(c.min) && isNumber(c.max) && typeof c.color === 'string').map((c) => ({ min: c.min, max: c.max, color: c.color, visible: c.visible !== false }))
+      ? s.classes.filter((c): c is GradClass => !!c && isNumber(c.min) && isNumber(c.max) && typeof c.color === 'string').map((c) => ({ min: c.min, max: c.max, color: c.color, visible: c.visible !== false, ...classStrokeOf(c) }))
       : [],
     method: s.method && s.method in classMethods ? s.method : base.method,
     classCount: isNumber(s.classCount) ? Math.max(1, Math.min(MAX_CLASSES, Math.round(s.classCount))) : base.classCount,
     ramp: s.ramp && s.ramp in colorRamps ? s.ramp : base.ramp,
     reversed: s.reversed === true,
+    colorTarget: s.colorTarget && s.colorTarget in colorTargets ? s.colorTarget : 'fill',
     othersVisible: typeof s.othersVisible === 'boolean' ? s.othersVisible : true,
     label,
     minScale: scaleOf(s.minScale),
     maxScale: scaleOf(s.maxScale),
   };
+}
+
+/** The outline a category or range read back has of its own (only what it sets, and is of the right kind). */
+function classStrokeOf(c: ClassStroke): ClassStroke {
+  const out: ClassStroke = {};
+  if (typeof c.stroke === 'string' && /^#[0-9a-f]{6}$/i.test(c.stroke)) out.stroke = c.stroke;
+  if (typeof c.strokeWidth === 'number' && Number.isFinite(c.strokeWidth) && c.strokeWidth >= 0) out.strokeWidth = c.strokeWidth;
+  if (typeof c.dash === 'string' && c.dash in lineDashes) out.dash = c.dash;
+  return out;
+}
+
+/** Whether a category or range has an outline of its own. */
+export function hasOwnStroke(c: ClassStroke): boolean {
+  return c.stroke != null || c.strokeWidth != null || c.dash != null;
+}
+
+/**
+ * How one category or range is drawn: the symbol with its fill and outline
+ * (as `target` says where its color goes, and as it sets its outline), and
+ * the color of its lines.
+ */
+export function classSymbol(s: SymbolSpec, c: ClassStroke & { color: string }, target: ColorTarget): { symbol: SymbolSpec; line: string } {
+  const symbol: SymbolSpec = {
+    ...s,
+    fill: target === 'stroke' ? s.fill : c.color,
+    stroke: c.stroke ?? (target === 'fill' ? s.stroke : c.color),
+    strokeWidth: c.strokeWidth ?? s.strokeWidth,
+    dash: c.dash ?? s.dash,
+  };
+  return { symbol, line: c.stroke ?? c.color };
+}
+
+/**
+ * One category or range as a symbol of its own, for a geometry drawn as a
+ * line or not: a line in its line color, at least 1 pixel wide unless its
+ * own width says otherwise.
+ */
+export function symbolOfClass(spec: VectorStyleSpec, c: ClassStroke & { color: string }, line: boolean): SymbolSpec {
+  const { symbol, line: color } = classSymbol(spec.symbol, c, spec.colorTarget);
+  return line ? { ...symbol, stroke: color, strokeWidth: c.strokeWidth == null ? Math.max(1, symbol.strokeWidth) : symbol.strokeWidth } : symbol;
+}
+
+/**
+ * Where the colors of categories or ranges read from a file go: when every
+ * one's outline is its fill, both; when they share the fill and differ in
+ * their outlines, the outline (their color becomes the outline's). Their own
+ * outlines are dropped where the color now gives them.
+ */
+export function settleColorTarget(spec: VectorStyleSpec, list: Array<ClassStroke & { color: string }>): void {
+  spec.colorTarget = 'fill';
+  if (!list.length) return;
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const outline = (c: ClassStroke) => c.stroke ?? spec.symbol.stroke;
+  if (list.length > 1 && list.every((c) => same(outline(c), c.color))) {
+    spec.colorTarget = 'both';
+    for (const c of list) delete c.stroke;
+  } else if (list.every((c) => same(c.color, spec.symbol.fill)) && list.some((c) => !same(outline(c), outline(list[0])))) {
+    spec.colorTarget = 'stroke';
+    for (const c of list) {
+      c.color = outline(c);
+      delete c.stroke;
+    }
+  }
+}
+
+/**
+ * The outline of a symbol read from a file for one category or range, as
+ * what it has of its own beside the `common` symbol (lines: their color is
+ * the category's, so only the width and pattern).
+ */
+export function strokeBeside(common: SymbolSpec, own: SymbolSpec, line: boolean): ClassStroke {
+  const out: ClassStroke = {};
+  if (!line && own.stroke.toLowerCase() !== common.stroke.toLowerCase()) out.stroke = own.stroke;
+  if (own.strokeWidth !== common.strokeWidth) out.strokeWidth = own.strokeWidth;
+  if (own.dash !== common.dash) out.dash = own.dash;
+  return out;
 }
 
 /** A scale denominator, or null when it is none (no limit). */
@@ -248,19 +348,20 @@ export function markerOf(fillColor: string, strokeColor: string, s: SymbolSpec):
 }
 
 /**
- * The styles of one color: for points and polygons (filled in `color`, the
- * symbol's outline) and for lines (in `color`). With the symbol's own colors
- * when `color` is null.
+ * The styles of one category or range: for points and polygons (its fill and
+ * outline) and for lines (in its line color). With the symbol's own colors
+ * when `c` is null.
  */
-function symbolStyles(s: SymbolSpec, color: string | null): { area: Style; line: Style } {
-  const fill = color ?? s.fill;
+function symbolStyles(spec: VectorStyleSpec, c: (ClassStroke & { color: string }) | null): { area: Style; line: Style } {
+  const s = c ? symbolOfClass(spec, c, false) : spec.symbol;
   const area = new Style({
-    fill: s.fillOpacity > 0 ? new Fill({ color: withOpacity(fill, s.fillOpacity) }) : undefined,
+    fill: s.fillOpacity > 0 ? new Fill({ color: withOpacity(s.fill, s.fillOpacity) }) : undefined,
     stroke: strokeOf(s.stroke, s),
-    image: markerOf(fill, s.stroke, s),
+    image: markerOf(s.fill, s.stroke, s),
   });
   // A line of a categorized layer takes its category's color; a line of one symbol the symbol's line color.
-  const line = new Style({ stroke: strokeOf(color ?? s.stroke, { ...s, strokeWidth: Math.max(s.strokeWidth, color ? 1 : 0) }) });
+  const l = c ? symbolOfClass(spec, c, true) : spec.symbol;
+  const line = new Style({ stroke: strokeOf(l.stroke, l) });
   return { area, line };
 }
 
@@ -387,9 +488,9 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude =
     draw = (feature, resolution) => ownFn(feature, resolution) as Style | Style[] | void;
   } else if (spec.mode === 'categorized' && spec.field) {
     const field = spec.field;
-    const styles = new Map(spec.categories.filter((c) => c.visible).map((c) => [c.value, symbolStyles(spec.symbol, c.color)]));
+    const styles = new Map(spec.categories.filter((c) => c.visible).map((c) => [c.value, symbolStyles(spec, c)]));
     const listed = new Set(spec.categories.map((c) => c.value));
-    const others = spec.othersVisible ? symbolStyles(spec.symbol, null) : null;
+    const others = spec.othersVisible ? symbolStyles(spec, null) : null;
     draw = (feature) => {
       const value = categoryValue(feature.get(field));
       const s = styles.get(value) ?? (listed.has(value) ? null : others);
@@ -399,8 +500,8 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude =
   } else if (spec.mode === 'graduated' && spec.field) {
     const field = spec.field;
     const classes = spec.classes;
-    const styles = classes.map((c) => (c.visible ? symbolStyles(spec.symbol, c.color) : null));
-    const others = spec.othersVisible ? symbolStyles(spec.symbol, null) : null;
+    const styles = classes.map((c) => (c.visible ? symbolStyles(spec, c) : null));
+    const others = spec.othersVisible ? symbolStyles(spec, null) : null;
     draw = (feature) => {
       const value = numberValue(feature.get(field));
       const i = value === null ? -1 : classIndex(classes, value);
@@ -409,7 +510,7 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude =
       return isLine(feature.getGeometry()?.getType()) ? s.line : s.area;
     };
   } else {
-    const s = symbolStyles(spec.symbol, null);
+    const s = symbolStyles(spec, null);
     draw = (feature) => (isLine(feature.getGeometry()?.getType()) ? s.line : s.area);
   }
   if (!labels) return draw;

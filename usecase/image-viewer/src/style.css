@@ -1629,7 +1629,8 @@ body {
 .style-form .wide {
   grid-column: 1 / -1;
 }
-.style-form [hidden] {
+.style-form [hidden],
+.style-form label.check[hidden] {
   display: none;
 }
 .style-form input:not([type=checkbox]),
@@ -1660,7 +1661,7 @@ body {
 }
 .style-categories .style-category {
   display: grid;
-  grid-template-columns: auto 2.4rem minmax(0, 1fr) auto;
+  grid-template-columns: auto 2.4rem minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   color: var(--fg);
@@ -1691,6 +1692,45 @@ body {
 }
 .style-reset {
   margin-right: auto;
+}
+/* A category's or range's outline: a button showing it, and its own color, width and pattern under the row. */
+.style-categories .style-outline-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0;
+  padding: 1px 6px;
+  color: var(--muted);
+}
+.style-categories .style-outline-button.own {
+  color: var(--fg);
+  font-weight: 600;
+}
+.style-outline-chip {
+  box-sizing: border-box;
+  width: 16px;
+  height: 12px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.style-categories .style-outline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px 10px;
+  margin: 0 0 4px 1.6rem;
+  padding: 4px 8px 6px;
+  border-left: 2px solid var(--line);
+}
+.style-categories .style-outline[hidden],
+.style-categories .style-outline label[hidden] {
+  display: none;
+}
+.style-categories .style-outline input[type=number] {
+  width: 6.5rem;
+}
+.style-categories .style-outline button {
+  margin-top: 0;
 }
 /* A range of a graduated style: its upper bound can be typed. */
 .style-bounds {
@@ -4216,6 +4256,9 @@ html.embed .ol-enhance {
   justify-content: flex-end;
   flex-wrap: wrap;
   margin: 4px 0;
+}
+.style-export[hidden] {
+  display: none;
 }
 .style-export label {
   display: flex;
