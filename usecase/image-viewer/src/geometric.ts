@@ -45,6 +45,7 @@ import { displacement, sampleGrid, type GridMap, type SensorView, type SimpleOrt
 import { getShift, setShift } from './shift.js';
 import { openElevationService, type ElevationSource } from './services/esri-elevation.js';
 import { saveFile } from './save-folder.js';
+import { results } from './result-store.js';
 
 /** A satellite image that can be orthorectified. */
 export interface SatelliteImage {
@@ -588,9 +589,15 @@ export class GeometricMode {
   /** Adds an orthorectified result of `image` as a new layer that looks like it. */
   private async addOrtho_(image: ViewerImage, result: OrthoResult): Promise<ViewerImage | null> {
     const name = `${baseName(image.name)}_ortho.tif`;
-    const source = await this.loader.loadFile(orthoGeoTIFF(result), name).catch(() => null);
+    // Kept in the browser too (「処理結果」), and saved as a COG from its row.
+    const { file, kept } = await results.keepBlob('オルソ', name, orthoGeoTIFF(result));
+    const source = await this.loader.loadFile(file, name).catch(() => null);
     const ortho = source && this.find_(source);
-    if (!ortho || !source) return null;
+    if (!ortho || !source) {
+      if (kept) await results.remove(kept.id).catch(() => {});
+      return null;
+    }
+    results.mark(ortho, { tool: 'オルソ', files: [file], kept });
     this.orthos_.set(ortho, { sourceName: image.name, result });
     this.images.setBadge(ortho, 'オルソ');
     // Keep the look of the original: its correction and band assignment.

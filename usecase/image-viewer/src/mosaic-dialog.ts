@@ -17,6 +17,7 @@ import type { MosaicRead, MosaicTask, Overlap } from './mosaic.js';
 import type { MosaicReply } from './mosaic-worker.js';
 import { TiledTiffWriter } from './tiff-stream.js';
 import { saveFile } from './save-folder.js';
+import { keepResult, results } from './result-store.js';
 
 /** Tile size of the result. */
 const TILE = 256;
@@ -270,13 +271,15 @@ export class MosaicDialog {
     const running = { cancelled: false };
     this.running_ = running;
     const workers: Worker[] = [];
+    const name = `${mosaicName(chosen)}_mosaic.tif`;
+    const draft = results.begin('モザイク');
     try {
       const { plan, bands } = this.plan_(chosen);
       const { grid, type } = plan;
       const blocks = blocksOf(grid);
       const min = new Array<number>(bands).fill(Infinity);
       const max = new Array<number>(bands).fill(-Infinity);
-      const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands, sample: samplesOf(type, 0), tileSize: TILE, ...colorOf(plan, chosen, bands) });
+      const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands, sample: samplesOf(type, 0), tileSize: TILE, ...colorOf(plan, chosen, bands), sink: draft.sink(name) });
       let covered = 0;
       let next = 0;
       let done = 0;
@@ -296,7 +299,7 @@ export class MosaicDialog {
           stop();
           const buffers = task.reads.flatMap((r) => (r ? [(r.data as unknown as { buffer: ArrayBuffer }).buffer] : []));
           const block = await call(worker, task, buffers);
-          writer.add(block.tiles);
+          await writer.add(block.tiles);
           for (let b = 0; b < bands; b++) {
             min[b] = Math.min(min[b], block.min[b]);
             max[b] = Math.max(max[b], block.max[b]);
@@ -319,13 +322,13 @@ export class MosaicDialog {
       );
       stop();
       if (!covered) throw new Error('選んだ画像にデータのある所がありませんでした');
-      const blob = writer.finish(await tagsOf(plan, min, max));
+      const blob = await writer.finish(await tagsOf(plan, min, max), name);
 
-      const name = `${mosaicName(chosen)}_mosaic.tif`;
       this.note_.textContent = '結果を開いています…';
-      const file = new File([blob], name, { type: 'image/tiff' });
+      const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const image = source && this.images.find(source);
+      await keepResult(draft, image, file);
       if (!source || !image) return null;
       this.made_.set(image, blob);
       this.images.setBadge(image, 'モザイク');
@@ -333,6 +336,7 @@ export class MosaicDialog {
       this.options.say(`${name} を作りました（${chosen.length} 枚、${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）`);
       return image;
     } catch (error) {
+      await draft.discard();
       const message = error instanceof Error ? error.message : String(error);
       if (running.cancelled) this.options.say('モザイクを中止しました');
       else this.note_.textContent = `モザイクを作れませんでした: ${message}`;

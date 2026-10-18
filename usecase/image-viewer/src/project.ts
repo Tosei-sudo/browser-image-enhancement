@@ -193,6 +193,14 @@ export class ProjectControl {
     }
   }
 
+  /**
+   * Marks `layer` as opened from `files` (a processing result kept in the
+   * browser), so a project names them and opens them again.
+   */
+  adopt(layer: ViewerLayer, files: File[]): void {
+    this.sets_.set(layer, { files });
+  }
+
   /** Runs `open`, and marks the layers it adds as opened from `set`; returns them, top first. */
   private async track_(set: OpenedSet, open: () => Promise<void>): Promise<ViewerLayer[]> {
     const before = new Set(this.options.images.layers());
@@ -404,7 +412,7 @@ export class ProjectControl {
     const sets = this.options.images.layers().map((l) => this.sets_.get(l)).filter((s): s is OpenedSet => !!s);
     const kept = sets.flatMap((s) => s.files.map((f) => ({ name: f.name, size: f.size, handle: handleOf(f) }))).filter((h): h is KeptHandle => !!h.handle);
     await this.handles_.put(project.id, kept).catch(() => {});
-    say(left.length ? `${savedAs} に保存しました（${left.join('、')} は保存できません。処理結果の画像は GeoTIFF に書き出してから開いてください）` : `${savedAs} に保存しました`);
+    say(left.length ? `${savedAs} に保存しました（${left.join('、')} は保存できません。このブラウザに保存されていない処理結果の画像は GeoTIFF に書き出してから開いてください）` : `${savedAs} に保存しました`);
   }
 
   /** Chooses a project file and opens it. */

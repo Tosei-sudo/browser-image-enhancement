@@ -22,6 +22,7 @@ import { field, type ProcessingResult } from './processing/common.js';
 import { planCalc, runCalc, type CalcResult } from './raster-calc-run.js';
 import type { LonLat } from './coordinates.js';
 import { saveFile } from './save-folder.js';
+import { keepResult, results } from './result-store.js';
 
 /** Most pixels the outlines are traced over (the change image is read reduced to this). */
 const MAX_TRACE_PIXELS = 4_000_000;
@@ -220,9 +221,13 @@ export class ChangeDialog {
     this.run_.disabled = true;
     const control = { cancelled: false };
     this.running_ = control;
+    const name = `${baseName(before.image.name)}_${baseName(after.image.name)}_${method.id}.tif`.slice(-120);
+    const draft = results.begin('変化');
     try {
       this.note_.textContent = '比べています… 0%';
       const result = await runCalc({
+        sink: draft.sink(name),
+        name,
         inputs: [before, after],
         expr: parseExpression(method.expression, ['A', 'B']),
         reference: this.reference_(before, after),
@@ -232,11 +237,11 @@ export class ChangeDialog {
           if (!control.cancelled) this.note_.textContent = `比べています… ${Math.floor(done * 100)}%`;
         },
       });
-      const name = `${baseName(before.image.name)}_${baseName(after.image.name)}_${method.id}.tif`.slice(-120);
       this.note_.textContent = '結果を開いています…';
-      const file = new File([result.blob], name, { type: 'image/tiff' });
+      const file = result.blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
+      await keepResult(draft, made, file);
       if (!made) return null;
       this.made_.set(made, result.blob);
       this.images.setBadge(made, '変化');
@@ -264,6 +269,7 @@ export class ChangeDialog {
       this.options.say(`${name} を作りました${summary}`);
       return made;
     } catch (error) {
+      await draft.discard();
       if (control.cancelled) this.options.say('変化抽出を中止しました');
       else this.note_.textContent = `比べられませんでした: ${error instanceof Error ? error.message : String(error)}`;
       return null;

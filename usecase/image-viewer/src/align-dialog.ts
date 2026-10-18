@@ -18,6 +18,7 @@ import { baseName, type ImageList, type ViewerImage } from './images.js';
 import { optionFor, type DataSources } from './data-sources.js';
 import { runResample } from './raster-calc-run.js';
 import { saveFile } from './save-folder.js';
+import { keepResult, results } from './result-store.js';
 
 /** Pixels across the coarse look at the whole overlap. */
 const COARSE = 512;
@@ -290,6 +291,8 @@ export class AlignDialog {
     this.run_.disabled = true;
     const control = { cancelled: false };
     this.running_ = control;
+    const name = `${baseName(target.image.name)}_aligned.tif`;
+    const draft = results.begin('位置合わせ');
     try {
       this.note_.textContent = 'ずれを調べています…';
       const alignment = await findAlignment(reference, target, how, Number(form.get('patches')) || 4, (done) => {
@@ -298,17 +301,19 @@ export class AlignDialog {
       if (control.cancelled) throw new Error('中止しました');
       const { plan, channels } = alignedPlan(target.image, reference.image, alignment);
       const blob = await runResample(plan, channels, colorOf(plan, [target.image], channels.length), {
+        sink: draft.sink(name),
+        name,
         resample: form.get('resample') === 'nearest' ? 'nearest' : 'bilinear',
         control,
         onProgress: (done) => {
           if (!control.cancelled) this.note_.textContent = `位置を合わせた画像を作っています… ${Math.floor(done * 100)}%`;
         },
       });
-      const name = `${baseName(target.image.name)}_aligned.tif`;
       this.note_.textContent = '結果を開いています…';
-      const file = new File([blob], name, { type: 'image/tiff' });
+      const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
+      await keepResult(draft, made, file);
       if (!made) return null;
       this.made_.set(made, blob);
       this.images.setBadge(made, '位置合わせ');
@@ -316,6 +321,7 @@ export class AlignDialog {
       this.options.say(`${name} を作りました（${describeAlignment(alignment, plan.projection)}）`);
       return made;
     } catch (error) {
+      await draft.discard();
       if (control.cancelled) this.options.say('自動位置合わせを中止しました');
       else this.note_.textContent = `位置を合わせられませんでした: ${error instanceof Error ? error.message : String(error)}`;
       return null;
