@@ -92,6 +92,15 @@ export interface ProjectLayer {
   dem?: true;
   /** The timeline's settings of the layer: whether it follows the window, its time attributes, a typed time. */
   time?: { on: boolean; start?: string | null; end?: string | null; time?: number };
+  /** Index in the project's `groups` of the group the layer is in. */
+  group?: number;
+}
+
+/** A group of layers in the list (its layers name it by index). */
+export interface ProjectGroup {
+  name: string;
+  visible: boolean;
+  collapsed: boolean;
 }
 
 /** The area shown. */
@@ -132,6 +141,8 @@ export interface Project {
   layers: ProjectLayer[];
   /** Index in `layers` of the selected layer. */
   selected: number | null;
+  /** Groups of layers, top first. */
+  groups?: ProjectGroup[];
   /** The 3D view, once it has been opened. */
   globe?: ProjectGlobe;
   /** The screen: panel sizes, open sections, the timeline and the dashboard. */
@@ -184,10 +195,18 @@ export function readProject(text: string): { project: Project; skipped: number }
       }))
     : [];
 
+  const groups: ProjectGroup[] = Array.isArray(json.groups)
+    ? json.groups.map((g) => ({
+        name: isObject(g) && typeof g.name === 'string' ? g.name : 'グループ',
+        visible: !(isObject(g) && g.visible === false),
+        collapsed: isObject(g) && g.collapsed === true,
+      }))
+    : [];
+
   let skipped = 0;
   const layers: ProjectLayer[] = [];
   for (const raw of Array.isArray(json.layers) ? json.layers : []) {
-    const layer = readLayer(raw, fileSets.length);
+    const layer = readLayer(raw, fileSets.length, groups.length);
     if (layer) layers.push(layer);
     else skipped++;
   }
@@ -214,6 +233,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       layers,
       // A layer left out moves the others: keep the selection only when nothing was.
       selected: skipped ? null : selected,
+      ...(groups.length ? { groups } : {}),
       ...(globe ? { globe } : {}),
       ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
       ...(bookmarks.length ? { bookmarks } : {}),
@@ -224,7 +244,7 @@ export function readProject(text: string): { project: Project; skipped: number }
   };
 }
 
-function readLayer(raw: unknown, sets: number): ProjectLayer | null {
+function readLayer(raw: unknown, sets: number, groups: number): ProjectLayer | null {
   if (!isObject(raw) || (raw.type !== 'image' && raw.type !== 'service') || typeof raw.name !== 'string' || !isObject(raw.source)) return null;
   const source = readSource(raw.source, sets);
   if (!source) return null;
@@ -256,6 +276,7 @@ function readLayer(raw: unknown, sets: number): ProjectLayer | null {
     if (name(t.end) !== undefined) layer.time.end = name(t.end);
     if (isNumber(t.time)) layer.time.time = t.time;
   }
+  if (Number.isInteger(raw.group) && (raw.group as number) >= 0 && (raw.group as number) < groups) layer.group = raw.group as number;
   return layer;
 }
 

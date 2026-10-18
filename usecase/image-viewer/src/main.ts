@@ -21,8 +21,11 @@ import {
   GpuCorrectedTileLayer,
   LoadImageControl,
   loadImageLabelsJa,
+  type EnhancedGeoTIFF,
   type LoadedImage,
 } from 'browser-image-enhancement/openlayers';
+import { intersects } from 'ol/extent.js';
+import { transformExtent } from 'ol/proj.js';
 import type Feature from 'ol/Feature.js';
 import type Point from 'ol/geom/Point.js';
 import DragBox from 'ol/interaction/DragBox.js';
@@ -764,7 +767,7 @@ const project = new ProjectControl({
   baseMap,
   tempStore,
   recent: recentFiles,
-  openFiles: (files) => openFiles(files, fileContext()),
+  openFiles: (files, options) => openFiles(files, { ...fileContext(), ...options }),
   serviceContext,
   say,
   remember: (handles) => void recent?.remember(handles),
@@ -1022,6 +1025,24 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
 });
 
 /** What opening files needs: where they go, and how RSETs being made are shown. */
+/** Which RSET to make first: images on the map in view, then the others, top of the list first; null once closed. */
+function rsetRank(source: EnhancedGeoTIFF): number | null {
+  const image = images.find(source);
+  if (!image) return null;
+  const order = images.layers().indexOf(image);
+  const view = map.getView();
+  const size = map.getSize();
+  const grid = source.getTileGrid();
+  const projection = source.getProjection();
+  if (!size || !grid || !projection || !image.layer.getVisible()) return 100_000 + order;
+  try {
+    const extent = transformExtent(grid.getExtent(), projection, view.getProjection());
+    return intersects(extent, view.calculateExtent(size)) ? order : 100_000 + order;
+  } catch {
+    return 100_000 + order;
+  }
+}
+
 function fileContext(): OpenFilesContext {
   return {
     loader,
@@ -1038,6 +1059,7 @@ function fileContext(): OpenFilesContext {
       rsetShown.update();
     },
     askGeoref: (source, side) => georef.openFor(source, side),
+    rsetRank: (source) => rsetRank(source),
     // A TIFF without a projection is shown where pictures go, and marked as one.
     onUnplaced: (source) => {
       const image = images.find(source);

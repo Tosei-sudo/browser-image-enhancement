@@ -312,6 +312,119 @@ body {
   min-width: 0;
 }
 
+/* Groups of layers: a header row that folds, shows and moves its layers, which are listed under it. */
+.layer-group {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--line) 25%, transparent);
+}
+.group-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 4px;
+  padding: 4px 6px;
+}
+.group-toggle {
+  width: 1.4em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.group-name {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-count {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: normal;
+}
+.group-head .tools {
+  display: flex;
+  gap: 2px;
+}
+.group-head .tools button {
+  width: 1.7em;
+  height: 1.7em;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.group-head .tools button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.group-head .opacity {
+  grid-column: 3 / 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.group-head .opacity input {
+  flex: 1;
+  min-width: 0;
+}
+.group-note {
+  flex: none;
+  padding: 0 4px;
+  font-weight: normal;
+  border-radius: 3px;
+  background: #7c3aed22;
+  color: var(--tag-violet);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.group-note[hidden] {
+  display: none;
+}
+.group-layers {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 4px 4px 14px;
+  list-style: none;
+}
+.group-layers[hidden] {
+  display: none;
+}
+.layer-group.group-hidden .group-layers .name {
+  opacity: 0.55;
+}
+@container (max-width: 24rem) {
+  .group-head .tools {
+    grid-column: 3 / 5;
+  }
+}
+
 .points {
   display: grid;
   gap: 4px;
@@ -1148,6 +1261,12 @@ body {
 .rset-percent {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.rset-waiting {
+  color: var(--muted);
+}
+.rset-waiting[hidden] {
+  display: none;
 }
 
 /* Processing dialog (in the add-a-service dialog's style). */

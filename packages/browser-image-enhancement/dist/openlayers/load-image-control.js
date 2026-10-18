@@ -138,7 +138,7 @@ var LoadImageControl = class extends Control {
 			return this.show_({ blob: imageToGeoTIFF(image, {
 				extent,
 				epsg
-			}) }, name, "image");
+			}) }, name, "image", { fit: options.fit });
 		});
 	}
 	/** Loads a COG (or any GeoTIFF the server allows range requests on) from `url`. */
@@ -246,7 +246,7 @@ var LoadImageControl = class extends Control {
 			if (current && current !== source) current.dispose();
 		}
 		const map = this.getMap();
-		if (map && this.options_.fit !== false && view.extent) {
+		if (map && this.options_.fit !== false && options.fit !== false && view.extent) {
 			const target = map.getView();
 			const extent = transformExtent(view.extent, view.projection ?? "EPSG:4326", target.getProjection());
 			target.fit(extent, {

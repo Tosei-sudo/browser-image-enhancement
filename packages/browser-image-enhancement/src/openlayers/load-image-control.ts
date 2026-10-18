@@ -59,6 +59,12 @@ export interface LoadFileOptions {
    * image's RPC, say, as a custom projection with transforms to the map's).
    */
   projection?: ProjectionLike;
+  /**
+   * Set to false to leave the view where it is for this file, whatever the
+   * control's `fit` option says (when many files are opened at once and the
+   * view is fitted to all of them after, say).
+   */
+  fit?: boolean;
 }
 
 /** Texts of {@link LoadImageControl}, by key. */
@@ -237,7 +243,7 @@ export default class LoadImageControl extends Control {
       const image = await toImageData(file);
       const place = this.options_.placement ?? placeOverView;
       const { extent, epsg } = place({ width: image.width, height: image.height }, map);
-      return this.show_({ blob: imageToGeoTIFF(image, { extent, epsg }) }, name, 'image');
+      return this.show_({ blob: imageToGeoTIFF(image, { extent, epsg }) }, name, 'image', { fit: options.fit });
     });
   }
 
@@ -350,7 +356,7 @@ export default class LoadImageControl extends Control {
       if (current && current !== source) current.dispose();
     }
     const map = this.getMap();
-    if (map && this.options_.fit !== false && view.extent) {
+    if (map && this.options_.fit !== false && options.fit !== false && view.extent) {
       const target = map.getView();
       const extent = transformExtent(view.extent, view.projection ?? 'EPSG:4326', target.getProjection());
       target.fit(extent, { padding: [20, 20, 20, 20], duration: 0 });

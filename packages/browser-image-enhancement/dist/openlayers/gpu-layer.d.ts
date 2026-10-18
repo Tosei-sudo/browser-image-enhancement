@@ -37,7 +37,11 @@ export type LayerBlendMode = 'normal' | 'screen' | 'lighten' | 'darken' | 'multi
  */
 export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private readonly output_;
+  /** Made the first time a frame is corrected or colored, so a layer that does neither holds no WebGL context of its own. */
   private gpu_;
+  /** Whether WebGL2 could not be had (no use trying again), or the context is lost until the browser restores it. */
+  private noGpu_;
+  private lost_;
   private readonly correction_;
   private readonly correctionKey_;
   private readonly useGpu_;
@@ -58,6 +62,8 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   /** The class name that gives the layer a WebGL canvas of its own (see {@link GpuCorrectedTileLayer.getClassName}). */
   private readonly ownClass_;
   constructor(options?: GpuCorrectedTileLayerOptions);
+  /** The renderer, made when first needed; null without WebGL2 (or while the context is lost). */
+  private gpu;
   /**
    * OpenLayers draws neighbouring WebGL layers of the same class name on one
    * canvas, so a layer that colors, corrects or blends what it drew would do
@@ -66,7 +72,10 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
    * fewer each).
    */
   getClassName(): string;
-  /** Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}). */
+  /**
+   * Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}):
+   * not an image left as it is, so many of those share one canvas (and WebGL context).
+   */
   private ownsCanvas_;
   /** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
   hasGpu(): boolean;
