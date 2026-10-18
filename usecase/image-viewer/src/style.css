@@ -2633,7 +2633,10 @@ body {
   width: min(32rem, calc(100% - 32px));
 }
 .watch-button {
-  position: relative;
+  white-space: nowrap;
+}
+.catalog-watch {
+  margin-right: auto;
 }
 .watch-count {
   margin-left: 4px;
