@@ -16,6 +16,7 @@ import { movingFeedOf, type FeedConfig } from './moving.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
 import { defaultEmbed, embedConfigOf, type EmbedConfig } from './embed-protocol.js';
 import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type AuthRule } from './auth.js';
+import { DEFAULT_STAC_CATALOGS, stacCatalogOf, type StacCatalogConfig } from './stac.js';
 
 /**
  * What a base map URL points to:
@@ -114,6 +115,8 @@ export interface ViewerConfig {
   authRules: AuthRule[];
   /** Feeds of ships and aircraft listed in 「移動体（AIS・ADS-B）」 (moving.ts). */
   movingFeeds: FeedConfig[];
+  /** STAC APIs (or static catalogs) for the 「STAC 検索」 panel (stac.ts); [] hides it, so nothing leaves the page. */
+  stacCatalogs: StacCatalogConfig[];
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -184,6 +187,7 @@ export const defaultConfig: ViewerConfig = {
   arcgisPortals: [],
   authRules: [],
   movingFeeds: [],
+  stacCatalogs: [...DEFAULT_STAC_CATALOGS],
 };
 
 /**
@@ -254,7 +258,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -375,6 +379,10 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('movingFeeds' in json) {
     if (Array.isArray(json.movingFeeds)) config.movingFeeds = json.movingFeeds.map((f, i) => movingFeedOf(f, problems, i)).filter((f): f is FeedConfig => f !== null);
     else problems.push('movingFeeds が配列ではありません');
+  }
+  if ('stacCatalogs' in json) {
+    if (Array.isArray(json.stacCatalogs)) config.stacCatalogs = json.stacCatalogs.map((c, i) => stacCatalogOf(c, problems, i)).filter((c): c is StacCatalogConfig => c !== null);
+    else problems.push('stacCatalogs が配列ではありません');
   }
 
   return { config, problems };

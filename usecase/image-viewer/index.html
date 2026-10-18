@@ -113,6 +113,11 @@
               <button type="button" id="moving-open" title="AIS・ADS-B などのフィード（WebSocket・SSE・ポーリング・ArcGIS Stream Service）や履歴ファイルを、向きのある記号と航跡で表示します">移動体（AIS・ADS-B）…</button>
               <button type="button" id="moving-match" title="AI の検出結果を撮影時刻の移動体の位置と照らし合わせ、一致しない検出を赤で示します">AI 検出と照合…</button>
             </div>
+            <p class="menu-heading">データ検索</p>
+            <div class="point-tools">
+              <!-- Scenes of STAC APIs and static catalogs (config.json's stacCatalogs; [] hides it): src/stac-panel.ts. -->
+              <button type="button" id="stac-open" title="STAC（Earth Search など）から範囲・撮像日・雲量でシーンを探して、COG で開きます">STAC 検索…</button>
+            </div>
             <!-- Light, dark or the system's setting: src/theme.ts. -->
             <p class="menu-heading">表示</p>
             <div class="point-tools theme-choices" id="theme-choices" role="radiogroup" aria-label="表示">

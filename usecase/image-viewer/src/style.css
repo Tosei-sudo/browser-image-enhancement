@@ -3761,3 +3761,92 @@ html.embed .ol-enhance {
   margin: 4px 0 0;
   color: var(--muted);
 }
+/* STAC search panel (src/stac-panel.ts): the image catalog panel's look, with thumbnails, collections and the assets to open. */
+.stac-dialog[open] {
+  position: fixed;
+  inset: 56px 16px auto auto;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(44rem, calc(100% - 32px));
+  max-height: calc(100vh - 96px);
+  margin: 0;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+.menu-panel .point-tools[hidden],
+.menu-heading[hidden] {
+  display: none;
+}
+.stac-cloud span,
+.stac-area span,
+.stac-static {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg);
+}
+.stac-cloud input {
+  width: 6em;
+}
+.stac-static input {
+  flex: 1;
+  min-width: 0;
+}
+.stac-collections {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.stac-collections legend {
+  padding: 0;
+  color: var(--muted);
+}
+.stac-collection-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  max-height: 5.5em;
+  overflow: auto;
+}
+.stac-table td.stac-thumb {
+  width: 40px;
+  padding: 2px 6px;
+}
+.stac-thumb img {
+  display: block;
+  border-radius: 2px;
+  background: var(--line);
+  object-fit: cover;
+}
+.stac-table tr.stac-none td {
+  color: var(--muted);
+}
+.stac-more {
+  align-self: center;
+  margin-top: 6px;
+}
+.stac-assets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.stac-assets label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stac-assets select {
+  max-width: 100%;
+}
+.stac-bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.stac-assets[hidden],
+.stac-bands[hidden] {
+  display: none;
+}

@@ -98,7 +98,7 @@ import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
-import { sensorViewOf, type CatalogConfig, type CatalogRecord } from './catalog.js';
+import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { MovingDialog } from './moving-dialog.js';
@@ -114,6 +114,8 @@ import { layerId } from './script/api.js';
 import { configureAuth } from './auth.js';
 import { SignInMenu } from './auth-menu.js';
 import { AuthLoadImageControl } from './auth-cog.js';
+import { StacPanel } from './stac-panel.js';
+import { PcSigner, signingFetch, stacInfo } from './stac.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -125,6 +127,9 @@ for (let zone = 1; zone <= 60; zone++) {
 const config = await loadConfig();
 // ArcGIS sign-in and the access rules (src/auth.ts), before anything is requested; this tab's sign-ins come back.
 configureAuth({ portals: config.arcgisPortals, rules: config.authRules });
+// Planetary Computer's blobs (a STAC catalog with "sign": "planetary-computer") are signed on each request,
+// so the URLs kept in layer names, links and projects stay without the token, and open again later with a fresh one.
+if (config.stacCatalogs.some((c) => c.sign === 'planetary-computer')) window.fetch = signingFetch(window.fetch.bind(window), new PcSigner());
 for (const [code, definition] of Object.entries(config.projections)) {
   try {
     proj4.defs(code, definition);
@@ -959,6 +964,25 @@ const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as
   forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
 });
 
+// STAC search (config.json's stacCatalogs, Earth Search by default): scenes by area, dates and cloud cover, opened as COGs.
+// Band assets (red, green, blue) open as layers and go into the RGB composite dialog, ready to run.
+const stac = new StacPanel(document.getElementById('stac-open') as HTMLButtonElement, map, config.stacCatalogs, {
+  say,
+  open: async (assets, item, catalog, rgb) => {
+    const opened: ViewerImage[] = [];
+    for (const { url, asset } of assets) {
+      const image = images.find(await loader.loadUrl(url));
+      if (!image) continue;
+      fromCatalog.set(image, stacInfo(item, catalog, [asset], timeText));
+      catalogIds.set(image, item.id);
+      images.setBadge(image, asset.commonName || asset.key);
+      if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+      opened.push(image);
+    }
+    if (rgb && opened.length === 3) await composite.open(opened);
+  },
+});
+
 // Imaging plans (config.json's satelliteCatalogs, or pasted TLEs): when the satellites can next image a layer's features.
 const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as HTMLButtonElement, map, config.satelliteCatalogs, {
   layers: () => images.layers(),
@@ -977,7 +1001,7 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
 
 // Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
 /** Menu buttons a script may press (viewer.command): ones that open a panel or a tool, not ones that save or open files. */
-const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'moving-open'];
+const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'moving-open', 'stac-open'];
 const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
   map,
   layers: () => images.layers(),
@@ -1029,6 +1053,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
     { id: 'moving-match', label: 'AI 検出と照合（移動体）', dialog: movingMatch.dialog, open: () => movingMatch.open(), run: () => movingMatch.run() },
+    { id: 'stac', label: 'STAC 検索', dialog: stac.dialog, open: () => stac.open(), run: () => stac.search() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1381,7 +1406,8 @@ declare global {
       signIn: SignInMenu;
       moving: MovingDialog;
       movingMatch: MatchDialog;
+      stac: StacPanel;
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac };
