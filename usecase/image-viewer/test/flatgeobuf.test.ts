@@ -58,3 +58,27 @@ it('sizes the spatial index as the format does', () => {
   expect(treeSize(100, 16)).toBe((100 + 7 + 1) * 40);
   expect(treeSize(5, 0)).toBe(0);
 });
+
+describe('readFgb', () => {
+  it('makes the same map geometries as reading the GeoJSON would', async () => {
+    const { readFgb } = await import('../src/vector-formats.js');
+    const { default: GeoJSON } = await import('ol/format/GeoJSON.js');
+    const geometries = [
+      { type: 'Point', coordinates: [139, 35] },
+      { type: 'MultiPoint', coordinates: [[139, 35], [140, 36]] },
+      { type: 'LineString', coordinates: [[139, 35], [140, 36], [141, 35]] },
+      { type: 'MultiLineString', coordinates: [[[0, 0], [1, 1]], [[2, 2], [3, 3], [4, 4]]] },
+      { type: 'Polygon', coordinates: [[[139, 35], [140, 35], [140, 36], [139, 35]], [[139.5, 35.2], [139.8, 35.2], [139.8, 35.4], [139.5, 35.2]]] },
+      { type: 'MultiPolygon', coordinates: [[[[0, 0], [1, 0], [1, 1], [0, 0]], [[0.5, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.1]]], [[[5, 5], [6, 5], [6, 6], [5, 5]]]] },
+      { type: 'GeometryCollection', geometries: [{ type: 'Point', coordinates: [1, 2] }, { type: 'LineString', coordinates: [[0, 0], [1, 1]] }] },
+    ] as const;
+    const bytes = writeFlatGeobuf({ columns: [{ name: 'i', type: ColumnType.Long }], features: geometries.map((geometry, i) => ({ geometry: geometry as never, properties: { i } })) });
+    const file = await readFgb(bytes, 'all');
+    const format = new GeoJSON();
+    file.features.forEach((f, i) => {
+      const expected = format.readGeometry(geometries[i], { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
+      expect(f.get('i')).toBe(i);
+      expect(format.writeGeometryObject(f.getGeometry()!)).toEqual(format.writeGeometryObject(expected));
+    });
+  });
+});

@@ -8,14 +8,15 @@
  * their elevation and time as attributes; elevations along lines are
  * dropped, so every layer is flat x / y like the other formats.
  */
-import type Feature from 'ol/Feature.js';
+import Feature from 'ol/Feature.js';
 import GPX from 'ol/format/GPX.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import KML from 'ol/format/KML.js';
 import type Geometry from 'ol/geom/Geometry.js';
-import { LineString, MultiLineString, Point } from 'ol/geom.js';
+import { GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon } from 'ol/geom.js';
+import { getTransform } from 'ol/proj.js';
 import type SimpleGeometry from 'ol/geom/SimpleGeometry.js';
-import { ColumnType, readFlatGeobuf, writeFlatGeobuf, type FgbColumn, type FgbGeometry } from './flatgeobuf.js';
+import { ColumnType, GeometryType, readFlatGeobuf, writeFlatGeobuf, type FgbColumn, type FgbGeometry, type FlatGeometry } from './flatgeobuf.js';
 import type { Field } from './services/index.js';
 import { fieldsOf } from './services/wms.js';
 import { epsgCode } from './services/common.js';
@@ -98,7 +99,7 @@ export function readGpx(text: string, title: string): VectorFile {
 
 /** Reads FlatGeobuf, in the CRS its header names (WGS 84 without one). */
 export async function readFgb(bytes: Uint8Array, title: string, projectionOf?: ProjectionLookup): Promise<VectorFile> {
-  const file = readFlatGeobuf(bytes);
+  const file = readFlatGeobuf(bytes, olGeometryOf);
   const crs = file.crs;
   const name = crs?.code ? `${crs.org || 'EPSG'}:${crs.code}` : crs?.codeString || null;
   let dataProjection = 'EPSG:4326';
@@ -107,10 +108,17 @@ export async function readFgb(bytes: Uint8Array, title: string, projectionOf?: P
     if (!projection) throw new Error(`${title} の座標系 ${name} を読めませんでした`);
     dataProjection = projection.getCode();
   }
-  const features = geojson.readFeatures(
-    { type: 'FeatureCollection', features: file.features.map((f) => ({ type: 'Feature', geometry: f.geometry, properties: f.properties })) },
-    { dataProjection, featureProjection: 'EPSG:3857' },
-  ) as Feature[];
+  const toMap = getTransform(dataProjection, 'EPSG:3857');
+  const features = file.features.map(({ geometry, properties }) => {
+    const feature = new Feature();
+    // Moved to the map before it is the feature's: no change events to send.
+    if (geometry) {
+      geometry.applyTransform(toMap);
+      feature.setGeometry(geometry);
+    }
+    feature.setProperties(properties, true);
+    return feature;
+  });
   const typeOf = (c: FgbColumn): Field['type'] =>
     c.type === ColumnType.String || c.type === ColumnType.Json || c.type === ColumnType.Binary
       ? 'string'
@@ -125,6 +133,38 @@ export async function readFgb(bytes: Uint8Array, title: string, projectionOf?: P
   const geometryType = ({ 1: 'Point', 2: 'LineString', 3: 'Polygon', 4: 'MultiPoint', 5: 'MultiLineString', 6: 'MultiPolygon' } as const)[file.geometryType as 1] ?? null;
   const writeCrs: TargetCrs = name ? { projection: dataProjection, name, wkt: crs?.wkt ?? null, epsg: epsgCode(name) } : wgs84;
   return { title, format: 'FlatGeobuf', features, fields, crs: name ?? 'WGS 84', projection: dataProjection, geometryType, writeCrs };
+}
+
+/** An OpenLayers geometry straight from FlatGeobuf's flat coordinates (no array per point). */
+function olGeometryOf(f: FlatGeometry): Geometry | null {
+  const xy = Array.from(f.xy);
+  const ends = f.ends?.length ? Array.from(f.ends, (n) => n * 2) : [xy.length];
+  switch (f.type) {
+    case GeometryType.Point:
+      return xy.length >= 2 ? new Point(xy.slice(0, 2)) : null;
+    case GeometryType.LineString:
+      return new LineString(xy, 'XY');
+    case GeometryType.MultiPoint:
+      return new MultiPoint(xy, 'XY');
+    case GeometryType.Polygon:
+      return new Polygon(xy, 'XY', ends);
+    case GeometryType.MultiLineString:
+      return new MultiLineString(xy, 'XY', ends);
+    case GeometryType.MultiPolygon: {
+      const flat: number[] = [];
+      const endss: number[][] = [];
+      for (const p of f.parts) {
+        const base = flat.length;
+        for (let i = 0; i < p.xy.length; i++) flat.push(p.xy[i]);
+        endss.push(p.ends?.length ? Array.from(p.ends, (n) => base + n * 2) : [flat.length]);
+      }
+      return new MultiPolygon(flat, 'XY', endss);
+    }
+    case GeometryType.GeometryCollection:
+      return new GeometryCollection(f.parts.map(olGeometryOf).filter((g): g is Geometry => !!g));
+    default:
+      return null;
+  }
 }
 
 /* ---------------------------------------------------------------- writing */

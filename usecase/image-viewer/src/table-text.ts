@@ -5,14 +5,38 @@
 import type Feature from 'ol/Feature.js';
 import type { Field } from './services/index.js';
 
+/**
+ * Formats and collators made once: `toLocaleString` and `localeCompare` with
+ * a locale make a new one at every call, which costs microseconds each, so
+ * sorting or searching a column of 100,000 rows took seconds.
+ */
+const dateFormat = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+/** Japanese order, with numbers in text by value (`地物2` before `地物10`). */
+export const collator = new Intl.Collator('ja', { numeric: true });
+/** The names of a domain's codes, by the code as text. */
+const codeNames = new WeakMap<NonNullable<Field['codes']>, Map<string, string>>();
+
+/** A date (epoch milliseconds) as the table shows it, in local time. */
+export function dateText(ms: number): string {
+  // Out of range: as Date has it (`Invalid Date`), where the format would throw.
+  return Number.isNaN(new Date(ms).getTime()) ? new Date(ms).toLocaleString('ja-JP') : dateFormat.format(ms);
+}
+
 /** A value as the table shows it: domain names, local dates, empty for null. */
 export function display(field: Field, value: unknown): string {
   if (value === null || value === undefined) return '';
   if (field.codes) {
-    const code = field.codes.find((c) => String(c.code) === String(value));
-    if (code) return code.name;
+    let names = codeNames.get(field.codes);
+    if (!names) {
+      names = new Map();
+      // The first of codes alike wins, as a search from the start would find it.
+      for (const c of field.codes) if (!names.has(String(c.code))) names.set(String(c.code), c.name);
+      codeNames.set(field.codes, names);
+    }
+    const name = names.get(String(value));
+    if (name !== undefined) return name;
   }
-  if (field.type === 'date' && typeof value === 'number') return new Date(value).toLocaleString('ja-JP');
+  if (field.type === 'date' && typeof value === 'number') return dateText(value);
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
@@ -34,7 +58,7 @@ export function compareValues(a: unknown, b: unknown, field?: Field): number {
   if (typeof a === 'number' && typeof b === 'number') return a - b;
   const x = field ? display(field, a) : String(a);
   const y = field ? display(field, b) : String(b);
-  return x.localeCompare(y, 'ja', { numeric: true });
+  return collator.compare(x, y);
 }
 
 /** `yyyy-MM-ddTHH:mm` in local time, for a datetime-local input. */

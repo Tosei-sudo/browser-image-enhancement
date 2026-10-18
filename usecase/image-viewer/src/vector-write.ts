@@ -235,6 +235,8 @@ const utf8 = new TextEncoder();
 
 /** `text` as UTF-8, cut to at most `bytes` bytes without splitting a character. */
 function utf8Cut(text: string, bytes: number): Uint8Array {
+  const whole = utf8.encode(text);
+  if (whole.length <= bytes) return whole;
   const out: number[] = [];
   for (const ch of text) {
     const b = utf8.encode(ch);
@@ -274,7 +276,15 @@ function dbfFields(fields: Field[], features: Feature[]): DbfField[] {
       }
       return { field, name, type: 'N', length: 24, decimals };
     }
-    const length = Math.min(254, Math.max(1, field.length ?? 0, ...values.map((v) => utf8.encode(asText(v) ?? '').length)));
+    // A loop, not Math.max(...values): spreading more than about 100,000 arguments overflows the stack.
+    let length = Math.max(1, field.length ?? 0);
+    for (const v of values) {
+      const text = asText(v);
+      // A UTF-8 character is at most 3 bytes per UTF-16 unit: only long text needs encoding to measure.
+      if (text && text.length * 3 > length) length = Math.max(length, utf8.encode(text).length);
+      if (length >= 254) break;
+    }
+    length = Math.min(254, length);
     return { field, name, type: 'C', length, decimals: 0 };
   });
 }
@@ -341,7 +351,9 @@ export function writeShapefile(name: string, features: Feature[], fields: Field[
       empty.push(feature);
       continue;
     }
-    groups.set(kind, [...(groups.get(kind) ?? []), { feature, geometry }]);
+    let group = groups.get(kind);
+    if (!group) groups.set(kind, (group = []));
+    group.push({ feature, geometry });
   }
   // Features without a geometry (or with a collection) go with the first kind, as null shapes.
   if (!groups.size) groups.set('point', []);
@@ -541,16 +553,24 @@ export async function writeGeoPackage(name: string, features: Feature[], fields:
     db.run(`INSERT INTO gpkg_extensions VALUES (?, 'geom', 'gpkg_rtree_index', 'http://www.geopackage.org/spec120/#extension_rtree', 'write-only')`, [name]);
 
     db.exec('BEGIN');
-    const insert = `INSERT INTO ${table} (geom${columns.map((c) => `, ${quote(c.column)}`).join('')}) VALUES (?${', ?'.repeat(columns.length)})`;
-    features.forEach((f, i) => {
-      const g = geometries[i];
-      db.run(insert, [g ? encodeGeometry(g, srs.id) : null, ...columns.map((c) => sqlValue(f.get(c.field.name), c.type))]);
-    });
-    db.exec('COMMIT');
-
+    // Feature ids 1, 2, 3… in order, given so the spatial index can be filled from the same extents.
+    const insert = `INSERT INTO ${table} (fid, geom${columns.map((c) => `, ${quote(c.column)}`).join('')}) VALUES (?, ?${', ?'.repeat(columns.length)})`;
+    db.runEach(
+      insert,
+      features.map((f, i) => {
+        const g = geometries[i];
+        return [i + 1, g ? encodeGeometry(g, srs.id) : null, ...columns.map((c) => sqlValue(f.get(c.field.name), c.type))];
+      }),
+    );
     // The spatial index, filled once, and the triggers that keep it right when other programs edit the file.
     db.exec(`CREATE VIRTUAL TABLE ${rtree} USING rtree(id, minx, maxx, miny, maxy)`);
-    db.exec(`INSERT INTO ${rtree} SELECT fid, ST_MinX(geom), ST_MaxX(geom), ST_MinY(geom), ST_MaxY(geom) FROM ${table} WHERE geom NOT NULL AND NOT ST_IsEmpty(geom)`);
+    const boxes: SqlValue[][] = [];
+    geometries.forEach((g, i) => {
+      const e = g?.getExtent();
+      if (e && Number.isFinite(e[0])) boxes.push([i + 1, e[0], e[2], e[1], e[3]]);
+    });
+    db.runEach(`INSERT INTO ${rtree} VALUES (?, ?, ?, ?, ?)`, boxes);
+    db.exec('COMMIT');
     db.exec(rtreeTriggers(name));
     if (style) writeLayerStyle(db, name, style, symbolKindOf(geometryType) ?? commonKind(geometries), new Map(columns.map((c) => [c.field.name, c.column])));
     return db.export();

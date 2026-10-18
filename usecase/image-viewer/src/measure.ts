@@ -212,7 +212,21 @@ export class MeasureTool {
     return new LineString(this.fromLonLats_(geodesicPath(this.lonLats_(geometry.getCoordinates()))));
   }
 
+  /** The styles of finished measurements, until their geometry changes: the geodesics are traced once, not at every frame. */
+  private readonly styles_ = new WeakMap<Geometry, { revision: number; styles: Style[] }>();
+
   private style_(feature: FeatureLike, unit: Unit, done: boolean): Style[] {
+    const geometry = feature.getGeometry();
+    if (!done || !(geometry instanceof LineString || geometry instanceof Polygon)) return this.makeStyle_(feature, unit, done);
+    const revision = geometry.getRevision();
+    const kept = this.styles_.get(geometry);
+    if (kept?.revision === revision) return kept.styles;
+    const styles = this.makeStyle_(feature, unit, done);
+    this.styles_.set(geometry, { revision, styles });
+    return styles;
+  }
+
+  private makeStyle_(feature: FeatureLike, unit: Unit, done: boolean): Style[] {
     const geometry = feature.getGeometry();
     if (geometry instanceof Point) {
       // The cursor while drawing.

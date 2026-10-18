@@ -124,9 +124,15 @@ export function polygonize(mask: ArrayLike<number>, width: number, height: numbe
   for (const ring of rings) {
     const area = ringArea(ring);
     if (area > 0) {
-      const xs = ring.map((p) => p[0]);
-      const ys = ring.map((p) => p[1]);
-      outers.push({ ring, area, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], holes: [], pixels: area });
+      // A loop, not Math.min(...xs): a long ring would overflow the stack.
+      const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const [x, y] of ring) {
+        if (x < box[0]) box[0] = x;
+        if (y < box[1]) box[1] = y;
+        if (x > box[2]) box[2] = x;
+        if (y > box[3]) box[3] = y;
+      }
+      outers.push({ ring, area, box, holes: [], pixels: area });
     } else holes.push({ ring, area: -area });
   }
   // Each hole goes in the smallest outline around it (tested at the middle of its first side, which is on no other ring).
