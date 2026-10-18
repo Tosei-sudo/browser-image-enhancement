@@ -236,7 +236,7 @@ export class ClipboardTools {
   /** The row menu's copy items for `features` (the table's selected rows). */
   menuItems(features: Feature[]): MenuItem[] {
     const n = features.length;
-    const several = n > 1 ? `選択中の ${n.toLocaleString()} 件を` : '';
+    const several = n > 1 ? `選択中の ${n.toLocaleString()} 件を ` : '';
     return [
       { label: `${several}GeoJSON でコピー`, run: () => void this.copyGeoJson(features) },
       { label: `${several}WKT でコピー`, run: () => void this.copyWkt(features) },
