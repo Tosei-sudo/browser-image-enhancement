@@ -107,7 +107,7 @@ test('a project saves the layers, their styles and corrections and the view, and
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(page.locator('#images .name')).toHaveCount(0);
   await page.getByRole('button', { name: 'プロジェクト' }).click();
-  await page.getByRole('button', { name: '開く…' }).click();
+  await page.getByRole('button', { name: '開く…', exact: true }).click();
   await expect(page.locator('#status')).toHaveText('プロジェクト「survey」を開きました');
   expect(await state(page)).toEqual(before);
   expect(await page.locator('#images input[type=checkbox]').evaluateAll((boxes) => boxes.map((b) => (b as HTMLInputElement).checked))).toEqual([true, false]);

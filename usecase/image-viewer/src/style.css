@@ -3615,3 +3615,30 @@ dialog.popped-out .catalog-head {
 .shadow-list[hidden] {
   display: none;
 }
+
+/* ArcGIS Web Maps (webmap-dialog.ts): folded details, and what was or was not opened or written. */
+.webmap-details {
+  margin-top: 4px;
+}
+.webmap-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.webmap-details > .service-form {
+  margin-top: 6px;
+}
+.webmap-summary {
+  margin: 10px 0 4px;
+}
+.webmap-result {
+  max-height: 30vh;
+  margin: 4px 0;
+  padding-left: 1.2em;
+  overflow: auto;
+}
+.webmap-result:empty {
+  display: none;
+}
+.webmap-result .problem {
+  color: var(--danger, #c0392b);
+}

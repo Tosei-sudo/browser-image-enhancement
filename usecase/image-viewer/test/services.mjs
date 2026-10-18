@@ -9,6 +9,7 @@ import { URL, URLSearchParams } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { encodeLerc } from './lerc-encode.mjs';
+import { servePortal } from './portal.mjs';
 
 /** A solid PNG of `width` × `height` in the color [r, g, b, a]. */
 export function png(width, height, [r, g, b, a = 255]) {
@@ -310,7 +311,9 @@ function applyEdits(form) {
 }
 
 function query(form) {
-  if (form.get('returnIdsOnly') === 'true') return { objectIdFieldName: 'OBJECTID', objectIds: [...parks.keys()] };
+  // A web map's definition expression: `FIELD = number` (anything else: every park).
+  const where = /^\s*([A-Za-z_]\w*)\s*=\s*(-?\d+)\s*$/.exec(form.get('where') ?? '');
+  if (form.get('returnIdsOnly') === 'true') return { objectIdFieldName: 'OBJECTID', objectIds: [...parks].filter(([, p]) => !where || p.attributes[where[1]] === Number(where[2])).map(([id]) => id) };
   const ids = (form.get('objectIds') ?? '').split(',').filter(Boolean).map(Number);
   if (ids.length > parksLayer.maxRecordCount) return { error: { code: 400, message: 'Too many ids' } };
   return {
@@ -493,6 +496,11 @@ export async function serveService(req, res, url, base) {
     form = new URLSearchParams(body);
   }
 
+  // A stand-in ArcGIS portal (web maps): test/portal.mjs.
+  if (path.startsWith('/svc/portal/')) {
+    servePortal(path, form, json, base);
+    return true;
+  }
   if (path === '/svc/reset') {
     resetServices();
     vectorTileRequests.length = 0;

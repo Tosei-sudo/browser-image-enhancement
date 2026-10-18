@@ -209,7 +209,7 @@ async function resolveEsriSources(style: StyleJson, styleUrl: string, token: str
 }
 
 /** The layers of a style (`style`) or of an ArcGIS `VectorTileServer` (`esri`), one per vector source the style draws. */
-async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[]> {
+export async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[]> {
   let styleUrl: string;
   let token: string | undefined;
   // The descriptions of the VectorTileServers asked so far, by root URL.

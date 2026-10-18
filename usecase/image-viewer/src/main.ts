@@ -95,6 +95,7 @@ import { SplitView } from './split-view.js';
 import { HistogramPanel } from './histogram-panel.js';
 import { SpectralPanel } from './spectral.js';
 import { ProjectControl } from './project.js';
+import { WebMapDialogs } from './webmap-dialog.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
@@ -797,6 +798,21 @@ const saveProject = (as = false) => {
 };
 document.getElementById('project-save')!.addEventListener('click', () => void saveProject());
 document.getElementById('project-save-as')!.addEventListener('click', () => void saveProject(true));
+// ArcGIS Web Maps: opened from a portal or a JSON file, saved as JSON or to a portal.
+const webMaps = new WebMapDialogs({
+  map,
+  images,
+  baseMap,
+  baseMaps: config.baseMaps,
+  tempStore,
+  bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  context: serviceContext,
+  say,
+  name: () => project.name(),
+  onChange: updateLink,
+});
+document.getElementById('webmap-open')!.addEventListener('click', () => webMaps.open());
+document.getElementById('webmap-save')!.addEventListener('click', () => webMaps.openSave());
 // Ctrl+S (⌘S): save the project rather than the page; with Shift, under another name.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
@@ -992,6 +1008,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
     { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
+    { id: 'webmap-open', label: 'ArcGIS Web マップを開く', dialog: webMaps.openDialog, open: () => webMaps.open(), run: () => webMaps.openTyped() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1336,7 +1353,8 @@ declare global {
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
+      webMaps: WebMapDialogs;
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, webMaps };

@@ -121,7 +121,7 @@ export async function readEsri(input: string, token?: string): Promise<ServiceCa
     title,
     choices,
     open: (choice, context, pick) =>
-      choice.name === MAP_CHOICE ? openMapServer(serviceUrl, context, pick?.settings) : openLayer(`${serviceUrl}/${choice.name}`, mapServer, context.token),
+      choice.name === MAP_CHOICE ? openMapServer(serviceUrl, context, pick?.settings) : openLayer(`${serviceUrl}/${choice.name}`, mapServer, context.token, pick?.settings?.where),
   };
 }
 
@@ -133,7 +133,8 @@ const geometryNames: Record<string, string> = {
   esriGeometryMultiPatch: 'マルチパッチ（3D）',
 };
 
-async function openLayer(url: string, mapServer: boolean, token?: string): Promise<ServiceLayer> {
+/** Opens a feature layer; with `where` (a web map's definition expression), only the features meeting it. */
+async function openLayer(url: string, mapServer: boolean, token?: string, where?: string): Promise<ServiceLayer> {
   const json = await esriJson<EsriLayerJson>(url, {}, token);
   const caps = new Set((json.capabilities ?? '').split(',').map((c) => c.trim().toLowerCase()));
   const editing = !mapServer && (caps.has('editing') || caps.has('create') || caps.has('update') || caps.has('delete'));
@@ -156,7 +157,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
   const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
   const multipatch = info.geometryType === 'esriGeometryMultiPatch';
   // Multipatches: their footprints on the map, raised in 3D from their lowest to highest height.
-  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, multipatch ? { multipatchOption: 'xyFootprint' } : {});
+  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, multipatch ? { multipatchOption: 'xyFootprint' } : {}, where?.trim() || undefined);
   let raised: number | null = null;
   if (multipatch) {
     if (editing) info.canCreate = info.canUpdate = info.canDelete = false;
@@ -168,7 +169,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
   const extent = json.extent ? await extentOf(json.extent) : null;
 
   return {
-    ref: { kind: 'esri', url, layer: String(json.id) },
+    ref: { kind: 'esri', url, layer: String(json.id), ...(where?.trim() ? { settings: { where: where.trim() } } : {}) },
     title: json.name,
     layer,
     correction: null,
@@ -182,6 +183,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string): Promi
       ['URL', url],
       ['ジオメトリ', geometryNames[info.geometryType] ?? info.geometryType],
       ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
+      ...(where?.trim() ? [['条件', where.trim()] as [string, string]] : []),
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
       ...(raised !== null ? [['3D', raised ? `${raised.toLocaleString()} 件を高さの範囲で立ち上げ（3D 表示）` : '高さを取得できません（ArcGIS Enterprise 10.9 以降の extent が必要）'] as [string, string]] : []),
     ],
@@ -221,8 +223,8 @@ const format = new EsriJSON();
 const WEB_MERCATOR = { wkid: 102100, latestWkid: 3857 };
 
 /** Every feature of the layer (up to MAX_FEATURES): the object ids first, then the features in batches. */
-export async function queryAll(url: string, oid: string, maxRecords: number, token?: string, extra: Record<string, string> = {}): Promise<{ features: Feature[]; truncated: boolean }> {
-  const ids = await esriJson<{ objectIds?: number[] | null }>(`${url}/query`, { where: '1=1', returnIdsOnly: 'true' }, token, true);
+export async function queryAll(url: string, oid: string, maxRecords: number, token?: string, extra: Record<string, string> = {}, where = '1=1'): Promise<{ features: Feature[]; truncated: boolean }> {
+  const ids = await esriJson<{ objectIds?: number[] | null }>(`${url}/query`, { where, returnIdsOnly: 'true' }, token, true);
   const all = (ids.objectIds ?? []).sort((a, b) => a - b);
   const truncated = all.length > MAX_FEATURES;
   const wanted = all.slice(0, MAX_FEATURES);
@@ -307,7 +309,7 @@ async function extentOf(e: NonNullable<EsriLayerJson['extent']>): Promise<Extent
 
 // ---- Symbols ----
 
-interface EsriSymbol {
+export interface EsriSymbol {
   type: string;
   style?: string;
   color?: number[] | null;
@@ -323,7 +325,7 @@ interface EsriSymbol {
   contentType?: string;
 }
 
-interface EsriRenderer {
+export interface EsriRenderer {
   type: string;
   symbol?: EsriSymbol;
   field1?: string;
