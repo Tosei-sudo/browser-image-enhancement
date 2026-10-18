@@ -98,7 +98,7 @@ import { ProjectControl } from './project.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
-import { sensorViewOf, type CatalogConfig, type CatalogRecord } from './catalog.js';
+import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
 import { Dashboard } from './dashboard.js';
@@ -107,6 +107,8 @@ import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
+import { StacPanel } from './stac-panel.js';
+import { stacInfo } from './stac.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -923,6 +925,25 @@ const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as
   forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
 });
 
+// STAC search (config.json's stacCatalogs, Earth Search by default): scenes by area, dates and cloud cover, opened as COGs.
+// Band assets (red, green, blue) open as layers and go into the RGB composite dialog, ready to run.
+const stac = new StacPanel(document.getElementById('stac-open') as HTMLButtonElement, map, config.stacCatalogs, {
+  say,
+  open: async (assets, item, catalog, rgb) => {
+    const opened: ViewerImage[] = [];
+    for (const { url, asset } of assets) {
+      const image = images.find(await loader.loadUrl(url));
+      if (!image) continue;
+      fromCatalog.set(image, stacInfo(item, catalog, [asset], timeText));
+      catalogIds.set(image, item.id);
+      images.setBadge(image, asset.commonName || asset.key);
+      if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));
+      opened.push(image);
+    }
+    if (rgb && opened.length === 3) await composite.open(opened);
+  },
+});
+
 // Imaging plans (config.json's satelliteCatalogs, or pasted TLEs): when the satellites can next image a layer's features.
 const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as HTMLButtonElement, map, config.satelliteCatalogs, {
   layers: () => images.layers(),
@@ -941,7 +962,7 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
 
 // Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
 /** Menu buttons a script may press (viewer.command): ones that open a panel or a tool, not ones that save or open files. */
-const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open'];
+const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'stac-open'];
 const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
   map,
   layers: () => images.layers(),
@@ -992,6 +1013,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
     { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
+    { id: 'stac', label: 'STAC 検索', dialog: stac.dialog, open: () => stac.open(), run: () => stac.search() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1336,7 +1358,8 @@ declare global {
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
+      stac: StacPanel;
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, stac };

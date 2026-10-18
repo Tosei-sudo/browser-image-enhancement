@@ -13,6 +13,7 @@ import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
+import { DEFAULT_STAC_CATALOGS, stacCatalogOf, type StacCatalogConfig } from './stac.js';
 
 /**
  * What a base map URL points to:
@@ -103,6 +104,8 @@ export interface ViewerConfig {
   elevationServices: ElevationServiceConfig[];
   /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
   geocoders: GeocoderConfig[];
+  /** STAC APIs (or static catalogs) for the 「STAC 検索」 panel (stac.ts); [] hides it, so nothing leaves the page. */
+  stacCatalogs: StacCatalogConfig[];
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -169,6 +172,7 @@ export const defaultConfig: ViewerConfig = {
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
+  stacCatalogs: [...DEFAULT_STAC_CATALOGS],
 };
 
 /**
@@ -239,7 +243,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], stacCatalogs: [...defaultConfig.stacCatalogs] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -335,6 +339,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.detectionOutputs)) {
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
     } else problems.push('detectionOutputs が配列ではありません');
+  }
+
+  if ('stacCatalogs' in json) {
+    if (Array.isArray(json.stacCatalogs)) config.stacCatalogs = json.stacCatalogs.map((c, i) => stacCatalogOf(c, problems, i)).filter((c): c is StacCatalogConfig => c !== null);
+    else problems.push('stacCatalogs が配列ではありません');
   }
 
   return { config, problems };

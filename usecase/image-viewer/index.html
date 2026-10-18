@@ -100,6 +100,11 @@
               <!-- A sheet with a title, scale bar, north arrow and legend: src/print-layout.ts. -->
               <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例を付けて A4・A3 の PDF・PNG に保存します">印刷レイアウト…</button>
             </div>
+            <p class="menu-heading">データ検索</p>
+            <div class="point-tools">
+              <!-- Scenes of STAC APIs and static catalogs (config.json's stacCatalogs; [] hides it): src/stac-panel.ts. -->
+              <button type="button" id="stac-open" title="STAC（Earth Search など）から範囲・撮像日・雲量でシーンを探して、COG で開きます">STAC 検索…</button>
+            </div>
             <!-- Light, dark or the system's setting: src/theme.ts. -->
             <p class="menu-heading">表示</p>
             <div class="point-tools theme-choices" id="theme-choices" role="radiogroup" aria-label="表示">
