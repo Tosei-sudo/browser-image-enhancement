@@ -22,7 +22,9 @@ import type { Timeline } from '../timeline.js';
 import type { SplitView } from '../split-view.js';
 import type { SwipeTool } from '../swipe.js';
 import type { LayerChoice, ServiceKind } from '../services/common.js';
-import { blendChoices, oneColor, scaleChoices } from '../colorize-dialog.js';
+import { blendChoices, imageClassesFor, oneColor, scaleChoices } from '../colorize-dialog.js';
+import { readColorClasses } from '../project-file.js';
+import type { ClassMethod, ColorClasses } from 'browser-image-enhancement';
 import { categoriesFor, classesFor, normalizeSpec, type VectorStyleSpec } from '../vector-style.js';
 import { describeControls, setControl, settle, statusOf, type ScriptTool } from './tool-driver.js';
 import type { ScriptLayerInfo } from './api.js';
@@ -227,7 +229,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       ctx.setNoData(image, { auto: o.auto === undefined ? values.length === 0 && value !== null : Boolean(o.auto), values });
       return true;
     },
-    colorize: (ref: unknown, value: unknown) => {
+    colorize: async (ref: unknown, value: unknown) => {
       const image = kit.imageOf(ref);
       if (value === null) {
         ctx.setColorScale(image, null, 'normal');
@@ -240,8 +242,26 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       let scale: LayerColorScale['scale'];
       if (typeof o.scale === 'string' && names.includes(o.scale)) scale = o.scale as never;
       else if (typeof o.scale === 'string' && /^#[0-9a-f]{6}$/i.test(o.scale)) scale = oneColor(o.scale) as never;
+      else if (o.scale === undefined && o.classes !== undefined) scale = 'turbo';
       else throw new TypeError(`scale は ${names.join(' / ')}、または "#ff0000" のような色です`);
-      ctx.setColorScale(image, { scale, reverse: Boolean(o.reverse), fade: Boolean(o.fade) }, blend as LayerBlendMode);
+      if (o.classes === undefined) {
+        ctx.setColorScale(image, { scale, reverse: Boolean(o.reverse), fade: Boolean(o.fade) }, blend as LayerBlendMode);
+        return true;
+      }
+      // Classes: a count (equal intervals or quantiles), 'unique' (a color per value), or the classes themselves.
+      let classes: ColorClasses | null;
+      if (Array.isArray(o.classes)) {
+        classes = readColorClasses({ kind: o.kind === 'exact' ? 'exact' : 'range', classes: o.classes, method: 'manual', ...(typeof o.min === 'number' ? { min: o.min } : {}) });
+        if (!classes || classes.classes.length !== o.classes.length) throw new TypeError('classes は { value: 数, color: [r, g, b] } の配列です');
+      } else {
+        const unique = o.classes === 'unique';
+        const count = Number(o.classes);
+        if (!unique && !(Number.isInteger(count) && count >= 2 && count <= 32)) throw new RangeError("classes は 2〜32 のクラス数、'unique'、またはクラスの配列です");
+        if (o.method !== undefined && o.method !== 'equal' && o.method !== 'quantile') throw new TypeError("method は 'equal' / 'quantile' のどちらかです");
+        classes = await imageClassesFor(image, { method: unique ? 'unique' : ((o.method as ClassMethod | undefined) ?? 'equal'), count: unique ? 0 : count, scale, reverse: Boolean(o.reverse) });
+        if (!classes) throw new Error(unique ? '値の種類が多すぎるか、画像の値を読めませんでした' : '画像の値を読めませんでした');
+      }
+      ctx.setColorScale(image, { scale, ...(o.reverse ? { reverse: true } : {}), classes }, blend as LayerBlendMode);
       return true;
     },
 

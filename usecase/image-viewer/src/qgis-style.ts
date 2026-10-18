@@ -7,6 +7,7 @@
  * the person knows what to set by hand.
  */
 import type { LayerColorScale } from 'browser-image-enhancement/openlayers';
+import type { ColorClass } from 'browser-image-enhancement';
 import { attr, descendants, escapeXml as esc, kid, kids, parseXml, path, textOf, type XmlElement } from './safe-xml.js';
 import { hexOf, readQgisLayerStyle, StyleNotes, styleQml, type SymbolKind } from './style-file.js';
 import { normalizeSpec, type Category, type GradClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
@@ -416,9 +417,8 @@ export function readRasterRenderer(renderer: XmlElement, notes: StyleNotes): Ras
     const b = band('band');
     if (b !== null && b > 0) out.bands = [b, b, b];
     const shader = path(renderer, 'rastershader', 'colorrampshader');
-    const items = kids(shader, 'item')
-      .map((i) => ({ value: numberOf(attr(i, 'value')), color: hexOf(attr(i, 'color')), alpha: numberOf(attr(i, 'alpha')) }))
-      .filter((i): i is { value: number; color: { hex: string; opacity: number }; alpha: number | null } => i.value !== null && !!i.color);
+    const all = kids(shader, 'item').map((i) => ({ text: attr(i, 'value'), value: numberOf(attr(i, 'value')), color: hexOf(attr(i, 'color')), alpha: numberOf(attr(i, 'alpha')), label: attr(i, 'label') }));
+    const items = all.filter((i): i is typeof i & { value: number; color: { hex: string; opacity: number } } => i.value !== null && !!i.color);
     const min = numberOf(attr(shader, 'minimumValue')) ?? numberOf(attr(renderer, 'classificationMin')) ?? Math.min(...items.map((i) => i.value));
     const max = numberOf(attr(shader, 'maximumValue')) ?? numberOf(attr(renderer, 'classificationMax')) ?? Math.max(...items.map((i) => i.value));
     if (items.length && Number.isFinite(min) && Number.isFinite(max) && max > min) {
@@ -427,13 +427,34 @@ export function readRasterRenderer(renderer: XmlElement, notes: StyleNotes): Ras
         .map((i) => [Math.max(0, Math.min(1, (i.value - min) / (max - min))), [...rgb(i.color.hex), Math.round(255 * (i.alpha !== null ? i.alpha / 255 : i.color.opacity))]] as const)
         .sort((a, b) => a[0] - b[0]);
       out.colorScale = { scale: stops };
-      notes.add(`擬似カラーの値の範囲（${min} – ${max}）は表示中の明るさの範囲に置き換えます`);
-      if (attr(shader, 'colorRampType') === 'DISCRETE' || attr(shader, 'colorRampType') === 'EXACT') notes.add('段階・値ごとの擬似カラー（なめらかな色で表示します）');
+      const rampType = attr(shader, 'colorRampType');
+      if (rampType === 'DISCRETE' || rampType === 'EXACT') {
+        // Classes keep the values: a DISCRETE item is an upper bound ("inf" for the last one), an EXACT one a value.
+        const open = all.find((i) => i.value === null && /^\+?inf/i.test(i.text ?? '') && i.color);
+        const list = items.map((i) => classOf(i.value, i.color, i.alpha, i.label));
+        if (rampType === 'DISCRETE' && open) list.push(classOf(Math.max(max, ...items.map((i) => i.value)), open.color!, open.alpha, open.label));
+        out.colorScale.classes = { kind: rampType === 'EXACT' ? 'exact' : 'range', method: 'manual', classes: list, ...(rampType === 'DISCRETE' ? { min } : {}) };
+      } else notes.add(`擬似カラーの値の範囲（${min} – ${max}）は表示中の明るさの範囲に置き換えます`);
     } else notes.add('擬似カラーの色');
+  } else if (type === 'paletted') {
+    // A color per value (a classified image): exact classes.
+    const b = band('band');
+    if (b !== null && b > 0) out.bands = [b, b, b];
+    const entries = kids(path(renderer, 'colorPalette'), 'paletteEntry')
+      .map((e) => ({ value: numberOf(attr(e, 'value')), color: hexOf(attr(e, 'color')), alpha: numberOf(attr(e, 'alpha')), label: attr(e, 'label') }))
+      .filter((e): e is typeof e & { value: number; color: { hex: string; opacity: number } } => e.value !== null && !!e.color);
+    if (entries.length) out.colorScale = { scale: 'turbo', classes: { kind: 'exact', method: 'manual', classes: entries.slice(0, 256).map((e) => classOf(e.value, e.color, e.alpha, e.label)) } };
+    else notes.add('パレットの色');
   } else if (type) {
-    notes.add(`ラスターの表示方法「${type === 'paletted' ? 'パレット' : type === 'hillshade' ? '陰影' : type}」`);
+    notes.add(`ラスターの表示方法「${type === 'hillshade' ? '陰影' : type}」`);
   }
   return out;
+}
+
+/** A color class from a QGIS item: its value, color, alpha (0-255) and label. */
+function classOf(value: number, color: { hex: string; opacity: number }, alpha: number | null, label: string | null): ColorClass {
+  const rgb = [1, 3, 5].map((k) => parseInt(color.hex.slice(k, k + 2), 16));
+  return { value, color: [...rgb, Math.round(alpha !== null ? alpha : 255 * color.opacity)], ...(label ? { label } : {}) };
 }
 
 /** The text of a style file chosen by the person: refused when it is too large to be a style. */

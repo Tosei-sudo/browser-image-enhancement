@@ -25,6 +25,18 @@ describe('project files', () => {
     expect(read).toEqual(project);
   });
 
+  it('keep color classes, and drop the parts of them they cannot read', () => {
+    const classes = { kind: 'range', method: 'quantile', min: 0, classes: [{ value: 10, color: [255, 0, 0], label: '低' }, { value: 20, color: [0, 0, 255, 128] }] };
+    const layer = { ...project.layers[0], colorScale: { scale: 'turbo', fade: true, classes } };
+    const { project: read } = readProject(writeProject({ ...project, layers: [layer] } as Project));
+    // Classes take no fade.
+    expect(read.layers[0].colorScale).toEqual({ scale: 'turbo', classes });
+    const broken = { ...layer, colorScale: { scale: 'turbo', classes: { kind: 'range', classes: [{ value: 'x', color: [1, 2, 3] }, { value: 5, color: [999, -3, 7] }] } } };
+    const again = readProject(JSON.stringify({ ...project, layers: [broken] })).project.layers[0].colorScale;
+    expect(again?.classes?.classes).toEqual([{ value: 5, color: [255, 0, 7] }]);
+    expect(readProject(JSON.stringify({ ...project, layers: [{ ...layer, colorScale: { scale: 'red', classes: { kind: 'odd', classes: [] } } }] })).project.layers[0].colorScale).toEqual({ scale: 'red' });
+  });
+
   it('are told apart from other files', () => {
     expect(() => readProject('not json')).toThrow('JSON');
     expect(() => readProject('{"type":"FeatureCollection"}')).toThrow('プロジェクトファイルではありません');

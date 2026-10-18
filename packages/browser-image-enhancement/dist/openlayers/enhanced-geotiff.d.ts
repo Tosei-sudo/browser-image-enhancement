@@ -1,6 +1,6 @@
 import { AutoStretchOptions, ColorMode } from "../types.js";
 import { Pipeline } from "../pipeline.js";
-import { RasterStretch, RasterStretchRange } from "../raster.js";
+import { RasterHistogram, RasterStretch, RasterStretchRange } from "../raster.js";
 import { BandSelection } from "../bands.js";
 import GeoTIFF, { Options } from "ol/source/GeoTIFF.js";
 import { Extent } from "ol/extent.js";
@@ -176,6 +176,8 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private rawStretchReady_;
   /** Raw-value histograms: of the whole image, and of the last DRA area. */
   private wholeRaw_;
+  /** The value histogram read by {@link EnhancedGeoTIFF.getValueHistogram}, for the content key it was read with. */
+  private valueHistogram_;
   private viewRaw_;
   /** The bands R, G and B show, as set; null: as read. */
   private select_;
@@ -225,6 +227,16 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private resolved_;
   /** The raw stretch from the kept histograms: the visible area's with `autoStretch`, else the whole image's. */
   private rawFromStats_;
+  /**
+   * The distribution of the values shown: raw values for an image read raw
+   * (see `normalize`), 0-255 for an 8-bit one, one histogram per picture
+   * band (1 for a gray image, 3 for RGB), over the whole image read at a
+   * coarse level, without fill values that stand apart (see
+   * `sampleRasterHistogram`). For making color classes (`colorClasses`).
+   * Read once, and again after the bands or the no-data setting change;
+   * null before the COG is read or when nothing could be read.
+   */
+  getValueHistogram(): Promise<RasterHistogram | null>;
   /** Whether tiles are corrected as they load (false: the layer corrects the drawn map). */
   correctsTiles(): boolean;
   /** How the image is corrected: decided by its band count, the same for every tile. Null before the COG is read. */

@@ -49,7 +49,7 @@ export const ENTRIES: readonly ScriptEntry[] = [
   { name: 'viewer.setEnhance', args: '(layer, { brightness, contrast, exposure, gamma, saturation, autoStretch, sharpen… })', doc: '補正を変える（値 null でその手順を外す。全体を null で元に戻す）' },
   { name: 'viewer.setBands', args: '(layer, [R, G, B])', doc: 'バンドの割り当て（0 から。null で元のまま）' },
   { name: 'viewer.setNoData', args: '(layer, { auto, values })', doc: 'ノーデータの透明化（null で解除）' },
-  { name: 'viewer.colorize', args: "(layer, { scale: 'red', reverse, fade, blend })", doc: '単バンド画像の着色（null で解除）' },
+  { name: 'viewer.colorize', args: "(layer, { scale: 'red', reverse, fade, blend, classes: 5 | 'unique' | [{ value, color }], method: 'equal' | 'quantile' })", doc: '単バンド画像の着色・階調ごとの色分け（null で解除）' },
   { name: 'viewer.style', args: '(layer)', doc: 'ベクターレイヤーのスタイル' },
   { name: 'viewer.setStyle', args: "(layer, { color, mode: 'categorized', field, symbol, label })", doc: 'スタイルを変える（指定した所だけ）' },
   { name: 'viewer.baseMaps', args: '()', doc: '背景地図の一覧' },

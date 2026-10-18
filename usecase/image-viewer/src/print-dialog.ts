@@ -5,16 +5,25 @@
  */
 import type OlMap from 'ol/Map.js';
 import type { ImageList, ViewerLayer } from './images.js';
-import { stopsOf } from './colorize-dialog.js';
+import { classLabel, cssColor, stopsOf } from './colorize-dialog.js';
 import { drawSheet, sheetFile, type LegendEntry, type Orientation, type Paper, type PrintRequest } from './print-layout.js';
 
 const hex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
 
 /** The legend of the layers shown, top first. */
 export function legendOf(layers: readonly ViewerLayer[], visible: (layer: ViewerLayer) => boolean): LegendEntry[] {
-  return layers.filter(visible).map((l): LegendEntry => {
+  return layers.filter(visible).flatMap((l): LegendEntry | LegendEntry[] => {
     if (l.type === 'image') {
       const scale = l.layer.getColorScale();
+      const classes = scale?.classes;
+      if (classes) {
+        // The layer, then a box per class under it.
+        const order = classes.classes.map((c, i) => [c.value, i] as const).sort((a, b) => a[0] - b[0]);
+        return [
+          { name: l.name, swatch: { kind: 'image' } },
+          ...order.map(([, i]): LegendEntry => ({ name: `\u3000${classLabel(classes, i)}`, swatch: { kind: 'fill', fill: cssColor(classes.classes[i].color), stroke: '#6b7280' } })),
+        ];
+      }
       if (scale) {
         const stops = [...stopsOf(scale.scale)].sort((a, b) => a[0] - b[0]).map(([, c]) => hex(c));
         return { name: l.name, swatch: { kind: 'ramp', stops: scale.reverse ? stops.reverse() : stops } };

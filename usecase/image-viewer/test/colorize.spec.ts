@@ -226,3 +226,139 @@ test('makes an RGB composite of two dates on different grids, and saves it', asy
   expect(data[3 * 2]).toBe(1116);
   expect(errors).toEqual([]);
 });
+
+/** The distinct opaque colors the layer of image `index` (top first) shows, as `#rrggbb`. */
+const colorsShown = (page: Page, index: number) =>
+  page.evaluate(
+    (index) =>
+      new Promise<string[]>((resolve) => {
+        window.viewer.map.once('rendercomplete', () => {
+          const canvas = window.viewer.images.list()[index].layer.getOutputCanvas();
+          const ctx = document.createElement('canvas').getContext('2d')!;
+          ctx.canvas.width = canvas.width;
+          ctx.canvas.height = canvas.height;
+          ctx.drawImage(canvas, 0, 0);
+          const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          const seen = new Set<string>();
+          for (let i = 0; i < data.length; i += 4) if (data[i + 3] === 255) seen.add(`#${[data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`);
+          resolve([...seen].sort());
+        });
+        window.viewer.map.render();
+      }),
+    index,
+  );
+
+/** A one-band 8-bit UTM 54N GeoTIFF of land cover codes: 1 on the left, 2 in the middle, 5 on the right. */
+function codes(): Uint8Array {
+  const size = 30;
+  const values = new Uint8Array(size * size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) values[y * size + x] = x < 10 ? 1 : x < 20 ? 2 : 5;
+  return new Uint8Array(
+    writeArrayBuffer(values, {
+      width: size,
+      height: size,
+      SamplesPerPixel: 1,
+      BitsPerSample: [8],
+      SampleFormat: [1],
+      PhotometricInterpretation: 1,
+      ModelPixelScale: [2, 2, 0],
+      ModelTiepoint: [0, 0, 0, ORIGIN[0], ORIGIN[1], 0],
+      ProjectedCSTypeGeoKey: 32654,
+      GTModelTypeGeoKey: 1,
+      GTRasterTypeGeoKey: 1,
+    }),
+  );
+}
+
+test('shows a 16-bit image in classes of its values, with a legend, and saves them', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  // Values 100 to 410 across, in steps of 10.
+  await choose(page, [{ name: 'dem.tif', bytes: tiff(32, 2, ORIGIN, (x) => 100 + x * 10) }]);
+  await processing(page, 'colorize');
+  const dialog = page.locator('.colorize-dialog');
+  await dialog.getByLabel('表示方法').selectOption('classes');
+  await expect(dialog.getByLabel('カラースケール')).toHaveValue('turbo');
+  await dialog.getByLabel('クラス数').fill('4');
+  await dialog.getByLabel('クラス数').blur();
+
+  // Four classes of equal width between the smallest and largest value, listed with their share of the image.
+  const rows = dialog.locator('.class-legend tbody tr');
+  await expect(rows).toHaveCount(4);
+  await expect(dialog.getByLabel('クラス 1 の上限')).toHaveValue('177.5');
+  await expect(dialog.getByLabel('クラス 4 の上限')).toHaveValue('410');
+  await expect(rows.first().locator('.class-share')).toHaveText('25%');
+  const classes = () => page.evaluate(() => window.viewer.images.list()[0].layer.getColorScale()?.classes);
+  const saved = (await classes())!;
+  expect(saved.kind).toBe('range');
+  expect(saved.min).toBe(100);
+  expect(saved.classes.map((c) => c.value)).toEqual([177.5, 255, 332.5, 410]);
+
+  // The map shows the classes' flat colors only, and their legend.
+  const hex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+  const palette = saved.classes.map((c) => hex(c.color));
+  await expect.poll(async () => {
+    const colors = await colorsShown(page, 0);
+    return colors.length >= 3 && colors.every((c) => palette.includes(c));
+  }).toBe(true);
+  const legend = page.locator('.map-class-legend');
+  await expect(legend).toBeVisible();
+  await expect(legend.locator('li')).toHaveCount(4);
+  await expect(legend.locator('li').first()).toHaveText('100 – 177.5');
+
+  // A bound typed in: the classes are set by hand and named after their new ranges.
+  await dialog.getByLabel('クラス 1 の上限').fill('200');
+  await dialog.getByLabel('クラス 1 の上限').blur();
+  await expect(dialog.getByLabel('分け方')).toHaveValue('manual');
+  await expect(legend.locator('li').nth(1)).toHaveText('200 – 255');
+  // A color picked for a class.
+  await dialog.getByLabel('クラス 2 の色').fill('#00ff00');
+  await expect.poll(async () => (await classes())!.classes[1].color.slice(0, 3)).toEqual([0, 255, 0]);
+
+  // Quantiles: classes of about the same area.
+  await dialog.getByLabel('分け方').selectOption('quantile');
+  await expect.poll(async () => (await classes())?.method).toBe('quantile');
+  await expect(rows).toHaveCount(4);
+
+  // Saved in a project, and back when it opens.
+  const project = await page.evaluate(() => window.viewer.project.collect().project.layers[0].colorScale);
+  expect(project?.classes?.method).toBe('quantile');
+  expect(project?.classes?.classes).toHaveLength(4);
+  await page.evaluate(() => window.viewer.images.list()[0].layer.setColorScale(null));
+  await page.evaluate((scale) => window.viewer.images.list()[0].layer.setColorScale(scale ?? null), project);
+  expect(await classes()).toEqual(project?.classes);
+
+  // Back to a smooth scale: no classes, no legend.
+  await dialog.getByLabel('表示方法').selectOption('');
+  await expect.poll(classes).toBeUndefined();
+  await expect(legend).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('gives each value of a classified image its own color, named in the legend', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await choose(page, [{ name: 'landcover.tif', bytes: codes() }]);
+  await page.locator('#images .image').first().getByRole('button', { name: '着色（カラースケール・重ね方）' }).click();
+  const dialog = page.locator('.colorize-dialog');
+  await dialog.getByLabel('表示方法').selectOption('unique');
+  const rows = dialog.locator('.class-legend tbody tr');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.locator('td:nth-child(2)')).toHaveText(['1', '2', '5']);
+  await expect(dialog.getByLabel('分け方')).toBeHidden();
+  await dialog.getByLabel('クラス 1 の名前').fill('森林');
+  await dialog.getByLabel('クラス 1 の名前').blur();
+  await expect(page.locator('.map-class-legend li').first()).toHaveText('森林');
+
+  const scale = await page.evaluate(() => window.viewer.images.list()[0].layer.getColorScale());
+  expect(scale?.classes?.kind).toBe('exact');
+  const hex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+  const palette = scale!.classes!.classes.map((c) => hex(c.color));
+  await expect.poll(async () => {
+    const colors = await colorsShown(page, 0);
+    return colors.length === 3 && colors.every((c) => palette.includes(c));
+  }).toBe(true);
+  expect(errors).toEqual([]);
+});

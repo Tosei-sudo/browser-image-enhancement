@@ -1,4 +1,5 @@
 import { ColorScale, ColorScaleOptions } from "../color-scale.js";
+import { ColorClasses } from "../color-classes.js";
 import TileCorrection from "./tile-correction.js";
 import WebGLTileLayer, { Options } from "ol/layer/WebGLTile.js";
 import { FrameState } from "ol/Map.js";
@@ -20,8 +21,16 @@ export interface GpuCorrectedTileLayerOptions extends Options {
 }
 /** A color scale with its options, as {@link GpuCorrectedTileLayer.setColorScale} takes it. */
 export interface LayerColorScale extends ColorScaleOptions {
-  /** A preset's name (`'red'`, `'inferno'`…) or the scale's stops. */
+  /** A preset's name (`'red'`, `'inferno'`…) or the scale's stops. With `classes`, the scale their colors were taken from (kept for an editor). */
   scale: ColorScale;
+  /**
+   * Shows the image in classes of its values, each in one flat color, in
+   * place of the scale (see `colorClasses`). The classes hold the image's
+   * values: raw values for an image read raw, 0-255 for an 8-bit one. The
+   * correction (brightness, contrast…) is not applied, so a value always
+   * gets its class's color.
+   */
+  classes?: ColorClasses;
 }
 /**
  * How a layer is laid over the layers under it, as CSS `mix-blend-mode`:
@@ -58,6 +67,8 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   frames: number;
   private colorScale_;
   private palette_;
+  /** The palette of the classes for the value range it was made for. */
+  private classPalette_;
   private blendMode_;
   /** The class name that gives the layer a WebGL canvas of its own (see {@link GpuCorrectedTileLayer.getClassName}). */
   private readonly ownClass_;
@@ -109,6 +120,13 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private correct_;
   /** Sets the raw-stretch style while the source hands raw float tiles, and its variables from the source's stretch. */
   private updateStretch_;
+  /**
+   * The palette of `classes` for the values the drawn codes 0-255 stand for:
+   * the classes' own range when the shader stretches raw values (see
+   * `updateStretch_`), the source's raw stretch when it stretched the tiles
+   * itself, else 0-255 (an 8-bit image as read).
+   */
+  private classPaletteFor_;
   /** DRA statistics of the map as drawn (before correction), read through a canvas of at most 512 px. */
   private sampleStats_;
   protected disposeInternal(): void;

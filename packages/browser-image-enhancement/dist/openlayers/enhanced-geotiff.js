@@ -111,6 +111,8 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	rawStretchReady_ = null;
 	/** Raw-value histograms: of the whole image, and of the last DRA area. */
 	wholeRaw_ = null;
+	/** The value histogram read by {@link EnhancedGeoTIFF.getValueHistogram}, for the content key it was read with. */
+	valueHistogram_ = null;
 	viewRaw_ = null;
 	/** The bands R, G and B show, as set; null: as read. */
 	select_;
@@ -239,6 +241,41 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 	rawFromStats_() {
 		const hist = this.autoStretch_() && this.viewRaw_ || this.wholeRaw_;
 		return hist ? computeRasterStretch(hist, this.rawOptions_()) : null;
+	}
+	/**
+	* The distribution of the values shown: raw values for an image read raw
+	* (see `normalize`), 0-255 for an 8-bit one, one histogram per picture
+	* band (1 for a gray image, 3 for RGB), over the whole image read at a
+	* coarse level, without fill values that stand apart (see
+	* `sampleRasterHistogram`). For making color classes (`colorClasses`).
+	* Read once, and again after the bands or the no-data setting change;
+	* null before the COG is read or when nothing could be read.
+	*/
+	async getValueHistogram() {
+		if (this.getState() !== "ready" || !this.rawLoader_) return null;
+		const key = this.contentKey_().replace(/:raw.*$/, "");
+		if (this.valueHistogram_?.key !== key) {
+			const read = (async () => {
+				await this.rawReady_();
+				const area = this.getTileGrid().getExtent();
+				const stats = await this.collectStats_(area, this.draZoom_(area), true);
+				if (this.rawValues_) return stats.rawHistogram;
+				const h = stats.histogram;
+				return h.count > 0 ? {
+					range: [0, 255],
+					bins: h.bins.map((b) => Float64Array.from(b)),
+					count: h.count
+				} : null;
+			})();
+			this.valueHistogram_ = {
+				key,
+				read
+			};
+			read.catch(() => {
+				if (this.valueHistogram_?.read === read) this.valueHistogram_ = null;
+			});
+		}
+		return this.valueHistogram_.read;
 	}
 	/** Whether tiles are corrected as they load (false: the layer corrects the drawn map). */
 	correctsTiles() {
@@ -402,7 +439,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		this.applyStats_(stats);
 	}
 	/** Statistics of `area` read at level `z`: the raw stretch (normalize: false) and the 8-bit histogram. */
-	async collectStats_(area, z) {
+	async collectStats_(area, z, rawHistogramToo = false) {
 		const loader = this.rawLoader_;
 		const grid = this.getTileGrid();
 		const coords = [];
@@ -436,7 +473,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 		let rawStretch = this.rawStretch_;
 		let rawInfo;
 		let rawHistogram = null;
-		if (this.autoRaw_) {
+		if (this.autoRaw_ || rawHistogramToo && this.rawValues_) {
 			const rasters = tiles.flatMap((t) => {
 				const r = this.raster_(t.raw, t.width, t.height);
 				return r ? [{
@@ -448,7 +485,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 				raster: r,
 				rect
 			})));
-			if (rawHistogram) {
+			if (rawHistogram && this.autoRaw_) {
 				rawInfo = computeRasterStretch(rawHistogram, this.rawOptions_());
 				rawStretch = rawInfo;
 			}
