@@ -40,19 +40,58 @@ export function hasFileAccess(): boolean {
   return typeof (window as { showOpenFilePicker?: unknown }).showOpenFilePicker === 'function' && typeof indexedDB !== 'undefined';
 }
 
+/** A filter of the File System Access picker. */
+export interface PickerType {
+  description: string;
+  accept: Record<string, string[]>;
+}
+
+/** Pictures the browser itself reads, what `image/*` in the chooser's list stands for. */
+const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+
+/**
+ * The kinds of files the picker offers one at a time, after 「対応ファイルすべて」.
+ * An extension goes in the first kind that lists it (a .prj with a Shapefile's
+ * parts, a .xml with the files that go with an image).
+ */
+const KINDS: Array<{ description: string; extensions: string[] }> = [
+  { description: 'ラスター画像（GeoTIFF・COG・PNG・JPEG など）', extensions: ['.tif', '.tiff', ...PICTURES] },
+  { description: '衛星画像（NITF・SICD）', extensions: ['.ntf', '.nitf', '.nsf', '.r0', '.sicd'] },
+  { description: 'ベクター（Shapefile・GeoJSON・GeoPackage・KML・GPX・FlatGeobuf）', extensions: ['.zip', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.qml', '.geojson', '.json', '.gpkg', '.kml', '.kmz', '.gpx', '.fgb'] },
+  { description: '表（CSV・TSV）', extensions: ['.csv', '.tsv'] },
+  { description: '標高（DTED）', extensions: ['.dt0', '.dt1', '.dt2'] },
+  { description: 'プロジェクト（.ivproj・QGIS）', extensions: ['.ivproj', '.qgs', '.qgz'] },
+  { description: '補助ファイル（RPC・IMD・.ovr・ワールドファイル・.aux.xml）', extensions: ['.rpb', '.rpc', '.txt', '.imd', '.ovr', '.tfw', '.tifw', '.jgw', '.jpgw', '.pgw', '.pngw', '.gfw', '.bpw', '.j2w', '.wld', '.xml'] },
+];
+
+/**
+ * The picker's filters for the chooser's list (`.tif,.tiff,image/*,…`):
+ * 「対応ファイルすべて」 first, so it is the one chosen at first, then each
+ * kind of file in the list on its own. Extensions of no kind are 「その他」.
+ */
+export function pickerTypes(accept: string): PickerType[] {
+  const tokens = accept.split(',').map((a) => a.trim().toLowerCase());
+  const extensions = [...new Set(tokens.flatMap((a) => (a === 'image/*' ? PICTURES : a.startsWith('.') ? [a] : [])))];
+  const all: PickerType = { description: '対応ファイルすべて', accept: { 'application/octet-stream': extensions } };
+  if (tokens.includes('image/*')) all.accept = { 'image/*': PICTURES, 'application/octet-stream': extensions.filter((e) => !PICTURES.includes(e)) };
+  const left = new Set(extensions);
+  const kinds: PickerType[] = [];
+  for (const kind of KINDS) {
+    const these = kind.extensions.filter((e) => left.delete(e));
+    if (these.length) kinds.push({ description: kind.description, accept: { 'application/octet-stream': these } });
+  }
+  if (left.size) kinds.push({ description: 'その他', accept: { 'application/octet-stream': [...left] } });
+  return kinds.length > 1 ? [all, ...kinds] : kinds;
+}
+
 /**
  * Asks for files with the File System Access picker. Empty when the person
  * cancels. `accept` is the chooser's list (`.tif,.tiff,image/*,…`).
  */
 export async function pickFiles(accept: string): Promise<FileSystemFileHandle[]> {
-  const extensions = accept.split(',').map((a) => a.trim()).filter((a) => a.startsWith('.'));
   const picker = (window as unknown as { showOpenFilePicker: OpenFilePicker }).showOpenFilePicker;
   try {
-    return await picker({
-      multiple: true,
-      id: 'image-viewer',
-      types: [{ description: '画像・GeoTIFF・ベクター・標高・RPC', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'], 'application/octet-stream': extensions } }],
-    });
+    return await picker({ multiple: true, id: 'image-viewer', types: pickerTypes(accept) });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return [];
     throw error;
