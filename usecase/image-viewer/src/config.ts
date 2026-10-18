@@ -103,6 +103,15 @@ export interface ViewerConfig {
   elevationServices: ElevationServiceConfig[];
   /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
   geocoders: GeocoderConfig[];
+  /** Server-side processing services (ArcGIS GPServer, OGC API – Processes) offered in 「サーバ処理」. */
+  gpServices: GpServiceConfig[];
+}
+
+/** A processing service of config.json: its name in the list, its URL, and a token when it needs one. */
+export interface GpServiceConfig {
+  label: string;
+  url: string;
+  token?: string;
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -169,6 +178,7 @@ export const defaultConfig: ViewerConfig = {
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
+  gpServices: [],
 };
 
 /**
@@ -239,7 +249,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], gpServices: [] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -335,6 +345,22 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.detectionOutputs)) {
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
     } else problems.push('detectionOutputs が配列ではありません');
+  }
+
+  if ('gpServices' in json) {
+    if (Array.isArray(json.gpServices)) {
+      config.gpServices = json.gpServices.flatMap((e, i): GpServiceConfig[] => {
+        // A URL alone will do.
+        const entry = typeof e === 'string' ? { url: e } : e;
+        if (!isRecord(entry) || typeof entry.url !== 'string' || !/^https?:\/\/./i.test(entry.url.trim())) {
+          problems.push(`gpServices[${i}] の url は http(s) の URL にしてください`);
+          return [];
+        }
+        const url = entry.url.trim();
+        const label = typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : url;
+        return [{ label, url, ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
+      });
+    } else problems.push('gpServices が配列ではありません');
   }
 
   return { config, problems };
