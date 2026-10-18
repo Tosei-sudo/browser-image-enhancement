@@ -11,6 +11,7 @@ import type { Projection } from 'ol/proj.js';
 import { equivalent, get as getProjection, getTransform, type TransformFunction } from 'ol/proj.js';
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { ascii, gdalStatistics, geoEntries } from './overviews.js';
 import { combine, commonSampleType, fillOf, gridOver, meshOf, meshWindow, samplesOf, type Box, type ChannelRead, type PixelLookup, type Resampling, type SampleType } from './composite.js';
 import type { CompositeBlock, CompositeReply, CompositeTask } from './composite-worker.js';
@@ -31,6 +32,8 @@ export interface CompositeDialogOptions {
   say: (message: string) => void;
   /** Opens the result like a chosen file (with its RSET); default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
   /** When an image was taken, to put the earliest in red; default: the order of the list (lowest first). */
   timeOf?: (image: ViewerImage) => Promise<number | null>;
 }
@@ -268,6 +271,8 @@ export class CompositeDialog {
     this.run_.addEventListener('click', () => void this.run());
     for (const s of [...this.selects_, this.reference_]) s.addEventListener('change', () => this.describe_(s !== this.reference_));
     for (const name of ['extent', 'resample']) (this.form_.elements.namedItem(name) as HTMLSelectElement).addEventListener('change', () => this.describe_(false));
+    for (const s of this.selects_)
+      options.sources?.attach(s, { dialog: this.dialog, kind: 'image', refill: () => this.open(), valueOf: (l) => optionFor(s, this.images_.indexOf(l as ViewerImage)) });
     this.dialog.addEventListener('close', () => {
       if (this.running_) this.running_.cancelled = true;
     });
@@ -280,17 +285,18 @@ export class CompositeDialog {
    * first band), such as the band assets of a STAC item.
    */
   async open(preset?: ReadonlyArray<ViewerImage | null>): Promise<void> {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i));
     const options = this.images_.flatMap((image, i) => {
       const bands = image.source.getValueBandCount();
-      if (bands <= 1) return [new Option(image.name, `${i}:0`)];
-      return Array.from({ length: bands }, (_, b) => new Option(`${image.name} ・ バンド ${b + 1}`, `${i}:${b}`));
+      const label = (text: string) => this.options.sources?.label(image, text) ?? text;
+      if (bands <= 1) return [new Option(label(image.name), `${i}:0`)];
+      return Array.from({ length: bands }, (_, b) => new Option(label(`${image.name} ・ バンド ${b + 1}`), `${i}:${b}`));
     });
     for (const s of this.selects_) s.replaceChildren(new Option('（なし）', ''), ...options.map((o) => new Option(o.text, o.value)));
     this.note_.textContent = this.images_.length ? '' : '画像を開いてください';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
 
     // One-band images, earliest first (else lowest in the list first).
     const single = this.images_.filter((i) => i.source.getValueBandCount() === 1 && !this.made_.has(i));

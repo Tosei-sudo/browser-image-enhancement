@@ -11,6 +11,7 @@ import { ExpressionError, FUNCTIONS, guessRoles, INDEX_PRESETS, onlyVariables, p
 import { markRow } from './colorize-dialog.js';
 import { tiffOf } from './composite-dialog.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { planCalc, runCalc } from './raster-calc-run.js';
 
 /** Brown (bare) through yellow to green (dense vegetation), for vegetation indices. */
@@ -42,6 +43,8 @@ export interface BandMathDialogOptions {
   say: (message: string) => void;
   /** Opens the result like a chosen file (with its RSET); default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
 }
 
 export class BandMathDialog {
@@ -102,6 +105,12 @@ export class BandMathDialog {
     this.dialog.querySelector('button[value=save]')!.addEventListener('click', () => this.save());
     this.run_.addEventListener('click', () => void this.run());
     this.image_.addEventListener('change', () => void this.imageChanged_());
+    options.sources?.attach(this.image_, {
+      dialog: this.dialog,
+      kind: 'image',
+      refill: () => this.open(this.preset_.value),
+      valueOf: (l) => optionFor(this.image_, this.images_.indexOf(l as ViewerImage)),
+    });
     this.preset_.addEventListener('change', () => this.presetChanged_());
     // Typing an expression of one's own makes it 「自由式」.
     this.expression_.addEventListener('input', () => {
@@ -116,15 +125,16 @@ export class BandMathDialog {
 
   /** Opens the dialog on the selected image (else the first that has several bands). */
   async open(preset = 'ndvi'): Promise<void> {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i));
-    this.image_.replaceChildren(...this.images_.map((image, i) => new Option(`${image.name}（${image.source.getValueBandCount()} バンド）`, String(i))));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i));
+    const label = (image: ViewerImage, text: string) => this.options.sources?.label(image, text) ?? text;
+    this.image_.replaceChildren(...this.images_.map((image, i) => new Option(label(image, `${image.name}（${image.source.getValueBandCount()} バンド）`), String(i))));
     const selected = this.images.selected();
-    const start = selected && this.images_.includes(selected) && !this.made_.has(selected) ? selected : (this.images_.find((i) => i.source.getValueBandCount() >= 2) ?? this.images_[0]);
+    const start = selected && this.images_.includes(selected) && !this.made_.has(selected) ? selected : (this.images_.find((i) => i.source.getValueBandCount() >= 2 && !this.images.isSource(i)) ?? this.images_[0]);
     if (start) this.image_.value = String(this.images_.indexOf(start));
     this.preset_.value = preset;
     this.note_.textContent = this.images_.length ? '' : '画像を開いてください';
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
     await this.imageChanged_();
   }
 

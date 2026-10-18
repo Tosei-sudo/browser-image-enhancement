@@ -15,6 +15,7 @@ import { footprint, lookupFor, pixelSize, place, planComposite, tiffOf, type Cha
 import { colorOf } from './mosaic-dialog.js';
 import type { Grid } from './pansharpen.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { runResample } from './raster-calc-run.js';
 
 /** Pixels across the coarse look at the whole overlap. */
@@ -159,6 +160,8 @@ export interface AlignDialogOptions {
   say: (message: string) => void;
   /** Opens the result like a chosen file; default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
 }
 
 export class AlignDialog {
@@ -213,6 +216,8 @@ export class AlignDialog {
     this.dialog.querySelector('button[value=save]')!.addEventListener('click', () => this.save());
     this.run_.addEventListener('click', () => void this.run());
     for (const s of [this.reference_, this.target_]) s.addEventListener('change', () => this.describe_());
+    for (const s of [this.reference_, this.target_])
+      options.sources?.attach(s, { dialog: this.dialog, kind: 'image', refill: () => this.open(), valueOf: (l) => optionFor(s, this.images_.indexOf(l as ViewerImage)) });
     this.dialog.addEventListener('close', () => {
       if (this.running_) this.running_.cancelled = true;
     });
@@ -220,11 +225,12 @@ export class AlignDialog {
 
   /** Opens the dialog: the selected image to align, the finest other image as the reference. */
   open(): void {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i));
     const options = this.images_.flatMap((image, i) => {
       const bands = image.source.getValueBandCount();
-      if (bands <= 1) return [new Option(image.name, `${i}:0`)];
-      return Array.from({ length: bands }, (_, b) => new Option(`${image.name} ・ バンド ${b + 1}`, `${i}:${b}`));
+      const label = (text: string) => this.options.sources?.label(image, text) ?? text;
+      if (bands <= 1) return [new Option(label(image.name), `${i}:0`)];
+      return Array.from({ length: bands }, (_, b) => new Option(label(`${image.name} ・ バンド ${b + 1}`), `${i}:${b}`));
     });
     for (const s of [this.reference_, this.target_]) s.replaceChildren(...options.map((o) => new Option(o.text, o.value)));
     this.note_.textContent = this.images_.length >= 2 ? '' : '画像を 2 枚開いてください';
@@ -234,7 +240,7 @@ export class AlignDialog {
     const reference = [...this.images_].filter((i) => i !== target && !this.made_.has(i)).sort((p, q) => pixelSize(p) - pixelSize(q))[0];
     if (target) this.target_.value = `${this.images_.indexOf(target)}:0`;
     if (reference) this.reference_.value = `${this.images_.indexOf(reference)}:0`;
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
     this.describe_();
   }
 

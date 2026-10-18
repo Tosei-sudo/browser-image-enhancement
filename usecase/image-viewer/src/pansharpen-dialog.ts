@@ -16,6 +16,7 @@ import type { PanSharpenMethod, Pipeline } from 'browser-image-enhancement';
 import type { EnhancedGeoTIFF, GeoTIFFSamples, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import type { Resample } from 'browser-image-geometry';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { ascii, gdalStatistics, geoEntries } from './overviews.js';
 import { blocksOf, planPanSharpen, sampleWindows, type Grid, type PanSharpenJob, type PanSharpenPlan, type ReadWindow } from './pansharpen.js';
 import type { PanSharpenBlock, PanSharpenReply, PanSharpenTask } from './pansharpen-worker.js';
@@ -38,6 +39,8 @@ export interface PanSharpenDialogOptions {
   onPipeline?: (pipeline: Pipeline) => void;
   /** Opens the result like a chosen file (with its RSET); default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
 }
 
 /** A pan-sharpened layer: what it was made of, and its file. */
@@ -128,6 +131,8 @@ export class PanSharpenDialog {
     this.run_.addEventListener('click', () => void this.run());
     this.pan_.addEventListener('change', () => this.describe_());
     this.ms_.addEventListener('change', () => this.describe_());
+    for (const s of [this.pan_, this.ms_])
+      options.sources?.attach(s, { dialog: this.dialog, kind: 'image', refill: () => this.open(), valueOf: (l) => optionFor(s, this.images_.indexOf(l as ViewerImage)) });
     this.dialog.addEventListener('close', () => {
       if (this.running_) this.running_.cancelled = true;
     });
@@ -135,8 +140,11 @@ export class PanSharpenDialog {
 
   /** Opens the dialog with the finest one-band image as the panchromatic one and a color image as the multispectral one. */
   open(): void {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i));
-    const option = (i: ViewerImage, n: number) => new Option(`${i.name}（${i.source.getValueBandCount()} バンド）`, String(n));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i));
+    const option = (i: ViewerImage, n: number) => {
+      const text = `${i.name}（${i.source.getValueBandCount()} バンド）`;
+      return new Option(this.options.sources?.label(i, text) ?? text, String(n));
+    };
     this.pan_.replaceChildren(...this.images_.map(option));
     this.ms_.replaceChildren(...this.images_.map(option));
     const byFine = [...this.images_].sort((a, b) => pixelSize(a) - pixelSize(b));
@@ -148,7 +156,7 @@ export class PanSharpenDialog {
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     this.describe_();
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
   }
 
   /** Whether `image` is a pan-sharpened layer made here. */

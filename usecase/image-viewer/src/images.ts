@@ -10,6 +10,10 @@
  * closes them as one. Files opened together come in a group of their own
  * (see {@link ImageList.beginBatch}), where adding many layers redraws the
  * list once a frame rather than once a layer.
+ *
+ * Files opened only as inputs of the processing tools (see
+ * {@link ImageList.openAsSources}) are data sources: kept here, but neither
+ * on the map nor in the list.
  */
 import type OlMap from 'ol/Map.js';
 import type BaseLayer from 'ol/layer/Base.js';
@@ -116,6 +120,10 @@ export class ImageList {
   /** A redraw of the list waiting for the next frame (while a batch adds layers). */
   private pendingRestack_ = 0;
   private menu_: ContextMenu | null = null;
+  /** Data sources: opened for the processing tools only, off the map and out of the list (oldest first). */
+  private sources_: ViewerLayer[] = [];
+  /** While files open as data sources: what they added, and the view to keep. */
+  private capture_: { added: ViewerLayer[]; view: { center: number[] | undefined; resolution: number | undefined; rotation: number } } | null = null;
 
   constructor(
     private readonly element: HTMLOListElement,
@@ -137,9 +145,61 @@ export class ImageList {
     entry.row.title = out ? why : '';
   }
 
-  /** The open image showing `source`. */
+  /** The open image (or data source) showing `source`. */
   find(source: EnhancedGeoTIFF): ViewerImage | undefined {
-    return this.list().find((i) => i.source === source);
+    return this.inputImages().find((i) => i.source === source);
+  }
+
+  /** The data sources: files opened for the processing tools only (not on the map), oldest first. */
+  sources(): readonly ViewerLayer[] {
+    return this.sources_;
+  }
+
+  /** Whether `layer` is a data source (not on the map). */
+  isSource(layer: ViewerLayer): boolean {
+    return this.sources_.includes(layer);
+  }
+
+  /** What a processing tool can take: every layer, top first, then the data sources (so their places stay as more are opened). */
+  inputs(): readonly ViewerLayer[] {
+    return [...this.images_, ...this.sources_];
+  }
+
+  /** The images a processing tool can take: the open images, then the data-source images. */
+  inputImages(): ViewerImage[] {
+    return this.inputs().filter((l): l is ViewerImage => l.type === 'image');
+  }
+
+  /**
+   * Runs `open` (which opens files the usual way) with what it adds kept as
+   * data sources: off the map, out of the list, and the view left where it
+   * is. Resolves to the layers it added.
+   */
+  async openAsSources(open: () => Promise<unknown>): Promise<ViewerLayer[]> {
+    const view = this.map.getView();
+    const capture = { added: [] as ViewerLayer[], view: { center: view.getCenter(), resolution: view.getResolution(), rotation: view.getRotation() } };
+    this.capture_ = capture;
+    try {
+      await open();
+    } finally {
+      if (this.capture_ === capture) this.capture_ = null;
+    }
+    return capture.added;
+  }
+
+  /** Keeps a layer opened while {@link openAsSources} runs as a data source; false when none runs. */
+  private captured_(layer: ViewerLayer): boolean {
+    const capture = this.capture_;
+    if (!capture) return false;
+    this.sources_.push(layer);
+    capture.added.push(layer);
+    // The loader fits the view to a new image: back to where it was.
+    const view = this.map.getView();
+    const { center, resolution, rotation } = capture.view;
+    if (center) view.setCenter(center);
+    if (resolution !== undefined) view.setResolution(resolution);
+    view.setRotation(rotation);
+    return true;
   }
 
   /** The open images, top first. */
@@ -165,11 +225,12 @@ export class ImageList {
   /** Adds a loaded image on top and selects it. */
   add({ source, name, kind }: LoadedImage): ViewerImage {
     const layer = new GpuCorrectedTileLayer({ source });
-    this.map.addLayer(layer);
     const image: ViewerImage = { type: 'image', name, kind, source, layer, row: document.createElement('li') };
+    this.buildRow_(image);
+    if (this.captured_(image)) return image;
+    this.map.addLayer(layer);
     // Limited while its RSET is made (see rset.ts).
     layer.on('change:maxResolution', () => this.markScale_(image));
-    this.buildRow_(image);
     this.added_(image);
     return image;
   }
@@ -239,9 +300,10 @@ export class ImageList {
   addService(service: ServiceLayer): ViewerService {
     // The symbols and labels chosen the last time this layer was open.
     service.style?.restore(styleKeyOf(service));
-    this.map.addLayer(service.layer);
     const entry: ViewerService = { type: 'service', name: service.title, service, layer: service.layer, row: document.createElement('li') };
     this.buildRow_(entry);
+    if (this.captured_(entry)) return entry;
+    this.map.addLayer(service.layer);
     service.layer.on(['change:minResolution', 'change:maxResolution'], () => this.markScale_(entry));
     this.markScale_(entry);
     this.added_(entry);
@@ -588,6 +650,8 @@ export class ImageList {
 
   /** Zooms the map to a layer. */
   async zoomTo(image: ViewerLayer): Promise<void> {
+    // A data source is not on the map.
+    if (this.isSource(image)) return;
     const extent = await this.extentOf_(image);
     if (extent && Number.isFinite(extent[0])) this.map.getView().fit(extent, { padding: [20, 20, 20, 20], duration: 250, ...(image.type === 'service' ? { maxZoom: 18 } : {}) });
   }

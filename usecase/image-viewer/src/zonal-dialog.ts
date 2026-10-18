@@ -13,6 +13,7 @@ import { place, tiffOf, transformer } from './composite-dialog.js';
 import type { ViewerImage, ViewerLayer, ViewerService } from './images.js';
 import { attributesOf, copyFields, field, type ProcessingResult } from './processing/common.js';
 import type { Selection } from './selection.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { pixelBounds, rasterizePolygon, statField, ZONAL_STATS, zoneStats, type Rings, type ZonalStat } from './zonal.js';
 
 /** A polygon's window larger than this many pixels is read at a lower resolution. */
@@ -21,8 +22,10 @@ const MAX_READ = 4_000_000;
 const MAX_BANDS = 32;
 
 export interface ZonalDialogOptions {
-  /** The open layers, top first. */
+  /** The open layers, top first (and the data sources, after). */
   layers: () => readonly ViewerLayer[];
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
   /** The layer selected in the list. */
   selected: () => ViewerLayer | null;
   /** Opens the result as a temporary layer. */
@@ -95,6 +98,9 @@ export class ZonalDialog {
     this.layer_.addEventListener('change', () => this.update_());
     this.image_.addEventListener('change', () => void this.fillBands_());
     form.addEventListener('change', () => this.update_());
+    const sources = options.sources;
+    sources?.attach(this.layer_, { dialog: this.dialog, kind: 'vector', refill: () => this.open(), valueOf: (l) => optionFor(this.layer_, this.layers_.indexOf(l as ViewerService)) });
+    sources?.attach(this.image_, { dialog: this.dialog, kind: 'image', refill: () => this.open(), valueOf: (l) => optionFor(this.image_, this.images_.indexOf(l as ViewerImage)) });
     this.dialog.addEventListener('close', () => {
       if (this.running_) this.running_.cancelled = true;
     });
@@ -105,13 +111,14 @@ export class ZonalDialog {
     const all = this.options.layers();
     this.layers_ = all.filter((l): l is ViewerService => l.type === 'service' && !!l.service.vector && hasPolygons(l));
     this.images_ = all.filter((l): l is ViewerImage => l.type === 'image' && !!tiffOf(l));
-    this.layer_.replaceChildren(...this.layers_.map((l, i) => new Option(l.name, String(i))));
-    this.image_.replaceChildren(...this.images_.map((l, i) => new Option(`${l.name}（${l.source.getValueBandCount()} バンド）`, String(i))));
+    const label = (l: ViewerLayer, text?: string) => this.options.sources?.label(l, text) ?? text ?? l.name;
+    this.layer_.replaceChildren(...this.layers_.map((l, i) => new Option(label(l), String(i))));
+    this.image_.replaceChildren(...this.images_.map((l, i) => new Option(label(l, `${l.name}（${l.source.getValueBandCount()} バンド）`), String(i))));
     const selected = this.options.selected();
     if (selected?.type === 'service' && this.layers_.includes(selected)) this.layer_.value = String(this.layers_.indexOf(selected));
     if (selected?.type === 'image' && this.images_.includes(selected)) this.image_.value = String(this.images_.indexOf(selected));
     this.note_.textContent = '';
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
     await this.fillBands_();
   }
 

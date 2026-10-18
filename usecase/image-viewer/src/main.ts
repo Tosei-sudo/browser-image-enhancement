@@ -43,6 +43,9 @@ import { Bookmarks } from './bookmarks.js';
 import { glVector } from './gl-vector.js';
 import { clearStreamedCopies, streaming } from './streamed-shapefile.js';
 import { acceptFiles, openFiles, openImageFile, originOf, placeImage, type OpenFilesContext } from './open-files.js';
+import { DataSources } from './data-sources.js';
+import { isVectorName } from './vector-files.js';
+import { isCsvName } from './csv.js';
 import { GeorefDialog } from './georef-dialog.js';
 import { describeGeoref, type Georef } from './georef.js';
 import { endBuilding, markBuilding, rsetOf, RsetIndicator, RsetProgress, rsetSettings, rsetText } from './rset.js';
@@ -571,6 +574,21 @@ function addService(service: ServiceLayer): void {
   say(`${service.title} を追加しました`);
 }
 
+// Files as inputs of the processing tools (📂 next to a tool's layer choice), opened without adding them to the map.
+const dataSources = new DataSources(images, {
+  openFiles: (files) => openFiles(files, { ...fileContext(), fit: false }),
+  openUrl: async (url) => {
+    const name = new URL(url, document.baseURI).pathname;
+    if (isVectorName(name) || isCsvName(name)) await openFiles([await fetchFile(url)], { ...fileContext(), fit: false });
+    else await loader.loadUrl(url);
+  },
+  accept: acceptFiles,
+  recent: () => recentFiles,
+  remember: (handles) => void recent?.remember(handles),
+  fileAccess: hasFileAccess(),
+  say,
+});
+
 // Processing tools (buffers, lines from points, centroids, Voronoi / Thiessen, reprojection): results are
 // temporary layers, kept in the browser until they are closed.
 const tempStore = browserStore();
@@ -588,7 +606,8 @@ const rasterTools = [
   { id: 'zonal', label: 'ゾーン統計（ポリゴンごとの平均・最大など）', open: () => void zonal.open() },
 ];
 const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
-  layers: () => images.layers(),
+  layers: () => images.inputs(),
+  sources: dataSources,
   selected: () => images.selectedLayer(),
   say,
   onResult: async (result, made) => {
@@ -600,7 +619,8 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
 });
 // Zonal statistics (from the processing dialog): each polygon's mean, max… of an image's bands, as a temporary layer.
 const zonal = new ZonalDialog(selection, {
-  layers: () => images.layers(),
+  layers: () => images.inputs(),
+  sources: dataSources,
   selected: () => images.selectedLayer(),
   say,
   onResult: async (result, made) => {
@@ -923,6 +943,7 @@ const geometry = new GeometricMode(map, images, loader, document.getElementById(
 // Pan-sharpening (from the processing dialog): a panchromatic and a multispectral image make a new layer.
 const panSharpen = new PanSharpenDialog(map, images, loader, {
   say,
+  sources: dataSources,
   onPipeline: (p) => enhance.setPipeline(p),
   open: (file) => openImageFile(file, fileContext()),
 });
@@ -931,10 +952,11 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
 const timeOfImage = async (image: ViewerImage) => (await imageTime(image))?.time ?? null;
 const colorize = new ColorizeDialog(images, { say, timeOf: timeOfImage, onChange: () => updateLink() });
 // Band math (from the processing dialog): NDVI and other indices by name, or any expression over the bands.
-const bandMath = new BandMathDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
+const bandMath = new BandMathDialog(images, loader, { say, sources: dataSources, open: (file) => openImageFile(file, fileContext()) });
 // Change detection (from the processing dialog): two dates compared, and what changed outlined as a temporary layer.
 const change = new ChangeDialog(images, loader, {
   say,
+  sources: dataSources,
   timeOf: (image) => timeOfImage(image),
   open: (file) => openImageFile(file, fileContext()),
   onPolygons: async (result, made) => {
@@ -946,6 +968,7 @@ const change = new ChangeDialog(images, loader, {
 // Land cover classification (from the processing dialog): k-means, or training polygons by an attribute; classes in colors, areas, outlines.
 const classify = new ClassifyDialog(images, loader, map, {
   say,
+  sources: dataSources,
   open: (file) => openImageFile(file, fileContext()),
   onPolygons: async (result, made) => {
     const record = recordOf(result, made);
@@ -954,7 +977,7 @@ const classify = new ClassifyDialog(images, loader, map, {
   },
 });
 // Automatic alignment (from the processing dialog): an image lined up with a reference by matching their texture.
-const align = new AlignDialog(images, loader, { say, open: (file) => openImageFile(file, fileContext()) });
+const align = new AlignDialog(images, loader, { say, sources: dataSources, open: (file) => openImageFile(file, fileContext()) });
 // Which pixels of an image are transparent: the file's no-data value and the usual fill values, the black collar, values typed.
 const noData = new NoDataDialog(images, { say });
 // Projections for images without one (pictures, scans, TIFFs without a CRS): world files, extents, corners; saved in projects.
@@ -975,12 +998,14 @@ async function placeLayer(image: ViewerImage, placement: Georef | null): Promise
 }
 const composite = new CompositeDialog(images, loader, {
   say,
+  sources: dataSources,
   timeOf: timeOfImage,
   open: (file) => openImageFile(file, fileContext()),
 });
 // Mosaics (from the processing dialog): neighbouring scenes joined into one, the first in priority order on top.
 const mosaic = new MosaicDialog(images, loader, {
   say,
+  sources: dataSources,
   timeOf: timeOfImage,
   open: (file) => openImageFile(file, fileContext()),
 });

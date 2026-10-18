@@ -16,6 +16,7 @@ import { markRow } from './colorize-dialog.js';
 import { pixelSize, tiffOf, type Channel } from './composite-dialog.js';
 import { formatArea, geodesicArea } from './geodesic.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { polygonize } from './mask-polygons.js';
 import { field, type ProcessingResult } from './processing/common.js';
 import { planCalc, runCalc, type CalcResult } from './raster-calc-run.js';
@@ -30,6 +31,8 @@ export interface ChangeDialogOptions {
   say: (message: string) => void;
   /** Opens the result like a chosen file; default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
   /** When an image was taken, to put the earlier one first. */
   timeOf?: (image: ViewerImage) => Promise<number | null>;
   /** Adds the outlines of what changed as a temporary layer. */
@@ -127,6 +130,8 @@ export class ChangeDialog {
     this.dialog.querySelector('button[value=save]')!.addEventListener('click', () => this.save());
     this.run_.addEventListener('click', () => void this.run());
     for (const s of [this.before_, this.after_]) s.addEventListener('change', () => this.describe_());
+    for (const s of [this.before_, this.after_])
+      options.sources?.attach(s, { dialog: this.dialog, kind: 'image', refill: () => this.open(), valueOf: (l) => optionFor(s, this.images_.indexOf(l as ViewerImage)) });
     this.dialog.addEventListener('close', () => {
       if (this.running_) this.running_.cancelled = true;
     });
@@ -134,17 +139,18 @@ export class ChangeDialog {
 
   /** Opens the dialog with the two earliest one-band images (else the lowest two in the list), the earlier as before. */
   async open(): Promise<void> {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i) && !this.made_.has(i));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i) && !this.made_.has(i));
     const options = this.images_.flatMap((image, i) => {
       const bands = image.source.getValueBandCount();
-      if (bands <= 1) return [new Option(image.name, `${i}:0`)];
-      return Array.from({ length: bands }, (_, b) => new Option(`${image.name} ・ バンド ${b + 1}`, `${i}:${b}`));
+      const label = (text: string) => this.options.sources?.label(image, text) ?? text;
+      if (bands <= 1) return [new Option(label(image.name), `${i}:0`)];
+      return Array.from({ length: bands }, (_, b) => new Option(label(`${image.name} ・ バンド ${b + 1}`), `${i}:${b}`));
     });
     for (const s of [this.before_, this.after_]) s.replaceChildren(...options.map((o) => new Option(o.text, o.value)));
     this.note_.textContent = this.images_.length >= 2 ? '' : '比べる画像を 2 枚開いてください';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
 
     // Lowest in the list first, else by time when every image has one.
     const order = new Map(this.images_.map((image, i) => [image, -i]));

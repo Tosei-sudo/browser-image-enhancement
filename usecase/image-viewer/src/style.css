@@ -1327,6 +1327,91 @@ body {
   font-size: 12px;
 }
 
+/* A tool's input: the layer choice, and 📂 to use a file without adding it to the map (data-sources.ts). */
+.source-field {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+}
+.source-field > select,
+.source-field > .mosaic-list {
+  flex: 1;
+  min-width: 0;
+}
+.source-browse {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.source-field > .mosaic-list ~ .source-browse {
+  align-self: flex-start;
+  padding: 2px 6px;
+}
+.source-browse:hover,
+.source-browse[aria-expanded='true'] {
+  background: var(--accent-bg);
+}
+.source-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 16em;
+  max-width: min(28em, 90vw);
+  margin-top: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px var(--shadow);
+  color: var(--fg);
+  font-size: 12px;
+}
+.source-menu[hidden] {
+  display: none;
+}
+.source-menu > button {
+  overflow: hidden;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.source-menu > button:hover,
+.source-menu > button:focus-visible {
+  background: var(--accent-bg);
+  outline: none;
+}
+.source-menu-head {
+  padding: 4px 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.source-url {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.source-url input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* New layer dialog: a name, a geometry type and the attributes. */
 .new-layer-fields {
   display: grid;
