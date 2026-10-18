@@ -193,11 +193,9 @@ export class ResultDraft {
   async commit(main: File, others: File[] = [], options: { categorical?: boolean } = {}): Promise<KeptResult | null> {
     this.done_ = true;
     try {
-      // Not kept when a file had no room in the browser's storage (it is in the page).
-      if (this.sinks_.some((s) => s instanceof RoomySink && s.inMemory)) {
-        if (this.dir) await this.store.removeFolder(this.id).catch(() => {});
-        return null;
-      }
+      // Not kept when a file had no room in the browser's storage (it is in the page). Its other
+      // files may be open as layers: they stay until the next visit removes the unfinished folder.
+      if (this.sinks_.some((s) => s instanceof RoomySink && s.inMemory)) return null;
       if (!this.dir) return null;
       const files = [main, ...others.filter((f) => f !== main)];
       const kept: KeptResult = {
