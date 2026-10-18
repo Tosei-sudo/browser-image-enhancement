@@ -202,7 +202,10 @@ export function bringBack(dialog: HTMLDialogElement): void {
     dialog.showModal();
   }
   updateButton(dialog);
-  if (!out.win.closed) out.win.close();
+  // Let a click in the popped-out window finish before closing its page.
+  if (!out.win.closed) setTimeout(() => {
+    if (!out.win.closed) out.win.close();
+  }, 0);
 }
 
 /** Brings every dialog back (the tab is going away, so its windows would stop working). */
