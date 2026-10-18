@@ -13,6 +13,7 @@ import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
+import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type AuthRule } from './auth.js';
 
 /**
  * What a base map URL points to:
@@ -103,6 +104,10 @@ export interface ViewerConfig {
   elevationServices: ElevationServiceConfig[];
   /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
   geocoders: GeocoderConfig[];
+  /** ArcGIS Online / Enterprise portals to sign in to (OAuth 2.0 with PKCE, auth.ts); none hides 「サインイン」. */
+  arcgisPortals: ArcgisPortalConfig[];
+  /** Headers or query parameters added to requests to URLs that start with a prefix (auth.ts). */
+  authRules: AuthRule[];
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -169,6 +174,8 @@ export const defaultConfig: ViewerConfig = {
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
+  arcgisPortals: [],
+  authRules: [],
 };
 
 /**
@@ -239,7 +246,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -335,6 +342,25 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.detectionOutputs)) {
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
     } else problems.push('detectionOutputs が配列ではありません');
+  }
+
+  if ('arcgisPortals' in json) {
+    if (Array.isArray(json.arcgisPortals)) {
+      const seen = new Set<string>();
+      config.arcgisPortals = json.arcgisPortals
+        .map((p, i) => arcgisPortalOf(p, problems, i))
+        .filter((p): p is ArcgisPortalConfig => {
+          if (!p) return false;
+          if (seen.has(p.url)) return (problems.push(`arcgisPortals の url「${p.url}」が重複しています`), false);
+          seen.add(p.url);
+          return true;
+        });
+    } else problems.push('arcgisPortals が配列ではありません');
+  }
+
+  if ('authRules' in json) {
+    if (Array.isArray(json.authRules)) config.authRules = json.authRules.map((r, i) => authRuleOf(r, problems, i)).filter((r): r is AuthRule => r !== null);
+    else problems.push('authRules が配列ではありません');
   }
 
   return { config, problems };
@@ -466,7 +492,7 @@ export async function loadConfig(url = new URL('config.json', document.baseURI).
 
 /** A file by URL, named after the last part of its path, to open like a local file. */
 export async function fetchFile(url: string): Promise<File> {
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const path = new URL(url, document.baseURI).pathname;
   let name = path.slice(path.lastIndexOf('/') + 1) || 'layer';

@@ -53,6 +53,11 @@
           <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="bookmark-panel" title="表示範囲に名前を付けて残す・リンクで共有">ブックマーク</button>
           <div id="bookmark-panel" class="menu-panel" role="group" aria-label="ブックマーク" hidden></div>
         </div>
+        <!-- ArcGIS sign-in, when config.json lists portals: src/auth-menu.ts. -->
+        <div class="menu signin-menu" id="signin-menu" hidden>
+          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="signin-panel">サインイン</button>
+          <div id="signin-panel" class="menu-panel" role="group" aria-label="サインイン" hidden></div>
+        </div>
         <!-- Everyday controls stay in the bar; the click tools and the rest are one menu away. -->
         <div class="menu" id="tools-menu">
           <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="tools-panel">ツール</button>

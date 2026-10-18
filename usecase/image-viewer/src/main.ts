@@ -107,6 +107,9 @@ import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
+import { configureAuth } from './auth.js';
+import { SignInMenu } from './auth-menu.js';
+import { AuthLoadImageControl } from './auth-cog.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -116,6 +119,8 @@ for (let zone = 1; zone <= 60; zone++) {
 
 // Site settings (base maps, projection registry…) from config.json, so they change without a rebuild.
 const config = await loadConfig();
+// ArcGIS sign-in and the access rules (src/auth.ts), before anything is requested; this tab's sign-ins come back.
+configureAuth({ portals: config.arcgisPortals, rules: config.authRules });
 for (const [code, definition] of Object.entries(config.projections)) {
   try {
     proj4.defs(code, definition);
@@ -201,6 +206,8 @@ const enhance = new EnhanceControl({ labels: enhanceLabelsJa, collapsed: false }
 map.addControl(enhance);
 
 const say = (message: string) => (status.textContent = message);
+// 「サインイン」 in the header, when config.json lists ArcGIS portals.
+const signIn = new SignInMenu(document.getElementById('signin-menu')!, { say });
 // Whether the selected image is drawn from its raw pixels or an RSET level, and the RSETs being made.
 const rsetShown = new RsetIndicator(map);
 const rsetProgress = new RsetProgress(mapElement);
@@ -696,7 +703,7 @@ function updateLink(): void {
 }
 baseMap.select.addEventListener('change', updateLink);
 
-const loader = new LoadImageControl({
+const loader = new AuthLoadImageControl({
   target: 'open',
   labels: { ...loadImageLabelsJa, url: 'URL を開く（COG・Esri ImageServer）', urlPlaceholder: 'https://…/image.tif、…/ImageServer' },
   // An Esri image (or map) service URL opens as its picture layer.
@@ -1336,7 +1343,8 @@ declare global {
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
+      signIn: SignInMenu;
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn };

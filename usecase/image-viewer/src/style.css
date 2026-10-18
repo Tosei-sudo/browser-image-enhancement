@@ -3615,3 +3615,25 @@ dialog.popped-out .catalog-head {
 .shadow-list[hidden] {
   display: none;
 }
+
+/* The 「サインイン」 menu: ArcGIS portals, who is signed in (src/auth-menu.ts). */
+.menu.signin-menu {
+  margin-left: 0;
+}
+.menu.signin-menu[hidden] {
+  display: none;
+}
+.signin-menu .menu-button.signed-in {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signin-portal {
+  display: grid;
+  gap: 4px;
+}
+.signin-user {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
