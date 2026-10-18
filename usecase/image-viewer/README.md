@@ -280,6 +280,16 @@ COG は、サーバーが CORS と Range リクエストを許可している必
       "defaults": { "maxOffNadir": 30, "minOffNadir": 0, "swath": 10, "minInterval": 0 }, // 属性が空のときの値（任意。scenesPerPass・maxPerDay も可）
       "sarPattern": "SAR|レーダ",                                                     // kind の値で SAR を見分ける正規表現（任意）
       "where": "STATUS = 'ACTIVE'" }                                                  // いつも付ける条件（任意）
+  ],
+  // ArcGIS Online / Enterprise へのサインイン（ヘッダーの「サインイン」）。clientId はポータルに登録したアプリのもの
+  "arcgisPortals": [
+    { "label": "ArcGIS Online", "url": "https://www.arcgis.com", "clientId": "AbCdEf123456" },
+    { "label": "社内ポータル", "url": "https://gis.example.com/portal", "clientId": "XyZ987" }
+  ],
+  // URL の先頭ごとに、要求へ付けるヘッダー・クエリ（COG・タイル・サービスの要求）
+  "authRules": [
+    { "prefix": "https://bucket.s3.ap-northeast-1.amazonaws.com/cogs/", "headers": { "x-api-key": "…" } },
+    { "prefix": "https://tiles.example.com/", "query": { "key": "…" } }
   ]
 }
 ```
@@ -313,6 +323,10 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 - `url` なし: 初めてその先頭のパスを開くときに「フォルダを選ぶ…」を出し、`prefix` が指すフォルダ（例: ネットワークドライブの `img`）を選んでもらいます。選んだフォルダはブラウザ（IndexedDB）に覚え、次からは選ばずに開けます（ブラウザを開き直したあとは「許可する」を 1 回押すだけです）。残りのパスはそのフォルダの中をたどり（大文字小文字は区別しません）、ローカルファイルと同じく必要な部分だけ読むので、大きな画像もすぐ開きます。隣にある `.ovr`・`.RPB`・`_RPC.TXT`・`.IMD` も一緒に開き、「最近」にも入ります。File System Access API のある Chrome・Edge でだけ使えます。違うフォルダを選んだときは、カタログの「詳細条件」→「フォルダの許可を消去」で選び直せます
 
 `satelliteCatalogs` の `fields` は TLE（`tle`、または `tle1` と `tle2`）だけが必須です。`tle` は 2 行（前に衛星名の行があってもよい）を 1 つの属性に入れた形に対応します。諸元の属性がない・空の衛星は `defaults` の値を使います。撮像機会は、点や線は対象の中心で、ポリゴンは内側の格子点のうち届く範囲（最小〜最大オフナディア角・見られる向き）に入るもので判定し、軌道の面からの距離で候補を絞ってから、パスごとに最も近づく時刻を 0.05 秒以下まで詰めます。被覆のシーン数は、その時刻の軌道に直交する方向の領域の幅 ÷ 観測幅（切り上げ）です。カタログを書かないときは、決め打ちのサンプル衛星 2 機（実在の衛星ではありません）で計算します。Sentinel-2 相当の光学衛星（高度約 786 km・太陽同期 10:30 降交・最大オフナディア角 20°・観測幅 30 km）と、Sentinel-1 相当の右向き SAR 衛星（高度約 693 km・18:00 昇交・オフナディア角 20〜45°・観測幅 50 km）です。「詳細条件」に TLE を貼り付ければ、そこで指定した諸元の衛星を足せます。
+
+`arcgisPortals` を書くと、ヘッダーに「サインイン」が出ます。ポータルを選ぶとポップアップでそのポータルのサインイン画面が開き、サインインするとボタンがユーザー名に変わります（メニューから「サインアウト」）。OAuth 2.0 の認可コード＋PKCE なので、クライアントシークレットは要りません。ポータルでアプリ（「その他のアプリケーション」/ OAuth 認証情報）を登録し、リダイレクト URI にこのサイトの `oauth-callback.html`（例: `https://viewer.example.com/oauth-callback.html`）を加えて、そのクライアント ID を `clientId` に書きます。`url` はポータルのルート（`https://www.arcgis.com`、`https://gis.example.com/portal`）で、https だけです（http は localhost のみ）。サインイン中のトークンは、そのポータル・ArcGIS Online の組織のホストサービス（`services*.arcgis.com/<組織 ID>/…`）・ポータルのフェデレーションサーバー（`portals/self/servers`）への要求に、トークンを入力しなかったときだけ自動で付けます（サービスの追加・画像カタログ・撮像計画の衛星カタログ・標高サービス・DB へ転記・ジオコーダー・イメージサービスのタイルなど）。サーバーが期限切れ・無効（498・499）と答えたら 1 回だけ更新して送り直し、期限の前にも自動で更新します。トークンはこのタブ（sessionStorage）にだけ残り、リンク・プロジェクトファイルには入りません。
+
+`authRules` は URL の先頭（`prefix`）が一致する要求に `headers`（ヘッダー）か `query`（クエリパラメーター）を付けます。対象は COG の読み込み（Range 要求ごと）・WMS・WMTS・Esri・XYZ 背景地図のタイル・サービスの情報や地物の要求・URL で開くファイルです。`prefix` は `https://` で始まりホストの後の `/` まで含めて書き（http は localhost のみ）、文字列としての前方一致で、複数合えば最も長いものを使います。ほかのホストには送りません。ヘッダーを付ける要求は CORS の事前確認（preflight）になるので、サーバーがそのヘッダー（と `range`）を `Access-Control-Allow-Headers` で許可している必要があります。Cookie・Host などブラウザーが付けさせないヘッダーは無視します。ベクタータイル（`mvt`・`style`）の背景地図のタイルにはまだ付きません。
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 
