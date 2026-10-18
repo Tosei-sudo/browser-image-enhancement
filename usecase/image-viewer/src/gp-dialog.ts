@@ -229,6 +229,9 @@ export class GpDialog {
 
   private setTask_(task: GpTask): void {
     this.task = task;
+    // A GPServer lists its tasks by name only: their titles show once read.
+    const option = this.task_.selectedOptions[0];
+    if (option && this.service_info && task.title !== task.id) option.text = `${task.title}（${task.id}）`;
     this.renderParams_();
     const optional = task.inputs.filter((f) => !f.required).length;
     this.status_.textContent = `「${task.title}」${task.async ? '（ジョブで実行）' : ''}: 入力 ${task.inputs.length} 件${optional ? `（うち任意 ${optional} 件は「詳細」）` : ''}`;
@@ -366,7 +369,10 @@ export class GpDialog {
         else if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) control.value = String(value);
       }
       const select = this.form_.elements.namedItem(field.name);
-      if (feature && select instanceof HTMLSelectElement) select.value = 'draw';
+      if (feature && select instanceof HTMLSelectElement) {
+        select.value = 'draw';
+        select.dispatchEvent(new Event('change'));
+      }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -518,7 +524,7 @@ export class GpDialog {
       case 'link':
         return el('li', {}, `${output.label}: `, el('a', { href: output.url, target: '_blank', rel: 'noopener noreferrer', textContent: output.url }));
       case 'value':
-        return el('li', {}, `${output.label}: `, el('output', { textContent: output.text }));
+        return el('li', {}, `${output.label}: `, el('span', { className: 'gp-value', textContent: output.text }));
     }
   }
 }
