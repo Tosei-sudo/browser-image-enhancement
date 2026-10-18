@@ -251,7 +251,16 @@ const table = new AttributeTable(document.getElementById('table')!, map, selecti
   // 「GeoJSON でコピー」・「WKT でコピー」.
   menuItems: (features) => clipboard.menuItems(features),
 });
-const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
+const editor = new Editor(map, selection, table, {
+  say,
+  onChange: () => showTable(images.selectedLayer()),
+  // Drawing snaps to the vector layers shown, not only the edited one.
+  snapSources: () =>
+    images
+      .layers()
+      .filter((l): l is ViewerService => l.type === 'service' && images.isVisible(l) && !!l.service.vector)
+      .map((l) => l.service.vector!.source),
+});
 const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say, onChange: () => split?.refreshBase() });
 
 /** Features found by the last WMS GetFeatureInfo, per layer. */

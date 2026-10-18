@@ -75,3 +75,15 @@ export function formatArea(squareMetres: number): string {
   const km2 = squareMetres / 1_000_000;
   return `${km2.toLocaleString('ja-JP', { minimumFractionDigits: km2 < 100 ? 3 : 1, maximumFractionDigits: km2 < 100 ? 3 : 1 })} km²`;
 }
+
+/** The point `metres` from `from` along the geodesic heading `bearing` (degrees clockwise from north). */
+export function geodesicDestination([lon, lat]: LonLat, bearing: number, metres: number): LonLat {
+  const r = WGS84.Direct(lat, lon, bearing, metres, Geodesic.LATITUDE | Geodesic.LONGITUDE | Geodesic.LONG_UNROLL);
+  return [r.lon2!, r.lat2!];
+}
+
+/** Length (metres) of the geodesic from `a` to `b`, and its heading at `a` (degrees clockwise from north, 0–360). */
+export function geodesicInverse([lon1, lat1]: LonLat, [lon2, lat2]: LonLat): { distance: number; bearing: number } {
+  const r = WGS84.Inverse(lat1, lon1, lat2, lon2, Geodesic.DISTANCE | Geodesic.AZIMUTH);
+  return { distance: r.s12 ?? 0, bearing: (((r.azi1 ?? 0) % 360) + 360) % 360 };
+}
