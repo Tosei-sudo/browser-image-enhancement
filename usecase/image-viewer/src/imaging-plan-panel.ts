@@ -450,6 +450,8 @@ export class ImagingPlanPanel {
       map.removeLayer(this.overlay);
       this.worker_?.terminate();
       this.worker_ = null;
+      // The 3D view drops the passes with the 2D overlay.
+      this.options.onChosen?.();
     });
     this.form_.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -493,6 +495,8 @@ export class ImagingPlanPanel {
     if (!start.value) start.value = inputText(Date.now());
     this.listTargets();
     this.dialog.show();
+    // The chosen pass comes back in the 3D view too.
+    if (this.chosen_) this.options.onChosen?.();
     if (!this.catalog_) {
       if (!this.listed_.length) this.listSats();
       if (!this.plan_) {
@@ -1054,11 +1058,11 @@ export class ImagingPlanPanel {
     this.options.onChosen?.();
   }
 
-  /** The chosen pass for the 3D view, and in a combination the other passes over the same target. */
+  /** The chosen pass for the 3D view, and in a combination the other passes over the same target; none while the panel is closed. */
   chosenPasses(): SatellitePass3d[] {
     const op = this.chosen_;
     const plan = this.plan_;
-    if (!op || !plan) return [];
+    if (!op || !plan || !this.dialog.open) return [];
     const passes = [satellitePass3d(plan.sats[op.satellite], plan.targets[op.target], op, true)];
     if (this.combining()) {
       for (const step of this.coverPlans()[op.target]?.steps ?? []) {
