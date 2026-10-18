@@ -344,18 +344,16 @@ function ringContains(coords: ArrayLike<number>, start: number, end: number, x: 
   return inside;
 }
 
+type Ring = { start: number; end: number; area: number };
+
 /**
- * The polygons of a Shapefile polygon's rings: outer rings are clockwise and
- * holes counter-clockwise (y up); a hole goes with the smallest outer ring
- * around it. Returns the coordinates reordered polygon by polygon, the ring
- * ends, and how many rings each polygon has.
+ * Outer rings (those turning the way `outer` says: -1 clockwise, 1
+ * counter-clockwise) with the holes each holds; `lone` are the holes in no
+ * outer ring.
  */
-export function groupRings(coords: Float64Array, ends: number[]): { coords: Float64Array; ends: number[]; polygons: number[] } {
-  const rings = ends.map((end, i) => ({ start: i ? ends[i - 1] : 0, end, area: ringArea(coords, i ? ends[i - 1] : 0, end) }));
-  if (rings.length <= 1) return { coords, ends, polygons: [rings.length] };
-  const outers = rings.filter((r) => r.area < 0);
-  if (!outers.length) return { coords, ends, polygons: rings.map(() => 1) };
-  const holes: Array<typeof rings> = outers.map(() => []);
+function assignHoles(coords: Float64Array, rings: Ring[], outer: -1 | 1): { outers: Ring[]; holes: Ring[][]; lone: Ring[] } {
+  const outers = rings.filter((r) => r.area * outer > 0);
+  const holes: Ring[][] = outers.map(() => []);
   const boxes = outers.map((r) => {
     let minX = Infinity;
     let minY = Infinity;
@@ -369,25 +367,46 @@ export function groupRings(coords: Float64Array, ends: number[]): { coords: Floa
     }
     return [minX, minY, maxX, maxY];
   });
-  const lone: typeof rings = [];
+  const lone: Ring[] = [];
   for (const ring of rings) {
-    if (ring.area < 0) continue;
+    if (ring.area * outer > 0) continue;
     const x = coords[ring.start];
     const y = coords[ring.start + 1];
     let best = -1;
     for (let o = 0; o < outers.length; o++) {
       const b = boxes[o];
       if (x < b[0] || x > b[2] || y < b[1] || y > b[3]) continue;
-      if ((best < 0 || -outers[o].area < -outers[best].area) && ringContains(coords, outers[o].start, outers[o].end, x, y)) best = o;
+      if ((best < 0 || Math.abs(outers[o].area) < Math.abs(outers[best].area)) && ringContains(coords, outers[o].start, outers[o].end, x, y)) best = o;
     }
     if (best >= 0) holes[best].push(ring);
     else lone.push(ring);
   }
+  return { outers, holes, lone };
+}
+
+/**
+ * The polygons of a Shapefile polygon's rings: outer rings are clockwise and
+ * holes counter-clockwise (y up); a hole goes with the smallest outer ring
+ * around it. A file written the other way round (outer rings
+ * counter-clockwise, which some programs do) is read that way when only that
+ * puts every hole in an outer ring. Returns the coordinates reordered polygon
+ * by polygon, the ring ends, and how many rings each polygon has.
+ */
+export function groupRings(coords: Float64Array, ends: number[]): { coords: Float64Array; ends: number[]; polygons: number[] } {
+  const rings = ends.map((end, i) => ({ start: i ? ends[i - 1] : 0, end, area: ringArea(coords, i ? ends[i - 1] : 0, end) }));
+  if (rings.length <= 1) return { coords, ends, polygons: [rings.length] };
+  let grouped = assignHoles(coords, rings, -1);
+  if (!grouped.outers.length) return { coords, ends, polygons: rings.map(() => 1) };
+  if (grouped.lone.length) {
+    const reversed = assignHoles(coords, rings, 1);
+    if (reversed.outers.length && !reversed.lone.length) grouped = reversed;
+  }
+  const { outers, holes, lone } = grouped;
   const out = new Float64Array(coords.length);
   const outEnds: number[] = [];
   const polygons: number[] = [];
   let at = 0;
-  const put = (r: (typeof rings)[number]) => {
+  const put = (r: Ring) => {
     out.set(coords.subarray(r.start, r.end), at);
     at += r.end - r.start;
     outEnds.push(at);

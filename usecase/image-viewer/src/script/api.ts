@@ -162,7 +162,7 @@ function rings(geometry: { type: string; coordinates?: unknown; geometries?: unk
       out.points.push(c);
       break;
     case 'MultiPoint':
-      out.points.push(...(c as LonLat[]));
+      for (const p of c as LonLat[]) out.points.push(p);
       break;
     case 'LineString':
       out.lines.push(c);

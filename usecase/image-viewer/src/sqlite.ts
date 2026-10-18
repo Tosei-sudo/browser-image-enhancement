@@ -15,6 +15,8 @@ export interface Database {
   query(sql: string, params?: SqlValue[]): Array<Record<string, SqlValue>>;
   /** Runs one statement with `params`. */
   run(sql: string, params?: SqlValue[]): void;
+  /** Runs one statement once per row of parameters, prepared once (many inserts). */
+  runEach(sql: string, rows: Iterable<SqlValue[]>): void;
   /** Runs SQL statements (no parameters). */
   exec(sql: string): void;
   /** Adds an SQL function of one argument. */
@@ -48,6 +50,14 @@ export async function openDatabase(bytes?: Uint8Array): Promise<Database> {
   return {
     query: (sql, params = []) => db.selectObjects(sql, params) as Array<Record<string, SqlValue>>,
     run: (sql, params = []) => void db.exec({ sql, bind: params }),
+    runEach: (sql, rows) => {
+      const statement = db.prepare(sql);
+      try {
+        for (const row of rows) statement.bind(row).stepReset();
+      } finally {
+        statement.finalize();
+      }
+    },
     exec: (sql) => void db.exec(sql),
     addFunction: (name, fn) => void db.createFunction(name, (_ctx: number, ...values) => fn(values[0] as SqlValue), { arity: 1, deterministic: true }),
     export: () => capi.sqlite3_js_db_export(db) as Uint8Array<ArrayBuffer>,

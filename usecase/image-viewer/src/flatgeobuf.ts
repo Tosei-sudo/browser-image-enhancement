@@ -66,12 +66,12 @@ export interface FgbCrs {
   codeString?: string | null;
 }
 
-export interface FgbFile {
+export interface FgbFile<G = FgbGeometry> {
   name: string | null;
   geometryType: GeometryType;
   columns: FgbColumn[];
   crs: FgbCrs | null;
-  features: FgbFeature[];
+  features: Array<{ geometry: G | null; properties: Record<string, unknown> }>;
 }
 
 export function isFlatGeobuf(bytes: Uint8Array): boolean {
@@ -79,6 +79,10 @@ export function isFlatGeobuf(bytes: Uint8Array): boolean {
 }
 
 /* ---------------------------------------------------------------- reading */
+
+/** One decoder for every string (making one per string costs more than decoding it). */
+const utf8 = new TextDecoder();
+const utf8Encoder = new TextEncoder();
 
 /** A FlatBuffers table: its fields by index (the n-th field of the schema). */
 class Table {
@@ -126,7 +130,7 @@ class Table {
     const at = this.target(n);
     if (!at) return null;
     const length = this.view.getUint32(at, true);
-    return new TextDecoder().decode(new Uint8Array(this.view.buffer, this.view.byteOffset + at + 4, length));
+    return utf8.decode(new Uint8Array(this.view.buffer, this.view.byteOffset + at + 4, length));
   }
 
   table(n: number): Table | null {
@@ -148,9 +152,8 @@ class Table {
   doubles(n: number): Float64Array | null {
     const v = this.vector(n);
     if (!v) return null;
-    const out = new Float64Array(v.length);
-    for (let i = 0; i < v.length; i++) out[i] = this.view.getFloat64(v.start + 8 * i, true);
-    return out;
+    // A copy of the bytes, read as doubles (little-endian, as every browser is): one copy, not a read per number.
+    return new Float64Array(new Uint8Array(this.view.buffer, this.view.byteOffset + v.start, v.length * 8).slice().buffer);
   }
 
   uints(n: number): Uint32Array | null {
@@ -208,13 +211,23 @@ function split(xy: Float64Array, ends: Uint32Array | null): number[][][] {
   return out;
 }
 
-function readGeometry(g: Table, type: GeometryType): FgbGeometry | null {
+/** A geometry as the file holds it: flat x / y, the point counts where its parts end, and the parts of a multipolygon or collection. */
+export interface FlatGeometry {
+  type: GeometryType;
+  xy: Float64Array;
+  ends: Uint32Array | null;
+  parts: FlatGeometry[];
+}
+
+function readFlat(g: Table, type: GeometryType): FlatGeometry {
   const own = g.u8(6);
-  if (own) type = own;
-  const parts = g.tables(7);
-  const xy = g.doubles(1) ?? new Float64Array(0);
-  const ends = g.uints(0);
-  switch (type) {
+  return { type: own || type, xy: g.doubles(1) ?? new Float64Array(0), ends: g.uints(0), parts: g.tables(7).map((p) => readFlat(p, GeometryType.Unknown)) };
+}
+
+/** A geometry as GeoJSON has it. */
+export function geoJsonOf(f: FlatGeometry): FgbGeometry | null {
+  const { xy, ends, parts } = f;
+  switch (f.type) {
     case GeometryType.Point:
       return xy.length >= 2 ? { type: 'Point', coordinates: [xy[0], xy[1]] } : null;
     case GeometryType.LineString:
@@ -226,12 +239,9 @@ function readGeometry(g: Table, type: GeometryType): FgbGeometry | null {
     case GeometryType.MultiLineString:
       return { type: 'MultiLineString', coordinates: split(xy, ends) };
     case GeometryType.MultiPolygon:
-      return {
-        type: 'MultiPolygon',
-        coordinates: parts.map((p) => split(p.doubles(1) ?? new Float64Array(0), p.uints(0))),
-      };
+      return { type: 'MultiPolygon', coordinates: parts.map((p) => split(p.xy, p.ends)) };
     case GeometryType.GeometryCollection:
-      return { type: 'GeometryCollection', geometries: parts.map((p) => readGeometry(p, GeometryType.Unknown)).filter((x): x is FgbGeometry => !!x) };
+      return { type: 'GeometryCollection', geometries: parts.map(geoJsonOf).filter((x): x is FgbGeometry => !!x) };
     default:
       return null;
   }
@@ -241,7 +251,7 @@ function readGeometry(g: Table, type: GeometryType): FgbGeometry | null {
 function readProperties(bytes: Uint8Array, columns: readonly FgbColumn[]): Record<string, unknown> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const out: Record<string, unknown> = {};
-  const text = (at: number, length: number) => new TextDecoder().decode(bytes.subarray(at, at + length));
+  const text = (at: number, length: number) => utf8.decode(bytes.subarray(at, at + length));
   let at = 0;
   while (at + 2 <= bytes.length) {
     const column = columns[view.getUint16(at, true)];
@@ -325,8 +335,13 @@ function readColumns(t: Table | null, index: number): FgbColumn[] {
   return t ? t.tables(index).map((c) => ({ name: c.string(0) ?? '', type: c.u8(1) as ColumnType })) : [];
 }
 
-/** Reads a whole FlatGeobuf file. */
-export function readFlatGeobuf(bytes: Uint8Array): FgbFile {
+/**
+ * Reads a whole FlatGeobuf file, the geometries as GeoJSON has them or as
+ * `geometryOf` makes them from the file's flat coordinates.
+ */
+export function readFlatGeobuf(bytes: Uint8Array): FgbFile;
+export function readFlatGeobuf<G>(bytes: Uint8Array, geometryOf: (g: FlatGeometry) => G | null): FgbFile<G>;
+export function readFlatGeobuf<G>(bytes: Uint8Array, geometryOf: (g: FlatGeometry) => G | null = geoJsonOf as never): FgbFile<G> {
   if (!isFlatGeobuf(bytes)) throw new Error('FlatGeobuf ではありません');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const headerSize = view.getUint32(8, true);
@@ -338,7 +353,7 @@ export function readFlatGeobuf(bytes: Uint8Array): FgbFile {
   const crsTable = header.table(10);
   const crs: FgbCrs | null = crsTable ? { org: crsTable.string(0), code: crsTable.i32(1), wkt: crsTable.string(4), codeString: crsTable.string(5) } : null;
   let at = 12 + headerSize + treeSize(count, nodeSize);
-  const features: FgbFeature[] = [];
+  const features: FgbFile<G>['features'] = [];
   while (at + 4 <= bytes.length) {
     const size = view.getUint32(at, true);
     if (!size || at + 4 + size > bytes.length) break;
@@ -346,7 +361,7 @@ export function readFlatGeobuf(bytes: Uint8Array): FgbFile {
     const g = f.table(0);
     const own = readColumns(f, 2);
     const props = f.bytes(1);
-    features.push({ geometry: g ? readGeometry(g, geometryType) : null, properties: props ? readProperties(props, own.length ? own : columns) : {} });
+    features.push({ geometry: g ? geometryOf(readFlat(g, geometryType)) : null, properties: props ? readProperties(props, own.length ? own : columns) : {} });
     at += 4 + size;
   }
   return { name: header.string(0), geometryType, columns, crs, features };
@@ -499,7 +514,7 @@ class Builder {
   private child(c: Child): number {
     switch (c.kind) {
       case 'string': {
-        const bytes = new TextEncoder().encode(c.value);
+        const bytes = utf8Encoder.encode(c.value);
         this.align(4);
         const at = this.pos;
         this.u32(bytes.length);
@@ -577,7 +592,7 @@ function geometrySlots(g: FgbGeometry): Array<Slot | null> {
     const xy: number[] = [];
     const ends: number[] = [];
     for (const r of rings) {
-      xy.push(...flatOf(r));
+      for (const c of r) xy.push(c[0], c[1]);
       ends.push(xy.length / 2);
     }
     return { xy, ends };
@@ -633,7 +648,7 @@ function writeProperties(properties: Record<string, unknown>, columns: readonly 
       b.u8(v ? 1 : 0);
     } else {
       const text = column.type === ColumnType.DateTime ? (typeof v === 'number' ? new Date(v).toISOString() : String(v)) : typeof v === 'object' ? JSON.stringify(v) : String(v);
-      const bytes = new TextEncoder().encode(text);
+      const bytes = utf8Encoder.encode(text);
       b.u16(i);
       b.u32(bytes.length);
       b.raw(bytes);

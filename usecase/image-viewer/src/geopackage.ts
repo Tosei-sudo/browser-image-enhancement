@@ -4,7 +4,6 @@
  * into it and the whole file saved with its other tables untouched.
  */
 import Feature from 'ol/Feature.js';
-import WKB from 'ol/format/WKB.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import { get as getProjection } from 'ol/proj.js';
 import { register } from 'ol/proj/proj4.js';
@@ -13,6 +12,7 @@ import type { Field } from './services/index.js';
 import { openDatabase, type Database, type SqlValue } from './sqlite.js';
 import type { ProjectionLookup, VectorFile } from './vector-files.js';
 import type { TargetCrs } from './vector-write.js';
+import { readWkb, writeWkb } from './wkb.js';
 
 /** One feature table of an open GeoPackage. */
 export interface GeoPackageTable {
@@ -192,8 +192,6 @@ export function rows(db: Database, sql: string, params: SqlValue[] = []): Array<
   return db.query(sql, params);
 }
 
-const wkb = new WKB({ hex: false, ewkb: false });
-
 /** Envelope sizes in bytes by the header's envelope indicator. */
 const envelopeBytes = [0, 32, 48, 48, 64];
 
@@ -204,12 +202,12 @@ export function decodeGeometry(blob: Uint8Array): Geometry | null {
   if (flags & 0x10) return null;
   const envelope = envelopeBytes[(flags >> 1) & 7];
   if (envelope === undefined) throw new Error('GeoPackage のジオメトリの範囲が読めません');
-  return wkb.readGeometry(blob.slice(8 + envelope)) as Geometry;
+  return readWkb(blob, 8 + envelope);
 }
 
 /** A GeoPackage geometry blob: little-endian header with the XY envelope, then ISO WKB. */
 export function encodeGeometry(geometry: Geometry, srsId: number): Uint8Array {
-  const body = new Uint8Array(wkb.writeGeometry(geometry) as ArrayBuffer);
+  const body = writeWkb(geometry);
   const [minX, minY, maxX, maxY] = geometry.getExtent();
   const empty = !Number.isFinite(minX);
   const header = new Uint8Array(empty ? 8 : 40);
