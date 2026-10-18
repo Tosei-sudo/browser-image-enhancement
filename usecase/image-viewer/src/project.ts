@@ -11,7 +11,6 @@
  */
 import type OlMap from 'ol/Map.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
-import { transform } from 'ol/proj.js';
 import { Pipeline } from 'browser-image-enhancement';
 import { dropImageRule, imageRuleOf } from './image-rules.js';
 import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
@@ -45,6 +44,10 @@ import type { ProjectLayout } from './layout.js';
 import { markRow } from './colorize-dialog.js';
 import type { Bookmark } from './bookmarks.js';
 import type { SavedNotes } from './annotations.js';
+import { isQgisName, qgisText, readQgs, writeQgs } from './qgis-project.js';
+import { symbolKindOf } from './style-file.js';
+import { projectionOf } from './services/common.js';
+import { transform, transformExtent } from 'ol/proj.js';
 
 /** Files opened together, as the viewer opened them. */
 export interface OpenedSet {
@@ -132,6 +135,11 @@ export class ProjectControl {
    * them are opened as projects.
    */
   async openFiles(files: File[], url?: string): Promise<void> {
+    const qgis = files.find((f) => isQgisName(f.name));
+    if (qgis) {
+      await this.openQgis(qgis);
+      return;
+    }
     const projects = files.filter((f) => isProjectName(f.name));
     const rest = files.filter((f) => !isProjectName(f.name));
     if (rest.length) await this.track_({ files: rest, ...(url ? { url } : {}) }, () => this.options.openFiles(rest));
@@ -148,8 +156,77 @@ export class ProjectControl {
     return added;
   }
 
-  /** What is open now, as a project; `left` names the layers a project cannot open again. */
-  collect(): { project: Project; left: string[] } {
+  /** Chooses a QGIS project (.qgs, .qgz) and opens it. */
+  async chooseQgis(): Promise<void> {
+    const [file] = await chooseFiles('.qgs,.qgz', false);
+    if (file) await this.openQgis(file);
+  }
+
+  /**
+   * Opens a QGIS project as the viewer's: its layers (asking for local
+   * files), styles and extent; what cannot be opened is listed.
+   */
+  async openQgis(file: File): Promise<boolean> {
+    const { say, map } = this.options;
+    let read: ReturnType<typeof readQgs>;
+    try {
+      read = readQgs(await qgisText(file));
+    } catch (error) {
+      say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+    read.project.baseMap = this.options.baseMap.get();
+    const name = file.name.replace(/\.qg[sz]$/i, '');
+    if (!(await this.open(read.project, name))) return false;
+    // A QGIS project is not saved over: 「保存」 asks where the .ivproj goes.
+    this.handle_ = null;
+    if (read.extent) {
+      const projection = await projectionOf(read.extent.crs).catch(() => null);
+      const view = map.getView();
+      try {
+        if (!projection) throw new Error();
+        view.fit(transformExtent(read.extent.extent, projection, view.getProjection()), { size: map.getSize() });
+      } catch {
+        read.notes.push(`表示範囲: 座標系 ${read.extent.crs} を読めませんでした`);
+      }
+    }
+    const parts = [`QGIS プロジェクト「${name}」を開きました`];
+    if (read.unsupported.length) parts.push(`開けないレイヤー: ${read.unsupported.join('、')}`);
+    if (read.notes.length) parts.push(`省いた設定: ${read.notes.join('、')}`);
+    say(parts.join('。'));
+    return true;
+  }
+
+  /** Writes what is open as a QGIS project (.qgs) and downloads it. */
+  exportQgis(): void {
+    const { map, say } = this.options;
+    const { project, left, listed } = this.collect();
+    const kinds = listed.map((l) => {
+      if (l.type !== 'service' || !l.service.vector) return null;
+      const types = new Set(l.service.vector.source.getFeatures().slice(0, 1000).map((f) => symbolKindOf(f.getGeometry()?.getType())));
+      return types.size === 1 ? [...types][0] : (types.has('polygon') ? 'polygon' : types.has('line') ? 'line' : types.has('point') ? 'point' : null);
+    });
+    const size = map.getSize();
+    let extent: [number, number, number, number] | null = null;
+    try {
+      if (size) extent = transformExtent(map.getView().calculateExtent(size), map.getView().getProjection(), 'EPSG:3857') as [number, number, number, number];
+    } catch {
+      extent = null;
+    }
+    const title = this.name_ ?? '画像ビューアの表示';
+    const text = writeQgs(project, { kinds, extent, title }, left);
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/x-qgis-project' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title}.qgs`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    const files = project.fileSets.some((s) => !s.url);
+    say(`${title}.qgs を書き出しました${files ? '（手元のファイルは .qgs と同じフォルダーに置いてください）' : ''}${left.length ? `。QGIS で開けないもの: ${left.join('、')}` : ''}`);
+  }
+
+  /** What is open now, as a project; `left` names the layers a project cannot open again, `listed` the layers of the project's. */
+  collect(): { project: Project; left: string[]; listed: ViewerLayer[] } {
     const { images, map, baseMap } = this.options;
     const sets: OpenedSet[] = [];
     const left: string[] = [];
@@ -227,6 +304,7 @@ export class ProjectControl {
         ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
       },
       left,
+      listed,
     };
   }
 

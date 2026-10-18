@@ -797,6 +797,8 @@ const saveProject = (as = false) => {
 };
 document.getElementById('project-save')!.addEventListener('click', () => void saveProject());
 document.getElementById('project-save-as')!.addEventListener('click', () => void saveProject(true));
+document.getElementById('project-qgis-open')!.addEventListener('click', () => void project.chooseQgis());
+document.getElementById('project-qgis-export')!.addEventListener('click', () => project.exportQgis());
 // Ctrl+S (⌘S): save the project rather than the page; with Shift, under another name.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {

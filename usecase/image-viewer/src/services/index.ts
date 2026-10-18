@@ -9,6 +9,7 @@ import { isEsriUrl, readEsri } from './esri.js';
 import { readWfs } from './wfs.js';
 import { readWms } from './wms.js';
 import { readWmts } from './wmts.js';
+import { isXyzUrl, readXyz } from './xyz.js';
 
 export * from './common.js';
 
@@ -17,11 +18,13 @@ const readers: Record<ServiceKind, (url: string, token?: string) => Promise<Serv
   wmts: readWmts,
   wfs: readWfs,
   esri: readEsri,
+  xyz: readXyz,
 };
 
 export async function readService(url: string, kind: ServiceKind | 'auto', token?: string): Promise<ServiceCatalog> {
   if (kind !== 'auto') return readers[kind](url, token);
   if (isEsriUrl(url)) return readEsri(url, token);
+  if (isXyzUrl(url)) return readXyz(url);
   const named = new URL(url, location.href).searchParams;
   const service = [...named].find(([k]) => k.toLowerCase() === 'service')?.[1]?.toLowerCase();
   if (service === 'wms' || service === 'wmts' || service === 'wfs') return readers[service](url);

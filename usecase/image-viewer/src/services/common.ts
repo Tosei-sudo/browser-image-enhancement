@@ -21,13 +21,14 @@ import type { LayerStyle } from '../vector-style.js';
 import type { TempRecord } from '../temp-layers.js';
 
 /** The kinds of service the viewer reads. */
-export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri';
+export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri' | 'xyz';
 
 export const serviceNames: Record<ServiceKind, string> = {
   wms: 'WMS',
   wmts: 'WMTS',
   wfs: 'WFS',
   esri: 'Esri（Feature・Map・Image サーバー）',
+  xyz: 'XYZ タイル（{z}/{x}/{y}）',
 };
 
 /** One attribute of a vector layer. */

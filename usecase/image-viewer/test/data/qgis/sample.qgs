@@ -1,0 +1,134 @@
+<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
+<qgis projectname="テスト" version="3.34.4-Prizren" saveUser="tester">
+  <homePath path=""/>
+  <title>テスト</title>
+  <projectCrs>
+    <spatialrefsys nativeFormat="Wkt"><authid>EPSG:3857</authid></spatialrefsys>
+  </projectCrs>
+  <layer-tree-group>
+    <customproperties/>
+    <layer-tree-layer id="stations_1" name="駅（WFS）" checked="Qt::Checked" expanded="1" providerKey="WFS" source=""/>
+    <layer-tree-group name="背景" checked="Qt::Unchecked" expanded="1">
+      <layer-tree-layer id="wms_1" name="東京の地図" checked="Qt::Checked" expanded="1" providerKey="wms" source=""/>
+    </layer-tree-group>
+    <layer-tree-layer id="roads_1" name="roads" checked="Qt::Checked" expanded="1" providerKey="ogr" source=""/>
+    <layer-tree-layer id="parks_1" name="parks" checked="Qt::Unchecked" expanded="1" providerKey="ogr" source=""/>
+    <layer-tree-layer id="dem_1" name="標高" checked="Qt::Checked" expanded="1" providerKey="gdal" source=""/>
+    <layer-tree-layer id="cog_1" name="cog" checked="Qt::Checked" expanded="1" providerKey="gdal" source=""/>
+    <layer-tree-layer id="esri_1" name="検出" checked="Qt::Checked" expanded="1" providerKey="arcgisfeatureserver" source=""/>
+    <layer-tree-layer id="pg_1" name="建物" checked="Qt::Checked" expanded="1" providerKey="postgres" source=""/>
+    <layer-tree-layer id="vt_1" name="ベクタータイル" checked="Qt::Checked" expanded="1" providerKey="xyzvectortiles" source=""/>
+    <layer-tree-layer id="osm_1" name="OpenStreetMap" checked="Qt::Checked" expanded="1" providerKey="wms" source=""/>
+    <custom-order enabled="0"><item>osm_1</item></custom-order>
+  </layer-tree-group>
+  <mapcanvas name="theMapCanvas" annotationsVisible="1">
+    <units>meters</units>
+    <extent><xmin>15545000</xmin><ymin>4250000</ymin><xmax>15565000</xmax><ymax>4265000</ymax></extent>
+    <rotation>0</rotation>
+    <destinationsrs><spatialrefsys nativeFormat="Wkt"><authid>EPSG:3857</authid></spatialrefsys></destinationsrs>
+  </mapcanvas>
+  <projectlayers>
+    <maplayer type="raster" autoRefreshEnabled="0">
+      <id>osm_1</id>
+      <datasource>type=xyz&amp;url=https://tile.example.com/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=18&amp;zmin=0</datasource>
+      <layername>OpenStreetMap</layername>
+      <provider encoding="">wms</provider>
+      <pipe><rasterrenderer type="singlebandcolordata" opacity="0.6" alphaBand="-1" band="1"/></pipe>
+    </maplayer>
+    <maplayer type="raster">
+      <id>wms_1</id>
+      <datasource>contextualWMSLegend=0&amp;crs=EPSG:3857&amp;dpiMode=7&amp;featureCount=10&amp;format=image/png&amp;layers=test:tokyo&amp;styles&amp;url=http://localhost:4175/svc/wms</datasource>
+      <layername>東京の地図</layername>
+      <provider encoding="">wms</provider>
+      <pipe><rasterrenderer type="singlebandcolordata" opacity="1" band="1"/></pipe>
+    </maplayer>
+    <maplayer type="vector" geometry="Point" hasScaleBasedVisibilityFlag="0" minScale="0" maxScale="0" labelsEnabled="1">
+      <id>stations_1</id>
+      <datasource>pagingEnabled='true' preferCoordinatesForWfsT11='false' restrictToRequestBBOX='1' srsname='EPSG:4326' typename='test:stations' url='http://localhost:4175/svc/wfs' version='auto'</datasource>
+      <layername>stations</layername>
+      <provider encoding="">WFS</provider>
+      <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0">
+        <symbols>
+          <symbol type="marker" name="0" alpha="1" clip_to_extent="1" force_rhr="0">
+            <layer class="SimpleMarker" enabled="1" locked="0" pass="0">
+              <Option type="Map">
+                <Option name="color" type="QString" value="228,26,28,255"/>
+                <Option name="name" type="QString" value="star"/>
+                <Option name="outline_color" type="QString" value="255,255,255,255"/>
+                <Option name="outline_width" type="QString" value="1"/>
+                <Option name="outline_width_unit" type="QString" value="Pixel"/>
+                <Option name="size" type="QString" value="14"/>
+                <Option name="size_unit" type="QString" value="Pixel"/>
+              </Option>
+            </layer>
+          </symbol>
+        </symbols>
+      </renderer-v2>
+      <labeling type="simple"><settings><text-style fieldName="name" isExpression="0" fontSize="12" fontSizeUnit="Pixel" fontWeight="75" textColor="0,0,0,255"><text-buffer bufferDraw="1" bufferSize="1" bufferSizeUnits="Pixel" bufferColor="255,255,255,255"/></text-style><rendering scaleVisibility="0"/></settings></labeling>
+      <layerOpacity>0.9</layerOpacity>
+    </maplayer>
+    <maplayer type="vector" geometry="Line">
+      <id>roads_1</id>
+      <datasource>./data/roads.shp|layername=roads|subset="type" = 'main'</datasource>
+      <layername>roads</layername>
+      <provider encoding="UTF-8">ogr</provider>
+      <renderer-v2 type="categorizedSymbol" attr="type" symbollevels="0" forceraster="0" enableorderby="0">
+        <categories>
+          <category symbol="0" value="main" label="main" render="true" type="string"/>
+          <category symbol="1" value="minor" label="minor" render="false" type="string"/>
+        </categories>
+        <symbols>
+          <symbol type="line" name="0" alpha="1"><layer class="SimpleLine" enabled="1"><Option type="Map"><Option name="line_color" type="QString" value="255,0,0,255"/><Option name="line_width" type="QString" value="3"/><Option name="line_width_unit" type="QString" value="Pixel"/><Option name="line_style" type="QString" value="dash"/></Option></layer></symbol>
+          <symbol type="line" name="1" alpha="1"><layer class="SimpleLine" enabled="1"><Option type="Map"><Option name="line_color" type="QString" value="0,0,255,255"/></Option></layer></symbol>
+        </symbols>
+      </renderer-v2>
+      <layerOpacity>1</layerOpacity>
+    </maplayer>
+    <maplayer type="vector" geometry="Polygon">
+      <id>parks_1</id>
+      <datasource>C:/GIS/city.gpkg|layername=parks</datasource>
+      <layername>parks</layername>
+      <provider encoding="UTF-8">ogr</provider>
+      <renderer-v2 type="RuleRenderer" symbollevels="0"><rules key="r"><rule key="a" symbol="0" filter="&quot;area&quot; &gt; 10"/></rules><symbols><symbol type="fill" name="0" alpha="1"><layer class="SimpleFill" enabled="1"><Option type="Map"><Option name="color" type="QString" value="0,128,0,128"/></Option></layer></symbol></symbols></renderer-v2>
+    </maplayer>
+    <maplayer type="raster">
+      <id>dem_1</id>
+      <datasource>D:\data\dem.tif</datasource>
+      <layername>dem</layername>
+      <provider encoding="">gdal</provider>
+      <pipe>
+        <rasterrenderer type="singlebandpseudocolor" band="2" opacity="0.75" alphaBand="-1">
+          <rastershader><colorrampshader minimumValue="0" maximumValue="100" colorRampType="INTERPOLATED">
+            <item value="0" color="#000000" alpha="255"/>
+            <item value="100" color="#ffffff" alpha="255"/>
+          </colorrampshader></rastershader>
+        </rasterrenderer>
+      </pipe>
+    </maplayer>
+    <maplayer type="raster">
+      <id>cog_1</id>
+      <datasource>/vsicurl/https://example.com/scene.tif</datasource>
+      <layername>scene</layername>
+      <provider encoding="">gdal</provider>
+      <pipe><rasterrenderer type="multibandcolor" opacity="1" redBand="4" greenBand="3" blueBand="2"><redContrastEnhancement><minValue>0</minValue><maxValue>3000</maxValue></redContrastEnhancement></rasterrenderer></pipe>
+    </maplayer>
+    <maplayer type="vector" geometry="Point">
+      <id>esri_1</id>
+      <datasource>crs='EPSG:3857' filter='' url='http://localhost:4175/svc/arcgis/rest/services/Detections/FeatureServer/0' table="" sql=</datasource>
+      <layername>Detections</layername>
+      <provider encoding="">arcgisfeatureserver</provider>
+    </maplayer>
+    <maplayer type="vector" geometry="Polygon">
+      <id>pg_1</id>
+      <datasource>dbname='gis' host=localhost port=5432 table="public"."buildings" (geom)</datasource>
+      <layername>buildings</layername>
+      <provider encoding="">postgres</provider>
+    </maplayer>
+    <maplayer type="vector-tile">
+      <id>vt_1</id>
+      <datasource>type=xyz&amp;url=https://example.com/%7Bz%7D/%7Bx%7D/%7By%7D.pbf</datasource>
+      <layername>vt</layername>
+      <provider encoding="">xyzvectortiles</provider>
+    </maplayer>
+  </projectlayers>
+</qgis>

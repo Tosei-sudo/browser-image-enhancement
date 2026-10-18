@@ -94,8 +94,9 @@ describe('layers', () => {
       { type: 'cog', url: 'https://example.com/a.tif' },
       { type: 'file', url: './data/b.geojson' },
       { type: 'wmts', url: 'https://example.com/wmts', layer: 'photo', matrixSet: 'GoogleMapsCompatible' },
+      { type: 'xyz', url: 'https://example.com/{z}/{x}/{y}.png', layer: 'tiles' },
     ]);
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(2);
   });
 });
 

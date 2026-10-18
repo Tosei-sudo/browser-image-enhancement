@@ -170,7 +170,8 @@ COG は、サーバーが CORS と Range リクエストを許可している必
     { "type": "esri", "url": "https://example.com/arcgis/rest/services/X/FeatureServer", "layer": "0" }, // Esri（layer はレイヤー ID）
     { "type": "esri", "url": "https://example.com/arcgis/rest/services/Base/MapServer", "layer": "map" }, // マップサービスの地図画像
     { "type": "esri", "url": "https://example.com/arcgis/rest/services/Scenes/ImageServer", "layer": "image",
-      "settings": { "where": "CloudCover <= 0.2", "sortField": "AcquisitionDate" } } // イメージサービス（settings は表示ルール。serviceRules と同じ書き方）
+      "settings": { "where": "CloudCover <= 0.2", "sortField": "AcquisitionDate" } }, // イメージサービス（settings は表示ルール。serviceRules と同じ書き方）
+    { "type": "xyz", "url": "https://example.com/tiles/{z}/{x}/{y}.png#name=航空写真&zmax=18" } // XYZ タイル（{-y}・{q} も可。#name= は一覧の名前、zmin・zmax はズーム範囲）
   ],
   // ファイル名ごとの既定値（補正とバンド割り当て）。上から順に見て、最初に合ったものを使います
   "imageRules": [

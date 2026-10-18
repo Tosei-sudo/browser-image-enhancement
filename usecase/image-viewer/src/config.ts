@@ -63,7 +63,7 @@ const baseMapTypes: readonly BaseMapType[] = ['xyz', 'mvt', 'style', 'esri'];
 export type LayerConfig =
   | { type: 'cog'; url: string }
   | { type: 'file'; url: string }
-  | { type: 'wms' | 'wmts' | 'wfs' | 'esri'; url: string; layer: string; matrixSet?: string; format?: string; settings?: EsriRasterSettings };
+  | { type: 'wms' | 'wmts' | 'wfs' | 'esri' | 'xyz'; url: string; layer: string; matrixSet?: string; format?: string; settings?: EsriRasterSettings };
 
 export interface ViewerConfig {
   /** Base maps in the order of the switch (after "none"). */
@@ -423,6 +423,8 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
   const { type, url, layer, matrixSet, format, settings } = value;
   if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
   if (type === 'cog' || type === 'file') return { type, url };
+  // XYZ tiles: a {z}/{x}/{y} template, one layer.
+  if (type === 'xyz') return { type, url, layer: 'tiles' };
   if (type === 'wms' || type === 'wmts' || type === 'wfs' || type === 'esri') {
     if (typeof layer !== 'string' || !layer) return (problems.push(`layers[${index}] に layer（レイヤー名）がありません`), null);
     return {
@@ -434,7 +436,7 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
       ...(type === 'esri' && settings !== undefined ? { settings: settingsOf(settings, problems, `layers[${index}].settings`) } : {}),
     };
   }
-  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri のどれかにしてください`);
+  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・xyz のどれかにしてください`);
   return null;
 }
 
