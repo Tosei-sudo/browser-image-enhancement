@@ -215,11 +215,14 @@ export class ProjectControl {
     }
     const title = this.name_ ?? '画像ビューアの表示';
     const text = writeQgs(project, { kinds, extent, title }, left);
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/x-qgis-project' }));
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/xml' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = `${title}.qgs`;
+    a.hidden = true;
+    document.body.append(a);
     a.click();
+    a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     const files = project.fileSets.some((s) => !s.url);
     say(`${title}.qgs を書き出しました${files ? '（手元のファイルは .qgs と同じフォルダーに置いてください）' : ''}${left.length ? `。QGIS で開けないもの: ${left.join('、')}` : ''}`);

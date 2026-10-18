@@ -268,7 +268,11 @@ export function readQgs(text: string, id: string = crypto.randomUUID()): QgisImp
     let source: ProjectLayer['source'];
     let layerType: ProjectLayer['type'] = 'service';
     let pick: string | undefined;
-    if (origin.kind === 'service') source = { kind: 'service', ref: origin.ref };
+    if (origin.kind === 'service') {
+      // XYZ tiles have no name of their own: QGIS's goes with the URL.
+      const ref = origin.ref.kind === 'xyz' ? { ...origin.ref, url: (({ template, zmin, zmax }) => xyzUrl(template, name, zmin, zmax))(splitXyz(origin.ref.url)) } : origin.ref;
+      source = { kind: 'service', ref };
+    }
     else if (origin.kind === 'url') {
       source = { kind: 'url', url: origin.url };
       layerType = 'image';

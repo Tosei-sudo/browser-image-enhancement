@@ -194,7 +194,7 @@ describe('QGIS projects', () => {
     expect(refs[0]).toEqual({ kind: 'wfs', url: 'http://localhost:4175/svc/wfs', layer: 'test:stations' });
     expect(refs[1]).toEqual({ kind: 'wms', url: 'http://localhost:4175/svc/wms', layer: 'test:tokyo' });
     expect(refs[6]).toEqual({ kind: 'esri', url: 'http://localhost:4175/svc/arcgis/rest/services/Detections/FeatureServer', layer: '0' });
-    expect(refs[7]).toEqual({ kind: 'xyz', url: 'https://tile.example.com/{z}/{x}/{y}.png#zmax=18', layer: 'tiles' });
+    expect(refs[7]).toEqual({ kind: 'xyz', url: 'https://tile.example.com/{z}/{x}/{y}.png#name=OpenStreetMap&zmax=18', layer: 'tiles' });
     expect(p.fileSets.map((s) => s.files.map((f) => f.name))).toEqual([['roads.shp', 'roads.shx', 'roads.dbf', 'roads.prj'], ['city.gpkg'], ['dem.tif']]);
     expect(p.layers[3].pick).toBe('parks');
     expect(p.layers[0].style).toMatchObject({ mode: 'single', symbol: { shape: 'star', size: 14, fill: '#e41a1c' }, label: { field: 'name', bold: true } });
