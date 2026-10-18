@@ -7,6 +7,8 @@
  *
  * The everyday search is the first lines of the form; registration dates and
  * a free SQL condition wait under 「詳細条件」, and the list sorts by any column.
+ * 「似た画像を探す」 (catalog-similar.ts) lists the images taken like a given one
+ * (same sensor, near angles, the same ground) for comparison.
  */
 import type OlMap from 'ol/Map.js';
 import type Feature from 'ol/Feature.js';
@@ -28,6 +30,7 @@ import {
   type CatalogSearch,
   type SortKey,
 } from './catalog.js';
+import { defaultTolerance, rankSimilar, similarSearch, type SimilarTolerance } from './catalog-similar.js';
 
 export interface CatalogPanelOptions {
   /** Opens a COG of the catalog; rejects (having said why) when it cannot. */
@@ -44,12 +47,26 @@ export interface CatalogPanelOptions {
 }
 
 const footprint = new Style({ stroke: new Stroke({ color: '#2563eb', width: 1.5 }), fill: new Fill({ color: 'rgba(37, 99, 235, 0.04)' }) });
+const referenceStyle = new Style({ stroke: new Stroke({ color: '#dc2626', width: 2, lineDash: [6, 4] }) });
 const chosenStyle = (label: string) =>
   new Style({
     stroke: new Stroke({ color: '#f59e0b', width: 3 }),
     fill: new Fill({ color: 'rgba(245, 158, 11, 0.18)' }),
     text: new Text({ text: label, font: '12px sans-serif', overflow: true, fill: new Fill({ color: '#111' }), stroke: new Stroke({ color: '#fff', width: 3 }) }),
   });
+
+/** The sort keys of 「似た画像」: the most alike first, and the share of the reference covered. */
+const ALIKE: SortKey = 'column:\u0000alike';
+const OVERLAP: SortKey = 'column:\u0000overlap';
+/** Where the tolerances of 「似た画像」 are remembered (in this browser). */
+const toleranceKey = 'image-viewer-similar-tolerance';
+
+/** What 「似た画像」 lists against: the image compared with, the share of it each listed one covers, and their order. */
+interface Similar {
+  reference: CatalogRecord;
+  overlap: Map<CatalogRecord, number | null>;
+  rank: Map<CatalogRecord, number>;
+}
 
 /** The column a list header sorts by, with its heading. */
 interface Column {
@@ -71,6 +88,8 @@ export class CatalogPanel {
   private readonly open_: HTMLButtonElement;
   private readonly zoom_: HTMLButtonElement;
   private readonly copy_: HTMLButtonElement;
+  private readonly similarButton_: HTMLButtonElement;
+  private readonly similarBox_: HTMLFieldSetElement;
   /** Undefined only when config.json lists no catalog (the button is hidden then). */
   private catalog_: CatalogConfig;
   private layer_: Promise<CatalogLayerInfo> | null = null;
@@ -79,6 +98,8 @@ export class CatalogPanel {
   private anchor_: CatalogRecord | null = null;
   private sort_: { key: SortKey; descending: boolean } = { key: 'acquired', descending: true };
   private searching_ = 0;
+  /** 「似た画像」: the image compared with, and how alike each listed one is. */
+  private similar_: Similar | null = null;
 
   constructor(
     button: HTMLButtonElement,
@@ -99,6 +120,14 @@ export class CatalogPanel {
         <button type="button" class="catalog-close" aria-label="閉じる" title="閉じる（Esc）">×</button>
       </div>
       <form class="service-form catalog-form">
+        <fieldset class="catalog-similar wide" hidden>
+          <legend>似た画像: <span class="catalog-similar-name"></span></legend>
+          <label class="check catalog-similar-sensor"><input name="sameSensor" type="checkbox" checked />同じセンサー<span></span></label>
+          <label class="catalog-similar-angle"><span>角度</span> ±<input name="angleTolerance" type="number" min="0" max="90" step="any" placeholder="制限なし" />°</label>
+          <label class="catalog-similar-azimuth"><span>方位角</span> ±<input name="azimuthTolerance" type="number" min="0" max="180" step="any" placeholder="制限なし" />°</label>
+          <label class="catalog-similar-overlap" title="比べる画像の範囲のうち、何 % 以上を写している画像にするか（0: 少しでも重なれば）">重なり<input name="minOverlap" type="number" min="0" max="100" step="any" value="0" />% 以上</label>
+          <button type="button" class="catalog-similar-off" title="似た画像の条件をやめて、ふつうの検索に戻ります">ふつうの検索に戻る</button>
+        </fieldset>
         <label class="catalog-days">撮像日<span><input name="acquiredFrom" type="date" aria-label="撮像日（から）" /> 〜 <input name="acquiredTo" type="date" aria-label="撮像日（まで）" /></span></label>
         <label class="catalog-sensor">センサー<select name="sensor"><option value="">すべて</option></select><input name="sensorText" type="text" placeholder="すべて" hidden /></label>
         <label class="catalog-angle">角度（以下）<input name="maxAngle" type="number" min="0" max="90" step="any" placeholder="制限なし" /></label>
@@ -118,6 +147,7 @@ export class CatalogPanel {
       <p class="service-status" role="status"></p>
       <div class="catalog-results"><table class="catalog-table"><thead></thead><tbody></tbody></table></div>
       <div class="service-actions catalog-actions">
+        <button type="button" value="similar" disabled title="選んだ画像と同じセンサー・近い角度で同じ範囲を撮った画像を探します（比較用）">似た画像を探す</button>
         <button type="button" value="copy" disabled title="選んだ画像のローカルパスをコピーします">パスをコピー</button>
         <button type="button" value="zoom" disabled>範囲へ移動</button>
         <button type="button" value="open" class="primary" disabled>開く</button>
@@ -132,6 +162,8 @@ export class CatalogPanel {
     this.open_ = this.dialog.querySelector('button[value=open]')!;
     this.zoom_ = this.dialog.querySelector('button[value=zoom]')!;
     this.copy_ = this.dialog.querySelector('button[value=copy]')!;
+    this.similarButton_ = this.dialog.querySelector('button[value=similar]')!;
+    this.similarBox_ = this.dialog.querySelector('.catalog-similar')!;
 
     catalogs.forEach((c, i) => this.catalogs_.add(new Option(c.label, String(i))));
     this.catalogs_.addEventListener('change', () => this.useCatalog(this.catalogs[Number(this.catalogs_.value)]));
@@ -145,6 +177,15 @@ export class CatalogPanel {
     this.open_.addEventListener('click', () => void this.openChosen());
     this.zoom_.addEventListener('click', () => this.zoomToChosen());
     this.copy_.addEventListener('click', () => void this.copyPaths());
+    this.similarButton_.addEventListener('click', () => {
+      const [record] = this.chosen();
+      if (record) void this.findSimilar(record);
+    });
+    this.similarBox_.querySelector('.catalog-similar-off')!.addEventListener('click', () => {
+      this.endSimilar();
+      void this.search();
+    });
+    this.loadTolerance_();
     const forget = this.dialog.querySelector<HTMLButtonElement>('.catalog-forget')!;
     forget.hidden = !options.forgetFolders;
     forget.addEventListener('click', () => {
@@ -201,6 +242,9 @@ export class CatalogPanel {
   useCatalog(catalog: CatalogConfig): void {
     this.catalog_ = catalog;
     this.layer_ = null;
+    this.similar_ = null;
+    this.similarBox_.hidden = true;
+    this.form_.classList.remove('similar');
     this.setRecords([]);
     this.status_.textContent = '';
     const { fields } = catalog;
@@ -263,6 +307,11 @@ export class CatalogPanel {
       const layer = await this.layer_;
       const projection = view.getProjection();
       const extent = inView ? view.calculateExtent(this.map.getSize()) : null;
+      const similar = this.similar_;
+      if (similar) {
+        await this.searchSimilar_(similar, layer, turn);
+        return;
+      }
       const result = await searchCatalog(catalog, layer, this.searchOf(), extent ? { extent, projection } : null, projection);
       if (turn !== this.searching_ || catalog !== this.catalog_) return;
       this.setRecords(sortRecords(result.records, this.sort_.key, this.sort_.descending));
@@ -283,9 +332,148 @@ export class CatalogPanel {
     }
   }
 
+  /** The tolerances of 「似た画像」 as the form has them. */
+  tolerance(): SimilarTolerance {
+    const value = (name: string) => (this.form_.elements.namedItem(name) as HTMLInputElement).value;
+    const number = (name: string) => (value(name) === '' || !Number.isFinite(Number(value(name))) ? null : Math.max(0, Number(value(name))));
+    return {
+      sameSensor: (this.form_.elements.namedItem('sameSensor') as HTMLInputElement).checked,
+      angle: number('angleTolerance'),
+      azimuth: number('azimuthTolerance'),
+      minOverlap: Math.min(1, (number('minOverlap') ?? 0) / 100),
+    };
+  }
+
+  /** The tolerances last used in this browser (else the defaults) into the form. */
+  private loadTolerance_(): void {
+    let saved: Partial<SimilarTolerance> = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(toleranceKey) ?? '{}') as Partial<SimilarTolerance>;
+    } catch {
+      // No storage: the defaults.
+    }
+    const t = { ...defaultTolerance, ...saved };
+    const set = (name: string, v: number | null) => ((this.form_.elements.namedItem(name) as HTMLInputElement).value = v === null ? '' : String(v));
+    (this.form_.elements.namedItem('sameSensor') as HTMLInputElement).checked = t.sameSensor !== false;
+    set('angleTolerance', typeof t.angle === 'number' ? t.angle : null);
+    set('azimuthTolerance', typeof t.azimuth === 'number' ? t.azimuth : null);
+    set('minOverlap', typeof t.minOverlap === 'number' ? Math.round(t.minOverlap * 1000) / 10 : 0);
+  }
+
+  /**
+   * Lists the images of `catalog` (the panel's own by default) taken like
+   * `record`: the same sensor, an angle and an azimuth within the panel's
+   * tolerances, over the same ground. Its footprint stays on the map, dashed.
+   */
+  async findSimilar(record: CatalogRecord, catalog: CatalogConfig = this.catalog_): Promise<void> {
+    if (!catalog) return;
+    if (catalog !== this.catalog_) {
+      const index = this.catalogs.indexOf(catalog);
+      if (index >= 0) this.catalogs_.value = String(index);
+      this.useCatalog(catalog);
+    }
+    this.similar_ = { reference: record, overlap: new Map(), rank: new Map() };
+    this.sort_ = { key: ALIKE, descending: false };
+    const { fields, labels } = catalog;
+    this.similarBox_.hidden = false;
+    this.form_.classList.add('similar');
+    this.similarBox_.querySelector('.catalog-similar-name')!.textContent = record.id || '選んだ画像';
+    const show = (selector: string, on: boolean) => ((this.similarBox_.querySelector<HTMLElement>(selector)!.hidden = !on), undefined);
+    show('.catalog-similar-sensor', Boolean(fields.sensor && record.sensor));
+    show('.catalog-similar-angle', Boolean(fields.angle && record.angle !== null));
+    show('.catalog-similar-azimuth', Boolean(fields.azimuth && record.azimuth !== null));
+    this.similarBox_.querySelector('.catalog-similar-sensor span')!.textContent = record.sensor ? `（${record.sensor}）` : '';
+    this.similarBox_.querySelector('.catalog-similar-angle span')!.textContent = `${labels.angle ?? roleLabels.angle}${record.angle === null ? '' : `（${Math.round(record.angle * 10) / 10}°）`}`;
+    this.similarBox_.querySelector('.catalog-similar-azimuth span')!.textContent = `${labels.azimuth ?? roleLabels.azimuth}${record.azimuth === null ? '' : `（${Math.round(record.azimuth * 10) / 10}°）`}`;
+    if (!this.dialog.open) {
+      if (!this.map.getLayers().getArray().includes(this.footprints)) this.map.addLayer(this.footprints);
+      this.dialog.show();
+    }
+    await this.search();
+  }
+
+  /** Back to the everyday search. */
+  endSimilar(): void {
+    if (!this.similar_) return;
+    this.similar_ = null;
+    this.similarBox_.hidden = true;
+    this.form_.classList.remove('similar');
+    if (this.sort_.key === ALIKE || this.sort_.key === OVERLAP) this.sort_ = { key: 'acquired', descending: true };
+    this.setRecords([]);
+  }
+
+  /** Whether the panel is listing images like another one. */
+  similarTo(): CatalogRecord | null {
+    return this.similar_?.reference ?? null;
+  }
+
+  private async searchSimilar_(similar: Similar, layer: CatalogLayerInfo, turn: number): Promise<void> {
+    const catalog = this.catalog_;
+    const { reference } = similar;
+    const tolerance = this.tolerance();
+    try {
+      localStorage.setItem(toleranceKey, JSON.stringify(tolerance));
+    } catch {
+      // Not remembered.
+    }
+    const projection = this.map.getView().getProjection();
+    const geometry = reference.feature.getGeometry();
+    const extent = geometry && !isEmpty(geometry.getExtent()) ? geometry.getExtent() : null;
+    const search = similarSearch(catalog, reference, tolerance, this.searchOf());
+    const [result, jsts] = await Promise.all([searchCatalog(catalog, layer, search, extent ? { extent, projection } : null, projection), import('./processing/jsts.js')]);
+    if (turn !== this.searching_ || catalog !== this.catalog_ || this.similar_ !== similar) return;
+    // The share of the reference's footprint each one covers (planar, in the map's projection: a ratio, so near enough).
+    let own: ReturnType<typeof jsts.toJsts> | null = null;
+    try {
+      own = geometry ? jsts.toJsts(geometry) : null;
+    } catch {
+      own = null;
+    }
+    const ownArea = own ? own.getArea() : 0;
+    const overlapOf = (r: CatalogRecord): number | null => {
+      const g = r.feature.getGeometry();
+      if (!own || !(ownArea > 0) || !g) return null;
+      try {
+        return Math.min(1, jsts.intersection(own, jsts.toJsts(g)).getArea() / ownArea);
+      } catch {
+        return null;
+      }
+    };
+    const ranked = rankSimilar(reference, result.records, tolerance, overlapOf);
+    similar.overlap = new Map(ranked.map((s) => [s.record, s.overlap]));
+    similar.rank = new Map(ranked.map((s, i) => [s.record, i]));
+    this.setRecords(this.sorted_(ranked.map((s) => s.record)));
+    const shown = ranked.length;
+    const more = result.total !== null && result.total > result.records.length;
+    this.status_.textContent =
+      shown === 0
+        ? '似た画像は見つかりませんでした。許容幅を広げてみてください'
+        : `似た画像 ${shown.toLocaleString()} 件${more ? `（条件に合う ${result.total!.toLocaleString()} 件のうち新しい ${result.records.length.toLocaleString()} 件から）` : ''}。似ている順です。行を選んで「開く」`;
+  }
+
+  /** The records in the list's order (「似た画像」's own orders included). */
+  private sorted_(records: CatalogRecord[]): CatalogRecord[] {
+    const { key, descending } = this.sort_;
+    const similar = this.similar_;
+    if (!similar || (key !== ALIKE && key !== OVERLAP)) return sortRecords(records, key, descending);
+    const value = (r: CatalogRecord) => (key === ALIKE ? (similar.rank.get(r) ?? Infinity) : (similar.overlap.get(r) ?? -1));
+    return [...records].sort((a, b) => (descending ? value(b) - value(a) : value(a) - value(b)));
+  }
+
   private columns(): Column[] {
     const { fields, labels, columns } = this.catalog_;
+    const similar = this.similar_;
     const all: Array<Column | null> = [
+      similar
+        ? {
+            key: OVERLAP,
+            label: '重なり',
+            text: (r) => {
+              const v = similar.overlap.get(r);
+              return v === null || v === undefined ? '' : `${Math.round(v * 100)}%`;
+            },
+          }
+        : null,
       fields.acquired ? { key: 'acquired', label: labels.acquired ?? roleLabels.acquired, text: (r) => timeText(r.acquired) } : null,
       fields.sensor ? { key: 'sensor', label: labels.sensor ?? roleLabels.sensor, text: (r) => r.sensor } : null,
       fields.angle ? { key: 'angle', label: labels.angle ?? roleLabels.angle, text: (r) => (r.angle === null ? '' : `${Math.round(r.angle * 10) / 10}°`) } : null,
@@ -320,8 +508,8 @@ export class CatalogPanel {
       button.title = `${column.label}で並べ替え`;
       th.setAttribute('aria-sort', on ? (this.sort_.descending ? 'descending' : 'ascending') : 'none');
       button.addEventListener('click', () => {
-        this.sort_ = { key: column.key, descending: on ? !this.sort_.descending : ['acquired', 'registered', 'systemRegistered'].includes(column.key) };
-        this.setRecords(sortRecords(this.records_, this.sort_.key, this.sort_.descending), true);
+        this.sort_ = { key: column.key, descending: on ? !this.sort_.descending : ['acquired', 'registered', 'systemRegistered', OVERLAP].includes(column.key) };
+        this.setRecords(this.sorted_(this.records_), true);
       });
       th.append(button);
       row.append(th);
@@ -341,6 +529,12 @@ export class CatalogPanel {
     const source = this.footprints.getSource()!;
     source.clear();
     source.addFeatures(records.map((r) => r.feature));
+    // The image compared with, dashed (not in the list).
+    const reference = this.similar_?.reference.feature;
+    if (reference && !records.some((r) => r.feature === reference)) {
+      reference.setStyle(referenceStyle);
+      source.addFeature(reference);
+    }
     this.renderHead();
     const columns = this.columns();
     this.table_.tBodies[0].replaceChildren(
@@ -409,6 +603,7 @@ export class CatalogPanel {
     this.open_.textContent = chosen.length > 1 ? `開く（${openable}）` : '開く';
     this.zoom_.disabled = chosen.length === 0;
     this.copy_.disabled = !chosen.some((r) => r.source?.kind === 'path');
+    this.similarButton_.disabled = chosen.length !== 1;
   }
 
   /**

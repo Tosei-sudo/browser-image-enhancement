@@ -342,6 +342,13 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     const info = results.infoOf(layer);
     if (info) void resultSaver.open({ info, image: layer });
   },
+  // An image from 「画像カタログ」: the catalog's images taken like it (same sensor, near angles, same ground).
+  layerMenu: (layer) => {
+    const from = layer.type === 'image' ? catalogRecords.get(layer) : undefined;
+    return from
+      ? [{ label: '似た画像を探す…', run: () => void catalogPanel.findSimilar(from.record, from.catalog) }]
+      : [];
+  },
 });
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
 const timeline: Timeline = new Timeline(images, {
@@ -1089,11 +1096,14 @@ processing.addSwitchers();
 const fromCatalog = new WeakMap<ViewerImage, Array<[string, string]>>();
 /** The catalog ids of images opened from a catalog (written on what the AI tools find in them). */
 const catalogIds = new WeakMap<ViewerImage, string>();
+/** The catalog records of images opened from a catalog (for 「似た画像を探す」). */
+const catalogRecords = new WeakMap<ViewerImage, { record: CatalogRecord; catalog: CatalogConfig }>();
 const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
 /** Notes what the catalog says of an image opened from it; its angles start the simple orthorectification. */
 const openedFromCatalog = (image: ViewerImage, record: CatalogRecord, catalog: CatalogConfig) => {
   fromCatalog.set(image, catalogInfo(record, catalog));
   if (record.id) catalogIds.set(image, record.id);
+  catalogRecords.set(image, { record, catalog });
   const view = sensorViewOf(record, catalog);
   if (view) geometry.suggestView(image.source, view);
   if (images.selectedLayer() === image) void showInfo(info, image, layerInfo(image));

@@ -2631,6 +2631,36 @@ body {
 .catalog-angle input {
   width: 7em;
 }
+/* 「似た画像」: its tolerances stand in for the sensor, angle, azimuth and view of the everyday search. */
+.catalog-similar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 6px 10px 8px;
+  border: 1px solid #dc262666;
+  border-radius: 4px;
+}
+.catalog-similar legend {
+  padding: 0 4px;
+  color: #dc2626;
+  font-weight: 600;
+}
+.catalog-similar label:not(.check) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.catalog-similar input[type='number'] {
+  width: 5em;
+}
+.catalog-similar-off {
+  margin-left: auto;
+}
+.catalog-form.similar :is(.catalog-sensor, .catalog-angle, .catalog-view, .catalog-azimuth) {
+  display: none;
+}
 .catalog-azimuth input {
   width: 5em;
 }
