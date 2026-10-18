@@ -280,6 +280,16 @@ COG は、サーバーが CORS と Range リクエストを許可している必
       "defaults": { "maxOffNadir": 30, "minOffNadir": 0, "swath": 10, "minInterval": 0 }, // 属性が空のときの値（任意。scenesPerPass・maxPerDay も可）
       "sarPattern": "SAR|レーダ",                                                     // kind の値で SAR を見分ける正規表現（任意）
       "where": "STATUS = 'ACTIVE'" }                                                  // いつも付ける条件（任意）
+  ],
+  // ArcGIS Online / Enterprise へのサインイン（ヘッダーの「サインイン」）。clientId はポータルに登録したアプリのもの
+  "arcgisPortals": [
+    { "label": "ArcGIS Online", "url": "https://www.arcgis.com", "clientId": "AbCdEf123456" },
+    { "label": "社内ポータル", "url": "https://gis.example.com/portal", "clientId": "XyZ987" }
+  ],
+  // URL の先頭ごとに、要求へ付けるヘッダー・クエリ（COG・タイル・サービスの要求）
+  "authRules": [
+    { "prefix": "https://bucket.s3.ap-northeast-1.amazonaws.com/cogs/", "headers": { "x-api-key": "…" } },
+    { "prefix": "https://tiles.example.com/", "query": { "key": "…" } }
   ]
 }
 ```
@@ -322,6 +332,10 @@ COG は、サーバーが CORS と Range リクエストを許可している必
   "readOnly": false                              // true: 表示の移動と読み取りだけ（レイヤーの追加・変更・ツールは拒否）
 }
 ```
+
+`arcgisPortals` を書くと、ヘッダーに「サインイン」が出ます。ポータルを選ぶとポップアップでそのポータルのサインイン画面が開き、サインインするとボタンがユーザー名に変わります（メニューから「サインアウト」）。OAuth 2.0 の認可コード＋PKCE なので、クライアントシークレットは要りません。ポータルでアプリ（「その他のアプリケーション」/ OAuth 認証情報）を登録し、リダイレクト URI にこのサイトの `oauth-callback.html`（例: `https://viewer.example.com/oauth-callback.html`）を加えて、そのクライアント ID を `clientId` に書きます。`url` はポータルのルート（`https://www.arcgis.com`、`https://gis.example.com/portal`）で、https だけです（http は localhost のみ）。サインイン中のトークンは、そのポータル・ArcGIS Online の組織のホストサービス（`services*.arcgis.com/<組織 ID>/…`）・ポータルのフェデレーションサーバー（`portals/self/servers`）への要求に、トークンを入力しなかったときだけ自動で付けます（サービスの追加・画像カタログ・撮像計画の衛星カタログ・標高サービス・DB へ転記・ジオコーダー・イメージサービスのタイルなど）。サーバーが期限切れ・無効（498・499）と答えたら 1 回だけ更新して送り直し、期限の前にも自動で更新します。トークンはこのタブ（sessionStorage）にだけ残り、リンク・プロジェクトファイルには入りません。
+
+`authRules` は URL の先頭（`prefix`）が一致する要求に `headers`（ヘッダー）か `query`（クエリパラメーター）を付けます。対象は COG の読み込み（Range 要求ごと）・WMS・WMTS・Esri・XYZ 背景地図のタイル・サービスの情報や地物の要求・URL で開くファイルです。`prefix` は `https://` で始まりホストの後の `/` まで含めて書き（http は localhost のみ）、文字列としての前方一致で、複数合えば最も長いものを使います。ほかのホストには送りません。ヘッダーを付ける要求は CORS の事前確認（preflight）になるので、サーバーがそのヘッダー（と `range`）を `Access-Control-Allow-Headers` で許可している必要があります。Cookie・Host などブラウザーが付けさせないヘッダーは無視します。ベクタータイル（`mvt`・`style`）の背景地図のタイルにはまだ付きません。
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 

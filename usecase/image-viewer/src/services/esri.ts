@@ -3,7 +3,8 @@
  * of a MapServer, read only): the service's layers, every feature of a layer
  * (paged by object id, up to {@link MAX_FEATURES}), the service's own
  * symbols (simple, unique value and class breaks renderers), and `applyEdits`
- * for editable layers. A token, when given, goes with every request.
+ * for editable layers. A token, when given, goes with every request; without
+ * one, the token of a signed-in ArcGIS portal the URL belongs to (auth.ts).
  */
 import type Feature from 'ol/Feature.js';
 import EsriJSON from 'ol/format/EsriJSON.js';
@@ -16,6 +17,7 @@ import type ImageStyle from 'ol/style/Image.js';
 import type { Extent } from 'ol/extent.js';
 import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer } from './common.js';
 import { vectorLayer } from './vector.js';
+import { freshTokenFor, renewTokenFor } from '../auth.js';
 import { extentHeights, raiseFootprints } from './esri-multipatch.js';
 import { imageServerChoice, MAP_CHOICE, mapChoice, openImageServer, openMapServer } from './esri-raster.js';
 
@@ -72,8 +74,27 @@ export function isEsriUrl(url: string): boolean {
 /**
  * GET (or POST, with `post`) to the REST API as JSON; an `error` member becomes a ServiceError.
  * A request with a token is always a POST, so the token stays out of URLs (server and proxy logs, history).
+ * Without `token`, a signed-in portal's token is used when the URL belongs to it; when the server
+ * calls that token invalid (498/499), it is renewed once and the request sent again.
  */
 export async function esriJson<T>(url: string, params: Record<string, string>, token?: string, post = false): Promise<T> {
+  if (token) return esriJsonWith<T>(url, params, token, post);
+  const signedIn = await freshTokenFor(url);
+  if (!signedIn) return esriJsonWith<T>(url, params, undefined, post);
+  try {
+    return await esriJsonWith<T>(url, params, signedIn, post);
+  } catch (error) {
+    if (!(error instanceof InvalidTokenError)) throw error;
+    const renewed = await renewTokenFor(url);
+    if (!renewed) throw error;
+    return esriJsonWith<T>(url, params, renewed, post);
+  }
+}
+
+/** The server called the token invalid or expired (498, 499). */
+class InvalidTokenError extends ServiceError {}
+
+async function esriJsonWith<T>(url: string, params: Record<string, string>, token: string | undefined, post: boolean): Promise<T> {
   const all = new URLSearchParams({ ...params, f: 'json', ...(token ? { token } : {}) });
   const response = post || token
     ? await request(url, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
@@ -82,6 +103,7 @@ export async function esriJson<T>(url: string, params: Record<string, string>, t
   if (!json) throw new ServiceError('応答が JSON ではありません');
   if (json.error) {
     const { code, message, details } = json.error;
+    if (token && (code === 498 || code === 499)) throw new InvalidTokenError(`トークンが無効か、期限切れです（${message}）`);
     if (code === 499 || code === 498 || code === 403) throw new ServiceError(token ? `トークンが無効か、権限がありません（${message}）` : 'このサービスにはトークンが必要です');
     throw new ServiceError(`サービスがエラーを返しました: ${[message, ...(details ?? [])].join(' ')}`);
   }

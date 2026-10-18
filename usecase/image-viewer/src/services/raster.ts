@@ -7,6 +7,9 @@
  * first tiles fail; the layer then switches to an ordinary canvas tile layer
  * (loaded without CORS, not corrected), inside the same layer group so the
  * list, opacity and order keep working.
+ *
+ * Tiles are loaded with config.json's access rules and a signed-in portal's
+ * token (auth.ts).
  */
 import LayerGroup from 'ol/layer/Group.js';
 import TileLayer from 'ol/layer/Tile.js';
@@ -15,6 +18,8 @@ import type TileGrid from 'ol/tilegrid/TileGrid.js';
 import type { ProjectionLike } from 'ol/proj.js';
 import type { AttributionLike } from 'ol/source/Source.js';
 import { GpuCorrectedTileLayer, TileCorrection } from 'browser-image-enhancement/openlayers';
+import type { Loader } from 'ol/source/ImageTile.js';
+import { loadAuthorizedImage } from '../auth.js';
 
 export interface PictureTilesOptions {
   /** URL of the tile at z / x / y (OpenLayers tile coordinates). */
@@ -37,8 +42,9 @@ export interface PictureTiles {
 }
 
 export function pictureTiles(options: PictureTilesOptions): PictureTiles {
+  const loader: Loader = (z, x, y, { crossOrigin, signal }) => loadAuthorizedImage(options.url(z, x, y), { crossOrigin: crossOrigin ?? null, signal });
   const sourceOptions = {
-    url: (z: number, x: number, y: number) => options.url(z, x, y),
+    loader,
     tileGrid: options.tileGrid,
     projection: options.projection,
     attributions: options.attributions,
@@ -46,8 +52,16 @@ export function pictureTiles(options: PictureTilesOptions): PictureTiles {
   };
   const plain = () => new TileLayer({ source: new ImageTile({ ...sourceOptions }) });
   // A new URL function gives the tiles a new key, so the renderers load them again (refresh() alone keeps the cached ones).
-  const refresh = (group: LayerGroup) => () =>
-    group.getLayers().forEach((l) => (l as TileLayer<ImageTile>).getSource()?.setUrl((z: number, x: number, y: number) => options.url(z, x, y)));
+  let generation = 0;
+  const refresh = (group: LayerGroup) => () => {
+    generation++;
+    group.getLayers().forEach((l) => {
+      // What setUrl does, for a loader: the new key makes the renderers load the tiles again.
+      const source = (l as TileLayer<ImageTile>).getSource() as unknown as { setLoader(loader: Loader): void; setKey(key: string): void } | null;
+      source?.setLoader(loader);
+      source?.setKey(`tiles-${generation}`);
+    });
+  };
 
   if (!options.gpu) {
     const group = new LayerGroup({ layers: [plain()] });

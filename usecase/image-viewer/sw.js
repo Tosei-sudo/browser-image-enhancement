@@ -76,6 +76,8 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || request.headers.has('range')) return;
   const url = new URL(request.url);
   if (url.origin !== scope.origin || !url.href.startsWith(scope.href)) return;
+  // The sign-in popup's return page (src/auth.ts): from the network as it is, never answered with (or cached as) the viewer's page.
+  if (/\/oauth-callback\.(html|js)$/.test(url.pathname)) return;
   const bare = url.origin + url.pathname;
   // The page, whatever its query (?url=, ?service=…); other pages of the site (embed-example.html) as files below.
   if (request.mode === 'navigate' && (bare === page || bare === scope.href)) {

@@ -19,6 +19,7 @@ import type { EditTarget } from '../edit-session.js';
 import type { TargetCrs } from '../vector-write.js';
 import type { LayerStyle } from '../vector-style.js';
 import type { TempRecord } from '../temp-layers.js';
+import { authFetch } from '../auth.js';
 
 /** The kinds of service the viewer reads. */
 export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri';
@@ -165,11 +166,11 @@ export const MAX_FEATURES = 50_000;
 /** What went wrong reading a service, in words for the status line. */
 export class ServiceError extends Error {}
 
-/** `fetch`, with messages that say what to check when a service cannot be read. */
+/** `fetch` (with config.json's access rules), with messages that say what to check when a service cannot be read. */
 export async function request(url: string, init?: RequestInit): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await authFetch(url, init);
   } catch {
     throw new ServiceError('接続できませんでした（URL、またはサーバーが CORS を許可しているかを確認してください）');
   }
