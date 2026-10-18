@@ -34,6 +34,85 @@ export const rsetSettings = {
   hold: null as Promise<unknown> | null,
 };
 
+/** Thrown by {@link RsetQueue.run} for a task no longer wanted (its image was closed while it waited). */
+export class RsetCancelled extends Error {
+  constructor() {
+    super('RSET の生成をやめました');
+  }
+}
+
+interface QueuedTask {
+  name: string;
+  run: () => Promise<unknown>;
+  /** Lower goes first; null: no longer wanted. */
+  rank: () => number | null;
+  resolve: (value: unknown) => void;
+  reject: (error: unknown) => void;
+}
+
+/**
+ * The RSETs to make, a few at a time: each already reads its image in
+ * several workers, so many at once would only fight over memory. The one
+ * ranked first (in view, say) goes next.
+ */
+export class RsetQueue {
+  private readonly waiting_: QueuedTask[] = [];
+  private running_ = 0;
+  private readonly listeners_ = new Set<(waiting: number) => void>();
+
+  constructor(private readonly atOnce = 2) {}
+
+  /** Runs `task` when its turn comes; rejects with {@link RsetCancelled} when `rank` says null before then. */
+  run<T>(name: string, task: () => Promise<T>, rank: () => number | null = () => 0): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.waiting_.push({ name, run: task, rank, resolve: resolve as (value: unknown) => void, reject });
+      this.next_();
+    });
+  }
+
+  /** How many wait for their turn. */
+  waiting(): number {
+    return this.waiting_.length;
+  }
+
+  /** Calls `listener` with the number waiting whenever it changes. */
+  onChange(listener: (waiting: number) => void): void {
+    this.listeners_.add(listener);
+  }
+
+  private next_(): void {
+    while (this.running_ < this.atOnce && this.waiting_.length) {
+      let best = -1;
+      let bestRank = Infinity;
+      for (let i = 0; i < this.waiting_.length; i++) {
+        const rank = this.waiting_[i].rank();
+        if (rank === null) {
+          this.waiting_.splice(i--, 1)[0].reject(new RsetCancelled());
+          continue;
+        }
+        if (rank < bestRank) {
+          best = i;
+          bestRank = rank;
+        }
+      }
+      if (best < 0) break;
+      const [task] = this.waiting_.splice(best, 1);
+      this.running_++;
+      void task
+        .run()
+        .then(task.resolve, task.reject)
+        .finally(() => {
+          this.running_--;
+          this.next_();
+        });
+    }
+    this.listeners_.forEach((l) => l(this.waiting_.length));
+  }
+}
+
+/** The viewer's RSETs to make. */
+export const rsetQueue = new RsetQueue();
+
 /** Images being shown before their RSET is made, and how to show them at every scale again. */
 const building = new WeakMap<EnhancedGeoTIFF, () => void>();
 
@@ -183,11 +262,22 @@ export interface RsetJob {
 export class RsetProgress {
   readonly element = document.createElement('div');
 
-  constructor(target: HTMLElement) {
+  /** The line saying how many more wait. */
+  private readonly waiting_ = document.createElement('div');
+
+  constructor(target: HTMLElement, queue: RsetQueue = rsetQueue) {
     this.element.className = 'rset-progress';
     this.element.setAttribute('role', 'status');
     this.element.hidden = true;
+    this.waiting_.className = 'rset-waiting';
+    this.waiting_.hidden = true;
+    this.element.append(this.waiting_);
     target.append(this.element);
+    queue.onChange((n) => {
+      this.waiting_.hidden = !n;
+      this.waiting_.textContent = `ほか ${n.toLocaleString()} 件の RSET が順番待ち（表示範囲の画像から作ります）`;
+      this.element.hidden = !this.element.querySelector('.rset-job') && !n;
+    });
   }
 
   start(name: string): RsetJob {
@@ -202,7 +292,7 @@ export class RsetProgress {
     percent.className = 'rset-percent';
     percent.textContent = '0%';
     row.append(label, bar, percent);
-    this.element.append(row);
+    this.waiting_.before(row);
     this.element.hidden = false;
     return {
       update: (done) => {
@@ -211,7 +301,7 @@ export class RsetProgress {
       },
       end: () => {
         row.remove();
-        this.element.hidden = !this.element.childElementCount;
+        this.element.hidden = !this.element.querySelector('.rset-job') && this.waiting_.hidden;
       },
     };
   }

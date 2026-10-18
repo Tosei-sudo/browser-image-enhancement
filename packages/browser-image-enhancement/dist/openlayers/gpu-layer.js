@@ -44,7 +44,11 @@ let layerCount = 0;
 */
 var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 	output_ = document.createElement("canvas");
-	gpu_;
+	/** Made the first time a frame is corrected or colored, so a layer that does neither holds no WebGL context of its own. */
+	gpu_ = null;
+	/** Whether WebGL2 could not be had (no use trying again), or the context is lost until the browser restores it. */
+	noGpu_ = false;
+	lost_ = false;
 	correction_;
 	correctionKey_;
 	useGpu_;
@@ -84,19 +88,26 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		this.useGpu_ = options.gpu !== false;
 		if (colorScale) this.setColorScale(colorScale);
 		if (blendMode) this.blendMode_ = blendMode;
-		this.gpu_ = this.useGpu_ ? createGpuRenderer({ canvas: this.output_ }) : null;
 		this.output_.addEventListener("webglcontextlost", (event) => {
 			event.preventDefault();
 			if (!this.gpu_) return;
 			this.gpu_ = null;
+			this.lost_ = true;
 			warn("GpuCorrectedTileLayer: the WebGL context was lost; showing the tiles uncorrected until it is restored.");
 			this.changed();
 		});
 		this.output_.addEventListener("webglcontextrestored", () => {
-			if (this.disposed_ || !this.useGpu_ || this.gpu_) return;
-			this.gpu_ = createGpuRenderer({ canvas: this.output_ });
-			this.changed();
+			this.lost_ = false;
+			if (!this.disposed_) this.changed();
 		});
+	}
+	/** The renderer, made when first needed; null without WebGL2 (or while the context is lost). */
+	gpu() {
+		if (!this.gpu_ && this.useGpu_ && !this.noGpu_ && !this.lost_ && !this.disposed_) {
+			this.gpu_ = createGpuRenderer({ canvas: this.output_ });
+			this.noGpu_ = !this.gpu_;
+		}
+		return this.gpu_;
 	}
 	/**
 	* OpenLayers draws neighbouring WebGL layers of the same class name on one
@@ -109,15 +120,18 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		const base = super.getClassName();
 		return this.ownClass_ && this.ownsCanvas_() ? `${base} ${this.ownClass_}` : base;
 	}
-	/** Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}). */
+	/**
+	* Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}):
+	* not an image left as it is, so many of those share one canvas (and WebGL context).
+	*/
 	ownsCanvas_() {
 		if (this.palette_ || this.blendMode_ !== "normal" || this.correction_) return true;
 		const source = this.getSource();
-		return source instanceof EnhancedGeoTIFF && !source.correctsTiles();
+		return source instanceof EnhancedGeoTIFF && !source.correctsTiles() && (source.getPipeline().ops.length > 0 || source.getEffectivePipeline().ops.length > 0);
 	}
 	/** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
 	hasGpu() {
-		return this.gpu_ !== null;
+		return this.gpu() !== null;
 	}
 	/** The `correction` given in the options, or null. */
 	getCorrection() {
@@ -172,8 +186,7 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		this.updateStretch_();
 		const drawn = super.render(frameState, target);
 		const source = this.getSource();
-		const gpu = this.gpu_;
-		if (!(drawn instanceof HTMLCanvasElement) || !gpu || !frameState) return drawn;
+		if (!(drawn instanceof HTMLCanvasElement) || !frameState || !this.useGpu_ || this.noGpu_ || this.lost_) return drawn;
 		const correcting = source instanceof EnhancedGeoTIFF ? source.correctsTiles() ? null : source : this.correction_;
 		const palette = this.palette_;
 		if (!correcting && !palette) return drawn;
@@ -181,7 +194,8 @@ var GpuCorrectedTileLayer = class extends WebGLTileLayer {
 		const steps = correcting ? correcting.getEffectivePipeline() : pipeline();
 		const colorMode = correcting ? correcting.getColorMode() : "rgb";
 		if (steps.ops.length === 0 && !palette || !colorMode) return drawn;
-		if (drawn.width > gpu.maxSize || drawn.height > gpu.maxSize) return drawn;
+		const gpu = this.gpu();
+		if (!gpu || drawn.width > gpu.maxSize || drawn.height > gpu.maxSize) return drawn;
 		gpu.setImage(drawn, { colorMode });
 		gpu.render(steps, { palette });
 		this.frames++;

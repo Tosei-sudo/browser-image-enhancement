@@ -72,7 +72,11 @@ let layerCount = 0;
  */
 export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private readonly output_ = document.createElement('canvas');
-  private gpu_: GpuRenderer | null;
+  /** Made the first time a frame is corrected or colored, so a layer that does neither holds no WebGL context of its own. */
+  private gpu_: GpuRenderer | null = null;
+  /** Whether WebGL2 could not be had (no use trying again), or the context is lost until the browser restores it. */
+  private noGpu_ = false;
+  private lost_ = false;
   private readonly correction_: TileCorrection | null;
   private readonly correctionKey_: EventsKey | null;
   private readonly useGpu_: boolean;
@@ -102,7 +106,6 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     this.useGpu_ = options.gpu !== false;
     if (colorScale) this.setColorScale(colorScale);
     if (blendMode) this.blendMode_ = blendMode;
-    this.gpu_ = this.useGpu_ ? createGpuRenderer({ canvas: this.output_ }) : null;
     // The browser drops WebGL contexts when the GPU resets or too many pages use
     // it. Until the context is back the map shows the tiles as read; then the
     // renderer is built again (its textures and programs died with the old
@@ -111,14 +114,23 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
       event.preventDefault(); // asks the browser to restore the context
       if (!this.gpu_) return;
       this.gpu_ = null;
+      this.lost_ = true;
       warn('GpuCorrectedTileLayer: the WebGL context was lost; showing the tiles uncorrected until it is restored.');
       this.changed();
     });
     this.output_.addEventListener('webglcontextrestored', () => {
-      if (this.disposed_ || !this.useGpu_ || this.gpu_) return;
-      this.gpu_ = createGpuRenderer({ canvas: this.output_ });
-      this.changed();
+      this.lost_ = false;
+      if (!this.disposed_) this.changed();
     });
+  }
+
+  /** The renderer, made when first needed; null without WebGL2 (or while the context is lost). */
+  private gpu(): GpuRenderer | null {
+    if (!this.gpu_ && this.useGpu_ && !this.noGpu_ && !this.lost_ && !this.disposed_) {
+      this.gpu_ = createGpuRenderer({ canvas: this.output_ });
+      this.noGpu_ = !this.gpu_;
+    }
+    return this.gpu_;
   }
 
   /**
@@ -133,16 +145,19 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     return this.ownClass_ && this.ownsCanvas_() ? `${base} ${this.ownClass_}` : base;
   }
 
-  /** Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}). */
+  /**
+   * Whether the layer does something to its frame (see {@link GpuCorrectedTileLayer.getClassName}):
+   * not an image left as it is, so many of those share one canvas (and WebGL context).
+   */
   private ownsCanvas_(): boolean {
     if (this.palette_ || this.blendMode_ !== 'normal' || this.correction_) return true;
     const source = this.getSource();
-    return source instanceof EnhancedGeoTIFF && !source.correctsTiles();
+    return source instanceof EnhancedGeoTIFF && !source.correctsTiles() && (source.getPipeline().ops.length > 0 || source.getEffectivePipeline().ops.length > 0);
   }
 
   /** Whether the layer can correct on the GPU (WebGL2 is available and the context is not lost right now). */
   hasGpu(): boolean {
-    return this.gpu_ !== null;
+    return this.gpu() !== null;
   }
 
   /** The `correction` given in the options, or null. */
@@ -206,8 +221,7 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     this.updateStretch_();
     const drawn = super.render(frameState, target);
     const source = this.getSource();
-    const gpu = this.gpu_;
-    if (!(drawn instanceof HTMLCanvasElement) || !gpu || !frameState) return drawn;
+    if (!(drawn instanceof HTMLCanvasElement) || !frameState || !this.useGpu_ || this.noGpu_ || this.lost_) return drawn;
     const correcting = source instanceof EnhancedGeoTIFF ? (source.correctsTiles() ? null : source) : this.correction_;
     const palette = this.palette_;
     if (!correcting && !palette) return drawn;
@@ -216,7 +230,8 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     const steps = correcting ? correcting.getEffectivePipeline() : pipeline();
     const colorMode = correcting ? correcting.getColorMode() : 'rgb';
     if ((steps.ops.length === 0 && !palette) || !colorMode) return drawn;
-    if (drawn.width > gpu.maxSize || drawn.height > gpu.maxSize) return drawn;
+    const gpu = this.gpu();
+    if (!gpu || drawn.width > gpu.maxSize || drawn.height > gpu.maxSize) return drawn;
 
     gpu.setImage(drawn, { colorMode });
     gpu.render(steps, { palette });

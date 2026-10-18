@@ -46,6 +46,12 @@ export interface LoadFileOptions {
    * image's RPC, say, as a custom projection with transforms to the map's).
    */
   projection?: ProjectionLike;
+  /**
+   * Set to false to leave the view where it is for this file, whatever the
+   * control's `fit` option says (when many files are opened at once and the
+   * view is fitted to all of them after, say).
+   */
+  fit?: boolean;
 }
 /** Texts of {@link LoadImageControl}, by key. */
 export type LoadImageLabels = Record<'open' | 'url' | 'urlPlaceholder' | 'load', string>;

@@ -12,6 +12,11 @@
  * orthorectified more simply; the satellite's direction comes from an .IMD
  * file chosen with it, or from its GDAL metadata. A NITF file (or SICD,
  * shown as amplitude) opens as a GeoTIFF read in place (see nitf-tiff.ts).
+ *
+ * Many images at once are read a few at a time (their RSETs, made one or two
+ * at a time in rset.ts, the ones in view first) and shown in the order
+ * chosen as each is ready; from {@link BULK_SHOW_FIRST} images on, every one
+ * is shown at once and gets its RSET after, like a large one.
  */
 import { isEmpty } from 'ol/extent.js';
 import type Projection from 'ol/proj/Projection.js';
@@ -36,7 +41,7 @@ import type { GeometricMode } from './geometric.js';
 import { baseName } from './images.js';
 import { handleOf } from './recent-files.js';
 import { isEditable, localTarget } from './local-edit.js';
-import { markGenerated, rsetSettings, type RsetJob, type RsetProgress } from './rset.js';
+import { markGenerated, RsetCancelled, rsetQueue, rsetSettings, type RsetJob, type RsetProgress } from './rset.js';
 import { isNitf } from './nitf.js';
 import { copyFileInfo, nitfAsTiff, setFileInfo, type NitfAsTiff } from './nitf-tiff.js';
 import { get as getProjection } from 'ol/proj.js';
@@ -83,15 +88,34 @@ export interface OpenFilesContext {
   askGeoref?: (source: EnhancedGeoTIFF, side: SideGeoref) => void;
   /** Called when an image without a projection is shown (where pictures go): mark it as one. */
   onUnplaced?: (source: EnhancedGeoTIFF) => void;
+  /** Set to false to leave the view where it is as images open (the caller fits it to all of them). */
+  fit?: boolean;
+  /** Called as the images of {@link openFiles} are shown: how many of them are, of how many. */
+  onProgress?: (done: number, total: number) => void;
+  /**
+   * Which RSET to make first: lower first, null when the image is no longer
+   * open (its RSET is not made). Without it, in the order the images opened.
+   */
+  rsetRank?: (source: EnhancedGeoTIFF) => number | null;
 }
+
+/** Images read at the same time when many are opened at once (each is shown when those before it are). */
+const READ_AT_ONCE = 4;
+
+/** From this many images opened at once, all are shown before their RSETs are made. */
+export const BULK_SHOW_FIRST = 8;
 
 /** The file chooser's `accept`: pictures, GeoTIFFs (and their .ovr), world files and .aux.xml, NITF and SICD, Shapefiles (and their .qml style), GeoJSON, GeoPackages, KML / KMZ, GPX, FlatGeobuf, CSV, DTED, RPC and IMD files, and project files (opened by project.ts). */
 export const acceptFiles =
   '.ivproj,.tif,.tiff,.ovr,.ntf,.nitf,.nsf,.r0,.sicd,image/*,.tfw,.tifw,.jgw,.jpgw,.pgw,.pngw,.gfw,.bpw,.j2w,.wld,.xml,.zip,.shp,.dbf,.shx,.prj,.cpg,.qml,.geojson,.json,.gpkg,.kml,.kmz,.gpx,.fgb,.csv,.tsv,.dt0,.dt1,.dt2,.rpb,.rpc,.txt,.imd,.qgs,.qgz';
 
+/** Whether a file opens as an image of its own (not a vector file, nor a file that goes with an image). */
+export function isPicture(f: File): boolean {
+  return !isVectorName(f.name) && !isSideName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !isOvrName(f.name) && !isImdName(f.name) && !/\.txt$/i.test(f.name) && !/\.ivproj$/i.test(f.name);
+}
+
 export async function openFiles(files: File[], context: OpenFilesContext): Promise<void> {
   // World files, .aux.xml and an image's .prj (one with no Shapefile of its name) place the image of their name.
-  const isPicture = (f: File) => !isVectorName(f.name) && !isSideName(f.name) && !isCsvName(f.name) && !isDtedName(f.name) && !isRpcName(f.name) && !isOvrName(f.name) && !isImdName(f.name) && !/\.txt$/i.test(f.name);
   const imageNames = new Set(files.filter(isPicture).map((f) => baseName(f.name).toLowerCase()));
   const shapeNames = new Set(files.filter((f) => /\.(shp|dbf|shx)$/i.test(f.name)).map((f) => sideBaseName(f.name)));
   const imagePrj = (f: File) => /\.prj$/i.test(f.name) && imageNames.has(sideBaseName(f.name)) && !shapeNames.has(sideBaseName(f.name));
@@ -106,14 +130,31 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
   const views = await readImdFiles(files.filter((f) => isImdName(f.name)));
   const images = files.filter(isPicture);
   const used = new Set<File>();
-  for (const file of images) {
+  const bulk = images.length >= BULK_SHOW_FIRST;
+  const prepare = (file: File) => {
     // An RPC file goes with the image of the same name, or with the only image; so does an .ovr file.
     const rpc = rpcs.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && rpcs.size === 1 ? [...rpcs.values()][0] : null);
     const ovr = ovrs.find((o) => ovrBelongsTo(o.name, file.name)) ?? (images.length === 1 && ovrs.length === 1 ? ovrs[0] : null);
     if (ovr) used.add(ovr);
     const view = views.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && views.size === 1 ? [...views.values()][0] : null);
     const side = sides.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && sides.size === 1 ? [...sides.values()][0] : null);
-    await openImage(file, context, rpc, ovr, view, side);
+    return prepareImage(file, context, rpc, ovr, view, side, bulk).catch((error: unknown) => {
+      context.say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return async () => null;
+    });
+  };
+  // A few are read at once, and shown in the order chosen.
+  const reading: Array<Promise<Show>> = [];
+  let next = 0;
+  const readNext = () => {
+    if (next < images.length) reading.push(prepare(images[next++]));
+  };
+  for (let i = 0; i < READ_AT_ONCE; i++) readNext();
+  for (let done = 1; done <= images.length; done++) {
+    const show = await reading.shift()!;
+    readNext();
+    await show();
+    context.onProgress?.(done, images.length);
   }
   const unused = ovrs.filter((o) => !used.has(o));
   if (unused.length) context.say(`${unused.map((o) => o.name).join('、')} に合う GeoTIFF がありません（画像と一緒に選んでください）`);
@@ -250,6 +291,9 @@ export function openImageFile(file: File, context: OpenFilesContext): Promise<En
   return openImage(file, context);
 }
 
+/** Shows an image read by {@link prepareImage}: its source, or null when it could not be opened. */
+type Show = () => Promise<EnhancedGeoTIFF | null>;
+
 /** What a file-opened image was read from, kept so its projection can be set again (see {@link placeImage}). */
 export interface RasterOrigin {
   /** The file as chosen: a TIFF (a NITF's TIFF), or a picture. */
@@ -292,8 +336,17 @@ async function pictureAsTiff(file: Blob): Promise<{ tiff: Blob; width: number; h
  * coordinates in no known CRS); an image without either is put where the
  * viewer puts pictures, marked as having no projection.
  */
-async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null, side: SideGeoref | null = null): Promise<EnhancedGeoTIFF | null> {
-  const { loader, say, geometry, rset, onRsetMade } = context;
+async function openImage(file: File, context: OpenFilesContext): Promise<EnhancedGeoTIFF | null> {
+  return (await prepareImage(file, context))();
+}
+
+/**
+ * Reads an image as far as it can before showing it (its RSET too, unless it
+ * is shown first, as large ones are and as all are with `showFirst`), and
+ * returns what shows it.
+ */
+async function prepareImage(file: File, context: OpenFilesContext, sideRpc: Rpc | null = null, ovr: File | null = null, view: SensorView | null = null, side: SideGeoref | null = null, showFirst = false): Promise<Show> {
+  const { loader, say, geometry, rset, onRsetMade, fit } = context;
   let blob: Blob = file;
   let rpc: Rpc | null = null;
   let georeferenced = false;
@@ -304,7 +357,7 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
       nitf = await nitfAsTiff(file);
     } catch (error) {
       say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
+      return async () => null;
     }
     for (const note of nitf.notes) say(`${file.name}: ${note}`);
     // From here on it is a GeoTIFF whose pixels are the NITF's.
@@ -360,43 +413,47 @@ async function openImage(file: File, context: OpenFilesContext, sideRpc: Rpc | n
     }
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
     const plan = blob === file || tiff !== file ? await planOverviews(tiff, { geo }).catch(() => null) : null;
-    if (plan && plan.width * plan.height > rsetSettings.showFirstAbove) {
-      const source = await loader.loadFile(plan.raw, name, { projection }).catch(() => null);
-      if (!source) return null;
-      if (nitf) setFileInfo(source, nitf.info);
-      if (origin) origins.set(source, origin);
-      context.onRsetBuilding?.(source);
-      if (rpc) geometry.setSatellite(source, { rpc, from: file });
-      else if (georeferenced && !origin?.georef) geometry.setGeoreferenced(source, file, view);
-      void buildLater(name, plan, source, context, projection);
-      opened(source, origin, side, context);
-      return source;
+    if (plan && (plan.width * plan.height > rsetSettings.showFirstAbove || showFirst)) {
+      return async () => {
+        const source = await loader.loadFile(plan.raw, name, { projection, fit }).catch(() => null);
+        if (!source) return null;
+        if (nitf) setFileInfo(source, nitf.info);
+        if (origin) origins.set(source, origin);
+        context.onRsetBuilding?.(source);
+        if (rpc) geometry.setSatellite(source, { rpc, from: file });
+        else if (georeferenced && !origin?.georef) geometry.setGeoreferenced(source, file, view);
+        void buildLater(name, plan, source, context, projection);
+        opened(source, origin, side, context);
+        return source;
+      };
     }
     if (plan) blob = (await buildOverviews(name, plan, rset)) ?? plan.raw;
   } else {
     // A picture without a world file: placed over the view by the loader, without a projection.
     origin = { file, tiff: null, width: 0, height: 0, own: null, georef: null, unplaced: true };
   }
-  const source = await loader.loadFile(blob, name, { projection }).catch(() => null); // the loader's onError tells the user
-  if (source && nitf) setFileInfo(source, nitf.info);
-  if (source && origin) {
-    // A picture's size, from the GeoTIFF the loader made of it.
-    const first = origin.width ? null : (source.getTiffImages()[0]?.[0] as { getWidth(): number; getHeight(): number } | undefined);
-    if (first) {
-      origin.width = first.getWidth();
-      origin.height = first.getHeight();
+  return async () => {
+    const source = await loader.loadFile(blob, name, { projection, fit }).catch(() => null); // the loader's onError tells the user
+    if (source && nitf) setFileInfo(source, nitf.info);
+    if (source && origin) {
+      // A picture's size, from the GeoTIFF the loader made of it.
+      const first = origin.width ? null : (source.getTiffImages()[0]?.[0] as { getWidth(): number; getHeight(): number } | undefined);
+      if (first) {
+        origin.width = first.getWidth();
+        origin.height = first.getHeight();
+      }
+      origins.set(source, origin);
     }
-    origins.set(source, origin);
-  }
-  const made = madeOverviews(blob);
-  if (source && made) {
-    markGenerated(source, made);
-    onRsetMade?.(source);
-  }
-  if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
-  else if (source && georeferenced && !origin?.georef) geometry.setGeoreferenced(source, file, view);
-  if (source) opened(source, origin, side, context);
-  return source;
+    const made = madeOverviews(blob);
+    if (source && made) {
+      markGenerated(source, made);
+      onRsetMade?.(source);
+    }
+    if (source && rpc) geometry.setSatellite(source, { rpc, from: file });
+    else if (source && georeferenced && !origin?.georef) geometry.setGeoreferenced(source, file, view);
+    if (source) opened(source, origin, side, context);
+    return source;
+  };
 }
 
 /** The whole placement `side` gives an image, with the image's own coordinates when it has only a CRS; null when it gives only half. */
@@ -465,10 +522,16 @@ export async function placeImage(source: EnhancedGeoTIFF, georef: Georef | null,
 async function buildOverviews(name: string, plan: OverviewPlan, rset: RsetProgress | undefined): Promise<Blob | null> {
   let job: RsetJob | null = null;
   try {
-    return await plan.build((done) => {
-      job ??= rset?.start(name) ?? null;
-      job?.update(done);
-    });
+    // Before those shown first, waiting: the image is not shown until it is done.
+    return await rsetQueue.run(
+      name,
+      () =>
+        plan.build((done) => {
+          job ??= rset?.start(name) ?? null;
+          job?.update(done);
+        }),
+      () => -1,
+    );
   } catch {
     return null;
   } finally {
@@ -477,13 +540,29 @@ async function buildOverviews(name: string, plan: OverviewPlan, rset: RsetProgre
 }
 
 /** Makes the RSET of an image already shown as `shown`, then gives the source to show from then on to `onRsetMade`. */
-async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTIFF, { loader, say, rset, onRsetMade }: OpenFilesContext, projection?: Projection): Promise<void> {
-  // The progress panel shows at once: the image is on the map, but zoomed out nothing is drawn yet.
-  const job = rset?.start(name) ?? null;
-  const blob = await Promise.resolve(rsetSettings.hold)
-    .then(() => plan.build((done) => job?.update(done)))
-    .catch(() => null)
-    .finally(() => job?.end());
+async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTIFF, { loader, say, rset, onRsetMade, rsetRank }: OpenFilesContext, projection?: Projection): Promise<void> {
+  let cancelled = false;
+  const blob = await rsetQueue
+    .run(
+      name,
+      async () => {
+        // The progress panel shows as it starts: the image is on the map, but zoomed out nothing is drawn yet.
+        const job = rset?.start(name) ?? null;
+        return Promise.resolve(rsetSettings.hold)
+          .then(() => plan.build((done) => job?.update(done)))
+          .finally(() => job?.end());
+      },
+      () => rsetRank?.(shown) ?? 0,
+    )
+    .catch((error: unknown) => {
+      cancelled = error instanceof RsetCancelled;
+      return null;
+    });
+  if (cancelled) {
+    // Closed while it waited.
+    onRsetMade?.(shown, shown);
+    return;
+  }
   const made = blob && madeOverviews(blob);
   const source = blob && made ? await loader.createSource(blob, { projection }).catch(() => null) : null;
   if (!source || !made) {

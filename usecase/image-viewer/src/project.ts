@@ -14,7 +14,8 @@ import GeoJSON from 'ol/format/GeoJSON.js';
 import { Pipeline } from 'browser-image-enhancement';
 import { dropImageRule, imageRuleOf } from './image-rules.js';
 import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
-import type { ImageList, ViewerImage, ViewerLayer } from './images.js';
+import { groupNameOf, type ImageList, type ViewerImage, type ViewerLayer } from './images.js';
+import { isPicture } from './open-files.js';
 import type { Georef } from './georef.js';
 import type { BaseMapSwitch } from './basemap.js';
 import { openRef } from './add-service.js';
@@ -38,6 +39,7 @@ import {
   type FileSetRef,
   type Project,
   type ProjectGlobe,
+  type ProjectGroup,
   type ProjectLayer,
 } from './project-file.js';
 import type { ProjectLayout } from './layout.js';
@@ -64,8 +66,11 @@ export interface ProjectOptions {
   tempStore: TempStore;
   /** The remembered files of 「最近」, searched for a project's files. */
   recent: RecentFiles | null;
-  /** Opens files as if chosen (the viewer's openFiles). */
-  openFiles: (files: File[]) => Promise<void>;
+  /**
+   * Opens files as if chosen (the viewer's openFiles): with `fit` false the
+   * view stays where it is, and `onProgress` hears how many of the images are shown.
+   */
+  openFiles: (files: File[], options?: { fit?: boolean; onProgress?: (done: number, total: number) => void }) => Promise<void>;
   serviceContext: () => OpenContext;
   say: (message: string) => void;
   /** Remembers a project file opened or saved in 「最近」. */
@@ -107,6 +112,9 @@ type OpenFilePicker = (options: { multiple?: boolean; id?: string; startIn?: Fil
 
 const projectTypes = [{ description: '画像ビューアのプロジェクト', accept: { [PROJECT_TYPE]: [PROJECT_EXTENSION] } }];
 
+/** From this many images opened together, their group starts folded. */
+const GROUP_FOLD_ABOVE = 12;
+
 /** The project of the viewer: what was saved or opened last, and the menu that saves and opens. */
 export class ProjectControl {
   private id_: string | null = null;
@@ -116,6 +124,8 @@ export class ProjectControl {
   private readonly handles_ = new ProjectHandles();
   private ready_: Promise<void> = Promise.resolve();
   private busy_ = false;
+  /** Files opened one set after another (sets dropped while others open wait). */
+  private opening_: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly options: ProjectOptions) {}
 
@@ -142,9 +152,45 @@ export class ProjectControl {
     }
     const projects = files.filter((f) => isProjectName(f.name));
     const rest = files.filter((f) => !isProjectName(f.name));
-    if (rest.length) await this.track_({ files: rest, ...(url ? { url } : {}) }, () => this.options.openFiles(rest));
+    if (rest.length) {
+      const opening = this.opening_.then(() => this.openTogether_(rest, url));
+      this.opening_ = opening.catch(() => {});
+      await opening;
+    }
     if (projects.length > 1) this.options.say('プロジェクトは一度に一つだけ開けます。最初の一つを開きます');
     if (projects[0]) await this.openFile(projects[0], handleOf(projects[0]) ?? null);
+  }
+
+  /**
+   * Opens files chosen or dropped together: the layers they make go into a
+   * group of their own (from two on); many images are shown as each is
+   * ready, with the view fitted to them all rather than to each.
+   */
+  private async openTogether_(files: File[], url?: string): Promise<void> {
+    const { images } = this.options;
+    const pictures = files.filter(isPicture).length;
+    const many = pictures >= 2;
+    // Many images: their group is there at once (folded when they are a lot), saying how far they have got.
+    const batch = images.beginBatch(groupNameOf(files.map((f) => f.name)), { group: many, collapsed: pictures > GROUP_FOLD_ABOVE });
+    let fitted = false;
+    const onProgress = (done: number, total: number) => {
+      const group = images.batchGroup();
+      if (!group) return;
+      images.setGroupNote(group, done < total ? `読み込み中 ${done}/${total}` : null);
+      // To the first image at once, to all of them at the end.
+      if (!fitted) void images.zoomToGroup(group, 0);
+      fitted = true;
+    };
+    try {
+      await this.track_({ files, ...(url ? { url } : {}) }, () => this.options.openFiles(files, many ? { fit: false, onProgress } : {}));
+    } finally {
+      if (batch) {
+        const { group, added } = images.endBatch();
+        if (many && group) void images.zoomToGroup(group);
+        else if (many && added[0]) void images.zoomTo(added[0]);
+        if (group && added.length > 2) this.options.say(`${added.length} 件のレイヤーをグループ「${group.name}」にまとめて開きました`);
+      }
+    }
   }
 
   /** Runs `open`, and marks the layers it adds as opened from `set`; returns them, top first. */
@@ -235,6 +281,7 @@ export class ProjectControl {
     const left: string[] = [];
     const layers: ProjectLayer[] = [];
     const listed: ViewerLayer[] = [];
+    const savedGroups: Array<NonNullable<ReturnType<ImageList['groupOf']>>> = [];
     const geojson = new GeoJSON();
     for (const l of images.layers()) {
       const set = this.sets_.get(l);
@@ -277,6 +324,11 @@ export class ProjectControl {
       if (this.options.isDem?.(l)) layer.dem = true;
       const time = this.options.layerTime?.get(l);
       if (time) layer.time = time;
+      const group = images.groupOf(l);
+      if (group) {
+        if (!savedGroups.includes(group)) savedGroups.push(group);
+        layer.group = savedGroups.indexOf(group);
+      }
       layers.push(layer);
       listed.push(l);
     }
@@ -300,6 +352,7 @@ export class ProjectControl {
         fileSets,
         layers,
         selected: index < 0 ? null : index,
+        ...(savedGroups.length ? { groups: savedGroups.map((g): ProjectGroup => ({ name: g.name, visible: g.visible, collapsed: g.collapsed })) } : {}),
         ...(globe ? { globe } : {}),
         ...(this.options.bookmarks?.get().length ? { bookmarks: this.options.bookmarks.get() } : {}),
         ...(this.options.elevationServices?.get().length ? { elevationServices: this.options.elevationServices.get() } : {}),
@@ -415,10 +468,23 @@ export class ProjectControl {
 
       const files = await this.findFiles_(project, handle);
       const problems: string[] = [];
-      const found = await this.openLayers_(project, files, problems);
+      // The list is drawn once a frame as the layers come, and nothing is selected until the end.
+      const batch = images.beginBatch(name, { grouping: false });
+      let found: Array<ViewerLayer | null>;
+      try {
+        found = await this.openLayers_(project, files, problems);
+      } finally {
+        if (batch) images.endBatch();
+      }
 
-      // In the saved order, as they were.
+      // In the saved order, as they were, and in their groups.
       images.arrange(found.filter((l): l is ViewerLayer => !!l));
+      for (const [g, saved] of (project.groups ?? []).entries()) {
+        const members = found.filter((l, i): l is ViewerLayer => !!l && project.layers[i].group === g);
+        if (!members.length) continue;
+        const group = images.createGroup(members, saved.name, saved.collapsed);
+        if (!saved.visible) images.setGroupVisible(group, false);
+      }
       // Projections set in the viewer first: the image is read again, and the settings below go on its new source.
       for (const [i, saved] of project.layers.entries()) {
         const l = found[i];
@@ -526,7 +592,7 @@ export class ProjectControl {
           const chosen = files[source.set];
           const set = project.fileSets[source.set];
           if (!chosen?.length) continue;
-          const added = await this.track_({ files: chosen, ...(set.url ? { url: set.url } : {}) }, () => this.options.openFiles(chosen));
+          const added = await this.track_({ files: chosen, ...(set.url ? { url: set.url } : {}) }, () => this.options.openFiles(chosen, { fit: false }));
           // The layers of this set the project has; the others were closed before it was saved.
           const wanted = project.layers.map((l, j) => ({ l, j })).filter(({ l }) => l.source.kind === 'files' && l.source.set === source.set);
           const matched = matchLayers(
