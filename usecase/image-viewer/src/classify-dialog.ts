@@ -24,6 +24,7 @@ import { MAX_CLASSES, planClassify, runClassify, type ClassifyOutput, type Class
 import type { ClassifierKind } from './classify.js';
 import type { LonLat } from './coordinates.js';
 import { saveFile } from './save-folder.js';
+import { keepResult, results } from './result-store.js';
 
 /** Most pixels the outlines are traced over (the classes are read reduced to this). */
 const MAX_TRACE_PIXELS = 4_000_000;
@@ -303,9 +304,13 @@ export class ClassifyDialog {
     this.run_.disabled = true;
     const control = { cancelled: false };
     this.running_ = control;
+    const name = `${baseName(image.name)}_分類.tif`.slice(-120);
+    const draft = results.begin('分類');
     try {
       this.note_.textContent = '分類しています… 0%';
+      const numbers = `${baseName(name)}_番号.tif`;
       const output = await runClassify({
+        output: { classes: { sink: draft.sink(numbers), name: numbers }, colors: { sink: draft.sink(name), name } },
         image,
         bands,
         method: supervised
@@ -318,11 +323,12 @@ export class ClassifyDialog {
           this.note_.textContent = `分類しています… ${Math.floor(pass === 1 ? done * 33 : 33 + done * 67)}%`;
         },
       });
-      const name = `${baseName(image.name)}_分類.tif`.slice(-120);
       this.note_.textContent = '結果を開いています…';
-      const file = new File([output.colorBlob], name, { type: 'image/tiff' });
+      const file = output.colorBlob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
+      const table = made && (await draft.add(`${baseName(name)}.csv`, new Blob([classCsv(output.classes)], { type: 'text/csv' })));
+      await keepResult(draft, made, file, table ? [output.classBlob, table] : [], { categorical: true });
       if (!made) return null;
       this.made_.set(made, output);
       this.images.setBadge(made, '分類');
@@ -336,6 +342,7 @@ export class ClassifyDialog {
       this.options.say(`${name} を作りました（${output.classes.length} クラス）${outlined}`);
       return made;
     } catch (error) {
+      await draft.discard();
       if (control.cancelled) this.options.say('分類を中止しました');
       else this.note_.textContent = `分類できませんでした: ${error instanceof Error ? error.message : String(error)}`;
       return null;

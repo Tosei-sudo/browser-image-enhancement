@@ -1,17 +1,20 @@
 /**
  * Writes a tiled GeoTIFF a block of tiles at a time, for images too large to
- * hold in memory at once. Each block becomes a Blob of its own as it comes
- * (the browser keeps large Blobs on disk), and the image directory goes at
- * the end, once every tile is in: header, tiles in the order they came, then
- * the directory. Uncompressed and without overviews (the viewer appends an
- * RSET when it opens the file); a BigTIFF when it would pass 4 GB.
+ * hold in memory at once. Each block goes to a {@link ByteSink} as it comes:
+ * a Blob of its own in the page (the browser keeps large Blobs on disk), or
+ * straight into a file of the browser's storage (result-store.ts). The image
+ * directory goes at the end, once every tile is in: header, tiles in the
+ * order they came, then the directory. Uncompressed and without overviews
+ * (the viewer appends an RSET when it opens the file; cog.ts makes a COG of
+ * it); a BigTIFF when it would pass 4 GB.
  */
+import { MemorySink, type ByteSink } from './byte-sink.js';
 
-const ASCII = 2;
-const SHORT = 3;
-const LONG = 4;
-const DOUBLE = 12;
-const LONG8 = 16;
+export const ASCII = 2;
+export const SHORT = 3;
+export const LONG = 4;
+export const DOUBLE = 12;
+export const LONG8 = 16;
 const TYPE_SIZE: Record<number, number> = { [ASCII]: 1, [SHORT]: 2, [LONG]: 4, [DOUBLE]: 8, [LONG8]: 8 };
 
 /** A TIFF tag: values as numbers (ASCII as character codes ending in 0). */
@@ -44,6 +47,8 @@ export interface TiledTiffOptions {
   extraSamples?: number[];
   /** Whether to write a BigTIFF. Default: only when the file would pass 4 GB. */
   bigTiff?: boolean;
+  /** Where the file goes. Default: Blob parts in the page. */
+  sink?: ByteSink;
 }
 
 export class TiledTiffWriter {
@@ -52,7 +57,9 @@ export class TiledTiffWriter {
   readonly big: boolean;
   private readonly tileBytes_: number;
   private readonly offsets_: number[];
-  private readonly parts_: Blob[] = [];
+  private readonly sink_: ByteSink;
+  /** The writes asked for so far, in order. */
+  private written_: Promise<void>;
   private at_: number;
 
   constructor(private readonly options: TiledTiffOptions) {
@@ -66,10 +73,18 @@ export class TiledTiffWriter {
     this.big = options.bigTiff ?? total > 0xffffffff;
     this.at_ = this.big ? 16 : 8;
     this.offsets_ = new Array<number>(this.across * this.down).fill(-1);
+    this.sink_ = options.sink ?? new MemorySink();
+    this.sink_.reserve?.(total);
+    // The header's place; written once the directory's place is known.
+    this.written_ = this.sink_.append(new Uint8Array(this.at_));
   }
 
-  /** Adds tiles; each must be a whole tile (`tileSize`² × `bands` samples). */
-  add(tiles: Tile[]): void {
+  /**
+   * Adds tiles; each must be a whole tile (`tileSize`² × `bands` samples).
+   * Resolves once they are written (wait for it to keep a fast producer from
+   * running ahead of a slow file).
+   */
+  add(tiles: Tile[]): Promise<void> {
     for (const t of tiles) {
       if (t.bytes.length !== this.tileBytes_) throw new RangeError(`A tile must be ${this.tileBytes_} bytes, got ${t.bytes.length}.`);
       const k = t.ty * this.across + t.tx;
@@ -77,11 +92,16 @@ export class TiledTiffWriter {
       this.offsets_[k] = this.at_;
       this.at_ += t.bytes.length;
     }
-    this.parts_.push(new Blob(tiles.map((t) => t.bytes as Uint8Array<ArrayBuffer>)));
+    const part = new Blob(tiles.map((t) => t.bytes as Uint8Array<ArrayBuffer>));
+    this.written_ = this.written_.then(() => this.sink_.append(part));
+    return this.written_;
   }
 
-  /** The file, with `entries` (georeferencing, no data, metadata) added to the image's own tags. */
-  finish(entries: TiffEntry[] = []): Blob {
+  /**
+   * The file, named `name`, with `entries` (georeferencing, no data,
+   * metadata) added to the image's own tags.
+   */
+  async finish(entries: TiffEntry[] = [], name = 'image.tif'): Promise<File> {
     if (this.offsets_.some((o) => o < 0)) throw new Error('Some tiles were not written.');
     const { width, height, bands, sample, tileSize, photometric, extraSamples } = this.options;
     const all: TiffEntry[] = [
@@ -113,12 +133,32 @@ export class TiledTiffWriter {
       header.setUint32(4, ifdAt, true);
     }
     const ifd = directory(all, ifdAt, this.big);
-    return new Blob([header.buffer, ...this.parts_, new Uint8Array(ifdAt - this.at_), ifd], { type: 'image/tiff' });
+    await this.written_;
+    await this.sink_.append(new Blob([new Uint8Array(ifdAt - this.at_), ifd]));
+    await this.sink_.overwrite(0, new Uint8Array(header.buffer));
+    return this.sink_.close(name, 'image/tiff');
+  }
+
+  /** Drops what was written (after a failure or when stopped). */
+  async abort(): Promise<void> {
+    await this.written_.catch(() => {});
+    await this.sink_.abort();
   }
 }
 
-/** The image directory at `at`, with its out-of-line values after it. */
-function directory(entries: TiffEntry[], at: number, big: boolean): ArrayBuffer {
+/** The bytes of a directory of `entries`, its out-of-line values included. */
+export function directorySize(entries: readonly TiffEntry[], big: boolean): number {
+  const slot = big ? 8 : 4;
+  let size = (big ? 8 : 2) + entries.length * (big ? 20 : 12) + slot;
+  for (const e of entries) {
+    const n = TYPE_SIZE[e.type] * e.values.length;
+    if (n > slot) size += n + (n & 1);
+  }
+  return size;
+}
+
+/** The image directory at `at`, with its out-of-line values after it; `next` is where the next directory is (0: none). */
+export function directory(entries: TiffEntry[], at: number, big: boolean, next = 0): ArrayBuffer {
   const slot = big ? 8 : 4;
   const head = (big ? 8 : 2) + entries.length * (big ? 20 : 12) + slot;
   let size = head;
@@ -147,7 +187,8 @@ function directory(entries: TiffEntry[], at: number, big: boolean): ArrayBuffer 
     }
     p += big ? 20 : 12;
   }
-  // The next directory: none (0, already).
+  if (big) view.setBigUint64(p, BigInt(next), true);
+  else view.setUint32(p, next, true);
   return view.buffer;
 }
 
@@ -162,7 +203,8 @@ function writeValues(view: DataView, at: number, e: TiffEntry): void {
   });
 }
 
-function sampleFormat(sample: TileSamples): number {
+/** SampleFormat of `sample`'s type: 1 unsigned, 2 signed, 3 floating point. */
+export function sampleFormat(sample: TileSamples): number {
   if (sample instanceof Float32Array || sample instanceof Float64Array) return 3;
   if (sample instanceof Int8Array || sample instanceof Int16Array || sample instanceof Int32Array) return 2;
   return 1;
@@ -202,7 +244,8 @@ export function cutTiles(
   return tiles;
 }
 
-function littleEndian(a: TileSamples): Uint8Array {
+/** The bytes of `a`, little-endian. */
+export function littleEndian(a: TileSamples): Uint8Array {
   const bytes = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
   if (LITTLE_ENDIAN || a.BYTES_PER_ELEMENT === 1) return bytes;
   const out = new Uint8Array(bytes.length);

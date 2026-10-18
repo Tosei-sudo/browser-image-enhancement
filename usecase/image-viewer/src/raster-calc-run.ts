@@ -11,6 +11,7 @@ import type { CompositeBlock, CompositeReply } from './composite-worker.js';
 import type { CalcBlock, CalcTask } from './raster-calc.js';
 import type { CalcReply } from './raster-calc-worker.js';
 import { TiledTiffWriter } from './tiff-stream.js';
+import type { ByteSink } from './byte-sink.js';
 import type { ViewerImage } from './images.js';
 
 /** Tile size of the result. */
@@ -29,10 +30,13 @@ export interface CalcRequest {
   onProgress?: (done: number) => void;
   /** Set `cancelled` to stop. */
   control?: { cancelled: boolean };
+  /** Where the GeoTIFF is written (default: in the page), and its name. */
+  sink?: ByteSink;
+  name?: string;
 }
 
 export interface CalcResult {
-  blob: Blob;
+  blob: File;
   plan: CompositePlan;
   min: number;
   max: number;
@@ -52,7 +56,7 @@ export async function runCalc(request: CalcRequest): Promise<CalcResult> {
   const control = request.control ?? { cancelled: false };
   const { grid } = plan;
   const blocks = blocksOf(grid);
-  const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 1, sample: new Float32Array(0), tileSize: TILE, photometric: 1 });
+  const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 1, sample: new Float32Array(0), tileSize: TILE, photometric: 1, sink: request.sink });
   let min = Infinity;
   let max = -Infinity;
   let covered = 0;
@@ -76,7 +80,7 @@ export async function runCalc(request: CalcRequest): Promise<CalcResult> {
         const task: CalcTask = { width: read.width, height: read.height, inputs: read.channels, expr, resample, tileSize: TILE, tx0: read.tx0, ty0: read.ty0 };
         const buffers = [...new Set(read.channels.flatMap((c) => (c ? [(c.data as unknown as { buffer: ArrayBuffer }).buffer] : [])))];
         const block = await call(worker, task, buffers);
-        writer.add(block.tiles);
+        await writer.add(block.tiles);
         min = Math.min(min, block.min);
         max = Math.max(max, block.max);
         covered += block.covered;
@@ -95,12 +99,15 @@ export async function runCalc(request: CalcRequest): Promise<CalcResult> {
       }),
     );
     stop();
+    if (!covered) throw new Error('値のある画素がありませんでした（画像が重なっていないか、すべてノーデータです）');
+    const blob = await writer.finish(await tagsOf(plan, [min], [max]), request.name);
+    return { blob, plan, min, max };
+  } catch (error) {
+    await writer.abort();
+    throw error;
   } finally {
     for (const w of workers) w.terminate();
   }
-  if (!covered) throw new Error('値のある画素がありませんでした（画像が重なっていないか、すべてノーデータです）');
-  const blob = writer.finish(await tagsOf(plan, [min], [max]));
-  return { blob, plan, min, max };
 }
 
 function call(worker: Worker, task: CalcTask, transfer: Transferable[]): Promise<CalcBlock> {
@@ -121,14 +128,14 @@ export async function runResample(
   plan: CompositePlan,
   channels: Channel[],
   color: { photometric: number; extraSamples?: number[] },
-  options: { resample?: Resampling; onProgress?: (done: number) => void; control?: { cancelled: boolean } } = {},
-): Promise<Blob> {
+  options: { resample?: Resampling; onProgress?: (done: number) => void; control?: { cancelled: boolean }; sink?: ByteSink; name?: string } = {},
+): Promise<File> {
   const { grid, type } = plan;
   const bands = channels.length;
   const resample = options.resample ?? 'bilinear';
   const control = options.control ?? { cancelled: false };
   const blocks = blocksOf(grid);
-  const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands, sample: samplesOf(type, 0), tileSize: TILE, ...color });
+  const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands, sample: samplesOf(type, 0), tileSize: TILE, ...color, sink: options.sink });
   const min = new Array<number>(bands).fill(Infinity);
   const max = new Array<number>(bands).fill(-Infinity);
   let covered = 0;
@@ -155,7 +162,7 @@ export async function runResample(
           worker.onerror = (e) => reject(new Error(e.message || '処理が止まりました'));
           worker.postMessage(task, buffers);
         });
-        writer.add(block.tiles);
+        await writer.add(block.tiles);
         for (let b = 0; b < bands; b++) {
           min[b] = Math.min(min[b], block.min[b]);
           max[b] = Math.max(max[b], block.max[b]);
@@ -176,9 +183,12 @@ export async function runResample(
       }),
     );
     stop();
+    if (!covered) throw new Error('値のある画素がありませんでした');
+    return await writer.finish(await tagsOf(plan, min, max), options.name);
+  } catch (error) {
+    await writer.abort();
+    throw error;
   } finally {
     for (const w of workers) w.terminate();
   }
-  if (!covered) throw new Error('値のある画素がありませんでした');
-  return writer.finish(await tagsOf(plan, min, max));
 }

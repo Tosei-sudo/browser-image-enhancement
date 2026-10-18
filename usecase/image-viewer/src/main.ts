@@ -111,6 +111,9 @@ import { CatalogPanel, catalogInfo } from './catalog-panel.js';
 import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { canSaveToFolder, saveFolder, SaveFolderDialog } from './save-folder.js';
+import { results } from './result-store.js';
+import { ResultSaveDialog } from './result-save-dialog.js';
+import { ResultsDialog } from './results-dialog.js';
 import { Timeline } from './timeline.js';
 import { MovingDialog } from './moving-dialog.js';
 import { MatchDialog } from './moving-match-dialog.js';
@@ -315,6 +318,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     } else if (editor.editing() === layer) editor.stop();
   },
   onChange: (list) => {
+    recognizeResults(list);
     timeline?.refresh();
     split?.refresh();
     dashboard?.refresh();
@@ -331,6 +335,10 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   onColorize: (layer) => void colorize.open(layer),
   onRules: (layer) => rasterRules.open(layer),
   onGeoref: (layer) => georef.open(layer),
+  onSave: (layer) => {
+    const info = results.infoOf(layer);
+    if (info) void resultSaver.open({ info, image: layer });
+  },
 });
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
 const timeline: Timeline = new Timeline(images, {
@@ -785,9 +793,9 @@ const movingMatch = new MatchDialog(document.getElementById('moving-match') as H
 const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
 // Printing: the view on a sheet with a title, scale bar, north arrow and legend, as a PDF or PNG.
 // 「保存先…」: downloads, or a folder written into directly where the browser can.
-if (canSaveToFolder()) {
+const saveFolderDialog = canSaveToFolder() ? new SaveFolderDialog(saveFolder, { say }) : null;
+if (saveFolderDialog) {
   const saveFolderButton = document.getElementById('save-folder') as HTMLButtonElement;
-  const saveFolderDialog = new SaveFolderDialog(saveFolder, { say });
   const label = () =>
     void saveFolder.current().then((folder) => (saveFolderButton.textContent = folder ? `保存先: ${folder.name}…` : '保存先…'));
   saveFolder.onChange(label);
@@ -795,6 +803,50 @@ if (canSaveToFolder()) {
   saveFolderButton.hidden = false;
   saveFolderButton.addEventListener('click', () => void saveFolderDialog.open());
 }
+// Processing results: kept in the browser as they are made (result-store.ts), saved as COG or GeoTIFF from their row (⇩) or 「処理結果…」.
+const resultSaver = new ResultSaveDialog({ say, chooseFolder: saveFolderDialog ? () => void saveFolderDialog.open() : undefined });
+const resultsButton = document.getElementById('results-open') as HTMLButtonElement;
+const resultsDialog = new ResultsDialog(images, {
+  say,
+  saver: resultSaver,
+  open: async (file) => {
+    const source = await openImageFile(file, fileContext());
+    return (source && images.find(source)) ?? null;
+  },
+});
+resultsButton.addEventListener('click', () => void resultsDialog.open());
+const countResults = () =>
+  void results
+    .list()
+    .then((kept) => (resultsButton.textContent = kept.length ? `処理結果（${kept.length}）…` : '処理結果…'))
+    .catch(() => {});
+results.onChange(countResults);
+/** Layers opened from a result kept in the browser (by a project) are results again: their save button, their files. */
+const checkedResults = new WeakSet<ViewerLayer>();
+function recognizeResults(list: readonly ViewerLayer[]): void {
+  for (const layer of list) {
+    if (layer.type !== 'image' || checkedResults.has(layer)) continue;
+    checkedResults.add(layer);
+    const file = originOf(layer.source)?.file;
+    if (!file || results.infoOf(layer)) continue;
+    void results
+      .recognize(file)
+      .then(async (kept) => {
+        if (!kept || results.infoOf(layer)) return;
+        const files = await Promise.all(kept.files.map((name) => (name === file.name ? file : results.file(kept, name))));
+        results.mark(layer, { tool: kept.tool, kept, files, categorical: kept.categorical });
+        images.setBadge(layer, kept.tool);
+      })
+      .catch(() => {});
+  }
+}
+results.onMark((image, info) => {
+  images.setSavable(image, true);
+  // Kept in the browser: a project names its file and opens it again.
+  if (info.kept) project.adopt(image, [info.files[0]]);
+  countResults();
+});
+void results.cleanUp().catch(() => {}).then(countResults);
 const printDialog = new PrintDialog(document.getElementById('print') as HTMLButtonElement, map, images, {
   say,
   visible: (layer) => images.isVisible(layer),

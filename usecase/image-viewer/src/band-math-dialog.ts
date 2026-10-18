@@ -14,6 +14,7 @@ import { baseName, type ImageList, type ViewerImage } from './images.js';
 import { optionFor, type DataSources } from './data-sources.js';
 import { planCalc, runCalc } from './raster-calc-run.js';
 import { saveFile } from './save-folder.js';
+import { keepResult, results } from './result-store.js';
 
 /** Brown (bare) through yellow to green (dense vegetation), for vegetation indices. */
 export const VEGETATION_SCALE: ColorScaleStop[] = [
@@ -260,10 +261,14 @@ export class BandMathDialog {
     this.run_.disabled = true;
     const control = { cancelled: false };
     this.running_ = control;
+    const name = `${baseName(image.name)}_${preset?.id ?? 'calc'}.tif`;
+    const draft = results.begin(preset ? preset.id.toUpperCase() : 'バンド演算');
     try {
       this.note_.textContent = '計算しています… 0%';
       const form = new FormData(this.form_);
       const { blob, plan, min, max } = await runCalc({
+        sink: draft.sink(name),
+        name,
         inputs: bands.length ? bands.map((band) => ({ image, band })) : [{ image, band: 0 }],
         expr: onlyVariables(expr, bands),
         reference: image,
@@ -273,11 +278,11 @@ export class BandMathDialog {
           if (!control.cancelled) this.note_.textContent = `計算しています… ${Math.floor(done * 100)}%`;
         },
       });
-      const name = `${baseName(image.name)}_${preset?.id ?? 'calc'}.tif`;
       this.note_.textContent = '結果を開いています…';
-      const file = new File([blob], name, { type: 'image/tiff' });
+      const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
+      await keepResult(draft, made, file);
       if (!made) return null;
       this.made_.set(made, blob);
       this.images.setBadge(made, preset ? preset.id.toUpperCase() : 'バンド演算');
@@ -287,6 +292,7 @@ export class BandMathDialog {
       this.options.say(`${name} を作りました（${plan.grid.width.toLocaleString()} × ${plan.grid.height.toLocaleString()} px、値 ${round(min)}〜${round(max)}）`);
       return made;
     } catch (error) {
+      await draft.discard();
       if (control.cancelled) this.options.say('バンド演算を中止しました');
       else this.note_.textContent = `計算できませんでした: ${error instanceof Error ? error.message : String(error)}`;
       return null;

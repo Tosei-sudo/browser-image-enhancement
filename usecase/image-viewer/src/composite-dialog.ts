@@ -19,6 +19,7 @@ import type { Grid } from './pansharpen.js';
 import { getShift } from './shift.js';
 import { TiledTiffWriter, type TiffEntry } from './tiff-stream.js';
 import { saveFile } from './save-folder.js';
+import { keepResult, results } from './result-store.js';
 
 /** Tile size of the result. */
 const TILE = 256;
@@ -359,6 +360,8 @@ export class CompositeDialog {
     const running = { cancelled: false };
     this.running_ = running;
     const workers: Worker[] = [];
+    const name = `${compositeName(channels)}_rgb.tif`;
+    const draft = results.begin('RGB 合成');
     try {
       const plan = planComposite(channels, reference, form.get('extent') === 'union' ? 'union' : 'intersection');
       const resample = form.get('resample') === 'nearest' ? 'nearest' : 'bilinear';
@@ -366,7 +369,7 @@ export class CompositeDialog {
       const blocks = blocksOf(grid);
       const min = [Infinity, Infinity, Infinity];
       const max = [-Infinity, -Infinity, -Infinity];
-      const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 3, sample: samplesOf(type, 0), tileSize: TILE, photometric: 2 });
+      const writer = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 3, sample: samplesOf(type, 0), tileSize: TILE, photometric: 2, sink: draft.sink(name) });
       let covered = 0;
       let next = 0;
       let done = 0;
@@ -386,7 +389,7 @@ export class CompositeDialog {
           stop();
           const buffers = [...new Set(task.channels.flatMap((c) => (c ? [(c.data as unknown as { buffer: ArrayBuffer }).buffer] : [])))];
           const block = await call(worker, task, buffers);
-          writer.add(block.tiles);
+          await writer.add(block.tiles);
           for (let b = 0; b < 3; b++) {
             min[b] = Math.min(min[b], block.min[b]);
             max[b] = Math.max(max[b], block.max[b]);
@@ -409,13 +412,13 @@ export class CompositeDialog {
       );
       stop();
       if (!covered) throw new Error('選んだ画像に重なる所がありませんでした');
-      const blob = writer.finish(await tagsOf(plan, min, max));
+      const blob = await writer.finish(await tagsOf(plan, min, max), name);
 
-      const name = `${compositeName(channels)}_rgb.tif`;
       this.note_.textContent = '結果を開いています…';
-      const file = new File([blob], name, { type: 'image/tiff' });
+      const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const image = source && this.images.find(source);
+      await keepResult(draft, image, file);
       if (!source || !image) return null;
       this.made_.set(image, { blob });
       this.images.setBadge(image, 'RGB 合成');
@@ -423,6 +426,7 @@ export class CompositeDialog {
       this.options.say(`${name} を作りました（${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）`);
       return image;
     } catch (error) {
+      await draft.discard();
       const message = error instanceof Error ? error.message : String(error);
       if (running.cancelled) this.options.say('RGB 合成を中止しました');
       else this.note_.textContent = `RGB 合成できませんでした: ${message}`;

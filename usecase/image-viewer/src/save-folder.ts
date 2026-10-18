@@ -12,6 +12,7 @@
  * not allowed), the file is downloaded instead and the status says why.
  */
 import { askDialog, FolderStore, type LocalPathOptions } from './local-paths.js';
+import { FileSink, type ByteSink } from './byte-sink.js';
 
 type PermissionState = 'granted' | 'denied' | 'prompt';
 interface WritableFolder extends FileSystemDirectoryHandle {
@@ -164,6 +165,24 @@ export class SaveFolder {
       state = await this.ask(`保存先のフォルダ「${folder.name}」に書き込む許可が必要です`, '許可する', request);
     }
     return state === 'granted';
+  }
+
+  /**
+   * A new file `name` in the chosen folder, to write as it is made (a large
+   * file need not be made first): its sink and where it goes. `sink` is null
+   * when files are downloaded, or when the folder cannot be written
+   * (`problem` says why).
+   */
+  async open(name: string): Promise<{ sink: ByteSink; saved: Saved } | { sink: null; problem?: string }> {
+    const folder = (await this.current()) as WritableFolder | null;
+    if (!folder || !canSaveToFolder()) return { sink: null };
+    try {
+      if (!(await this.allowed_(folder))) return { sink: null, problem: '書き込みが許可されませんでした' };
+      const free = await freeName(folder, name);
+      return { sink: new FileSink(Promise.resolve(folder), free), saved: { name: free, folder: folder.name } };
+    } catch (error) {
+      return { sink: null, problem: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /**

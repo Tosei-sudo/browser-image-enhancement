@@ -105,6 +105,8 @@ export interface ImageListOptions {
   onRules?: (layer: ViewerService) => void;
   /** Called by the projection button of an image without a projection (georef-dialog.ts). */
   onGeoref?: (layer: ViewerImage) => void;
+  /** Called by the save button of a processing result (see {@link ImageList.setSavable}). */
+  onSave?: (layer: ViewerImage) => void;
 }
 
 export class ImageList {
@@ -327,6 +329,11 @@ export class ImageList {
   }
 
   /** Marks an image's row with a short badge (such as `DEM`), or removes it with null. */
+  /** Shows or hides the save button of an image (a processing result, result-save-dialog.ts). */
+  setSavable(image: ViewerImage, savable: boolean): void {
+    image.row.querySelector<HTMLButtonElement>('button[data-action=save]')?.toggleAttribute('hidden', !savable);
+  }
+
   setBadge(image: ViewerImage, text: string | null): void {
     const name = image.row.querySelector<HTMLButtonElement>('.name')!;
     let badge = name.querySelector<HTMLSpanElement>('.badge');
@@ -836,6 +843,8 @@ export class ImageList {
   private openLayerMenu_(layer: ViewerLayer, x: number, y: number): void {
     const current = this.groupOf_.get(layer);
     const items: MenuItem[] = [{ label: '新しいグループに入れる…', run: () => this.askNewGroup_(layer) }];
+    const save = layer.row.querySelector<HTMLButtonElement>('button[data-action=save]');
+    if (layer.type === 'image' && save && !save.hidden) items.unshift({ label: '保存（COG・GeoTIFF）…', run: () => save.click() });
     for (const group of this.groups()) {
       if (group !== current) items.push({ label: `グループ「${group.name}」に入れる`, run: () => this.setGroup(layer, group) });
     }
@@ -924,6 +933,13 @@ export class ImageList {
         this.options.onGeoref!(image);
       });
       tools.lastElementChild!.toggleAttribute('hidden', image.kind !== 'image');
+    }
+    if (image.type === 'image' && this.options.onSave) {
+      button('save', '⇩', '保存（COG・GeoTIFF）', () => {
+        this.select(image);
+        this.options.onSave!(image);
+      });
+      tools.lastElementChild!.toggleAttribute('hidden', true);
     }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));
     button('up', '↑', '上へ', () => this.move(image, 1));

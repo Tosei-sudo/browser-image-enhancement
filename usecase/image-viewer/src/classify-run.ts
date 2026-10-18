@@ -16,6 +16,7 @@ import type { Resampling } from './composite.js';
 import { geodesicArea } from './geodesic.js';
 import { planCalc } from './raster-calc-run.js';
 import { TiledTiffWriter } from './tiff-stream.js';
+import type { ByteSink } from './byte-sink.js';
 import type { ViewerImage } from './images.js';
 import type { LonLat } from './coordinates.js';
 
@@ -51,6 +52,8 @@ export interface ClassifyRequest {
   control?: { cancelled: boolean };
   /** false: classify in JS only, not WebAssembly (for comparing). */
   wasm?: boolean;
+  /** Where the two GeoTIFFs are written (default: in the page), and their names. */
+  output?: { classes: { sink: ByteSink; name: string }; colors: { sink: ByteSink; name: string } };
 }
 
 /** One class of the result. */
@@ -64,9 +67,9 @@ export interface ClassSummary {
 
 export interface ClassifyOutput {
   /** Class numbers, 8-bit, 0 = no data. */
-  classBlob: Blob;
+  classBlob: File;
   /** The classes in their colors, RGBA. */
-  colorBlob: Blob;
+  colorBlob: File;
   plan: CompositePlan;
   classes: ClassSummary[];
   model: ClassModel;
@@ -192,8 +195,9 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
   const colors = names.map((_, c) => [...classColor(c + 1)] as [number, number, number]);
 
   // Pass 2: every pixel in a class, both files at once.
-  const classWriter = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 1, sample: new Uint8Array(0), tileSize: TILE, photometric: 1 });
-  const colorWriter = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 4, sample: new Uint8Array(0), tileSize: TILE, photometric: 2, extraSamples: [2] });
+  const out = request.output;
+  const classWriter = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 1, sample: new Uint8Array(0), tileSize: TILE, photometric: 1, sink: out?.classes.sink });
+  const colorWriter = new TiledTiffWriter({ width: grid.width, height: grid.height, bands: 4, sample: new Uint8Array(0), tileSize: TILE, photometric: 2, extraSamples: [2], sink: out?.colors.sink });
   const pixels = new Float64Array(names.length);
   const areas = new Float64Array(names.length);
   const toLonLat = getTransform(plan.projection, 'EPSG:4326');
@@ -202,8 +206,7 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
     kept.delete(index);
     const task: ClassifyTask = { op: 'classify', ...block, resample, model, colors, tileSize: TILE, tx0: window[0] / TILE, ty0: window[1] / TILE, wasm: request.wasm };
     const result = (await call(worker, task, buffersOf(block))) as ClassifyResult;
-    classWriter.add(result.classTiles);
-    colorWriter.add(result.colorTiles);
+    await Promise.all([classWriter.add(result.classTiles), colorWriter.add(result.colorTiles)]);
     const area = pixelArea(plan, (window[0] + window[2]) / 2, (window[1] + window[3]) / 2, toLonLat);
     result.counts.forEach((n, c) => {
       pixels[c] += n;
@@ -213,9 +216,9 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
   if (!pixels.some((n) => n > 0)) throw new Error('値のある画素がありませんでした');
 
   const plan8: CompositePlan = { ...plan, type: UINT8 };
-  const classBlob = classWriter.finish(await tagsOf(plan8, [1], [names.length]));
+  const classBlob = await classWriter.finish(await tagsOf(plan8, [1], [names.length]), out?.classes.name);
   // The colors need no no-data value: their alpha is the mask.
-  const colorBlob = colorWriter.finish((await tagsOf(plan8, [0, 0, 0, 0], [255, 255, 255, 255])).filter((e) => e.tag !== 42113));
+  const colorBlob = await colorWriter.finish((await tagsOf(plan8, [0, 0, 0, 0], [255, 255, 255, 255])).filter((e) => e.tag !== 42113), out?.colors.name);
   return {
     classBlob,
     colorBlob,

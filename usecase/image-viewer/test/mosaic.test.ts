@@ -55,8 +55,8 @@ async function samples(t: MosaicTask): Promise<number[]> {
   const block = makeMosaicBlock(t);
   const sample = t.type.format === 3 ? new Float32Array(0) : new Uint16Array(0);
   const writer = new TiledTiffWriter({ width: t.width, height: t.height, bands: t.bands, sample, tileSize: t.tileSize, photometric: 1 });
-  writer.add(block.tiles);
-  const blob = writer.finish([]);
+  await writer.add(block.tiles);
+  const blob = await writer.finish([]);
   const image = await (await fromArrayBuffer(await blob.arrayBuffer())).getImage();
   return Array.from((await image.readRasters({ interleave: true })) as unknown as ArrayLike<number>);
 }
