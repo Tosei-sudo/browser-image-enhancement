@@ -158,6 +158,38 @@ describe('QML', () => {
     expect(() => importStyle(data('dem-pseudocolor.qml'), singleSpec('#000000'))).toThrow(/ラスター/);
   });
 
+  it('keeps the classes of discrete and exact pseudo-color, and of a palette', () => {
+    const renderer = (xml: string) => readRasterRenderer(path(parseXml(`<qgis><pipe>${xml}</pipe></qgis>`), 'pipe', 'rasterrenderer')!, new StyleNotes());
+    const discrete = renderer(`<rasterrenderer type="singlebandpseudocolor" band="1"><rastershader><colorrampshader colorRampType="DISCRETE" minimumValue="0" maximumValue="300">
+      <item value="100" color="#0000ff" alpha="255" label="低い"/><item value="200" color="#00ff00" alpha="255" label="中"/><item value="inf" color="#ff0000" alpha="128" label="高い"/>
+    </colorrampshader></rastershader></rasterrenderer>`);
+    expect(discrete.colorScale?.classes).toEqual({
+      kind: 'range',
+      method: 'manual',
+      min: 0,
+      classes: [
+        { value: 100, color: [0, 0, 255, 255], label: '低い' },
+        { value: 200, color: [0, 255, 0, 255], label: '中' },
+        { value: 300, color: [255, 0, 0, 128], label: '高い' },
+      ],
+    });
+    const exact = renderer(`<rasterrenderer type="singlebandpseudocolor" band="1"><rastershader><colorrampshader colorRampType="EXACT" minimumValue="1" maximumValue="3">
+      <item value="1" color="#0000ff" label="水"/><item value="3" color="#00ff00" label="森"/></colorrampshader></rastershader></rasterrenderer>`);
+    expect(exact.colorScale?.classes?.kind).toBe('exact');
+    expect(exact.colorScale?.classes?.classes.map((c) => c.value)).toEqual([1, 3]);
+    const palette = renderer(`<rasterrenderer type="paletted" band="2"><colorPalette>
+      <paletteEntry value="10" color="#112233" alpha="255" label="市街地"/><paletteEntry value="20" color="#445566" alpha="0" label="なし"/></colorPalette></rasterrenderer>`);
+    expect(palette.bands).toEqual([1, 1, 1]);
+    expect(palette.colorScale?.classes).toEqual({
+      kind: 'exact',
+      method: 'manual',
+      classes: [
+        { value: 10, color: [17, 34, 51, 255], label: '市街地' },
+        { value: 20, color: [68, 85, 102, 0], label: 'なし' },
+      ],
+    });
+  });
+
   it('keeps the writer stable for files QGIS reads', () => {
     expect(styleQml(singleSpec('#ff0000'), 'point')).toContain('<renderer-v2 type="singleSymbol"');
   });

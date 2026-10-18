@@ -27,7 +27,7 @@ import WebGLTileLayer, { type Options, type Style } from 'ol/layer/WebGLTile.js'
 import type { FrameState } from 'ol/Map.js';
 import { listen, unlistenByKey, type EventsKey } from 'ol/events.js';
 import { getIntersection, isEmpty } from 'ol/extent.js';
-import { colorScalePalette, createGpuRenderer, histogram, pipeline, type ColorScale, type ColorScaleOptions, type GpuRenderer } from '../index.js';
+import { classPalette, classRange, colorScalePalette, createGpuRenderer, histogram, pipeline, type ColorClasses, type ColorScale, type ColorScaleOptions, type GpuRenderer } from '../index.js';
 import { warn } from '../warn.js';
 import EnhancedGeoTIFF from './enhanced-geotiff.js';
 import TileCorrection from './tile-correction.js';
@@ -50,8 +50,16 @@ export interface GpuCorrectedTileLayerOptions extends Options {
 
 /** A color scale with its options, as {@link GpuCorrectedTileLayer.setColorScale} takes it. */
 export interface LayerColorScale extends ColorScaleOptions {
-  /** A preset's name (`'red'`, `'inferno'`…) or the scale's stops. */
+  /** A preset's name (`'red'`, `'inferno'`…) or the scale's stops. With `classes`, the scale their colors were taken from (kept for an editor). */
   scale: ColorScale;
+  /**
+   * Shows the image in classes of its values, each in one flat color, in
+   * place of the scale (see `colorClasses`). The classes hold the image's
+   * values: raw values for an image read raw, 0-255 for an 8-bit one. The
+   * correction (brightness, contrast…) is not applied, so a value always
+   * gets its class's color.
+   */
+  classes?: ColorClasses;
 }
 
 /**
@@ -93,6 +101,8 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   frames = 0;
   private colorScale_: LayerColorScale | null = null;
   private palette_: Uint8ClampedArray | null = null;
+  /** The palette of the classes for the value range it was made for. */
+  private classPalette_: { key: string; palette: Uint8ClampedArray } | null = null;
   private blendMode_: LayerBlendMode = 'normal';
   /** The class name that gives the layer a WebGL canvas of its own (see {@link GpuCorrectedTileLayer.getClassName}). */
   private readonly ownClass_ = `gpu-own-${++layerCount}`;
@@ -174,8 +184,10 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
    * WebGL2 the map is shown uncolored.
    */
   setColorScale(colorScale: LayerColorScale | null): void {
-    this.palette_ = colorScale ? colorScalePalette(colorScale.scale, colorScale) : null;
+    const classes = colorScale?.classes;
+    this.palette_ = !colorScale ? null : classes ? classPalette(classes) : colorScalePalette(colorScale.scale, colorScale);
     this.colorScale_ = colorScale ? { ...colorScale } : null;
+    this.classPalette_ = null;
     this.changed();
   }
 
@@ -223,11 +235,12 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
     const source = this.getSource();
     if (!(drawn instanceof HTMLCanvasElement) || !frameState || !this.useGpu_ || this.noGpu_ || this.lost_) return drawn;
     const correcting = source instanceof EnhancedGeoTIFF ? (source.correctsTiles() ? null : source) : this.correction_;
-    const palette = this.palette_;
+    const classes = this.colorScale_?.classes ?? null;
+    const palette = classes ? this.classPaletteFor_(classes) : this.palette_;
     if (!correcting && !palette) return drawn;
-    if (correcting instanceof TileCorrection && correcting.wantsStats()) this.sampleStats_(drawn, correcting, frameState);
-    // Tiles corrected by the source (or another source) are only colored here.
-    const steps = correcting ? correcting.getEffectivePipeline() : pipeline();
+    if (!classes && correcting instanceof TileCorrection && correcting.wantsStats()) this.sampleStats_(drawn, correcting, frameState);
+    // Tiles corrected by the source (or another source) are only colored here; classes take the values as read.
+    const steps = correcting && !classes ? correcting.getEffectivePipeline() : pipeline();
     const colorMode = correcting ? correcting.getColorMode() : 'rgb';
     if ((steps.ops.length === 0 && !palette) || !colorMode) return drawn;
     const gpu = this.gpu();
@@ -252,7 +265,10 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
       this.setStyle(stretching ? rawStretchStyle(this.stretch_) : this.userStyle_);
     }
     if (!stretching) return;
-    const range = source.getRawStretch();
+    const classes = this.colorScale_?.classes;
+    const fixed = classes ? classRange(classes) : null;
+    // Classes stretch the values over their own range, so each class gets its own codes.
+    const range = fixed ? { black: [fixed[0], fixed[0], fixed[0]], white: [fixed[1], fixed[1], fixed[1]] } : source.getRawStretch();
     const v = this.stretch_;
     v.ready = range ? 1 : 0;
     if (!range) return;
@@ -261,6 +277,25 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
       (v as Record<string, number>)[`b${c}`] = range.black[c];
       (v as Record<string, number>)[`s${c}`] = span > 0 ? 1 / span : 0;
     }
+  }
+
+  /**
+   * The palette of `classes` for the values the drawn codes 0-255 stand for:
+   * the classes' own range when the shader stretches raw values (see
+   * `updateStretch_`), the source's raw stretch when it stretched the tiles
+   * itself, else 0-255 (an 8-bit image as read).
+   */
+  private classPaletteFor_(classes: ColorClasses): Uint8ClampedArray {
+    const source = this.getSource();
+    let range: [number, number] = [0, 255];
+    if (source instanceof EnhancedGeoTIFF && source.stretchesOnGpu()) range = classRange(classes);
+    else if (source instanceof EnhancedGeoTIFF) {
+      const raw = source.getRawStretch();
+      if (raw) range = [raw.black[0], raw.white[0]];
+    }
+    const key = range.join(',');
+    if (this.classPalette_?.key !== key) this.classPalette_ = { key, palette: classPalette(classes, range) };
+    return this.classPalette_.palette;
   }
 
   /** DRA statistics of the map as drawn (before correction), read through a canvas of at most 512 px. */

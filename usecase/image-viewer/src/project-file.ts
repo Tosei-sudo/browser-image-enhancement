@@ -11,7 +11,7 @@
  * (project.ts), or asks for them. Temporary layers (processing results) are
  * kept whole, since they live nowhere else.
  */
-import { colorScales, type PipelineJSON } from 'browser-image-enhancement';
+import { colorScales, type ColorClasses, type PipelineJSON } from 'browser-image-enhancement';
 import type { LayerBlendMode, LayerColorScale } from 'browser-image-enhancement/openlayers';
 import { bboxOf, serviceNames, type Field, type ServiceRef } from './services/index.js';
 import { settingsOf } from './services/esri-rules.js';
@@ -307,7 +307,35 @@ function readColorScale(raw: unknown): LayerColorScale | null {
     s.length > 0 &&
     s.every((stop) => Array.isArray(stop) && isNumber(stop[0]) && Array.isArray(stop[1]) && (stop[1].length === 3 || stop[1].length === 4) && stop[1].every(isNumber));
   if (!named && !stops) return null;
-  return { scale: s as LayerColorScale['scale'], ...(raw.reverse === true ? { reverse: true } : {}), ...(raw.fade === true ? { fade: true } : {}) };
+  const classes = readColorClasses(raw.classes);
+  return {
+    scale: s as LayerColorScale['scale'],
+    ...(raw.reverse === true ? { reverse: true } : {}),
+    ...(raw.fade === true && !classes ? { fade: true } : {}),
+    ...(classes ? { classes } : {}),
+  };
+}
+
+const classMethods = ['equal', 'quantile', 'unique', 'manual'] as const;
+
+/** Saved color classes: a kind and up to 256 classes of a value and 3 or 4 color numbers each (null when unreadable). */
+export function readColorClasses(raw: unknown): ColorClasses | null {
+  if (!isObject(raw) || (raw.kind !== 'range' && raw.kind !== 'exact') || !Array.isArray(raw.classes)) return null;
+  const classes = raw.classes
+    .filter((c): c is Record<string, unknown> => isObject(c) && isNumber(c.value) && Array.isArray(c.color) && (c.color.length === 3 || c.color.length === 4) && c.color.every(isNumber))
+    .slice(0, 256)
+    .map((c) => ({
+      value: c.value as number,
+      color: (c.color as number[]).map((v) => Math.min(255, Math.max(0, Math.round(v)))),
+      ...(typeof c.label === 'string' ? { label: c.label.slice(0, 200) } : {}),
+    }));
+  if (!classes.length) return null;
+  return {
+    kind: raw.kind,
+    classes,
+    ...(isNumber(raw.min) ? { min: raw.min } : {}),
+    ...(classMethods.includes(raw.method as never) ? { method: raw.method as ColorClasses['method'] } : {}),
+  };
 }
 
 const heightModes = ['auto', 'orthometric', 'ground', 'ellipsoid'] as const;

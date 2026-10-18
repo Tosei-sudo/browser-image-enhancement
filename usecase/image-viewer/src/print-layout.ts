@@ -243,7 +243,7 @@ function drawNorthArrow(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
 }
 
 function drawLegend(ctx: CanvasRenderingContext2D, right: number, bottom: number, entries: LegendEntry[], mm: number, font: FontOf): void {
-  const shown = entries.slice(0, 12);
+  const shown = entries.slice(0, 24);
   const row = 5 * mm;
   const swatch = 4 * mm;
   ctx.font = font(2.8);

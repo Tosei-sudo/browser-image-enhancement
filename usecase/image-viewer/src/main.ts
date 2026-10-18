@@ -92,6 +92,7 @@ import { AlignDialog } from './align-dialog.js';
 import { Annotations } from './annotations.js';
 import { PrintDialog } from './print-dialog.js';
 import { ColorizeDialog } from './colorize-dialog.js';
+import { ClassLegend } from './class-legend.js';
 import { NoDataDialog } from './nodata-dialog.js';
 import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
@@ -598,7 +599,7 @@ const rasterTools = [
   { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open() },
   { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open() },
   { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open() },
-  { id: 'colorize', label: '単バンド画像の着色（赤・シアンなど）', open: () => void colorize.open() },
+  { id: 'colorize', label: '単バンド画像の着色・色分け（カラースケール・区分・値ごと）', open: () => void colorize.open() },
   { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open() },
   { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open() },
   { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open() },
@@ -963,6 +964,8 @@ const panSharpen = new PanSharpenDialog(map, images, loader, {
 // Coloring one-band images, and RGB composites of them (from the processing dialog): two dates in red and cyan show what changed.
 const timeOfImage = async (image: ViewerImage) => (await imageTime(image))?.time ?? null;
 const colorize = new ColorizeDialog(images, { say, timeOf: timeOfImage, onChange: () => updateLink() });
+// The legend of images shown in color classes, on the map.
+const classLegend = new ClassLegend(map, images);
 // Band math (from the processing dialog): NDVI and other indices by name, or any expression over the bands.
 const bandMath = new BandMathDialog(images, loader, { say, sources: dataSources, open: (file) => openImageFile(file, fileContext()) });
 // Change detection (from the processing dialog): two dates compared, and what changed outlined as a temporary layer.
@@ -1513,6 +1516,7 @@ declare global {
       newLayer: NewLayerDialog;
       panSharpen: PanSharpenDialog;
       colorize: ColorizeDialog;
+      classLegend: ClassLegend;
       noData: NoDataDialog;
       georef: GeorefDialog;
       composite: CompositeDialog;
@@ -1552,4 +1556,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

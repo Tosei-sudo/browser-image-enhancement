@@ -53,6 +53,24 @@ export {
   type ColorScaleOptions,
   type ColorScaleStop,
 } from './color-scale.js';
+export {
+  classColors,
+  classPalette,
+  classRange,
+  classShares,
+  colorClasses,
+  equalIntervalBreaks,
+  formatClassValue,
+  histogramValueRange,
+  quantileBreaks,
+  rangeLabels,
+  uniqueValues,
+  type ClassMethod,
+  type ColorClass,
+  type ColorClasses,
+  type ColorClassesOptions,
+  type UniqueValue,
+} from './color-classes.js';
 export { panSharpen, type PanSharpenMethod, type PanSharpenModel, type PanSharpenOptions, type PanSharpenResult } from './pansharpen.js';
 export { assignBands, isGraySelection, selectBands, type BandSelection, type SelectedBands } from './bands.js';
 export { autoEnhance, presets, type PresetName } from './presets.js';

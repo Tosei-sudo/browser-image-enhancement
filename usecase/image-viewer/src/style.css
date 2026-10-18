@@ -4172,3 +4172,81 @@ html.embed .ol-enhance {
   gap: 6px;
   align-items: center;
 }
+
+/* Color classes: the legend in the coloring dialog, and the one on the map. */
+.colorize-classes {
+  display: grid;
+  gap: 6px;
+}
+.class-legend {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.class-legend th {
+  color: var(--muted);
+  font-weight: normal;
+  text-align: left;
+}
+.class-legend td {
+  padding: 2px 4px 2px 0;
+  white-space: nowrap;
+}
+.class-legend input[type='color'] {
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+}
+.class-legend input[type='number'] {
+  width: 7em;
+}
+.class-legend input[type='text'] {
+  width: 100%;
+  min-width: 6em;
+}
+.class-legend .class-share {
+  color: var(--muted);
+  text-align: right;
+}
+.map-class-legend {
+  position: absolute;
+  top: 8px;
+  left: 40px;
+  z-index: 2;
+  max-width: 16rem;
+  max-height: 45%;
+  overflow: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 1px 4px var(--shadow);
+  color: var(--fg);
+  font-size: 12px;
+}
+.map-class-legend > summary {
+  cursor: pointer;
+  font-weight: bold;
+}
+.map-class-legend h3 {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.map-class-legend ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.map-class-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.map-class-legend .class-swatch {
+  flex: none;
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--line);
+}
