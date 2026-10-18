@@ -107,6 +107,7 @@ import { ScriptDialog } from './script-dialog.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
+import { ClipboardTools } from './clipboard.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -213,6 +214,8 @@ const table = new AttributeTable(document.getElementById('table')!, map, selecti
     const service = layer?.type === 'service' ? layer.service : null;
     return linkOfShapes(location.href, features, { name: service?.title, labelField: service?.style?.get().label.field ?? null });
   },
+  // 「GeoJSON でコピー」・「WKT でコピー」.
+  menuItems: (features) => clipboard.menuItems(features),
 });
 const editor = new Editor(map, selection, table, { say, onChange: () => showTable(images.selectedLayer()) });
 const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, config.baseMaps, { say, onChange: () => split?.refreshBase() });
@@ -1273,6 +1276,24 @@ onLaunchFiles((handles) => {
   void started.then(() => addLinkShapes(shapeParamsOf(target.search), true));
 });
 void registerServiceWorker();
+
+// The clipboard and sharing: Ctrl+V (or the menu) pastes GeoJSON, WKT, KML, coordinates and tables from Excel as the
+// temporary layer 「貼り付け」 and pictures as pictures; Ctrl+C copies the selected features as GeoJSON; 「共有…」 shares
+// the view's link; and what other apps share to the installed app (manifest share_target, sw.js) opens.
+const clipboard = new ClipboardTools(map, {
+  images,
+  selection,
+  tempStore,
+  say,
+  openFiles: (files) => project.openFiles(files),
+  openUrl: async (url) => {
+    if (!(await openEsriUrl(url))) await loader.loadUrl(url);
+  },
+  in3d: () => globeToggle.isOpen(),
+  updateHash: () => bookmarks.updateHash(),
+  buttons: { paste: document.getElementById('clip-paste') as HTMLButtonElement, copyView: document.getElementById('clip-copy-view') as HTMLButtonElement, share: document.getElementById('clip-share') as HTMLButtonElement },
+});
+void clipboard.takeSharedFromAddress(started);
 
 // For the browser test and the console.
 declare global {

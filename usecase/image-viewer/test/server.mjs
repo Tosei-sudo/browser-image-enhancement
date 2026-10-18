@@ -385,7 +385,7 @@ createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = normalize(decodeURIComponent(url.pathname));
   if (await serveService(req, res, url, `http://localhost:${port}`)) return;
-  const headers = { 'content-type': path.startsWith('/i3s/') && !path.includes('/geometries/') ? 'application/json' : (types[extname(path)] ?? 'application/octet-stream'), 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
+  const headers = { 'content-type': path.startsWith('/i3s/') && !path.includes('/geometries/') ? 'application/json' : (types[extname(path === '/' ? 'index.html' : path)] ?? 'application/octet-stream'), 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
   let body;
   try {
     // Scene services ask with trailing slashes.
