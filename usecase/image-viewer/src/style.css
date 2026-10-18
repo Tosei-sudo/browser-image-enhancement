@@ -1852,6 +1852,56 @@ body {
 .menu-panel .point-tools {
   flex-wrap: wrap;
 }
+/* The 「ツール」 menu itself: a column per kind of work, side by side, wrapping and scrolling on a small window. */
+.tools-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 16px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  padding: 8px 12px 10px;
+}
+.menu-column {
+  display: grid;
+  gap: 6px;
+  width: 12.5rem;
+}
+.menu-group {
+  display: grid;
+  gap: 2px;
+}
+.menu-group:not(:has(> :not(.menu-heading):not([hidden]))) {
+  display: none;
+}
+.tools-panel .menu-group .point-tools:not(.theme-choices),
+.tools-panel .menu-group .measure-tools {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 1px;
+}
+.tools-panel .menu-group .point-tools:not(.theme-choices) button,
+.tools-panel .menu-group .measure-tools button {
+  display: flex;
+  justify-content: space-between;
+  border-color: transparent;
+  text-align: left;
+}
+#tools-panel button[hidden] {
+  display: none;
+}
+.tools-panel .menu-group .point-tools:not(.theme-choices) button:hover,
+.tools-panel .menu-group .measure-tools button:hover,
+.tools-panel .menu-group button:focus-visible {
+  background: var(--accent-bg);
+}
+.tools-panel .menu-group button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 /* The shortcut key, after the tool's name. */
 .menu-panel button[data-key]::after {
   content: attr(data-key);
