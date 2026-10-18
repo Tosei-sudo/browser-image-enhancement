@@ -101,6 +101,8 @@ import { CatalogPanel, catalogInfo } from './catalog-panel.js';
 import { sensorViewOf, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { Timeline } from './timeline.js';
+import { MovingDialog } from './moving-dialog.js';
+import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { ScriptDialog } from './script-dialog.js';
@@ -672,6 +674,28 @@ const aiTransfer = new TransferDialog(aiTransferButton, selection, {
   say,
 });
 
+// Moving objects (config.json's movingFeeds, or by URL; history files): ships and aircraft as layers that follow the timeline,
+// and AI detections checked against them.
+const moving = new MovingDialog(document.getElementById('moving-open') as HTMLButtonElement, {
+  map,
+  images,
+  feeds: config.movingFeeds,
+  timeline,
+  say,
+  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive() && !editor.isDrawing(),
+});
+const movingMatch = new MatchDialog(document.getElementById('moving-match') as HTMLButtonElement, {
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  feeds: () => moving.feeds(),
+  say,
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    return images.addService(tempLayer(record, tempStore));
+  },
+});
+
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
 const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
 // Printing: the view on a sheet with a title, scale bar, north arrow and legend, as a PDF or PNG.
@@ -941,7 +965,7 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
 
 // Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
 /** Menu buttons a script may press (viewer.command): ones that open a panel or a tool, not ones that save or open files. */
-const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open'];
+const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'moving-open'];
 const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
   map,
   layers: () => images.layers(),
@@ -992,6 +1016,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
     { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
+    { id: 'moving-match', label: 'AI 検出と照合（移動体）', dialog: movingMatch.dialog, open: () => movingMatch.open(), run: () => movingMatch.run() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1336,7 +1361,9 @@ declare global {
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
+      moving: MovingDialog;
+      movingMatch: MatchDialog;
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, moving, movingMatch };

@@ -12,6 +12,7 @@ import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.j
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
+import { movingFeedOf, type FeedConfig } from './moving.js';
 import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geocode.js';
 
 /**
@@ -103,6 +104,8 @@ export interface ViewerConfig {
   elevationServices: ElevationServiceConfig[];
   /** Where the jump field looks up place names and addresses (geocode.ts); [] reads coordinates only. */
   geocoders: GeocoderConfig[];
+  /** Feeds of ships and aircraft listed in 「移動体（AIS・ADS-B）」 (moving.ts). */
+  movingFeeds: FeedConfig[];
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -169,6 +172,7 @@ export const defaultConfig: ViewerConfig = {
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
+  movingFeeds: [],
 };
 
 /**
@@ -239,7 +243,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], movingFeeds: [...defaultConfig.movingFeeds] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -335,6 +339,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.detectionOutputs)) {
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
     } else problems.push('detectionOutputs が配列ではありません');
+  }
+
+  if ('movingFeeds' in json) {
+    if (Array.isArray(json.movingFeeds)) config.movingFeeds = json.movingFeeds.map((f, i) => movingFeedOf(f, problems, i)).filter((f): f is FeedConfig => f !== null);
+    else problems.push('movingFeeds が配列ではありません');
   }
 
   return { config, problems };
