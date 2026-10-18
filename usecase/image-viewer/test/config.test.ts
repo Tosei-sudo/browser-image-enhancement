@@ -191,3 +191,23 @@ describe('lookupUrl', () => {
     expect(lookupUrl('https://epsg.io/{code}.proj4', 'EPSG:2451')).toBe('https://epsg.io/2451.proj4');
   });
 });
+
+describe('gpServices', () => {
+  it('takes http(s) processing services, with a label and token or a URL alone, and drops the rest, saying why', () => {
+    const { config, problems } = parseConfig({
+      gpServices: [
+        { label: '解析', url: 'https://example.com/arcgis/rest/services/Tools/GPServer', token: 't' },
+        'https://example.com/ogc/processes',
+        { label: 'x', url: 'javascript:alert(1)' },
+        42,
+      ],
+    });
+    expect(config.gpServices).toEqual([
+      { label: '解析', url: 'https://example.com/arcgis/rest/services/Tools/GPServer', token: 't' },
+      { label: 'https://example.com/ogc/processes', url: 'https://example.com/ogc/processes' },
+    ]);
+    expect(problems).toHaveLength(2);
+    expect(parseConfig({ gpServices: {} }).problems).toEqual(['gpServices が配列ではありません']);
+    expect(parseConfig({}).config.gpServices).toEqual([]);
+  });
+});

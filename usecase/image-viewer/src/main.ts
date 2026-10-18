@@ -90,6 +90,8 @@ import { NoDataDialog } from './nodata-dialog.js';
 import { ViewExportDialog } from './view-export.js';
 import { browserStore, recordOf, tempLayer } from './temp-layers.js';
 import { registerJapaneseCrs } from './processing/reproject.js';
+import { GpDialog } from './gp-dialog.js';
+import { openMapServer } from './services/esri-raster.js';
 import { SwipeTool } from './swipe.js';
 import { SplitView } from './split-view.js';
 import { HistogramPanel } from './histogram-panel.js';
@@ -587,6 +589,29 @@ const zonal = new ZonalDialog(selection, {
   },
 });
 
+// Server-side processing (ArcGIS GP services, OGC API – Processes): feature results are temporary layers too.
+const gp = new GpDialog(document.getElementById('gp-open') as HTMLButtonElement | null, selection, {
+  map,
+  services: () => config.gpServices,
+  layers: () => images.layers(),
+  say,
+  onFeatures: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+  openImage: async (url) => {
+    try {
+      await loader.loadUrl(url);
+    } catch (error) {
+      // Not a GeoTIFF: a picture (or anything else that opens as a file).
+      if (/\.tiff?(?:[?#]|$)/i.test(url)) throw error;
+      await project.openFiles([await fetchFile(url)], url);
+    }
+  },
+  addMapServer: async (url, token) => addService(await openMapServer(url, { ...serviceContext(), token })),
+});
+
 // Ctrl+K: every tool by name — the bar's buttons and menus, the side panel's, and the processing tools.
 const palette = new CommandPalette(() => [
   { id: 'open-file', label: 'ファイルを開く', detail: '画像・GeoTIFF・Shapefile・GeoJSON など', keys: 'O', run: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click() },
@@ -1054,6 +1079,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
     { id: 'moving-match', label: 'AI 検出と照合（移動体）', dialog: movingMatch.dialog, open: () => movingMatch.open(), run: () => movingMatch.run() },
     { id: 'stac', label: 'STAC 検索', dialog: stac.dialog, open: () => stac.open(), run: () => stac.search() },
+    { id: 'gp', label: 'サーバ処理（ArcGIS GP・OGC API – Processes）', dialog: gp.dialog, open: () => gp.open(), run: () => gp.run() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {

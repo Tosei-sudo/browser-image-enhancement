@@ -117,6 +117,15 @@ export interface ViewerConfig {
   movingFeeds: FeedConfig[];
   /** STAC APIs (or static catalogs) for the 「STAC 検索」 panel (stac.ts); [] hides it, so nothing leaves the page. */
   stacCatalogs: StacCatalogConfig[];
+  /** Server-side processing services (ArcGIS GPServer, OGC API – Processes) offered in 「サーバ処理」. */
+  gpServices: GpServiceConfig[];
+}
+
+/** A processing service of config.json: its name in the list, its URL, and a token when it needs one. */
+export interface GpServiceConfig {
+  label: string;
+  url: string;
+  token?: string;
 }
 
 /** An elevation service of config.json: its URL, and a token when it needs one. */
@@ -188,6 +197,7 @@ export const defaultConfig: ViewerConfig = {
   authRules: [],
   movingFeeds: [],
   stacCatalogs: [...DEFAULT_STAC_CATALOGS],
+  gpServices: [],
 };
 
 /**
@@ -258,7 +268,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -383,6 +393,21 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('stacCatalogs' in json) {
     if (Array.isArray(json.stacCatalogs)) config.stacCatalogs = json.stacCatalogs.map((c, i) => stacCatalogOf(c, problems, i)).filter((c): c is StacCatalogConfig => c !== null);
     else problems.push('stacCatalogs が配列ではありません');
+  }
+  if ('gpServices' in json) {
+    if (Array.isArray(json.gpServices)) {
+      config.gpServices = json.gpServices.flatMap((e, i): GpServiceConfig[] => {
+        // A URL alone will do.
+        const entry = typeof e === 'string' ? { url: e } : e;
+        if (!isRecord(entry) || typeof entry.url !== 'string' || !/^https?:\/\/./i.test(entry.url.trim())) {
+          problems.push(`gpServices[${i}] の url は http(s) の URL にしてください`);
+          return [];
+        }
+        const url = entry.url.trim();
+        const label = typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : url;
+        return [{ label, url, ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
+      });
+    } else problems.push('gpServices が配列ではありません');
   }
 
   return { config, problems };

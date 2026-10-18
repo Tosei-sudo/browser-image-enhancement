@@ -3850,3 +3850,51 @@ html.embed .ol-enhance {
 .stac-bands[hidden] {
   display: none;
 }
+/* Server-side processing dialog (src/gp-dialog.ts), in the add-a-service dialog's style. */
+.gp-dialog .gp-params:empty {
+  display: none;
+}
+.gp-dialog textarea {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  resize: vertical;
+}
+.gp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px 10px;
+}
+.gp-row > label:first-child:not(.check) {
+  flex: 1;
+}
+.gp-layer {
+  display: grid;
+  gap: 4px;
+}
+.gp-progress {
+  width: 100%;
+}
+.gp-results {
+  max-height: 30vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.gp-results h3 {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.gp-results ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.gp-messages pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
