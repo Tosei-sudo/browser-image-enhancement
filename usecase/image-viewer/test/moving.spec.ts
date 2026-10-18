@@ -85,10 +85,12 @@ test('connects polled, SSE and WebSocket feeds as layers of rotated symbols', as
   await expect.poll(() => page.evaluate(() => window.viewer.moving.feeds().map((f) => f.store.tracks.size))).toEqual([2, 1, 1]);
   await expect(page.locator('.moving-row')).toHaveCount(3);
   await expect(page.locator('.moving-row').first()).toContainText('ID=mmsi');
-  const info = await page.evaluate(() =>
-    window.viewer.moving.feeds().map((f) => ({ kind: f.kind, features: f.source.getFeatures().length, label: f.feed.label, names: f.source.getFeatures().map((x) => x.get('name')) })),
-  );
-  expect(info).toEqual([
+  // The layer's features follow the store on a timer, so they are polled too.
+  const info = () =>
+    page.evaluate(() =>
+      window.viewer.moving.feeds().map((f) => ({ kind: f.kind, features: f.source.getFeatures().length, label: f.feed.label, names: f.source.getFeatures().map((x) => x.get('name')) })),
+    );
+  await expect.poll(info).toEqual([
     { kind: 'ship', features: 2, label: '港の AIS（ポーリング）', names: ['HIKARI', 'NOZOMI'] },
     { kind: 'aircraft', features: 1, label: '空の ADS-B（SSE）', names: ['JAL123'] },
     { kind: 'ship', features: 1, label: 'ais.example', names: ['SOCKET MARU'] },

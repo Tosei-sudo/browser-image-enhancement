@@ -70,6 +70,8 @@ test('a page of an allowed origin opens a COG, moves the view, adds shapes and r
   const iframe = page.frames().find((f) => f.url().startsWith(VIEWER))!;
   const pixel = await iframe.evaluate(() => {
     const map = (window as never as { viewer: { map: import('ol/Map.js').default } }).viewer.map;
+    // Draw a frame of the new view first, or the pixel is of an older frame.
+    map.renderSync();
     return map.getPixelFromCoordinate(map.getView().getCenter()!);
   });
   await frame.locator('#map').click({ position: { x: pixel[0], y: pixel[1] } });
