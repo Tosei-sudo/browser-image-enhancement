@@ -133,7 +133,7 @@ test('a project keeps the layout: panels, the timeline and the dashboard', async
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(page.locator('#timeline')).toBeHidden();
   await page.getByRole('button', { name: 'プロジェクト' }).click();
-  await page.getByRole('button', { name: '開く…' }).click();
+  await page.getByRole('button', { name: '開く…', exact: true }).click();
   await expect(page.locator('#status')).toHaveText('プロジェクト「layout」を開きました');
   await expect(page.locator('#timeline')).toBeVisible();
   await expect(dashboard(page)).toBeVisible();
