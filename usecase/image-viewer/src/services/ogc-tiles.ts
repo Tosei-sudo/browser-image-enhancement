@@ -119,6 +119,7 @@ async function openTiles(service: OgcService, url: string, choice: LayerChoice, 
   const at = template;
   const service_: ServiceLayer = {
     ref: { kind: 'ogc-tiles', url, layer: choice.name, format },
+    badge: 'OGC',
     title: choice.title,
     layer: undefined!,
     correction: null,

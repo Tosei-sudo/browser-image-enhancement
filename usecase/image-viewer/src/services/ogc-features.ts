@@ -171,6 +171,7 @@ async function openCollection(
   return {
     ref,
     title: collection.title,
+    badge: 'OGC',
     layer,
     correction: null,
     vector: { source: layer.getSource()!, fields, truncated: more, ...(bbox ? { note: '追加したときの表示範囲の地物' } : {}) },
