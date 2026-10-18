@@ -17,6 +17,7 @@ import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancemen
 import { tiffOf } from './composite-dialog.js';
 import { formatArea, geodesicArea } from './geodesic.js';
 import { baseName, type ImageList, type ViewerImage, type ViewerService } from './images.js';
+import { optionFor, type DataSources } from './data-sources.js';
 import { polygonize } from './mask-polygons.js';
 import { field, type ProcessingResult } from './processing/common.js';
 import { MAX_CLASSES, planClassify, runClassify, type ClassifyOutput, type ClassSummary, type TrainingClass } from './classify-run.js';
@@ -33,13 +34,15 @@ export interface ClassifyDialogOptions {
   say: (message: string) => void;
   /** Opens the result like a chosen file; default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
   /** Adds the outlines of the classes as a temporary layer. */
   onPolygons?: (result: ProcessingResult, made: string) => Promise<void>;
 }
 
 /** A layer with polygons to train on. */
 function polygonLayers(images: ImageList): ViewerService[] {
-  return images.layers().filter((l): l is ViewerService => l.type === 'service' && !!l.service.vector && l.service.vector.source.getFeatures().some((f) => polygonsOf(f).length > 0));
+  return images.inputs().filter((l): l is ViewerService => l.type === 'service' && !!l.service.vector && l.service.vector.source.getFeatures().some((f) => polygonsOf(f).length > 0));
 }
 
 /** The polygons of a feature (`[[x, y], …]` rings), in the map's projection. */
@@ -170,23 +173,26 @@ export class ClassifyDialog {
     this.dialog.addEventListener('close', () => {
       if (this.running_) this.running_.cancelled = true;
     });
+    options.sources?.attach(this.image_, { dialog: this.dialog, kind: 'image', refill: () => this.open(), valueOf: (l) => optionFor(this.image_, this.images_.indexOf(l as ViewerImage)) });
+    options.sources?.attach(this.layer_, { dialog: this.dialog, kind: 'vector', refill: () => this.open(), valueOf: (l) => optionFor(this.layer_, this.layers_.indexOf(l as ViewerService)) });
   }
 
   /** Opens the dialog with the selected image (else the top one). */
   open(): void {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i) && !this.made_.has(i));
-    this.image_.replaceChildren(...this.images_.map((image, i) => new Option(image.name, String(i))));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i) && !this.made_.has(i));
+    const label = (l: ViewerImage | ViewerService) => this.options.sources?.label(l) ?? l.name;
+    this.image_.replaceChildren(...this.images_.map((image, i) => new Option(label(image), String(i))));
     const selected = this.images.selected();
     const at = selected ? this.images_.indexOf(selected) : -1;
     this.image_.value = String(Math.max(0, at));
     this.layers_ = polygonLayers(this.images);
-    this.layer_.replaceChildren(...this.layers_.map((l, i) => new Option(l.name, String(i))));
+    this.layer_.replaceChildren(...this.layers_.map((l, i) => new Option(label(l), String(i))));
     this.note_.textContent = this.images_.length ? '' : '分類する画像（GeoTIFF）を開いてください';
     this.showResult_(selected && this.made_.has(selected) ? { image: selected, output: this.made_.get(selected)! } : null);
     this.showBands_();
     this.showFields_();
     this.showMethod_();
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
   }
 
   /** Whether `image` is a classification made here. */

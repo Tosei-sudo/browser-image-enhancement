@@ -15,6 +15,7 @@ import { voronoi } from './processing/voronoi.js';
 import { crsPresets, reproject, targetCrs } from './processing/reproject.js';
 import { formatLength } from './geodesic.js';
 import { xyToPoints } from './processing/xy-to-points.js';
+import type { DataSources } from './data-sources.js';
 
 /** The kinds of geometry a tool takes. */
 type Kind = 'point' | 'line' | 'polygon' | 'table';
@@ -189,7 +190,7 @@ function kindsOf(entry: ViewerService): Set<Kind> {
 }
 
 export interface ProcessingDialogOptions {
-  /** The open layers, top first. */
+  /** The open layers, top first (and the data sources, after). */
   layers: () => readonly ViewerLayer[];
   /** The layer selected in the list. */
   selected: () => ViewerLayer | null;
@@ -198,6 +199,8 @@ export interface ProcessingDialogOptions {
   say: (message: string) => void;
   /** Tools on images, with dialogs of their own: choosing one opens it in place of this one. */
   rasterTools?: Array<{ id: string; label: string; open: () => void }>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
 }
 
 export class ProcessingDialog {
@@ -250,6 +253,15 @@ export class ProcessingDialog {
       raster.open();
     });
     this.input_.addEventListener('change', () => this.update_(false));
+    options.sources?.attach(this.input_, {
+      dialog: this.dialog,
+      kind: 'vector',
+      refill: () => this.update_(),
+      valueOf: (layer) => {
+        const value = String(this.layers_.indexOf(layer as ViewerService));
+        return [...this.input_.options].some((o) => o.value === value) ? value : null;
+      },
+    });
     button.addEventListener('click', () => this.open());
   }
 
@@ -314,7 +326,7 @@ export class ProcessingDialog {
     if (tool) {
       const before = this.layers_[Number(this.input_.value)];
       this.input_.replaceChildren(
-        ...this.layers_.flatMap((l, i) => ([...kindsOf(l)].some((k) => chosen.takes.includes(k)) ? [new Option(l.name, String(i))] : [])),
+        ...this.layers_.flatMap((l, i) => ([...kindsOf(l)].some((k) => chosen.takes.includes(k)) ? [new Option(this.options.sources?.label(l) ?? l.name, String(i))] : [])),
       );
       const keep = this.layers_.indexOf(before!);
       if (keep >= 0 && [...this.input_.options].some((o) => o.value === String(keep))) this.input_.value = String(keep);
@@ -326,6 +338,6 @@ export class ProcessingDialog {
     this.selected_.disabled = selected === 0;
     this.selected_.nextElementSibling!.textContent = `選択中の地物だけ（${selected.toLocaleString()} 件）`;
     this.run_.disabled = !this.input_.options.length;
-    this.note_.textContent = this.input_.options.length ? '' : `${chosen.label}に使える${chosen.takes.includes('line') ? '' : chosen.takes[0] === 'point' ? 'ポイントの' : ''}ベクターレイヤーを開いてください`;
+    this.note_.textContent = this.input_.options.length ? '' : `${chosen.label}に使える${chosen.takes.includes('line') ? '' : chosen.takes[0] === 'point' ? 'ポイントの' : ''}ベクターレイヤーを開いてください${this.options.sources ? '（📂 でファイルを直接選べます）' : ''}`;
   }
 }

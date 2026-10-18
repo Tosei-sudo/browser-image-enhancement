@@ -10,6 +10,7 @@
  */
 import type { EnhancedGeoTIFF, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
+import type { DataSources } from './data-sources.js';
 import { meshOf, meshWindow, samplesOf, type CompositeBlock, type Resampling, type SampleType } from './composite.js';
 import { blocksOf, pixelSize, planComposite, tagsOf, tiffOf, type CompositePlan } from './composite-dialog.js';
 import type { MosaicRead, MosaicTask, Overlap } from './mosaic.js';
@@ -26,6 +27,8 @@ export interface MosaicDialogOptions {
   say: (message: string) => void;
   /** Opens the result like a chosen file (with its RSET); default: the loader opens it as it is. */
   open?: (file: File) => Promise<EnhancedGeoTIFF | null>;
+  /** Files as inputs, without adding them to the map (📂). */
+  sources?: DataSources;
   /** When an image was taken, for "newest first"; null when unknown. */
   timeOf?: (image: ViewerImage) => Promise<number | null>;
 }
@@ -79,6 +82,8 @@ export class MosaicDialog {
   private readonly run_: HTMLButtonElement;
   private readonly made_ = new WeakMap<ViewerImage, Blob>();
   private images_: ViewerImage[] = [];
+  /** Data sources opened with this dialog's 📂, ticked when first listed. */
+  private readonly fresh_ = new WeakSet<ViewerImage>();
   private times_ = new Map<ViewerImage, number | null>();
   private running_: { cancelled: boolean } | null = null;
 
@@ -134,6 +139,21 @@ export class MosaicDialog {
     this.dialog.querySelector('button[value=save]')!.addEventListener('click', () => this.save());
     this.run_.addEventListener('click', () => void this.run());
     this.order_.addEventListener('change', () => this.fillList_());
+    // A file opened with 📂 joins the list, ticked.
+    options.sources?.attach(this.list_, {
+      dialog: this.dialog,
+      kind: 'image',
+      refill: () => {},
+      valueOf: () => null,
+      take: (layers) => {
+        const added = layers.filter((l): l is ViewerImage => l.type === 'image' && !!tiffOf(l) && !this.images_.includes(l));
+        if (!added.length) return this.options.say('つなげる画像（GeoTIFF）がありませんでした');
+        this.images_.push(...added);
+        added.forEach((image) => this.fresh_.add(image));
+        void this.addTimes_(added);
+        this.fillList_();
+      },
+    });
     this.list_.addEventListener('change', () => this.describe_(true));
     this.reference_.addEventListener('change', () => this.describe_(false));
     for (const name of ['extent', 'resample', 'overlap', 'feather', 'featherWidth', 'zero'])
@@ -145,19 +165,27 @@ export class MosaicDialog {
 
   /** Opens the dialog with every open image chosen, in layer order. */
   async open(): Promise<void> {
-    this.images_ = [...this.images.list()].filter((i) => tiffOf(i));
+    this.images_ = this.images.inputImages().filter((i) => tiffOf(i));
     this.times_ = new Map();
     this.note_.textContent = this.images_.length >= 2 ? '' : 'つなぐ画像を 2 枚以上開いてください';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     this.list_.replaceChildren();
     this.fillList_();
-    this.dialog.showModal();
+    if (!this.dialog.open) this.dialog.showModal();
     if (this.options.timeOf) {
       const times = await Promise.all(this.images_.map((image) => this.options.timeOf!(image).catch(() => null)));
       this.images_.forEach((image, k) => this.times_.set(image, times[k]));
       this.fillList_();
     }
+  }
+
+  /** Finds when newly listed images were taken, for the priority order. */
+  private async addTimes_(added: ViewerImage[]): Promise<void> {
+    if (!this.options.timeOf) return;
+    const times = await Promise.all(added.map((image) => this.options.timeOf!(image).catch(() => null)));
+    added.forEach((image, k) => this.times_.set(image, times[k]));
+    this.fillList_();
   }
 
   /** Whether `image` is a mosaic made here. */
@@ -190,9 +218,10 @@ export class MosaicDialog {
         const box = document.createElement('input');
         box.type = 'checkbox';
         box.value = i;
-        box.checked = ticked.get(i) ?? true;
+        // Data sources opened for another tool wait unticked; those opened here come ticked (they are new to the list).
+        box.checked = ticked.get(i) ?? (!this.images.isSource(image) || this.fresh_.has(image));
         const name = document.createElement('span');
-        name.textContent = image.name;
+        name.textContent = this.options.sources?.label(image) ?? image.name;
         label.append(box, name);
         const time = this.times_.get(image);
         if (time !== undefined) {
