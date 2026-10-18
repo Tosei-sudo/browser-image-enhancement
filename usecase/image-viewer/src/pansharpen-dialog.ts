@@ -20,6 +20,7 @@ import { ascii, gdalStatistics, geoEntries } from './overviews.js';
 import { blocksOf, planPanSharpen, sampleWindows, type Grid, type PanSharpenJob, type PanSharpenPlan, type ReadWindow } from './pansharpen.js';
 import type { PanSharpenBlock, PanSharpenReply, PanSharpenTask } from './pansharpen-worker.js';
 import { TiledTiffWriter, type TiffEntry } from './tiff-stream.js';
+import { saveFile } from './save-folder.js';
 
 /** Tile size of the result. */
 const TILE = 256;
@@ -157,15 +158,10 @@ export class PanSharpenDialog {
   }
 
   /** Saves a pan-sharpened layer (default: the selected one) as a GeoTIFF. */
-  save(image = this.images.selected()): void {
+  async save(image = this.images.selected()): Promise<void> {
     const made = image && this.made_.get(image);
     if (!image || !made) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(made.blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, made.blob, this.options.say);
   }
 
   /** Pan-sharpens with the dialog's choices; the result opens as a new layer. */

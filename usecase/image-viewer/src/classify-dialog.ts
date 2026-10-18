@@ -22,6 +22,7 @@ import { field, type ProcessingResult } from './processing/common.js';
 import { MAX_CLASSES, planClassify, runClassify, type ClassifyOutput, type ClassSummary, type TrainingClass } from './classify-run.js';
 import type { ClassifierKind } from './classify.js';
 import type { LonLat } from './coordinates.js';
+import { saveFile } from './save-folder.js';
 
 /** Most pixels the outlines are traced over (the classes are read reduced to this). */
 const MAX_TRACE_PIXELS = 4_000_000;
@@ -194,18 +195,17 @@ export class ClassifyDialog {
   }
 
   /** Saves the class numbers of a classification (default: the last one) as a GeoTIFF. */
-  save(): void {
+  async save(): Promise<void> {
     const last = this.last_;
     if (!last) return;
-    download(last.output.classBlob, `${baseName(last.image.name)}_番号.tif`);
-    this.options.say(`${baseName(last.image.name)}_番号.tif を保存しました`);
+    await saveFile(`${baseName(last.image.name)}_番号.tif`, last.output.classBlob, this.options.say);
   }
 
   /** Saves the class table as CSV. */
-  saveCsv(): void {
+  async saveCsv(): Promise<void> {
     const last = this.last_;
     if (!last) return;
-    download(new Blob([classCsv(last.output.classes)], { type: 'text/csv' }), `${baseName(last.image.name)}.csv`);
+    await saveFile(`${baseName(last.image.name)}.csv`, new Blob([classCsv(last.output.classes)], { type: 'text/csv' }), this.options.say);
   }
 
   private selectedImage_(): ViewerImage | null {
@@ -413,12 +413,4 @@ export class ClassifyDialog {
     );
     return features.length;
   }
-}
-
-function download(blob: Blob, name: string): void {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 0);
 }

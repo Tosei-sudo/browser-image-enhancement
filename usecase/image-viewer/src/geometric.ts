@@ -44,6 +44,7 @@ import { openTiff } from './satellite.js';
 import { displacement, sampleGrid, type GridMap, type SensorView, type SimpleOrthoInput } from './simple-ortho.js';
 import { getShift, setShift } from './shift.js';
 import { openElevationService, type ElevationSource } from './services/esri-elevation.js';
+import { saveFile } from './save-folder.js';
 
 /** A satellite image that can be orthorectified. */
 export interface SatelliteImage {
@@ -600,17 +601,11 @@ export class GeometricMode {
   }
 
   /** Saves the selected orthorectified layer as a GeoTIFF, moved as it is shown. */
-  save(image = this.orthoSelected_()): void {
+  async save(image = this.orthoSelected_()): Promise<void> {
     const ortho = image && this.orthos_.get(image);
     if (!image || !ortho) return;
     const [dx, dy] = getShift(image.source);
-    const blob = orthoGeoTIFF(ortho.result, [dx, dy]);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, orthoGeoTIFF(ortho.result, [dx, dy]), this.options.say);
   }
 
   /** Redraws the panel for the selected layer. */

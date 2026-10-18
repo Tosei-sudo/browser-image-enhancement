@@ -20,6 +20,7 @@ import { polygonize } from './mask-polygons.js';
 import { field, type ProcessingResult } from './processing/common.js';
 import { planCalc, runCalc, type CalcResult } from './raster-calc-run.js';
 import type { LonLat } from './coordinates.js';
+import { saveFile } from './save-folder.js';
 
 /** Most pixels the outlines are traced over (the change image is read reduced to this). */
 const MAX_TRACE_PIXELS = 4_000_000;
@@ -164,15 +165,10 @@ export class ChangeDialog {
   }
 
   /** Saves a change image (default: the selected one) as a GeoTIFF. */
-  save(image = this.images.selected()): void {
+  async save(image = this.images.selected()): Promise<void> {
     const blob = image && this.made_.get(image);
     if (!image || !blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, blob, this.options.say);
   }
 
   private channel_(select: HTMLSelectElement): Channel | null {

@@ -86,6 +86,7 @@ import { isSceneServer, openSceneService } from './i3s.js';
 import type { ImageList, ViewerService } from './images.js';
 import type { ElevationSource } from './services/esri-elevation.js';
 import type { Selection } from './selection.js';
+import { saveFile } from './save-folder.js';
 
 /** What the 3D view uses of the viewer. */
 export interface GlobeContext {
@@ -835,17 +836,12 @@ export class Globe {
     return new Promise<Blob>((resolve, reject) => scene.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('画像を作れませんでした'))), 'image/png'));
   }
 
-  /** Saves the view as a PNG file (a download). */
+  /** Saves the view as a PNG file, where the viewer saves files. */
   async savePicture(): Promise<void> {
     try {
       const blob = await this.picture();
       const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `3d-${stamp}.png`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-      this.context.say(`3D 表示を ${a.download} として保存しました`);
+      await saveFile(`3d-${stamp}.png`, blob, this.context.say);
     } catch (error) {
       this.context.say(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
     }

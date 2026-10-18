@@ -16,6 +16,7 @@ import type { ImageList, ViewerImage } from './images.js';
 import { safeName } from './export-dialog.js';
 import { getShift } from './shift.js';
 import { sensorPlacement, sensorWindowTransform, WGS84_KEYS } from './sensor-projection.js';
+import { saveFile } from './save-folder.js';
 
 /** What is saved: the map as drawn, or the selected image's samples. */
 export type ViewContent = 'view' | 'data';
@@ -510,8 +511,7 @@ export class ViewExportDialog {
         say(`${stem(image.name)} の表示範囲を切り出しています…`);
         const clip = await clipImage(this.map, image);
         const name = `${stem(image.name)}_clip.tif`;
-        saveBlob(name, clip.blob);
-        say(`${name} を保存しました（${clip.width} × ${clip.height} px、${clip.bands} バンド${clip.reduced > 1 ? `、大きいため RSET 1/${clip.reduced} から` : ''}）`);
+        await saveFile(name, clip.blob, say, `（${clip.width} × ${clip.height} px、${clip.bands} バンド${clip.reduced > 1 ? `、大きいため RSET 1/${clip.reduced} から` : ''}）`);
         return;
       }
       say('表示範囲を描いています…');
@@ -519,16 +519,20 @@ export class ViewExportDialog {
       const selected = this.images.selectedLayer();
       const base = `${selected ? stem(selected.name) : 'view'}_view`;
       let name: string;
+      let blob: Blob;
       if (format === 'geotiff') {
         if (!drawn.geo) throw new Error(`地図の座標系（${this.map.getView().getProjection().getCode()}）を GeoTIFF に書けません`);
         name = `${base}.tif`;
-        saveBlob(name, canvasToGeoTIFF(drawn.canvas, drawn.geo));
+        blob = canvasToGeoTIFF(drawn.canvas, drawn.geo);
       } else {
         name = `${base}.png`;
-        saveBlob(name, await toPng(drawn.canvas));
+        blob = await toPng(drawn.canvas);
       }
-      say(
-        `${name} を保存しました（${drawn.canvas.width} × ${drawn.canvas.height} px）` +
+      await saveFile(
+        name,
+        blob,
+        say,
+        `（${drawn.canvas.width} × ${drawn.canvas.height} px）` +
           (drawn.skipped ? `。読み取りを許可していないサーバーのレイヤー ${drawn.skipped} 件は含めていません` : ''),
       );
     } catch (error) {
@@ -537,14 +541,4 @@ export class ViewExportDialog {
       this.busy_ = false;
     }
   }
-}
-
-function saveBlob(name: string, blob: Blob): void {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
 }

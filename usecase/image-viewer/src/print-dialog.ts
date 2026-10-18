@@ -7,6 +7,7 @@ import type OlMap from 'ol/Map.js';
 import type { ImageList, ViewerLayer } from './images.js';
 import { stopsOf } from './colorize-dialog.js';
 import { drawSheet, sheetFile, type LegendEntry, type Orientation, type Paper, type PrintRequest } from './print-layout.js';
+import { saveFile } from './save-folder.js';
 
 const hex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
 
@@ -121,15 +122,8 @@ export class PrintDialog {
       canvas.width = canvas.height = 0;
       const stem = (request.title.trim() || this.options.name?.() || 'map').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
       const name = `${stem}.${request.format}`;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
       this.dialog.close();
-      this.options.say(`${name} を保存しました（${request.paper} ${request.orientation === 'portrait' ? '縦' : '横'}、${request.dpi} dpi）`);
+      await saveFile(name, blob, this.options.say, `（${request.paper} ${request.orientation === 'portrait' ? '縦' : '横'}、${request.dpi} dpi）`);
       return blob;
     } catch (error) {
       this.note_.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
