@@ -48,6 +48,7 @@ import { isVectorName } from './vector-files.js';
 import { isCsvName } from './csv.js';
 import { GeorefDialog } from './georef-dialog.js';
 import { describeGeoref, type Georef } from './georef.js';
+import { StatusLine } from './status-line.js';
 import { endBuilding, markBuilding, rsetOf, RsetIndicator, RsetProgress, rsetSettings, rsetText } from './rset.js';
 import { fileOf, hasFileAccess, onDroppedHandles, pickFiles, RecentFiles, RecentMenu } from './recent-files.js';
 import { GeometricMode } from './geometric.js';
@@ -164,7 +165,7 @@ setProjectionCodeLookup(async (code) => {
   return response.text();
 });
 
-const status = document.getElementById('status')!;
+const status = new StatusLine(document.getElementById('status')!);
 showBuildInfo(document.getElementById('build')!);
 const info = document.getElementById('info') as HTMLDListElement;
 const metadataButton = document.getElementById('metadata-open') as HTMLButtonElement;
@@ -230,7 +231,9 @@ probe.dispose();
 const enhance = new EnhanceControl({ labels: enhanceLabelsJa, collapsed: false });
 map.addControl(enhance);
 
-const say = (message: string) => (status.textContent = message);
+const say = (message: string) => status.say(message);
+/** Messages of files opening: summed up on the status line when many open together. */
+const sayForFiles = (message: string) => status.sayForFiles(message);
 // 「サインイン」 in the header, when config.json lists ArcGIS portals.
 const signIn = new SignInMenu(document.getElementById('signin-menu')!, { say });
 // Whether the selected image is drawn from its raw pixels or an RSET level, and the RSETs being made.
@@ -883,11 +886,11 @@ const loader = new AuthLoadImageControl({
   onOpen: hasFileAccess() ? () => void pickAndOpen() : undefined,
   onLoad: (loaded: LoadedImage) => {
     // config.json's imageRules: the correction and bands an image starts with, by its file name.
-    const rule = applyImageRule(config.imageRules, loaded.name, loaded.source, say);
+    const rule = applyImageRule(config.imageRules, loaded.name, loaded.source, sayForFiles);
     showRset(images.add(loaded));
     // Opening a link: back to its `#view=` before the fit to the image is drawn, so the view doesn't jump after.
     if (linkedView) bookmarks.applyHash(linkedView);
-    status.textContent = rule ? `${loaded.name} を開きました（設定「${rule.label}」を適用）` : `${loaded.name} を開きました`;
+    status.sayForFiles(rule ? `${loaded.name} を開きました（設定「${rule.label}」を適用）` : `${loaded.name} を開きました`, 'done');
     // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
       void tiffInfo(loaded.name)
@@ -899,7 +902,7 @@ const loader = new AuthLoadImageControl({
     }
   },
   onError: (error, name) => {
-    status.textContent = `${name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`;
+    status.sayForFiles(`${name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`, 'error');
   },
 });
 map.addControl(loader);
@@ -939,6 +942,7 @@ const project = new ProjectControl({
   openFiles: (files, options) => openFiles(files, { ...fileContext(), ...options }),
   serviceContext,
   say,
+  beginStatus: (total, label) => status.begin(total, label),
   remember: (handles) => void recent?.remember(handles),
   onChange: updateLink,
   globeState: () => globeToggle.state(),
@@ -1266,7 +1270,7 @@ function fileContext(): OpenFilesContext {
   return {
     loader,
     addLayer: addService,
-    say,
+    say: sayForFiles,
     geometry,
     rset: rsetProgress,
     onRsetBuilding: (source) => {

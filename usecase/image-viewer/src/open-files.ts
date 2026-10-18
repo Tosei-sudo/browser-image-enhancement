@@ -43,6 +43,7 @@ import { handleOf } from './recent-files.js';
 import { isEditable, localTarget } from './local-edit.js';
 import { markGenerated, RsetCancelled, rsetQueue, rsetSettings, type RsetJob, type RsetProgress } from './rset.js';
 import { isNitf } from './nitf.js';
+import { nameList } from './status-line.js';
 import { copyFileInfo, nitfAsTiff, setFileInfo, type NitfAsTiff } from './nitf-tiff.js';
 import { get as getProjection } from 'ol/proj.js';
 import { imageToGeoTIFF } from 'browser-image-enhancement/openlayers';
@@ -157,7 +158,7 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
     context.onProgress?.(done, images.length);
   }
   const unused = ovrs.filter((o) => !used.has(o));
-  if (unused.length) context.say(`${unused.map((o) => o.name).join('、')} に合う GeoTIFF がありません（画像と一緒に選んでください）`);
+  if (unused.length) context.say(`${nameList(unused.map((o) => o.name))} に合う GeoTIFF がありません（画像と一緒に選んでください）`);
 }
 
 /** Whether `name` is a side file that places an image: a world file or an .aux.xml. */
@@ -222,7 +223,7 @@ async function readRpcFiles(files: File[], { say }: OpenFilesContext): Promise<M
 }
 
 async function openVectors(chosen: File[], { addLayer, say }: OpenFilesContext): Promise<void> {
-  const names = chosen.map((f) => f.name).join('、');
+  const names = nameList(chosen.map((f) => f.name));
   say(`${names} を読み込んでいます…`);
   let files: File[];
   try {
@@ -243,7 +244,7 @@ async function openVectors(chosen: File[], { addLayer, say }: OpenFilesContext):
   try {
     const read = await readVectorFiles(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()), handle: handleOf(f) }))), projectionOf);
     for (const file of read) addLayer(vectorFileLayer(file));
-    say(`${read.map((f) => f.title).join('、')} を開きました（✎ で編集できます）`);
+    say(`${nameList(read.map((f) => f.title))} を開きました（✎ で編集できます）`);
   } catch (error) {
     say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
   }
