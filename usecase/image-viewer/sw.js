@@ -76,18 +76,20 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || request.headers.has('range')) return;
   const url = new URL(request.url);
   if (url.origin !== scope.origin || !url.href.startsWith(scope.href)) return;
-  // The page, whatever its query (?url=, ?service=…).
-  if (request.mode === 'navigate') {
+  const bare = url.origin + url.pathname;
+  // The page, whatever its query (?url=, ?service=…); other pages of the site (embed-example.html) as files below.
+  if (request.mode === 'navigate' && (bare === page || bare === scope.href)) {
     event.respondWith(networkFirst(request, page).then(isolated));
     return;
   }
-  const bare = url.origin + url.pathname;
   if (bare === config) {
     event.respondWith(networkFirst(request, config).then(isolated));
     return;
   }
   if (precached.has(bare)) {
-    event.respondWith(caches.match(bare).then((cached) => cached || fetch(request)).then(isolated));
+    const file = caches.match(bare).then((cached) => cached || fetch(request));
+    // Another page (embed-example.html) is not isolated: it embeds the viewer from elsewhere in an iframe.
+    event.respondWith(request.mode === 'navigate' ? file : file.then(isolated));
   } else if (lazy.has(bare)) {
     event.respondWith(
       caches.match(bare).then(

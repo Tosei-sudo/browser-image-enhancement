@@ -19,6 +19,8 @@
         } catch (e) {}
         if (choice !== 'light' && choice !== 'dark') choice = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.dataset.theme = choice;
+        // `?embed=1`: shown in another page's iframe (src/embed.ts), the map alone.
+        if (/[?&]embed=1(&|$)/.test(location.search)) document.documentElement.classList.add('embed');
       })();
     </script>
   </head>

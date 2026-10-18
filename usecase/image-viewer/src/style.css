@@ -3615,3 +3615,20 @@ dialog.popped-out .catalog-head {
 .shadow-list[hidden] {
   display: none;
 }
+
+/* `?embed=1` (src/embed.ts): in another page's iframe, the map alone. */
+html.embed .app {
+  grid-template: 'map' 1fr / minmax(0, 1fr);
+}
+html.embed .bar,
+html.embed .side,
+html.embed .side-resize,
+html.embed #timeline,
+html.embed #dashboard,
+html.embed .dashboard-resize,
+html.embed #table,
+html.embed .table-resize,
+html.embed .guide,
+html.embed .ol-enhance {
+  display: none !important;
+}
