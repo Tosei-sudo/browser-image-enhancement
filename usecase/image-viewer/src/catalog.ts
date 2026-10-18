@@ -12,6 +12,7 @@ import EsriJSON from 'ol/format/EsriJSON.js';
 import type { Extent } from 'ol/extent.js';
 import { transformExtent, type ProjectionLike } from 'ol/proj.js';
 import { esriJson } from './services/esri.js';
+import { collator } from './table-text.js';
 
 /** Attribute names of the catalog layer, by role. Only `source` is required. */
 export interface CatalogFields {
@@ -411,7 +412,7 @@ export function sortRecords(records: CatalogRecord[], key: SortKey, descending: 
   return [...records].sort((a, b) => {
     const [x, y] = [value(a), value(b)];
     if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
-    const order = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'ja', { numeric: true });
+    const order = typeof x === 'number' && typeof y === 'number' ? x - y : collator.compare(String(x), String(y));
     return descending ? -order : order;
   });
 }

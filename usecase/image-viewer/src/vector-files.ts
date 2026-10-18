@@ -4,10 +4,12 @@
  * FlatGeobuf (vector-formats.ts), as OpenLayers features in the map's
  * projection with their attributes.
  */
-import type Feature from 'ol/Feature.js';
+import Feature from 'ol/Feature.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
+import type Geometry from 'ol/geom/Geometry.js';
+import { LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon } from 'ol/geom.js';
+import { getTransform } from 'ol/proj.js';
 import { iter } from 'but-unzip';
-import { parseDbf, parseShp } from 'shpjs';
 import type { Field } from './services/index.js';
 import { fieldsOf } from './services/wms.js';
 import { register } from 'ol/proj/proj4.js';
@@ -15,7 +17,7 @@ import proj4 from 'proj4';
 import { readGeoPackage, type GeoPackageTable } from './geopackage.js';
 import { epsgCode } from './services/common.js';
 import { wgs84, type TargetCrs } from './vector-write.js';
-import { dbfTextEncoding } from './shp-stream.js';
+import { dbfTextEncoding, groupRings, kindOfShapeType, parseShape, readDbfHeader, readDbfRecord, type DbfField, type Shape } from './shp-stream.js';
 import { readFgb, readGpx, readKml, readKmz } from './vector-formats.js';
 import { footprintOf, MULTIPATCH_SHAPE_TYPE, readMultiPatches, setMultiPatch, transformMultiPatch, type MultiPatch } from './multipatch.js';
 
@@ -157,65 +159,149 @@ export function dbfEncoding(dbf: Uint8Array, cpg?: string): string {
   return dbfTextEncoding(dbf[29], dbf.subarray(Math.min(headerLength, dbf.length)), cpg);
 }
 
+/**
+ * The geometries of a .shp's records, in its own coordinates (x / y: z and m
+ * are left out, as in every other format). Read straight into flat
+ * coordinates: no array per point, which made reading large files slow.
+ */
+export function readShpGeometries(shp: Uint8Array, title = ''): Array<Geometry | null> {
+  const view = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
+  if (shp.length < 100) throw new Error(`${title}.shp が短すぎます`);
+  const fileType = view.getInt32(32, true);
+  if (fileType !== 0 && kindOfShapeType(fileType) === 0) throw new Error(`${title}.shp の図形の種類（${fileType}）は読めません`);
+  const out: Array<Geometry | null> = [];
+  for (let at = 100; at + 8 <= shp.length; ) {
+    const length = view.getInt32(at + 4) * 2;
+    // A record cut off by the end of the file: the file ends before it.
+    if (length < 0 || at + 8 + length > shp.length) break;
+    const shape = length >= 4 ? parseShape(new DataView(shp.buffer, shp.byteOffset + at + 8, length)) : null;
+    at += 8 + length;
+    out.push(shape ? geometryOfShape(shape) : null);
+  }
+  return out;
+}
+
+/** An OpenLayers geometry of a shape: one part as Point, LineString or Polygon, more as their Multi kinds. */
+function geometryOfShape(shape: Shape): Geometry | null {
+  const { kind, coords, ends } = shape;
+  if (kind === 1) return coords.length === 2 ? new Point(Array.from(coords)) : new MultiPoint(Array.from(coords), 'XY');
+  if (kind === 2) return ends.length === 1 ? new LineString(Array.from(coords), 'XY') : new MultiLineString(Array.from(coords), 'XY', ends);
+  if (kind === 3) {
+    const grouped = groupRings(coords, ends);
+    const flat = Array.from(grouped.coords);
+    if (grouped.polygons.length === 1) return new Polygon(flat, 'XY', grouped.ends);
+    const endss: number[][] = [];
+    let ring = 0;
+    for (const count of grouped.polygons) {
+      endss.push(grouped.ends.slice(ring, ring + count));
+      ring += count;
+    }
+    return new MultiPolygon(flat, 'XY', endss);
+  }
+  return null;
+}
+
+/**
+ * The fields of a .dbf and a reader of its records (by number from 0; null
+ * past the end): numbers, booleans, dates as midnight UTC, text without its
+ * padding, null for empty values.
+ */
+function readDbf(dbf: Uint8Array, encoding: string): { fields: DbfField[]; record(index: number): ReturnType<typeof readDbfRecord> | null } {
+  const decoder = new TextDecoder(encoding);
+  const header = readDbfHeader(dbf, (b) => decoder.decode(b));
+  return {
+    fields: header.fields,
+    record: (index) => {
+      const start = header.headerLength + index * header.recordLength;
+      if (index >= header.count || start + header.recordLength > dbf.length) return null;
+      return readDbfRecord(dbf.subarray(start, start + header.recordLength), header.fields, decoder);
+    },
+  };
+}
+
+/**
+ * Whether a .prj's conversion to WGS 84 leaves the file's coordinates as
+ * they are (WGS 84 itself, or JGD2011 and other datums that proj4 shifts by
+ * nothing), tried at points over the box the .shp header gives. Skipping it
+ * saves proj4's work at every point, most of the time of reading such files.
+ */
+function isIdentity(forward: (xy: number[]) => number[], shp: Uint8Array): boolean {
+  const view = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
+  const [x0, y0, x1, y1] = [36, 44, 52, 60].map((at) => view.getFloat64(at, true));
+  if (![x0, y0, x1, y1].every(Number.isFinite) || x0 < -180 || x1 > 180 || y0 < -90 || y1 > 90) return false;
+  for (const fx of [0, 0.5, 1]) {
+    for (const fy of [0, 0.5, 1]) {
+      const p = [x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy];
+      const [x, y] = forward([p[0], p[1]]);
+      if (Math.abs(x - p[0]) > 1e-12 || Math.abs(y - p[1]) > 1e-12) return false;
+    }
+  }
+  return true;
+}
+
 /** Reads one Shapefile; without a .prj, coordinates must be longitude / latitude. */
 export function readShapefile(title: string, parts: { shp: Uint8Array; dbf?: Uint8Array; prj?: string; cpg?: string }): VectorFile {
-  let geometries: Array<{ type: string } | null>;
   let crs = 'WGS 84（.prj なし）';
-  let patches: Array<MultiPatch | null> = [];
-  const rawType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true);
-  if (rawType === MULTIPATCH_SHAPE_TYPE) {
-    // 3D shapes: their footprints on the map, their triangles for the 3D view.
-    let toLonLat = (xy: [number, number]): number[] => xy;
-    if (parts.prj) {
-      try {
-        const forward = proj4(parts.prj, 'EPSG:4326').forward;
-        toLonLat = (xy) => forward(xy);
-        crs = /^\s*\w+\["([^"]+)"/.exec(parts.prj)?.[1] ?? '.prj';
-      } catch {
-        throw new Error(`${title}.prj の座標系を読めませんでした`);
-      }
-    }
-    patches = readMultiPatches(parts.shp).map((p) => p && transformMultiPatch(p, toLonLat));
-    geometries = patches.map((p) => p && { type: 'MultiPolygon', coordinates: footprintOf(p) });
-  } else if (parts.prj) {
+  let toLonLat: ((xy: number[]) => number[]) | null = null;
+  if (parts.prj) {
     try {
-      geometries = parseShp(parts.shp, parts.prj);
+      toLonLat = proj4(parts.prj, 'EPSG:4326').forward;
       crs = /^\s*\w+\["([^"]+)"/.exec(parts.prj)?.[1] ?? '.prj';
     } catch {
       throw new Error(`${title}.prj の座標系を読めませんでした`);
     }
-  } else {
-    geometries = parseShp(parts.shp);
   }
-  const encoding = parts.dbf ? dbfEncoding(parts.dbf, parts.cpg) : undefined;
-  const records = parts.dbf ? parseDbf(parts.dbf, encoding) : [];
-  const dates = new Set<string>();
-  const collection = {
-    type: 'FeatureCollection',
-    features: geometries.map((geometry, i) => {
-      const properties: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(records[i] ?? {})) {
-        // Dates as epoch milliseconds, like Esri's, for the table; empty dates are invalid Dates.
-        if (v instanceof Date) {
-          dates.add(k);
-          properties[k] = Number.isNaN(v.getTime()) ? null : v.getTime();
-        } else {
-          properties[k] = typeof v === 'number' && Number.isNaN(v) ? null : v;
-        }
+  const rawType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true);
+  let geometries: Array<Geometry | null>;
+  let patches: Array<MultiPatch | null> = [];
+  if (rawType === MULTIPATCH_SHAPE_TYPE) {
+    // 3D shapes: their footprints on the map, their triangles for the 3D view.
+    patches = readMultiPatches(parts.shp).map((p) => p && transformMultiPatch(p, toLonLat ?? ((xy) => xy)));
+    geometries = patches.map((p) => p && (format.readGeometry({ type: 'MultiPolygon', coordinates: footprintOf(p) }) as Geometry));
+  } else {
+    geometries = readShpGeometries(parts.shp, title);
+    if (toLonLat && !isIdentity(toLonLat, parts.shp)) {
+      const forward = toLonLat;
+      for (const g of geometries) {
+        g?.applyTransform((input, output = input, stride = 2) => {
+          for (let i = 0; i + 1 < input.length; i += stride) {
+            const [x, y] = forward([input[i], input[i + 1]]);
+            output[i] = x;
+            output[i + 1] = y;
+          }
+          return output;
+        });
       }
-      return { type: 'Feature', geometry, properties };
-    }),
-  };
-  const features = format.readFeatures(collection) as Feature[];
-  patches.forEach((p, i) => p && features[i] && setMultiPatch(features[i], p));
-  if (!parts.prj && !inLonLat(features)) {
+    }
+  }
+  if (!parts.prj && !inLonLat(geometries)) {
     throw new Error(`${title}.prj（座標系）がありません。.shp と一緒に .prj も選んでください`);
   }
+  const encoding = parts.dbf ? dbfEncoding(parts.dbf, parts.cpg) : undefined;
+  const table = parts.dbf ? readDbf(parts.dbf, encoding!) : null;
+  const dates = new Set(table?.fields.filter((f) => f.type === 'D').map((f) => f.name));
+  const toMap = getTransform('EPSG:4326', 'EPSG:3857');
+  const features = geometries.map((geometry, i) => {
+    const properties: Record<string, unknown> = {};
+    const record = table?.record(i);
+    // Dates as epoch milliseconds (midnight UTC, whatever the time zone), like Esri's and GeoPackage's;
+    // empty values are null, but text, which a .dbf cannot leave null, is empty text.
+    if (record) table!.fields.forEach((f, k) => (properties[f.name] = record[k] ?? (f.type === 'C' ? '' : null)));
+    const feature = new Feature();
+    // Moved to the map before it is the feature's: no change events to send.
+    if (geometry) {
+      geometry.applyTransform(toMap);
+      feature.setGeometry(geometry);
+    }
+    feature.setProperties(properties, true);
+    return feature;
+  });
+  patches.forEach((p, i) => p && features[i] && setMultiPatch(features[i], p));
   const fields = fieldsOf(features).map((f) => (dates.has(f.name) ? { ...f, type: 'date' as const } : f));
-  const shapeType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true) % 10;
+  const shapeType = rawType % 10;
   // A multipatch is written back as its footprint.
   const geometryType = rawType === MULTIPATCH_SHAPE_TYPE ? 'Polygon' : (({ 1: 'Point', 3: 'LineString', 5: 'Polygon', 8: 'MultiPoint' } as const)[shapeType as 1 | 3 | 5 | 8] ?? null);
-  return { title, format: 'Shapefile', features: toWebMercator(features), fields, crs, encoding, geometryType, writeCrs: parts.prj ? prjCrs(parts.prj, crs) : wgs84 };
+  return { title, format: 'Shapefile', features, fields, crs, encoding, geometryType, writeCrs: parts.prj ? prjCrs(parts.prj, crs) : wgs84 };
 }
 
 /** Reads GeoJSON: WGS 84 (RFC 7946), or the CRS named by an older `crs` member. */
@@ -255,15 +341,10 @@ function prjCrs(prj: string, name: string): TargetCrs {
 
 const format = new GeoJSON();
 
-function toWebMercator(features: Feature[]): Feature[] {
-  for (const f of features) f.getGeometry()?.transform('EPSG:4326', 'EPSG:3857');
-  return features;
-}
-
 /** Whether every coordinate is a longitude / latitude. */
-function inLonLat(features: Feature[]): boolean {
-  return features.every((f) => {
-    const e = f.getGeometry()?.getExtent();
+function inLonLat(geometries: Array<Geometry | null>): boolean {
+  return geometries.every((g) => {
+    const e = g?.getExtent();
     return !e || (e[0] >= -180 && e[2] <= 180 && e[1] >= -90 && e[3] <= 90);
   });
 }

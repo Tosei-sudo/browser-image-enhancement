@@ -279,16 +279,30 @@ export function categoryValue(value: unknown): string {
   return value === null || value === undefined ? '' : value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
 }
 
+/** The label points of multipolygons, until they change (a label is placed at every frame). */
+const multiLabels = new WeakMap<Geometry, { revision: number; point: Geometry | undefined }>();
+
 /** Where a polygon's label goes: inside it (the largest part of a multipolygon). */
 function labelPoint(feature: FeatureLike): Geometry | undefined {
   const g = feature.getGeometry() as Geometry | undefined;
   const type = g?.getType();
+  // OpenLayers keeps a polygon's interior point until it changes.
   if (type === 'Polygon') return (g as Polygon).getInteriorPoint();
   if (type === 'MultiPolygon') {
+    const revision = g!.getRevision();
+    const kept = multiLabels.get(g!);
+    if (kept?.revision === revision) return kept.point;
+    // getPolygons makes new polygons, whose interior points are found afresh: once per change, not per frame.
     const parts = (g as MultiPolygon).getPolygons();
     let best = parts[0];
-    for (const p of parts) if (p.getArea() > best.getArea()) best = p;
-    return best?.getInteriorPoint();
+    let most = -Infinity;
+    for (const p of parts) {
+      const area = p.getArea();
+      if (area > most) [best, most] = [p, area];
+    }
+    const point = best?.getInteriorPoint();
+    multiLabels.set(g!, { revision, point });
+    return point;
   }
   return g;
 }

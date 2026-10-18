@@ -251,11 +251,13 @@ export async function queryAll(url: string, oid: string, maxRecords: number, tok
   const truncated = all.length > MAX_FEATURES;
   const wanted = all.slice(0, MAX_FEATURES);
   const batch = Math.max(1, Math.min(maxRecords, 1000));
-  const parts: Array<Promise<Feature[]>> = [];
-  for (let i = 0; i < wanted.length; i += batch) parts.push(queryIds(url, oid, wanted.slice(i, i + batch), token, extra));
-  // A few requests at a time.
+  const batches: number[][] = [];
+  for (let i = 0; i < wanted.length; i += batch) batches.push(wanted.slice(i, i + batch));
+  // A few requests at a time: each starts only when its turn comes (a promise made is a request sent).
   const features: Feature[] = [];
-  for (let i = 0; i < parts.length; i += 4) for (const p of await Promise.all(parts.slice(i, i + 4))) features.push(...p);
+  for (let i = 0; i < batches.length; i += 4) {
+    for (const p of await Promise.all(batches.slice(i, i + 4).map((ids) => queryIds(url, oid, ids, token, extra)))) for (const f of p) features.push(f);
+  }
   return { features, truncated };
 }
 

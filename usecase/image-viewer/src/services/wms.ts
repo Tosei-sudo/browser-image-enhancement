@@ -221,10 +221,20 @@ function clampLat(e: Extent): Extent {
 /** Fields of features read without a schema: every property but the geometry, as text. */
 export function fieldsOf(features: Feature[]): Field[] {
   const names = new Set<string>();
-  for (const f of features) for (const key of Object.keys(f.getProperties())) if (key !== f.getGeometryName()) names.add(key);
+  for (const f of features) for (const key of f.getKeys()) if (key !== f.getGeometryName()) names.add(key);
   return [...names].map((name) => {
-    const values = features.map((f) => f.get(name)).filter((v) => v !== null && v !== undefined && v !== '');
-    const numeric = values.length > 0 && values.every((v) => typeof v === 'number');
-    return { name, alias: name, type: numeric ? 'double' : 'string', editable: false, nullable: true } satisfies Field;
+    // A number column: some value, and every value a number (empty ones aside).
+    let some = false;
+    let numeric = true;
+    for (const f of features) {
+      const v = f.get(name);
+      if (v === null || v === undefined || v === '') continue;
+      some = true;
+      if (typeof v !== 'number') {
+        numeric = false;
+        break;
+      }
+    }
+    return { name, alias: name, type: some && numeric ? 'double' : 'string', editable: false, nullable: true } satisfies Field;
   });
 }

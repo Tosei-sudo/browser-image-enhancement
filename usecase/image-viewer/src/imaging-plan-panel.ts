@@ -47,6 +47,7 @@ import {
 } from './imaging-plan.js';
 import type { PlanJob } from './imaging-plan-worker.js';
 import { satellitePass3d, type SatellitePass3d } from './imaging-plan-3d.js';
+import { collator } from './table-text.js';
 
 export interface PlanPanelOptions {
   /** The layers of the viewer, for the target. */
@@ -116,7 +117,7 @@ export function targetOf(features: Feature[], projection: string, label: string)
     if (!geometry) continue;
     extend(extent, geometry.getExtent());
     if (geometry instanceof Polygon || geometry instanceof MultiPolygon) areas.push(geometry);
-    points.push(...verticesOf(geometry));
+    for (const p of verticesOf(geometry)) points.push(p);
     // One polygon: aim inside it (its middle can fall outside a bent one).
     if (features.length === 1 && geometry instanceof Polygon) center = geometry.getInteriorPoint().getCoordinates().slice(0, 2) as [number, number];
   }
@@ -995,7 +996,7 @@ export class ImagingPlanPanel {
     };
     return [...ops].sort((a, b) => {
       const [x, y] = [value(a), value(b)];
-      const order = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'ja', { numeric: true });
+      const order = typeof x === 'number' && typeof y === 'number' ? x - y : collator.compare(String(x), String(y));
       return (this.sort_.descending ? -order : order) || a.time - b.time;
     });
   }

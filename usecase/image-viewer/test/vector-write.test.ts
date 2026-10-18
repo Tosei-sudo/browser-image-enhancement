@@ -73,6 +73,19 @@ describe('writeShapefile', () => {
     expect(lonLat(a)[0]).toBeCloseTo(lonLat(features()[0])[0], 2);
   });
 
+  it('reads dates back as the same day east of UTC (a .dbf date is a day, kept as midnight UTC)', async () => {
+    const zone = process.env.TZ;
+    process.env.TZ = 'Asia/Tokyo';
+    try {
+      const [file] = await readVectorFiles(writeShapefile('sites', features(), fields));
+      expect(file.features[0].get('DAY')).toBe(Date.UTC(2024, 4, 1));
+      const [again] = await readVectorFiles(writeShapefile('sites', file.features, file.fields));
+      expect(again.features[0].get('DAY')).toBe(Date.UTC(2024, 4, 1));
+    } finally {
+      process.env.TZ = zone;
+    }
+  });
+
   it('cuts long names to 10 bytes, keeping them unique', async () => {
     const long: Field[] = [
       { name: 'population_2020', alias: '', type: 'integer', editable: true, nullable: true },
