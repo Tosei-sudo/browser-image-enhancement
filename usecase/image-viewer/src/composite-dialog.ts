@@ -17,6 +17,7 @@ import type { CompositeBlock, CompositeReply, CompositeTask } from './composite-
 import type { Grid } from './pansharpen.js';
 import { getShift } from './shift.js';
 import { TiledTiffWriter, type TiffEntry } from './tiff-stream.js';
+import { saveFile } from './save-folder.js';
 
 /** Tile size of the result. */
 const TILE = 256;
@@ -323,15 +324,10 @@ export class CompositeDialog {
   }
 
   /** Saves a composite (default: the selected one) as a GeoTIFF. */
-  save(image = this.images.selected()): void {
+  async save(image = this.images.selected()): Promise<void> {
     const made = image && this.made_.get(image);
     if (!image || !made) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(made.blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, made.blob, this.options.say);
   }
 
   /** The chosen band for each of red, green and blue. */

@@ -106,6 +106,7 @@ import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
 import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
+import { canSaveToFolder, saveFolder, SaveFolderDialog } from './save-folder.js';
 import { Timeline } from './timeline.js';
 import { MovingDialog } from './moving-dialog.js';
 import { MatchDialog } from './moving-match-dialog.js';
@@ -762,6 +763,17 @@ const movingMatch = new MatchDialog(document.getElementById('moving-match') as H
 // Saving the view: as drawn (PNG / GeoTIFF), or the selected GeoTIFF's samples under it.
 const viewExport = new ViewExportDialog(document.getElementById('save-view') as HTMLButtonElement, map, images, { say });
 // Printing: the view on a sheet with a title, scale bar, north arrow and legend, as a PDF or PNG.
+// 「保存先…」: downloads, or a folder written into directly where the browser can.
+if (canSaveToFolder()) {
+  const saveFolderButton = document.getElementById('save-folder') as HTMLButtonElement;
+  const saveFolderDialog = new SaveFolderDialog(saveFolder, { say });
+  const label = () =>
+    void saveFolder.current().then((folder) => (saveFolderButton.textContent = folder ? `保存先: ${folder.name}…` : '保存先…'));
+  saveFolder.onChange(label);
+  label();
+  saveFolderButton.hidden = false;
+  saveFolderButton.addEventListener('click', () => void saveFolderDialog.open());
+}
 const printDialog = new PrintDialog(document.getElementById('print') as HTMLButtonElement, map, images, {
   say,
   visible: (layer) => images.isVisible(layer),

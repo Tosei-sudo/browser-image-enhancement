@@ -16,6 +16,7 @@ import { colorOf } from './mosaic-dialog.js';
 import type { Grid } from './pansharpen.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
 import { runResample } from './raster-calc-run.js';
+import { saveFile } from './save-folder.js';
 
 /** Pixels across the coarse look at the whole overlap. */
 const COARSE = 512;
@@ -244,15 +245,10 @@ export class AlignDialog {
   }
 
   /** Saves an aligned copy (default: the selected one) as a GeoTIFF. */
-  save(image = this.images.selected()): void {
+  async save(image = this.images.selected()): Promise<void> {
     const blob = image && this.made_.get(image);
     if (!image || !blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, blob, this.options.say);
   }
 
   private channel_(select: HTMLSelectElement): Channel | null {

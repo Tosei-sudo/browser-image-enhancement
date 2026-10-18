@@ -12,6 +12,7 @@ import { markRow } from './colorize-dialog.js';
 import { tiffOf } from './composite-dialog.js';
 import { baseName, type ImageList, type ViewerImage } from './images.js';
 import { planCalc, runCalc } from './raster-calc-run.js';
+import { saveFile } from './save-folder.js';
 
 /** Brown (bare) through yellow to green (dense vegetation), for vegetation indices. */
 export const VEGETATION_SCALE: ColorScaleStop[] = [
@@ -134,15 +135,10 @@ export class BandMathDialog {
   }
 
   /** Saves a result (default: the selected one) as a GeoTIFF. */
-  save(image = this.images.selected()): void {
+  async save(image = this.images.selected()): Promise<void> {
     const blob = image && this.made_.get(image);
     if (!image || !blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, blob, this.options.say);
   }
 
   private image(): ViewerImage | null {

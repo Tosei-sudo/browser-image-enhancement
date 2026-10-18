@@ -15,6 +15,7 @@ import { blocksOf, pixelSize, planComposite, tagsOf, tiffOf, type CompositePlan 
 import type { MosaicRead, MosaicTask, Overlap } from './mosaic.js';
 import type { MosaicReply } from './mosaic-worker.js';
 import { TiledTiffWriter } from './tiff-stream.js';
+import { saveFile } from './save-folder.js';
 
 /** Tile size of the result. */
 const TILE = 256;
@@ -165,15 +166,10 @@ export class MosaicDialog {
   }
 
   /** Saves a mosaic (default: the selected one) as a GeoTIFF. */
-  save(image = this.images.selected()): void {
+  async save(image = this.images.selected()): Promise<void> {
     const blob = image && this.made_.get(image);
     if (!image || !blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${baseName(image.name)}.tif`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${a.download} を保存しました`);
+    await saveFile(`${baseName(image.name)}.tif`, blob, this.options.say);
   }
 
   /** The chosen images, first priority first. */
