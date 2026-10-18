@@ -161,7 +161,8 @@ test('a GeoJSON picked with a handle is saved over the original file; any geomet
   await expect(page.locator('.edit-kind')).toBeVisible();
   await page.locator('.edit-kind').selectOption('Point');
   await page.getByRole('button', { name: '追加', exact: true }).click();
-  const at = await pixelOf(page, 139.5, 35.5);
+  // Away from the line: drawing snaps to it.
+  const at = await pixelOf(page, 139.2, 35.8);
   await page.mouse.click(at.x, at.y);
   await rows(page).first().getByRole('textbox', { name: 'route' }).fill('起点');
   await rows(page).first().getByRole('textbox', { name: 'route' }).press('Enter');
@@ -173,6 +174,6 @@ test('a GeoJSON picked with a handle is saved over the original file; any geomet
     ['LineString', '国道1号'],
     ['Point', '起点'],
   ]);
-  expect(json.features[1].geometry.coordinates[0]).toBeCloseTo(139.5, 3);
+  expect(json.features[1].geometry.coordinates[0]).toBeCloseTo(139.2, 3);
   expect(errors).toEqual([]);
 });
