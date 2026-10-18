@@ -2,7 +2,9 @@
  * WFS (2.0.0, 1.1.0 or 1.0.0): the feature types of GetCapabilities, read
  * whole with one GetFeature (up to {@link MAX_FEATURES}), as GeoJSON when the
  * server offers it and GML otherwise. Attribute types come from
- * DescribeFeatureType when the server answers it.
+ * DescribeFeatureType when the server answers it. Feature types the server
+ * lets change (Transaction in GetCapabilities, and a namespace and geometry
+ * in DescribeFeatureType) can be edited, saved as one WFS-T Transaction.
  */
 import type Feature from 'ol/Feature.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -29,6 +31,7 @@ import {
 import { toMap, vectorLayer } from './vector.js';
 import { LayerStyle, singleSpec } from '../vector-style.js';
 import { fieldsOf } from './wms.js';
+import { drawableOf, latitudeFirst, wfsTarget, type WfsOperations, type WfsSchema, type WfsVersion } from './wfs-t.js';
 
 interface FeatureType {
   name: string;
@@ -38,6 +41,36 @@ interface FeatureType {
   /** Longitude / latitude box. */
   box: Extent | null;
   formats: string[];
+  /** What the server lets change on the type (WFS-T), or null. */
+  operations: WfsOperations | null;
+}
+
+const XLINK = 'http://www.w3.org/1999/xlink';
+
+/**
+ * What a capabilities document lets change on each type: the Transaction
+ * operation (OWS operations metadata of 1.1 and 2.0, `Request` of 1.0, and
+ * 2.0's ImplementsTransactionalWFS constraint), narrowed by a type's own
+ * `Operations` (1.0, 1.1) when it lists them. Also where to POST.
+ */
+export function transactionOf(doc: Document): { endpoint: string | null; forType: (ft: Element) => WfsOperations | null } {
+  const transaction = descendants(doc, 'Operation').find((o) => o.getAttribute('name') === 'Transaction') ?? descendants(doc, 'Request').flatMap((r) => children(r, 'Transaction'))[0];
+  const constraint = descendants(doc, 'Constraint').find((c) => c.getAttribute('name') === 'ImplementsTransactionalWFS');
+  const off = constraint && /^false$/i.test(childText(constraint, 'DefaultValue') ?? '');
+  const post = transaction ? descendants(transaction, 'Post')[0] : undefined;
+  const endpoint = post ? post.getAttributeNS(XLINK, 'href') || post.getAttribute('onlineResource') : null;
+  const all = !!transaction && !off;
+  return {
+    endpoint,
+    forType: (ft) => {
+      if (!all) return null;
+      const listed = children(ft, 'Operations')[0];
+      if (!listed) return { insert: true, update: true, delete: true };
+      const names = new Set([...descendants(listed, 'Operation').map((o) => o.textContent?.trim() ?? ''), ...[...listed.children].map((c) => c.localName)].map((n) => n.toLowerCase()));
+      const ops = { insert: names.has('insert'), update: names.has('update'), delete: names.has('delete') };
+      return ops.insert || ops.update || ops.delete ? ops : null;
+    },
+  };
 }
 
 /** Reads WFS capabilities at `url`. */
@@ -59,6 +92,7 @@ export async function readWfs(url: string): Promise<ServiceCatalog> {
     ...descendants(doc, 'ResultFormat').flatMap((r) => [...r.children].map((c) => c.localName)),
   ];
 
+  const transaction = transactionOf(doc);
   const types: FeatureType[] = descendants(doc, 'FeatureType').map((ft) => {
     const crs = ['DefaultCRS', 'DefaultSRS', 'SRS', 'OtherCRS', 'OtherSRS'].flatMap((n) => children(ft, n).map((c) => c.textContent?.trim() ?? ''));
     return {
@@ -68,6 +102,7 @@ export async function readWfs(url: string): Promise<ServiceCatalog> {
       crs: crs.filter(Boolean),
       box: geographicBox(ft),
       formats: [...descendants(ft, 'Format').map((f) => f.textContent?.trim() ?? ''), ...commonFormats],
+      operations: transaction.forType(ft),
     };
   });
   if (types.length === 0) throw new ServiceError('フィーチャータイプがありません');
@@ -78,11 +113,11 @@ export async function readWfs(url: string): Promise<ServiceCatalog> {
     url,
     title: descendants(doc, 'ServiceIdentification').map((s) => childText(s, 'Title'))[0] ?? descendants(doc, 'Service').map((s) => childText(s, 'Title'))[0] ?? url,
     choices,
-    open: async (choice) => openType(types.find((t) => t.name === choice.name)!, { url, endpoint, version }),
+    open: async (choice) => openType(types.find((t) => t.name === choice.name)!, { url, endpoint, version, transaction: transaction.endpoint ?? endpoint }),
   };
 }
 
-async function openType(type: FeatureType, ep: { url: string; endpoint: string; version: string }): Promise<ServiceLayer> {
+async function openType(type: FeatureType, ep: { url: string; endpoint: string; version: string; transaction: string }): Promise<ServiceLayer> {
   const v2 = ep.version.startsWith('2');
   const crs = type.crs.find((c) => epsgCode(c) === 3857) ?? type.crs[0] ?? 'EPSG:4326';
   const projection = await projectionOf(crs);
@@ -97,7 +132,7 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
     SRSNAME: crs,
     OUTPUTFORMAT: json,
   };
-  const [text, fields] = await Promise.all([
+  const [text, described] = await Promise.all([
     request(withParams(ep.endpoint, params)).then((r) => r.text()),
     describe(ep.endpoint, type.name, ep.version).catch(() => null),
   ]);
@@ -117,16 +152,35 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
   if (truncated) features = features.slice(0, MAX_FEATURES);
   toMap(features, projection, type.box, 'EPSG:3857');
 
+  const fields = described?.fields ?? null;
   const found = fieldsOf(features);
   const all: Field[] = fields ? [...fields, ...found.filter((f) => !fields.some((d) => d.name === f.name))] : found;
   const color = nextColor();
   const layer = vectorLayer(features);
+  // Editable when the server allows a transaction and the schema says where the features and their geometry go.
+  const schema = described?.schema;
+  const version = (['2.0.0', '1.1.0', '1.0.0'].includes(ep.version) ? ep.version : null) as WfsVersion | null;
+  if (type.operations && schema && version) for (const f of fields ?? []) f.editable = true;
+  const editTarget =
+    type.operations && schema && version
+      ? wfsTarget({
+          endpoint: ep.transaction,
+          version,
+          schema,
+          operations: type.operations,
+          srsName: crs,
+          toLayer: (g) => g.clone().transform('EPSG:3857', projection),
+          swap: latitudeFirst(crs, projection.getUnits() === 'degrees'),
+          fields: all,
+        })
+      : undefined;
   return {
     ref: { kind: 'wfs', url: ep.url, layer: type.name },
     title: type.title,
     layer,
     correction: null,
     vector: { source: layer.getSource()!, fields: all, truncated },
+    ...(editTarget ? { editTarget } : {}),
     style: new LayerStyle(layer, singleSpec(color)),
     extent: type.box ? transformExtent([type.box[0], Math.max(type.box[1], -85), type.box[2], Math.min(type.box[3], 85)], 'EPSG:4326', 'EPSG:3857') : null,
     info: [
@@ -135,19 +189,24 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
       ['フィーチャータイプ', type.name],
       ['座標系', crs],
       ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
+      ...(editTarget ? [['編集', `${[editTarget.canCreate && '追加', editTarget.canUpdate && '更新', editTarget.canDelete && '削除'].filter(Boolean).join('・')}（WFS-T）`] as [string, string]] : []),
     ],
   };
 }
 
-/** Attribute names and types from DescribeFeatureType (geometry left out). */
-async function describe(endpoint: string, name: string, version: string): Promise<Field[]> {
+/** Attribute names and types from DescribeFeatureType (geometry left out), and what a transaction needs. */
+async function describe(endpoint: string, name: string, version: string): Promise<{ fields: Field[]; schema: WfsSchema | null }> {
   const v2 = version.startsWith('2');
   const doc = await requestXml(withParams(endpoint, { SERVICE: 'WFS', VERSION: version, REQUEST: 'DescribeFeatureType', [v2 ? 'TYPENAMES' : 'TYPENAME']: name }));
   const fields: Field[] = [];
+  const order: string[] = [];
+  let geometry: { name: string; type: string } | null = null;
   for (const sequence of descendants(doc, 'sequence')) {
     for (const element of children(sequence, 'element')) {
       const fieldName = element.getAttribute('name');
       const type = (element.getAttribute('type') ?? descendants(element, 'restriction')[0]?.getAttribute('base') ?? '').replace(/^.*:/, '');
+      if (fieldName) order.push(fieldName);
+      if (fieldName && /PropertyType$|Geometry/i.test(type)) geometry ??= { name: fieldName, type };
       if (!fieldName || /PropertyType$|Geometry/i.test(type)) continue;
       fields.push({
         name: fieldName,
@@ -159,7 +218,10 @@ async function describe(endpoint: string, name: string, version: string): Promis
     }
   }
   if (fields.length === 0) throw new Error('no fields');
-  return fields;
+  const namespace = doc.documentElement.getAttribute('targetNamespace');
+  const schema: WfsSchema | null =
+    namespace && geometry ? { typeName: name, namespace, geometryName: geometry.name, geometryType: drawableOf(geometry.type), order } : null;
+  return { fields, schema };
 }
 
 /** WGS84BoundingBox (1.1, 2.0) or LatLongBoundingBox (1.0) as [west, south, east, north]. */

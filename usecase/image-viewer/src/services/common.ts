@@ -22,14 +22,21 @@ import type { TempRecord } from '../temp-layers.js';
 import { authFetch } from '../auth.js';
 
 /** The kinds of service the viewer reads. */
-export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri';
+export type ServiceKind = 'wms' | 'wmts' | 'wfs' | 'esri' | 'ogc-features' | 'ogc-tiles' | 'wcs' | 'ogc-coverage';
 
 export const serviceNames: Record<ServiceKind, string> = {
   wms: 'WMS',
   wmts: 'WMTS',
   wfs: 'WFS',
   esri: 'Esri（Feature・Map・Image サーバー）',
+  'ogc-features': 'OGC API – Features',
+  'ogc-tiles': 'OGC API – Tiles',
+  wcs: 'WCS（画素値）',
+  'ogc-coverage': 'OGC API – Coverages（画素値）',
 };
+
+/** Kinds whose layers open as a GeoTIFF of the values (through {@link OpenContext.openRaster}), not as a service layer. */
+export const RASTER_KINDS: readonly ServiceKind[] = ['wcs', 'ogc-coverage'];
 
 /** One attribute of a vector layer. */
 export interface Field {
@@ -70,6 +77,17 @@ export interface ServiceRef {
   format?: string;
   /** Esri image and map services: what is drawn (attribute conditions, order, raster function, layers). */
   settings?: EsriRasterSettings;
+  /** OGC API – Features, WCS, OGC API – Coverages: the area read, as [west, south, east, north] in degrees (all of it when absent). */
+  bbox?: [number, number, number, number];
+  /** OGC API – Features: the condition (CQL2 text, or `name=value` pairs). */
+  filter?: string;
+}
+
+/** A ref's `bbox`, when it is four finite numbers in order. */
+export function bboxOf(value: unknown): [number, number, number, number] | undefined {
+  return Array.isArray(value) && value.length === 4 && value.every((n) => typeof n === 'number' && Number.isFinite(n)) && value[0] <= value[2] && value[1] <= value[3]
+    ? (value as [number, number, number, number])
+    : undefined;
 }
 
 /** A layer of a service, added to the viewer. */
@@ -136,6 +154,22 @@ export interface LayerChoice {
   /** WMTS: tile matrix sets and image formats to choose from (the first is the default). */
   matrixSets?: string[];
   formats?: string[];
+  /** Offers the area to read: all of it or the view first (`vector`), or the view or selection first (`raster`). */
+  area?: 'vector' | 'raster';
+  /** Offers a condition: CQL2 text, or `name=value` pairs. */
+  filter?: 'cql2' | 'simple';
+}
+
+/** What the add dialog picks for a layer, besides the layer. */
+export interface OpenPick {
+  matrixSet?: string;
+  format?: string;
+  settings?: EsriRasterSettings;
+  /** The area to read (see {@link LayerChoice.area}). */
+  area?: 'view' | 'selection' | 'all';
+  /** A box kept in a link or project (degrees), instead of `area`. */
+  bbox?: [number, number, number, number];
+  filter?: string;
 }
 
 /** What a reader needs to open a layer. */
@@ -148,6 +182,10 @@ export interface OpenContext {
   rules?: readonly ServiceRule[];
   /** Shows a message to the user. */
   say: (message: string) => void;
+  /** The area shown, or the extent of the selected features, in `EPSG:3857`; null when there is none. */
+  area?: (which: 'view' | 'selection') => Extent | null;
+  /** Opens a GeoTIFF of values read from a service (WCS, OGC API – Coverages) as a local GeoTIFF; `url` fetches it again. */
+  openRaster?: (file: File, url: string) => Promise<void>;
 }
 
 /** A service, read: its layers to choose from. */
@@ -156,8 +194,11 @@ export interface ServiceCatalog {
   url: string;
   title: string;
   choices: LayerChoice[];
-  /** Opens one layer; `matrixSet` and `format` pick among a WMTS layer's. */
-  open: (choice: LayerChoice, context: OpenContext, pick?: { matrixSet?: string; format?: string; settings?: EsriRasterSettings }) => Promise<ServiceLayer>;
+  /**
+   * Opens one layer; `matrixSet` and `format` pick among a WMTS layer's.
+   * Null for a layer opened as an image instead ({@link RASTER_KINDS}).
+   */
+  open: (choice: LayerChoice, context: OpenContext, pick?: OpenPick) => Promise<ServiceLayer | null>;
 }
 
 /** The most features read from one vector layer. */

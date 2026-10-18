@@ -13,7 +13,7 @@
  */
 import { colorScales, type PipelineJSON } from 'browser-image-enhancement';
 import type { LayerBlendMode, LayerColorScale } from 'browser-image-enhancement/openlayers';
-import { serviceNames, type Field, type ServiceRef } from './services/index.js';
+import { bboxOf, serviceNames, type Field, type ServiceRef } from './services/index.js';
 import { settingsOf } from './services/esri-rules.js';
 import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
@@ -326,6 +326,9 @@ function readSource(s: Record<string, unknown>, sets: number): LayerSource | nul
       if (typeof r.format === 'string') ref.format = r.format;
       const settings = settingsOf(r.settings);
       if (settings) ref.settings = settings;
+      const bbox = bboxOf(r.bbox);
+      if (bbox) ref.bbox = bbox;
+      if (typeof r.filter === 'string' && r.filter) ref.filter = r.filter;
       return { kind: 'service', ref };
     }
     case 'files':

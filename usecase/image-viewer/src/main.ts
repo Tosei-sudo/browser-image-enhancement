@@ -119,6 +119,7 @@ import { AuthLoadImageControl } from './auth-cog.js';
 import { StacPanel } from './stac-panel.js';
 import { PcSigner, signingFetch, stacInfo } from './stac.js';
 import { ClipboardTools } from './clipboard.js';
+import { createEmpty, extend, isEmpty, type Extent } from 'ol/extent.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -544,7 +545,20 @@ boxSelect.on('boxend', () => {
 });
 map.addInteraction(boxSelect);
 
-const serviceContext = (): OpenContext => ({ gpu: onGpu, say, rules: config.serviceRules });
+const serviceContext = (): OpenContext => ({ gpu: onGpu, say, rules: config.serviceRules, area: serviceArea, openRaster: (file, url) => project.openFiles([file], url) });
+
+/** The area a service reads (OGC API, WCS): the view, or the selected features' extent. */
+function serviceArea(which: 'view' | 'selection'): Extent | null {
+  if (which === 'view') return map.getView().calculateExtent(map.getSize());
+  const features = selection.list();
+  if (!features.length) return null;
+  const extent = createEmpty();
+  for (const f of features) {
+    const g = f.getGeometry();
+    if (g) extend(extent, g.getExtent());
+  }
+  return isEmpty(extent) ? null : extent;
+}
 
 /** Adds a layer of a service (or a vector file) and zooms to it. */
 function addService(service: ServiceLayer): void {
@@ -1095,7 +1109,8 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     } else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
     else {
       const { type: kind, ...ref } = layer;
-      addService(await openRef({ kind, ...ref }, serviceContext()));
+      const opened = await openRef({ kind, ...ref }, serviceContext());
+      if (opened) addService(opened);
     }
   },
   serviceChoices: async (url, kind) => (await readService(url, kind)).choices,
@@ -1295,7 +1310,8 @@ async function openEsriUrl(url: string): Promise<boolean> {
   try {
     const catalog = await readService(url, 'esri');
     const choice = catalog.choices.find((c) => c.name === IMAGE_CHOICE || c.name === MAP_CHOICE)!;
-    addService(await catalog.open(choice, serviceContext()));
+    const layer = await catalog.open(choice, serviceContext());
+    if (layer) addService(layer);
   } catch (error) {
     say(`${url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}（トークンが必要なサービスは「サービスを追加」から開いてください）`);
     throw error;
@@ -1313,7 +1329,8 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
     else if (layer.type === 'file') await project.openFiles([await fetchFile(layer.url)], layer.url);
     else {
       const { type: kind, ...ref } = layer;
-      addService(await openRef({ kind, ...ref }, serviceContext()));
+      const opened = await openRef({ kind, ...ref }, serviceContext());
+      if (opened) addService(opened);
     }
   } catch (error) {
     // The loader's onError has already said why a COG failed.
@@ -1329,7 +1346,7 @@ const started = (async () => {
   // A shared link lists the service layers in config.json too: open those once.
   const fromConfig = new Set(config.layers.filter((l) => l.type !== 'cog' && l.type !== 'file').map((l) => refKey({ ...l, kind: l.type })));
   for (const ref of start.getAll('service').map(paramToRef)) {
-    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings });
+    if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings, bbox: ref.bbox, filter: ref.filter });
   }
   for (const layer of opening) await openAtStart(layer);
   // Elevation services of config.json, ready for orthorectification and 3D.
