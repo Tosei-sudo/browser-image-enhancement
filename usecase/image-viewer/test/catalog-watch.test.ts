@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { catalogOf } from '../src/catalog.js';
-import { checkWatch, sinceCondition, watchQuery, type CatalogWatch, type EsriAsk } from '../src/catalog-watch.js';
+import { addAreas, checkWatch, joinAreas, sinceCondition, watchQuery, type CatalogWatch, type EsriAsk } from '../src/catalog-watch.js';
 
 const catalog = catalogOf(
   { label: 'カタログ', url: 'https://svc/FeatureServer/0', fields: { id: 'IMG_ID', acquired: 'ACQ', registered: 'REG', sensor: 'SENSOR', angle: 'ANGLE', source: 'URL' }, where: "STATUS = 'OK'" },
@@ -14,7 +14,7 @@ const watch = (over: Partial<CatalogWatch> = {}): CatalogWatch => ({
   catalog,
   types: { ACQ: 'esriFieldTypeDate', REG: 'esriFieldTypeDate' },
   conditions: { sensor: 'S1', maxAngle: 20, azimuthFrom: null, azimuthTo: null, where: '' },
-  area: { kind: 'point', lon: 139.7, lat: 35.6 },
+  areas: [{ kind: 'points', points: [[139.7, 35.6]] }],
   enabled: true,
   created,
   lastChecked: null,
@@ -45,9 +45,12 @@ describe('watchQuery', () => {
     expect(JSON.parse(q.geometry)).toEqual({ x: 139.7, y: 35.6, spatialReference: { wkid: 4326 } });
     expect(q.spatialRel).toBe('esriSpatialRelIntersects');
   });
-  it('asks a polygon, or anywhere', () => {
-    expect(watchQuery(watch({ area: { kind: 'polygon', rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }), null).geometryType).toBe('esriGeometryPolygon');
-    expect(watchQuery(watch({ area: null }), null).geometry).toBeUndefined();
+  it('asks several points as a multipoint, a polygon, or anywhere', () => {
+    const many = watchQuery(watch({ areas: [{ kind: 'points', points: [[139.7, 35.6], [135.5, 34.7]] }] }), null);
+    expect(many.geometryType).toBe('esriGeometryMultipoint');
+    expect(JSON.parse(many.geometry).points).toEqual([[139.7, 35.6], [135.5, 34.7]]);
+    expect(watchQuery(watch({ areas: [{ kind: 'polygon', rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }] }), null).geometryType).toBe('esriGeometryPolygon');
+    expect(watchQuery(watch({ areas: [] }), null).geometry).toBeUndefined();
   });
 });
 
@@ -91,5 +94,40 @@ describe('checkWatch', () => {
     const result = await checkWatch(watch({ lastChecked: created }), old, created + 1);
     expect(calls).toHaveLength(2);
     expect(result.notices.map((n) => n.imageId)).toEqual(['A']);
+  });
+
+  it('asks each area (points, then polygons) and notices an image once', async () => {
+    const calls: Array<Record<string, string>> = [];
+    const areas = joinAreas([{ kind: 'points', points: [[1, 1]] }], [{ kind: 'polygon', rings: [[[0, 0], [0, 2], [2, 2], [0, 0]]] }, { kind: 'points', points: [[2, 2]] }]);
+    expect(areas.map((a) => a.kind)).toEqual(['points', 'polygon']);
+    const result = await checkWatch(watch({ areas, lastChecked: created, seen: [] }), answering(['A', 'B'], calls), created + 1);
+    expect(calls.map((c) => c.geometryType)).toEqual(['esriGeometryMultipoint', 'esriGeometryPolygon']);
+    expect(result.notices.map((n) => n.imageId).sort()).toEqual(['A', 'B']);
+  });
+
+  it('adds a point to a watch, noting the images already there', async () => {
+    const before = watch({ lastChecked: created, seen: ['A'] });
+    const after = await addAreas(before, [{ kind: 'points', points: [[135.5, 34.7]] }], answering(['A', 'X']), created + 1);
+    expect(after.areas).toEqual([{ kind: 'points', points: [[139.7, 35.6], [135.5, 34.7]] }]);
+    expect(after.seen).toEqual(['A', 'X']);
+    expect(after.lastChecked).toBe(created);
+    const next = await checkWatch(after, answering(['A', 'X', 'Y']), created + 2);
+    expect(next.notices.map((n) => n.imageId)).toEqual(['Y']);
+  });
+});
+
+describe('areasOf', () => {
+  it('joins points into one set and polygons into one polygon, outer rings clockwise', async () => {
+    const { areasOf } = await import('../src/watch-areas.js');
+    const { LineString, Point, Polygon } = await import('ol/geom.js');
+    const square = new Polygon([[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]); // anticlockwise
+    const areas = areasOf([new Point([139.7, 35.6]), square, new Point([135.5, 34.7]), new LineString([[2, 2], [3, 4]])], 'EPSG:4326');
+    expect(areas[0]).toEqual({ kind: 'points', points: [[139.7, 35.6], [135.5, 34.7]] });
+    expect(areas[1].kind).toBe('polygon');
+    const rings = (areas[1] as { rings: number[][][] }).rings;
+    expect(rings).toHaveLength(2);
+    // Shoelace: clockwise rings have a negative signed area.
+    const signed = (r: number[][]) => r.slice(1).reduce((sum, [x, y], i) => sum + (r[i][0] * y - x * r[i][1]), 0);
+    expect(rings.every((r) => signed(r) < 0)).toBe(true);
   });
 });

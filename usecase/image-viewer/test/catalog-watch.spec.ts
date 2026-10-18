@@ -114,19 +114,37 @@ test('a watch made in the catalog panel notifies a new image, which opens from �
   expect(errors).toEqual([]);
 });
 
-test('the map menu watches a point', async ({ page }) => {
+test('the map menu watches a point, and further points join the same watch', async ({ page }) => {
   await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ imageCatalogs: [catalog] }) }));
   const queries = await serveCatalog(page, [image('OLD-1', 1)]);
   await page.goto('/index.html');
   await page.waitForFunction(() => window.viewer !== undefined);
+  const menu = page.locator('.coordinate-menu').getByRole('menuitem', { name: 'この地点の新着画像を監視…' });
   await page.locator('#map').click({ button: 'right', position: { x: 300, y: 300 } });
-  await page.locator('.coordinate-menu').getByRole('menuitem', { name: 'この地点の新着画像を監視…' }).click();
+  await menu.click();
   const create = page.locator('.watch-create');
   await expect(create.locator('.watch-point')).toBeVisible();
   await expect(create.locator('.watch-point input')).toBeChecked();
+  // No watch yet: nothing to add to.
+  await expect(create.locator('.watch-target')).toBeHidden();
+  await create.locator('input[name=name]').fill('POI');
   await create.locator('button[value=ok]').click();
-  await expect.poll(() => page.evaluate(() => window.viewer.watch.watches()[0]?.area?.kind ?? null)).toBe('point');
-  await expect.poll(() => queries.length).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.viewer.watch.watches()[0]?.lastChecked ?? null)).not.toBeNull();
+
+  // A second point joins it.
+  await page.locator('#map').click({ button: 'right', position: { x: 420, y: 260 } });
+  await menu.click();
+  await expect(create.locator('.watch-target')).toBeVisible();
+  await create.locator('select[name=target]').selectOption({ label: '「POI」に地点を追加' });
+  await expect(create.locator('input[name=name]')).toBeHidden();
+  await expect(create.locator('button[value=ok]')).toHaveText('地点を追加');
+  await create.locator('button[value=ok]').click();
+  await expect.poll(() => page.evaluate(() => window.viewer.watch.watches().map((w) => w.areas.map((a) => (a.kind === 'points' ? a.points.length : -1))))).toEqual([[2]]);
+  expect(await page.evaluate(() => window.viewer.watch.watches().length)).toBe(1);
+  await page.locator('#watch-open').click();
+  await page.locator('.watch-more summary').click();
+  await expect(page.locator('.watch-watch')).toContainText('地点 2 か所');
+  expect(queries.length).toBeGreaterThan(0);
 });
 
 test.describe('installed app', () => {
@@ -158,7 +176,7 @@ test.describe('installed app', () => {
           catalog: { ...catalog, url, labels: {}, columns: [], maxResults: 500, angleKind: 'offNadir', orbitHeight: 600, fields: { ...catalog.fields, source: [catalog.fields.source] } },
           types: { REG_TIME: 'esriFieldTypeDate' },
           conditions: { sensor: '', maxAngle: null, azimuthFrom: null, azimuthTo: null, where: '' },
-          area: null,
+          areas: [],
           enabled: true,
           created: now,
           lastChecked: now,

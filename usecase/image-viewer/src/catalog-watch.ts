@@ -1,5 +1,5 @@
 /**
- * Watches on image catalogs: conditions saved in advance (a point or an area,
+ * Watches on image catalogs: conditions saved in advance (points or areas,
  * the sensor, an angle limit, a SQL condition) that the viewer checks the
  * catalog against again and again, turning each image that newly matches into
  * a notice (the app icon's badge and the notification centre, watch-panel.ts).
@@ -14,8 +14,11 @@
 import type { CatalogConfig } from './catalog.js';
 import { emptySearch, timeOf, utcText, whereOf, type CatalogSearch, type FieldTypes } from './catalog-query.js';
 
-/** Where the images must be: on a point (POI) or over an area (AOI), in longitude / latitude. */
-export type WatchArea = { kind: 'point'; lon: number; lat: number } | { kind: 'polygon'; rings: number[][][] };
+/**
+ * Where the images must be, in longitude / latitude: on one of the points (POIs, `[lon, lat]`), or over
+ * the polygon (AOIs, every ring of every area in one Esri polygon: outer rings clockwise, holes anticlockwise).
+ */
+export type WatchArea = { kind: 'points'; points: number[][] } | { kind: 'polygon'; rings: number[][][] };
 
 /** The conditions of a watch other than the area (the catalog search's, without its dates). */
 export type WatchConditions = Pick<CatalogSearch, 'sensor' | 'maxAngle' | 'azimuthFrom' | 'azimuthTo' | 'where'>;
@@ -28,8 +31,8 @@ export interface CatalogWatch {
   /** The catalog layer's field types, for the date condition. */
   types: FieldTypes;
   conditions: WatchConditions;
-  /** Null: anywhere. */
-  area: WatchArea | null;
+  /** Asked one after another, an image on any of them matching; empty: anywhere. */
+  areas: WatchArea[];
   enabled: boolean;
   created: number;
   /** When the catalog was last asked; null before the first check (which only notes what is already there). */
@@ -88,16 +91,23 @@ export function sinceCondition(field: string, type: string | undefined, time: nu
   return `${field} >= TIMESTAMP '${utcText(time)}'`;
 }
 
-/** The query of one check: the watch's conditions, its area and the images since `since` (ms). */
-export function watchQuery(watch: CatalogWatch, since: number | null): Record<string, string> {
-  const { catalog, types, conditions, area } = watch;
+/** The query of one check over `area` (anywhere when null): the watch's conditions and the images since `since` (ms). */
+export function watchQuery(watch: CatalogWatch, since: number | null, area: WatchArea | null = watch.areas[0] ?? null): Record<string, string> {
+  const { catalog, types, conditions } = watch;
   const parts = [whereOf(catalog, types, { ...emptySearch, ...conditions })].filter((w) => w !== '1=1');
   const newness = newnessOf(catalog);
   if (newness && since !== null) parts.push(sinceCondition(newness.field, types[newness.field], since - newness.margin));
   const params: Record<string, string> = { where: parts.length ? parts.join(' AND ') : '1=1', outFields: '*', returnGeometry: 'true', outSR: '4326' };
   if (area) {
-    params.geometry = JSON.stringify(area.kind === 'point' ? { x: area.lon, y: area.lat, spatialReference: { wkid: 4326 } } : { rings: area.rings, spatialReference: { wkid: 4326 } });
-    params.geometryType = area.kind === 'point' ? 'esriGeometryPoint' : 'esriGeometryPolygon';
+    const one = area.kind === 'points' && area.points.length === 1;
+    params.geometry = JSON.stringify(
+      one
+        ? { x: area.points[0][0], y: area.points[0][1], spatialReference: { wkid: 4326 } }
+        : area.kind === 'points'
+          ? { points: area.points, spatialReference: { wkid: 4326 } }
+          : { rings: area.rings, spatialReference: { wkid: 4326 } },
+    );
+    params.geometryType = one ? 'esriGeometryPoint' : area.kind === 'points' ? 'esriGeometryMultipoint' : 'esriGeometryPolygon';
     params.inSR = '4326';
     params.spatialRel = 'esriSpatialRelIntersects';
   }
@@ -140,16 +150,19 @@ export interface CheckResult {
 export async function checkWatch(watch: CatalogWatch, ask: EsriAsk, now = Date.now()): Promise<CheckResult> {
   const { catalog } = watch;
   const since = watch.lastChecked ?? watch.created;
-  const params = watchQuery(watch, since);
   const newness = newnessOf(catalog);
   type Answer = { features?: EsriFeature[]; objectIdFieldName?: string };
-  let json: Answer;
+  const answers: Answer[] = [];
   try {
-    try {
-      json = (await ask(`${catalog.url}/query`, { ...params, ...(newness ? { orderByFields: `${newness.field} DESC` } : {}), resultRecordCount: String(MAX_FOUND) }, catalog.token)) as Answer;
-    } catch {
-      // Older services refuse ordering or paging.
-      json = (await ask(`${catalog.url}/query`, params, catalog.token)) as Answer;
+    // Points and polygons are separate geometries of the query: one question each.
+    for (const area of watch.areas.length ? watch.areas : [null]) {
+      const params = watchQuery(watch, since, area);
+      try {
+        answers.push((await ask(`${catalog.url}/query`, { ...params, ...(newness ? { orderByFields: `${newness.field} DESC` } : {}), resultRecordCount: String(MAX_FOUND) }, catalog.token)) as Answer);
+      } catch {
+        // Older services refuse ordering or paging.
+        answers.push((await ask(`${catalog.url}/query`, params, catalog.token)) as Answer);
+      }
     }
   } catch (error) {
     return { watch: { ...watch, lastTried: now, lastError: error instanceof Error ? error.message : String(error) }, notices: [] };
@@ -157,9 +170,9 @@ export async function checkWatch(watch: CatalogWatch, ask: EsriAsk, now = Date.n
   const seen = new Set(watch.seen);
   const notices: WatchNotice[] = [];
   const keys: string[] = [];
-  for (const feature of json.features ?? []) {
+  for (const [feature, objectIdField] of answers.flatMap((json) => (json.features ?? []).map((f) => [f, json.objectIdFieldName] as const))) {
     if (!feature || typeof feature !== 'object') continue;
-    const key = keyOf(feature, catalog, json.objectIdFieldName);
+    const key = keyOf(feature, catalog, objectIdField);
     if (seen.has(key)) continue;
     seen.add(key);
     keys.push(key);
@@ -185,6 +198,24 @@ export async function checkWatch(watch: CatalogWatch, ask: EsriAsk, now = Date.n
   const rest = { ...watch };
   delete rest.lastError;
   return { watch: { ...rest, lastChecked: now, lastTried: now, seen: remembered }, notices };
+}
+
+/** `areas` and `more` as one list: points joined into one set of points, rings into one polygon. */
+export function joinAreas(areas: WatchArea[], more: WatchArea[]): WatchArea[] {
+  const points = [...areas, ...more].flatMap((a) => (a.kind === 'points' ? a.points : []));
+  const rings = [...areas, ...more].flatMap((a) => (a.kind === 'polygon' ? a.rings : []));
+  return [...(points.length ? [{ kind: 'points' as const, points }] : []), ...(rings.length ? [{ kind: 'polygon' as const, rings }] : [])];
+}
+
+/**
+ * `watch` with `more` areas: the images already over them are noted first
+ * (as a new watch's first check does), so only images new to them are notified.
+ */
+export async function addAreas(watch: CatalogWatch, more: WatchArea[], ask: EsriAsk, now = Date.now()): Promise<CatalogWatch> {
+  if (!watch.areas.length) return watch;
+  const first = await checkWatch({ ...watch, areas: more, lastChecked: null, created: watch.lastChecked ?? watch.created }, ask, now);
+  if (first.watch.lastError) throw new Error(first.watch.lastError);
+  return { ...watch, areas: joinAreas(watch.areas, more), seen: [...new Set([...watch.seen, ...first.watch.seen])].slice(-MAX_SEEN) };
 }
 
 // ------------------------------------------------------------ the database
@@ -318,7 +349,7 @@ export async function checkDue(ask: EsriAsk, interval: number, force = false): P
         request.onsuccess = () => {
           const current = request.result as CatalogWatch | undefined;
           if (!current) return;
-          watches.put({ ...after, name: current.name, enabled: current.enabled, conditions: current.conditions, area: current.area });
+          watches.put({ ...after, name: current.name, enabled: current.enabled, conditions: current.conditions, areas: current.areas, seen: [...new Set([...current.seen, ...after.seen])].slice(-MAX_SEEN) });
           for (const n of notices) tx.objectStore(NOTICES).put({ ...n, watchName: current.name });
         };
         const extra = existing.length + notices.length - MAX_NOTICES;

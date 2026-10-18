@@ -2798,6 +2798,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+.watch-form [hidden],
 .watch-areas [hidden] {
   display: none;
 }

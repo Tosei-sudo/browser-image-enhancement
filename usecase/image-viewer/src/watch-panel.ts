@@ -14,15 +14,16 @@
  */
 import type OlMap from 'ol/Map.js';
 import type Feature from 'ol/Feature.js';
-import type { Geometry } from 'ol/geom.js';
 import EsriJSON from 'ol/format/EsriJSON.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Fill, Stroke, Style } from 'ol/style.js';
 import { transformExtent } from 'ol/proj.js';
 import { fromExtent } from 'ol/geom/Polygon.js';
+import { areasOf } from './watch-areas.js';
 import { recordOf, roleLabels, timeText, type CatalogConfig, type CatalogRecord, type FieldTypes } from './catalog.js';
 import {
+  addAreas,
   checkDue,
   deleteNotices,
   deleteWatch,
@@ -70,32 +71,20 @@ const format = new EsriJSON();
 const MINUTE = 60 * 1000;
 
 /** A short description of a watch's conditions. */
-export function conditionsText(watch: Pick<CatalogWatch, 'catalog' | 'conditions' | 'area'>): string {
-  const { catalog, conditions: c, area } = watch;
+export function conditionsText(watch: Pick<CatalogWatch, 'catalog' | 'conditions' | 'areas'>): string {
+  const { catalog, conditions: c, areas } = watch;
   const parts: string[] = [catalog.label];
-  if (area?.kind === 'point') parts.push(`地点 ${area.lat.toFixed(4)}, ${area.lon.toFixed(4)}`);
-  else if (area) parts.push('範囲');
-  else parts.push('範囲なし');
+  for (const area of areas) {
+    if (area.kind === 'polygon') parts.push('範囲');
+    else if (area.points.length === 1) parts.push(`地点 ${area.points[0][1].toFixed(4)}, ${area.points[0][0].toFixed(4)}`);
+    else parts.push(`地点 ${area.points.length} か所`);
+  }
+  if (!areas.length) parts.push('範囲なし');
   if (c.sensor) parts.push(`${catalog.labels.sensor ?? roleLabels.sensor} ${c.sensor}`);
   if (c.maxAngle !== null) parts.push(`${catalog.labels.angle ?? roleLabels.angle} ${c.maxAngle}° 以下`);
   if (c.azimuthFrom !== null || c.azimuthTo !== null) parts.push(`${catalog.labels.azimuth ?? roleLabels.azimuth} ${c.azimuthFrom ?? 0}〜${c.azimuthTo ?? 360}°`);
   if (c.where.trim()) parts.push(c.where.trim());
   return parts.join(' ・ ');
-}
-
-/** An area of the map (in `projection`) as a watch area in longitude / latitude: a point, or the rings of a polygon (else its extent). */
-export function areaOf(geometry: Geometry, projection: string): WatchArea | null {
-  const g = geometry.clone().transform(projection, 'EPSG:4326');
-  const type = g.getType();
-  if (type === 'Point') {
-    const [lon, lat] = (g as import('ol/geom.js').Point).getCoordinates();
-    return { kind: 'point', lon, lat };
-  }
-  if (type === 'Polygon') return { kind: 'polygon', rings: (g as import('ol/geom.js').Polygon).getCoordinates() };
-  if (type === 'MultiPolygon') return { kind: 'polygon', rings: (g as import('ol/geom.js').MultiPolygon).getCoordinates().flat() };
-  const extent = g.getExtent();
-  if (!extent.every(Number.isFinite)) return null;
-  return { kind: 'polygon', rings: fromExtent(extent).getCoordinates() };
 }
 
 export class WatchPanel {
@@ -162,12 +151,13 @@ export class WatchPanel {
     this.create_.innerHTML = `
       <h2 id="watch-create-title">新着画像を監視</h2>
       <form method="dialog" class="service-form watch-form">
-        <label class="wide">名前<input name="name" type="text" required autocomplete="off" /></label>
+        <label class="wide watch-target" hidden>追加先<select name="target"><option value="">新しい監視条件</option></select></label>
+        <label class="wide watch-name">名前<input name="name" type="text" required autocomplete="off" /></label>
         <fieldset class="wide watch-areas">
           <legend>範囲</legend>
           <label class="check watch-point" hidden><input type="radio" name="area" value="point" /><span></span></label>
           <label class="check"><input type="radio" name="area" value="view" checked />いまの表示範囲</label>
-          <label class="check watch-selected"><input type="radio" name="area" value="selected" />選択中の地物</label>
+          <label class="check watch-selected"><input type="radio" name="area" value="selected" /><span>選択中の地物</span></label>
           <label class="check"><input type="radio" name="area" value="none" />指定しない</label>
         </fieldset>
         <p class="wide watch-conditions"></p>
@@ -179,6 +169,8 @@ export class WatchPanel {
       </form>`;
     document.body.append(this.create_);
     this.create_.querySelector('button[value=cancel]')!.addEventListener('click', () => this.create_.close());
+    const target = this.create_.querySelector<HTMLSelectElement>('select[name=target]')!;
+    target.addEventListener('change', () => this.showTarget());
     this.create_.querySelector('form')!.addEventListener('submit', (e) => {
       e.preventDefault();
       void this.saveNew();
@@ -398,40 +390,66 @@ export class WatchPanel {
 
   /**
    * Opens the dialog that makes a watch of `conditions` in `catalog`: over
-   * the view, the chosen feature, `point` (a POI, preselected) or anywhere.
+   * the view, the chosen features (several points and areas), `point` (a POI,
+   * preselected; it can also join a watch made before) or anywhere.
    */
   create(catalog: CatalogConfig, types: FieldTypes, conditions: WatchConditions, point: { lon: number; lat: number } | null = null): void {
-    this.pending_ = { catalog, types, conditions, point: point ? { kind: 'point', ...point } : null };
+    this.pending_ = { catalog, types, conditions, point: point ? { kind: 'points', points: [[point.lon, point.lat]] } : null };
     const form = this.create_.querySelector('form')!;
     const pointRow = form.querySelector<HTMLElement>('.watch-point')!;
     pointRow.hidden = !point;
     if (point) pointRow.querySelector('span')!.textContent = `この地点（${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}）`;
-    const selected = this.options.selected().some((f) => f.getGeometry());
-    form.querySelector<HTMLElement>('.watch-selected')!.hidden = !selected;
+    const selected = this.options.selected().filter((f) => f.getGeometry()).length;
+    const selectedRow = form.querySelector<HTMLElement>('.watch-selected')!;
+    selectedRow.hidden = selected === 0;
+    selectedRow.querySelector('span')!.textContent = `選択中の地物（${selected} 件。複数の地点・範囲のどれかに写れば知らせます）`;
     (form.querySelector(`input[value=${point ? 'point' : 'view'}]`) as HTMLInputElement).checked = true;
-    form.querySelector('.watch-conditions')!.textContent = `条件: ${conditionsText({ catalog, conditions, area: null }).split(' ・ ').filter((p) => p !== '範囲なし').join(' ・ ')}`;
+    form.querySelector('.watch-conditions')!.textContent = `条件: ${conditionsText({ catalog, conditions, areas: [] }).split(' ・ ').filter((p) => p !== '範囲なし').join(' ・ ')}`;
+    // A point can join a watch that already has points or areas (several POIs in one watch).
+    const target = form.elements.namedItem('target') as HTMLSelectElement;
+    target.replaceChildren(new Option('新しい監視条件', ''), ...this.watchList_.filter((w) => w.areas.length).map((w) => new Option(`「${w.name}」に地点を追加`, w.id)));
+    form.querySelector<HTMLElement>('.watch-target')!.hidden = !point || target.options.length === 1;
+    this.showTarget();
     const name = form.elements.namedItem('name') as HTMLInputElement;
     name.value = [point ? `地点 ${point.lat.toFixed(3)}, ${point.lon.toFixed(3)}` : '', conditions.sensor].filter(Boolean).join(' ') || `監視 ${this.watchList_.length + 1}`;
     this.create_.showModal();
     name.select();
   }
 
-  /** Makes the watch of the create dialog and checks it once (which notes the images already there). */
+  /** Adding to a watch keeps its name, area choice and conditions: those rows step aside. */
+  private showTarget(): void {
+    const form = this.create_.querySelector('form')!;
+    const adding = (form.elements.namedItem('target') as HTMLSelectElement).value !== '';
+    for (const selector of ['.watch-name', '.watch-areas', '.watch-conditions']) form.querySelector<HTMLElement>(selector)!.hidden = adding;
+    (form.elements.namedItem('name') as HTMLInputElement).required = !adding;
+    form.querySelector<HTMLButtonElement>('button[value=ok]')!.textContent = adding ? '地点を追加' : '監視を始める';
+  }
+
+  /** Makes the watch of the create dialog (or adds its point to a watch) and checks it once (which notes the images already there). */
   private async saveNew(): Promise<void> {
     const pending = this.pending_;
     if (!pending) return;
     const form = this.create_.querySelector('form')!;
+    const targetId = (form.elements.namedItem('target') as HTMLSelectElement).value;
+    const target = targetId ? this.watchList_.find((w) => w.id === targetId) : undefined;
+    if (target && pending.point) {
+      this.create_.close();
+      try {
+        await putWatch(await addAreas(target, [pending.point], this.options.ask));
+      } catch (error) {
+        return void this.options.say(`地点を追加できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return void this.options.say(`「${target.name}」に地点を追加しました`);
+    }
     const choice = (form.querySelector('input[name=area]:checked') as HTMLInputElement | null)?.value ?? 'view';
     const projection = this.map.getView().getProjection().getCode();
-    let area: WatchArea | null = null;
-    if (choice === 'point') area = pending.point;
-    else if (choice === 'selected') {
-      const geometry = this.options.selected().find((f) => f.getGeometry())?.getGeometry();
-      area = geometry ? areaOf(geometry, projection) : null;
-    } else if (choice === 'view') {
+    let areas: WatchArea[] = [];
+    if (choice === 'point' && pending.point) areas = [pending.point];
+    else if (choice === 'selected') areas = areasOf(this.options.selected().flatMap((f) => f.getGeometry() ?? []), projection);
+    else if (choice === 'view') {
       const extent = transformExtent(this.map.getView().calculateExtent(this.map.getSize()), projection, 'EPSG:4326');
       const clamped = [Math.max(-180, extent[0]), Math.max(-90, extent[1]), Math.min(180, extent[2]), Math.min(90, extent[3])];
-      area = { kind: 'polygon', rings: fromExtent(clamped).getCoordinates() };
+      areas = [{ kind: 'polygon', rings: fromExtent(clamped).getCoordinates(false) }];
     }
     const name = (form.elements.namedItem('name') as HTMLInputElement).value.trim() || '監視';
     const watch: CatalogWatch = {
@@ -440,7 +458,7 @@ export class WatchPanel {
       catalog: pending.catalog,
       types: pending.types,
       conditions: pending.conditions,
-      area,
+      areas,
       enabled: true,
       created: Date.now(),
       lastChecked: null,
