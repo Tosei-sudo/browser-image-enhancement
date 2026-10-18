@@ -488,13 +488,60 @@ body {
   position: fixed;
   right: 8px;
   bottom: 8px;
-  max-width: calc(100% - 16px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(48rem, calc(100% - 16px));
   margin: 0;
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--bg);
   color: var(--muted);
   font-size: 12px;
+}
+.status:not(:has(.status-text:not(:empty))) {
+  display: none;
+}
+/* A long message stays within two lines (the whole of it on hover). */
+.status-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.status-more {
+  flex: none;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.status-more[hidden],
+.status-details[hidden] {
+  display: none;
+}
+/* The messages of many files opened together, above the line. */
+.status-details {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  width: min(40rem, calc(100vw - 16px));
+  max-height: 40vh;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 10px 6px 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px var(--shadow);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.status-details li + li {
+  margin-top: 2px;
+}
+.status-error {
+  color: var(--danger);
 }
 /* Version and build of the site, kept at the bottom of the side panel. */
 .build {

@@ -50,6 +50,7 @@ import { isQgisName, qgisText, readQgs, writeQgs } from './qgis-project.js';
 import { symbolKindOf } from './style-file.js';
 import { projectionOf } from './services/common.js';
 import { transform, transformExtent } from 'ol/proj.js';
+import { nameList, type StatusBatch } from './status-line.js';
 
 /** Files opened together, as the viewer opened them. */
 export interface OpenedSet {
@@ -73,6 +74,8 @@ export interface ProjectOptions {
   openFiles: (files: File[], options?: { fit?: boolean; onProgress?: (done: number, total: number) => void }) => Promise<void>;
   serviceContext: () => OpenContext;
   say: (message: string) => void;
+  /** Starts a batch on the status line for many images opened together: their messages are summed up rather than said one by one. */
+  beginStatus?: (total: number, label?: string) => StatusBatch;
   /** Remembers a project file opened or saved in 「最近」. */
   remember?: (handles: FileSystemFileHandle[]) => void;
   /** Called when the layers have changed (to update the link). */
@@ -173,7 +176,9 @@ export class ProjectControl {
     // Many images: their group is there at once (folded when they are a lot), saying how far they have got.
     const batch = images.beginBatch(groupNameOf(files.map((f) => f.name)), { group: many, collapsed: pictures > GROUP_FOLD_ABOVE });
     let fitted = false;
+    const status = many ? this.options.beginStatus?.(pictures) : undefined;
     const onProgress = (done: number, total: number) => {
+      status?.progress(done);
       const group = images.batchGroup();
       if (!group) return;
       images.setGroupNote(group, done < total ? `読み込み中 ${done}/${total}` : null);
@@ -184,12 +189,15 @@ export class ProjectControl {
     try {
       await this.track_({ files, ...(url ? { url } : {}) }, () => this.options.openFiles(files, many ? { fit: false, onProgress } : {}));
     } finally {
+      let said: string | undefined;
       if (batch) {
         const { group, added } = images.endBatch();
         if (many && group) void images.zoomToGroup(group);
         else if (many && added[0]) void images.zoomTo(added[0]);
-        if (group && added.length > 2) this.options.say(`${added.length} 件のレイヤーをグループ「${group.name}」にまとめて開きました`);
+        if (group && added.length > 2) said = `${added.length} 件のレイヤーをグループ「${group.name}」にまとめて開きました`;
       }
+      if (status) status.end(said);
+      else if (said) this.options.say(said);
     }
   }
 
@@ -460,6 +468,7 @@ export class ProjectControl {
       return false;
     }
     this.busy_ = true;
+    let status: StatusBatch | undefined;
     try {
       await this.ready_;
       const keepTemp = new Set(project.layers.flatMap((l) => (l.source.kind === 'temp' ? [l.source.layer.id] : [])));
@@ -473,6 +482,8 @@ export class ProjectControl {
       this.setName_(name);
       this.options.baseMap.set(project.baseMap);
       say(`プロジェクト「${name}」を開いています…`);
+      // Messages of the files opening are summed up on the status line, with the problems below.
+      status = this.options.beginStatus?.(project.layers.length, `プロジェクト「${name}」を開いています…`);
 
       const files = await this.findFiles_(project, handle);
       const problems: string[] = [];
@@ -564,9 +575,12 @@ export class ProjectControl {
       const missing = project.layers.filter((_, i) => !found[i]).map((l) => l.name);
       if (skipped) problems.push(`読めないレイヤー ${skipped} 件`);
       if (missing.length) problems.unshift(...missing);
-      say(problems.length ? `プロジェクト「${name}」を開きました（開けなかったもの: ${problems.join('、')}）` : `プロジェクト「${name}」を開きました`);
+      if (status) status.end(`プロジェクト「${name}」を開きました`, problems);
+      else say(problems.length ? `プロジェクト「${name}」を開きました（開けなかったもの: ${nameList(problems)}）` : `プロジェクト「${name}」を開きました`);
+      status = undefined;
       return true;
     } finally {
+      status?.end();
       this.busy_ = false;
     }
   }
