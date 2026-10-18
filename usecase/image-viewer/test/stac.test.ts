@@ -16,6 +16,7 @@ import {
   searchParams,
   searchStac,
   searchUrl,
+  signingFetch,
   stacCatalogOf,
   walkStatic,
   type StacSearch,
@@ -248,15 +249,31 @@ describe('network', () => {
     await expect(walkStatic('https://s/none.json', async () => 'x')).rejects.toThrow();
   });
 
-  it('signs Planetary Computer blobs with the collection’s token, once', async () => {
+  it('signs Planetary Computer blobs with their container’s token, once', async () => {
     const asked: string[] = [];
     const signer = new PcSigner(async (url) => (asked.push(url), { token: 'st=1&se=2&sig=abc%3D', 'msft:expiry': new Date(Date.now() + 3600_000).toISOString() }));
-    expect(await signer.sign('https://acct.blob.core.windows.net/c/B04.tif', 'sentinel-2-l2a')).toBe('https://acct.blob.core.windows.net/c/B04.tif?st=1&se=2&sig=abc%3D');
-    expect(await signer.sign('https://acct.blob.core.windows.net/c/B03.tif', 'sentinel-2-l2a')).toContain('sig=abc');
-    expect(asked).toEqual(['https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-2-l2a']);
-    // Other hosts are left as they are.
-    expect(await signer.sign('https://example.com/a.tif', 'sentinel-2-l2a')).toBe('https://example.com/a.tif');
-    const bad = new PcSigner(async () => ({ token: '<script>' }));
-    await expect(bad.sign('https://acct.blob.core.windows.net/c/x.tif', 'x')).rejects.toThrow();
+    expect(await signer.sign('https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/B04.tif')).toBe('https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/B04.tif?st=1&se=2&sig=abc%3D');
+    expect(await signer.sign('https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/B03.tif')).toContain('sig=abc');
+    expect(asked).toEqual(['https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel2l2a01/sentinel2-l2']);
+    // Other hosts, and URLs signed already, are left as they are.
+    expect(await signer.sign('https://example.com/a.tif')).toBe('https://example.com/a.tif');
+    expect(PcSigner.containerOf('https://a01.blob.core.windows.net/c01/x.tif?sig=x')).toBeNull();
+    // No token (a bad answer, or none): unsigned, and not asked again at once.
+    const calls: string[] = [];
+    const bad = new PcSigner(async (url) => (calls.push(url), { token: '<script>' }));
+    expect(await bad.sign('https://acct.blob.core.windows.net/cont/x.tif')).toBe('https://acct.blob.core.windows.net/cont/x.tif');
+    await bad.sign('https://acct.blob.core.windows.net/cont/y.tif');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('signs only the requests, keeping the URL unsigned', async () => {
+    const sent: string[] = [];
+    const base = (async (input: RequestInfo | URL) => (sent.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url), new Response('ok'))) as typeof fetch;
+    const signed = signingFetch(base, new PcSigner(async () => ({ token: 'sig=t' })));
+    const blob = 'https://acct.blob.core.windows.net/cont/x.tif';
+    await signed(blob, { headers: { Range: 'bytes=0-1' } });
+    await signed(new Request(blob));
+    await signed('https://example.com/x.tif');
+    expect(sent).toEqual([`${blob}?sig=t`, `${blob}?sig=t`, 'https://example.com/x.tif']);
   });
 });

@@ -9,8 +9,8 @@
  * Search (Sentinel-2 L2A, Landsat C2 L2) is used, and `"stacCatalogs": []`
  * turns the panel off, so nothing leaves the page on a closed network.
  * Headers (a token) go only to the catalog's own origin; Planetary
- * Computer's assets are signed with its SAS tokens when the catalog says
- * `"sign": "planetary-computer"`.
+ * Computer's assets are signed with its SAS tokens when a catalog says
+ * `"sign": "planetary-computer"`: on each request, never in the URLs kept.
  *
  * Everything read from the network is checked: only http(s) links are
  * followed, geometries are validated and capped, responses are capped in size.
@@ -575,39 +575,71 @@ export async function walkStatic(url: string, fetchJson: (url: string) => Promis
   return { items, truncated };
 }
 
-/** Planetary Computer's SAS token endpoint. */
+/** Planetary Computer's SAS token endpoint (by storage account and container). */
 export const PC_TOKEN_URL = 'https://planetarycomputer.microsoft.com/api/sas/v1/token/';
 
 /**
  * Signs Azure Blob Storage URLs of Planetary Computer with the SAS token of
- * their collection (asked for once per collection, until it expires).
+ * their storage account and container (asked for once, until it expires).
+ * The URLs kept by the viewer (layer names, projects) stay unsigned: the
+ * token is added only to the requests themselves (see {@link signingFetch}),
+ * so it never ends up in a saved project and a project opened later is
+ * signed again with a fresh token.
  */
 export class PcSigner {
-  private readonly tokens_ = new Map<string, Promise<{ token: string; expiry: number }>>();
+  private readonly tokens_ = new Map<string, Promise<{ token: string | null; expiry: number }>>();
 
   constructor(private readonly fetchJson: (url: string) => Promise<unknown> = async (url) => (await fetch(url, { credentials: 'omit' })).json()) {}
 
-  /** `href` with the collection's token added (other hosts: as it is). */
-  async sign(href: string, collection: string): Promise<string> {
-    const url = new URL(href);
-    if (!url.hostname.endsWith('.blob.core.windows.net') || !collection || url.searchParams.has('sig')) return href;
-    let entry = this.tokens_.get(collection);
-    if (entry) {
-      const known = await entry.catch(() => null);
-      if (!known || known.expiry - 60_000 < Date.now()) entry = undefined;
+  /** The account and container of a blob URL that should be signed; null for anything else (or one signed already). */
+  static containerOf(href: string): string | null {
+    let url: URL;
+    try {
+      url = new URL(href);
+    } catch {
+      return null;
     }
+    const account = /^([a-z0-9]{3,24})\.blob\.core\.windows\.net$/.exec(url.hostname)?.[1];
+    const container = /^\/([a-z0-9-]{3,63})\//.exec(url.pathname)?.[1];
+    return url.protocol === 'https:' && account && container && !url.searchParams.has('sig') ? `${account}/${container}` : null;
+  }
+
+  /** `href` with its container's token added; as it is for other URLs, or when no token is given (retried after 5 minutes). */
+  async sign(href: string): Promise<string> {
+    const key = PcSigner.containerOf(href);
+    if (!key) return href;
+    let entry = this.tokens_.get(key);
+    if (entry && (await entry).expiry - 60_000 < Date.now()) entry = undefined;
     if (!entry) {
-      entry = this.fetchJson(`${PC_TOKEN_URL}${encodeURIComponent(collection)}`).then((json) => {
-        const token = isRecord(json) ? str(json.token) : '';
-        if (!/^[A-Za-z0-9%=&._~:+-]+$/.test(token)) throw new Error('Planetary Computer のトークンを取得できませんでした');
-        const expiry = isRecord(json) ? Date.parse(str(json['msft:expiry'])) : NaN;
-        return { token, expiry: Number.isNaN(expiry) ? Date.now() + 30 * 60_000 : expiry };
-      });
-      this.tokens_.set(collection, entry);
+      entry = this.fetchJson(`${PC_TOKEN_URL}${key}`).then(
+        (json) => {
+          const token = isRecord(json) ? str(json.token) : '';
+          if (!/^[A-Za-z0-9%=&._~:+-]+$/.test(token)) return { token: null, expiry: Date.now() + 5 * 60_000 };
+          const expiry = isRecord(json) ? Date.parse(str(json['msft:expiry'])) : NaN;
+          return { token, expiry: Number.isNaN(expiry) ? Date.now() + 30 * 60_000 : expiry };
+        },
+        () => ({ token: null, expiry: Date.now() + 5 * 60_000 }),
+      );
+      this.tokens_.set(key, entry);
     }
     const { token } = await entry;
-    return `${href}${href.includes('?') ? '&' : '?'}${token}`;
+    return token ? `${href}${href.includes('?') ? '&' : '?'}${token}` : href;
   }
+}
+
+/**
+ * `fetch` that signs requests to Planetary Computer's blobs on the way out
+ * (the COG reader's range requests among them), leaving every other request
+ * as it is.
+ */
+export function signingFetch(base: typeof fetch, signer: PcSigner): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!PcSigner.containerOf(url)) return base(input, init);
+    const signed = await signer.sign(url);
+    if (signed === url) return base(input, init);
+    return typeof input === 'string' || input instanceof URL ? base(signed, init) : base(new Request(signed, input), init);
+  };
 }
 
 /** Rows of the information panel for an asset opened from STAC. */

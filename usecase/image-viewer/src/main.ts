@@ -108,7 +108,7 @@ import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
 import { StacPanel } from './stac-panel.js';
-import { stacInfo } from './stac.js';
+import { PcSigner, signingFetch, stacInfo } from './stac.js';
 
 // Most imagery COGs are in UTM: register every WGS 84 / UTM zone so they reproject without a network lookup.
 for (let zone = 1; zone <= 60; zone++) {
@@ -118,6 +118,9 @@ for (let zone = 1; zone <= 60; zone++) {
 
 // Site settings (base maps, projection registry…) from config.json, so they change without a rebuild.
 const config = await loadConfig();
+// Planetary Computer's blobs (a STAC catalog with "sign": "planetary-computer") are signed on each request,
+// so the URLs kept in layer names, links and projects stay without the token, and open again later with a fresh one.
+if (config.stacCatalogs.some((c) => c.sign === 'planetary-computer')) window.fetch = signingFetch(window.fetch.bind(window), new PcSigner());
 for (const [code, definition] of Object.entries(config.projections)) {
   try {
     proj4.defs(code, definition);

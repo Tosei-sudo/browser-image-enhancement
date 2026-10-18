@@ -185,3 +185,39 @@ test('reads a static catalog by URL', async ({ page }) => {
   await expect(page.locator('#images li')).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+test('Planetary Computer: assets are signed on each request, never in the layer name', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const blob = 'https://pcacct.blob.core.windows.net/scenes/fixture.tif';
+  const signed = { ...visualItem, id: 'PC_SCENE', assets: { visual: { href: blob, type: tif, roles: ['visual'] } } };
+  const tokenAsks: string[] = [];
+  const unsigned: string[] = [];
+  await serveStac(page, { stacCatalogs: [{ label: 'PC', url: api, collections: ['sentinel-2-l2a'], sign: 'planetary-computer' }] });
+  await page.route(`${api}/search`, (route) => route.fulfill({ status: 200, contentType: 'application/geo+json', body: JSON.stringify({ type: 'FeatureCollection', features: [signed], links: [] }) }));
+  await page.route('https://planetarycomputer.microsoft.com/api/sas/v1/token/**', (route) => {
+    tokenAsks.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ token: 'st=1&sig=secret%3D', 'msft:expiry': '2099-01-01T00:00:00Z' }) });
+  });
+  await page.route('https://pcacct.blob.core.windows.net/**', async (route) => {
+    if (!route.request().url().includes('sig=secret')) {
+      unsigned.push(route.request().url());
+      return route.fulfill({ status: 403, headers: { 'access-control-allow-origin': '*' }, body: '' });
+    }
+    const response = await route.fetch({ url: 'http://localhost:4175/fixture.tif' });
+    return route.fulfill({ response, headers: { ...response.headers(), 'access-control-allow-origin': '*', 'access-control-expose-headers': 'content-range' } });
+  });
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  const dialog = await openPanel(page);
+  await dialog.locator('tbody tr').first().dblclick();
+  await expect(page.locator('#images li')).toHaveCount(1);
+  expect(tokenAsks).toEqual(['https://planetarycomputer.microsoft.com/api/sas/v1/token/pcacct/scenes']);
+  expect(unsigned).toEqual([]);
+  // The layer keeps the unsigned URL (what a project saves), the token is nowhere in the page's address.
+  expect(await page.evaluate(() => window.viewer.images.list().map((i) => i.name))).toEqual([blob]);
+  expect(page.url()).not.toContain('secret');
+  expect(errors).toEqual([]);
+  // Tiles may still be loading.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});

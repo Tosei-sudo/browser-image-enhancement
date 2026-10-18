@@ -28,7 +28,6 @@ import {
   matchesSearch,
   nextPage,
   parseCollections,
-  PcSigner,
   searchStac,
   walkStatic,
   type AssetChoice,
@@ -43,7 +42,7 @@ import {
 
 export interface StacPanelOptions {
   /**
-   * Opens the assets of an item (signed URLs): one, or three as red, green
+   * Opens the assets of an item: one, or three as red, green
    * and blue (`rgb`). Rejects (having said why) when it cannot.
    */
   open: (assets: Array<{ url: string; asset: StacAsset }>, item: StacItem, catalog: StacCatalogConfig, rgb: boolean) => Promise<void>;
@@ -96,7 +95,6 @@ export class StacPanel {
   private busy_ = false;
   private area_: Feature<Polygon> | null = null;
   private draw_: Draw | null = null;
-  private readonly signer_ = new PcSigner();
   private collectionsOf_: StacCatalogConfig | null = null;
 
   constructor(
@@ -614,8 +612,8 @@ export class StacPanel {
       const assets = choice.kind === 'single' ? [choice.asset] : choice.assets;
       this.options.say(`${item.id} を開いています…`);
       try {
-        const signed = await Promise.all(assets.map(async (asset) => ({ asset, url: catalog.sign === 'planetary-computer' ? await this.signer_.sign(asset.href, item.collection) : asset.href })));
-        await this.options.open(signed, item, catalog, choice.kind === 'rgb');
+        // Unsigned: Planetary Computer's tokens go only on the requests (signingFetch in stac.ts).
+        await this.options.open(assets.map((asset) => ({ asset, url: asset.href })), item, catalog, choice.kind === 'rgb');
         opened++;
       } catch (error) {
         failed = `${item.id} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`;
