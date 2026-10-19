@@ -2139,6 +2139,7 @@ body {
 .guide-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 8px;
 }
 
@@ -2151,8 +2152,6 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: 4px 24px;
-  max-height: 65vh;
-  overflow: auto;
 }
 .help-groups h3 {
   margin: 8px 0 4px;
@@ -2183,9 +2182,190 @@ body {
 }
 .help-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   margin-top: 12px;
+}
+.help-dialog {
+  width: min(46rem, calc(100% - 32px));
+}
+.help-search {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+.help-tabs {
+  display: flex;
+  gap: 2px;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.help-tabs [role='tab'] {
+  margin-bottom: -1px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.help-tabs [role='tab'][aria-selected='true'] {
+  border-color: var(--line);
+  border-bottom-color: var(--bg);
+  background: var(--bg);
+  color: var(--fg);
+  font-weight: 600;
+}
+/* One height for every tab, so switching does not move the buttons below. */
+.help-panels {
+  height: min(60vh, 30rem);
+  overflow: auto;
+  padding-top: 4px;
+}
+.help-panels [hidden] {
+  display: none;
+}
+.help-topics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0 24px;
+}
+.help-topics h3,
+.help-terms h3 {
+  margin: 8px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.help-topic summary {
+  padding: 3px 0;
+  cursor: pointer;
+}
+.help-topic[open] {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.help-topic ol {
+  margin: 4px 0;
+  padding-left: 1.6em;
+  line-height: 1.5;
+}
+.help-where {
+  margin-left: 1.6em;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.help-terms dl {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  line-height: 1.5;
+}
+.help-terms dt {
+  font-weight: 600;
+}
+.help-terms dd {
+  margin: 0;
+}
+.help-empty {
+  color: var(--muted);
+}
+.help-note:empty {
+  display: none;
+}
+.help-note {
+  margin: 8px 0 0;
+  color: var(--warn);
+}
+.help-hints {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+/* The hints (off until turned on in 「?」): what the control under the pointer does. */
+.hint-bubble {
+  position: fixed;
+  inset: auto;
+  max-width: 20rem;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px var(--shadow);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.hint-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hint-bubble p {
+  margin: 2px 0 0;
+}
+.hint-bubble kbd {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font: 11px ui-monospace, monospace;
+}
+
+/* 「場所を見る」: a ring around the control, with the task's name. */
+.help-spot,
+.help-spot-caption {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  pointer-events: none;
+}
+.help-spot {
+  box-sizing: border-box;
+  padding: 0;
+  border: 3px solid var(--accent);
+  border-radius: 8px;
+  background: none;
+  box-shadow: 0 0 0 4000px #0003;
+  animation: help-spot 1s ease-in-out infinite alternate;
+}
+@keyframes help-spot {
+  to {
+    border-color: transparent;
+  }
+}
+.help-spot-caption {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .help-spot {
+    animation: none;
+  }
 }
 
 /* Comparison and analysis under the information: swipe and histogram. */
