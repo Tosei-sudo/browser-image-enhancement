@@ -6,7 +6,7 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
-import { drawsOnGpu, GlVector, glStyle, glVector, painter } from '../src/gl-vector.js';
+import { drawsOnGpu, GlVector, glSymbol, glVector, painter } from '../src/gl-vector.js';
 import { LayerStyle, memoryStyleStore, ownSpec, singleSpec, type VectorStyleSpec } from '../src/vector-style.js';
 
 const square = (x: number, y: number, d: number) => new Polygon([[[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]]);
@@ -89,11 +89,11 @@ describe('painter', () => {
 
   it('gives points their shape', () => {
     const spec = singleSpec('#ff0000');
-    expect(glStyle(spec)['circle-radius']).toBe(5);
+    expect(glSymbol(spec).symbol).toEqual({ kind: 'circle', radius: 5 });
     spec.symbol.shape = 'star';
-    expect(glStyle(spec)).toMatchObject({ 'shape-points': 5, 'shape-radius2': 2.75 });
+    expect(glSymbol(spec).symbol).toMatchObject({ kind: 'polygon', points: 5, radius2: 2.75 });
     spec.symbol.dash = 'dash';
-    expect(glStyle(spec)['stroke-line-dash']).toEqual([10, 6]);
+    expect(glSymbol(spec).dash).toEqual([10, 6]);
   });
 });
 
