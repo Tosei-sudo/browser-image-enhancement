@@ -104,6 +104,8 @@ export interface ViewerConfig {
   imageRules: ImageRule[];
   /** Esri feature layers of images to search and open (catalog.ts); none hides the 「画像カタログ」 button. */
   imageCatalogs: CatalogConfig[];
+  /** How often, in minutes, the open viewer checks the image catalog watches for new images (catalog-watch.ts). */
+  watchInterval: number;
   /** What local path prefixes in catalogs stand for: a URL, or a folder allowed in the browser (local-paths.ts). */
   pathMappings: PathMapping[];
   /** Esri layers (or tables) of satellites with their TLEs and specifications, for the 「撮像計画」 panel (imaging-plan.ts). */
@@ -200,6 +202,7 @@ export const defaultConfig: ViewerConfig = {
   layers: [],
   imageRules: [],
   imageCatalogs: [],
+  watchInterval: 10,
   pathMappings: [],
   satelliteCatalogs: [],
   aiModels: sampleModels(),
@@ -336,6 +339,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
   if ('imageCatalogs' in json) {
     if (Array.isArray(json.imageCatalogs)) config.imageCatalogs = json.imageCatalogs.map((c, i) => catalogOf(c, problems, i)).filter((c): c is CatalogConfig => c !== null);
     else problems.push('imageCatalogs が配列ではありません');
+  }
+  if ('watchInterval' in json) {
+    const { watchInterval } = json;
+    if (typeof watchInterval === 'number' && watchInterval >= 1 && watchInterval <= 24 * 60) config.watchInterval = watchInterval;
+    else problems.push('watchInterval は新着画像を確認する間隔（1〜1440 分）にしてください');
   }
 
   if ('pathMappings' in json) {

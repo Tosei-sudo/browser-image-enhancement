@@ -49,6 +49,8 @@
         <button type="button" id="add-service" class="bar-button">サービスを追加</button>
         <!-- Shown when config.json lists image catalogs: src/catalog-panel.ts. -->
         <button type="button" id="catalog-open" class="bar-button" title="画像カタログから撮像日・センサー・角度で画像を探して開きます" hidden>画像カタログ</button>
+        <!-- New images matching saved conditions (badge + notification centre): src/watch-panel.ts, src/catalog-watch.ts. -->
+        <button type="button" id="watch-open" class="bar-button watch-button" hidden>通知</button>
         <div id="basemap"></div>
         <!-- The 3D view (CesiumJS, loaded on first use): src/globe-panel.ts, src/globe.ts. -->
         <button type="button" id="globe-toggle" class="bar-button" aria-pressed="false" data-key="3" aria-keyshortcuts="3" title="立体（3D）表示に切り替えます（3）">3D</button>

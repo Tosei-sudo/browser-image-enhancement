@@ -109,6 +109,9 @@ import { WebMapDialogs } from './webmap-dialog.js';
 import { onLaunchFiles, registerServiceWorker } from './pwa.js';
 import { GlobeToggle } from './globe-panel.js';
 import { CatalogPanel, catalogInfo } from './catalog-panel.js';
+import { WatchPanel } from './watch-panel.js';
+import { esriJson } from './services/esri.js';
+import type { LonLat } from './coordinates.js';
 import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
 import { canSaveToFolder, saveFolder, SaveFolderDialog } from './save-folder.js';
@@ -505,7 +508,12 @@ const cursorPosition = new CursorPosition(map, { imageAt: (at): Promise<ViewerIm
 const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, {
   say,
   cursor: cursorPosition,
-  actions: (): PointAction[] => [{ label: 'この地点で撮像計画を立てる', title: '撮像計画を開き、この地点を対象に撮像機会を計算します', run: (lonLat): void => void imagingPlan.planAt(lonLat) }],
+  actions: (): PointAction[] => [
+    { label: 'この地点で撮像計画を立てる', title: '撮像計画を開き、この地点を対象に撮像機会を計算します', run: (lonLat): void => void imagingPlan.planAt(lonLat) },
+    ...(config.imageCatalogs.length
+      ? [{ label: 'この地点の新着画像を監視…', title: 'この地点を写した画像が画像カタログに新しく入ったら、バッジと「通知」で知らせます', run: ([lon, lat]: LonLat): void => void catalogPanel.watchSearch({ lon, lat }) }]
+      : []),
+  ],
 });
 // The header field: go to typed coordinates.
 const jump = new JumpTo(map, document.getElementById('jump') as HTMLFormElement, { say, places: new PlaceSearch(config.geocoders) });
@@ -1121,27 +1129,44 @@ const openCatalogUrl = async (url: string, record: CatalogRecord, catalog: Catal
   const image = images.find(await loader.loadUrl(url));
   if (image) openedFromCatalog(image, record, catalog);
 };
+const openCatalogPath = config.pathMappings.length
+  ? async (path: string, record: CatalogRecord, catalog: CatalogConfig): Promise<boolean> => {
+      const where = await localPaths.resolve(path);
+      if (!where) return false;
+      if (where.kind === 'url') {
+        await openCatalogUrl(where.url, record, catalog);
+        return true;
+      }
+      const files = await Promise.all(where.handles.map(fileOf));
+      void recent?.remember(where.handles);
+      const before = new Set(images.list());
+      await project.openFiles(files);
+      const image = images.list().find((i) => !before.has(i));
+      if (image) openedFromCatalog(image, record, catalog);
+      return true;
+    }
+  : undefined;
 const catalogPanel = new CatalogPanel(document.getElementById('catalog-open') as HTMLButtonElement, map, config.imageCatalogs, {
   say,
   openUrl: openCatalogUrl,
-  openPath: config.pathMappings.length
-    ? async (path, record, catalog) => {
-        const where = await localPaths.resolve(path);
-        if (!where) return false;
-        if (where.kind === 'url') {
-          await openCatalogUrl(where.url, record, catalog);
-          return true;
-        }
-        const files = await Promise.all(where.handles.map(fileOf));
-        void recent?.remember(where.handles);
-        const before = new Set(images.list());
-        await project.openFiles(files);
-        const image = images.list().find((i) => !before.has(i));
-        if (image) openedFromCatalog(image, record, catalog);
-        return true;
-      }
-    : undefined,
+  openPath: openCatalogPath,
   forgetFolders: config.pathMappings.some((m) => m.url === undefined) ? () => localPaths.forget() : undefined,
+  watch: (catalog, types, conditions, point) => watchPanel.create(catalog, types, conditions, point),
+});
+// Watches of the catalogs: new images matching saved conditions, counted on the app's badge and listed in 「通知」.
+const watchPanel = new WatchPanel(document.getElementById('watch-open') as HTMLButtonElement, map, {
+  catalogs: config.imageCatalogs,
+  interval: config.watchInterval,
+  ask: (url, params, token) => esriJson(url, params, token, true),
+  open: async (record, catalog) => {
+    const source = record.source!;
+    if (source.kind === 'url') await openCatalogUrl(source.url, record, catalog);
+    else if (openCatalogPath) await openCatalogPath(source.path, record, catalog);
+    else throw new Error('ローカルパスの画像は開けません');
+  },
+  selected: () => selection.features.getArray(),
+  registration: async () => ('serviceWorker' in navigator ? ((await navigator.serviceWorker.getRegistration()) ?? null) : null),
+  say,
 });
 
 // STAC search (config.json's stacCatalogs, Earth Search by default): scenes by area, dates and cloud cover, opened as COGs.
@@ -1619,6 +1644,7 @@ declare global {
       rset: typeof rsetSettings;
       globe: GlobeToggle;
       catalog: CatalogPanel;
+      watch: WatchPanel;
       timeline: Timeline;
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
@@ -1633,4 +1659,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

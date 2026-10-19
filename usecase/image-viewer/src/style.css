@@ -2690,7 +2690,8 @@ body {
 
 /* Image catalog panel (in the add-a-service dialog's style): non-modal, at the right, so the map stays usable. */
 .catalog-dialog[open],
-.plan-dialog[open] {
+.plan-dialog[open],
+.watch-dialog[open] {
   position: fixed;
   inset: 56px 16px auto auto;
   z-index: 20;
@@ -2850,6 +2851,100 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* The notification centre of the catalog watches (src/watch-panel.ts). */
+.watch-dialog[open] {
+  width: min(32rem, calc(100% - 32px));
+}
+.watch-button {
+  white-space: nowrap;
+}
+.catalog-watch {
+  margin-right: auto;
+}
+.watch-count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #d64545;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.watch-count[hidden] {
+  display: none;
+}
+.watch-list,
+.watch-watches {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.watch-notice,
+.watch-watch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.watch-notice.unread {
+  background: var(--accent-bg);
+}
+.watch-notice.unread strong::before {
+  content: '● ';
+  color: var(--accent);
+}
+.watch-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.watch-text span {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-text .watch-error {
+  color: #d64545;
+}
+.watch-empty {
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.watch-more {
+  margin-top: 8px;
+}
+.watch-more summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.watch-background {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.watch-areas {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.watch-form [hidden],
+.watch-areas [hidden] {
+  display: none;
+}
+.watch-conditions,
+.watch-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* The timeline (src/timeline.ts): a strip under the map. */

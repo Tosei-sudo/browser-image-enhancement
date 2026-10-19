@@ -20,6 +20,8 @@
  * - What other apps share to the installed app (the manifest's share_target,
  *   a POST to ./share-target) is kept in the cache SHARE_CACHE under an id, and
  *   the page opens at ./?share=<id> to take it (src/share-target.ts).
+ * - The installed app's Periodic Background Sync checks the image catalog
+ *   watches (src/catalog-watch-sw.ts, bundled in where __WATCH__ is).
  */
 const VERSION = '__VERSION__';
 const PRECACHE = /* __PRECACHE__ */ [];
@@ -169,3 +171,7 @@ async function dropOldShares(cache) {
     if (m && old.has(m[1])) await cache.delete(request);
   }
 }
+
+// ------------------------------------------------------------ catalog watches
+
+/* __WATCH__ */
