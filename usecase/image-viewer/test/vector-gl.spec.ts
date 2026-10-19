@@ -105,3 +105,55 @@ test('small layers stay on the canvas', async ({ page }) => {
   expect(await page.evaluate(() => (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!.onGpu())).toBe(false);
   await expect(glCanvases(page)).toHaveCount(0);
 });
+
+/** The color drawn by the WebGL layer at the middle of the feature named `name` ([r, g, b, a]). */
+async function glColorAt(page: Page, name: string): Promise<number[]> {
+  await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
+  return page.evaluate((name) => {
+    const map = window.viewer.map;
+    const f = window.viewer.table.rows().find((r) => r.get('name') === name)!;
+    const [minX, minY, maxX, maxY] = f.getGeometry()!.getExtent();
+    map.getView().fit([minX, minY, maxX, maxY], { padding: [200, 200, 200, 200] });
+    // Drawn and read in one task: the WebGL canvas keeps no copy of a frame once it is shown.
+    map.renderSync();
+    const gl = document.querySelector<HTMLCanvasElement>('#map canvas.gl-vector')!;
+    const [x, y] = map.getPixelFromCoordinate([(minX + maxX) / 2, (minY + maxY) / 2]);
+    const ratio = gl.width / gl.clientWidth;
+    const probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+    probe.canvas.width = probe.canvas.height = 1;
+    probe.drawImage(gl, Math.round(x * ratio), Math.round(y * ratio), 1, 1, 0, 0, 1, 1);
+    return Array.from(probe.getImageData(0, 0, 1, 1).data);
+  },
+    name,
+  );
+}
+
+test('the WebGL layer draws features where they are, in their colors, and restyles without reshaping', async ({ page }) => {
+  await open(page);
+  await choose(page, 'landuse.geojson', landuse);
+  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(glCanvases(page)).toHaveCount(1);
+  await page.evaluate(() => {
+    const s = (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!;
+    const spec = s.get();
+    spec.mode = 'categorized';
+    spec.field = 'use';
+    spec.symbol.fillOpacity = 1;
+    spec.categories = [
+      { value: '公園', color: '#00aa00', visible: true },
+      { value: '商業', color: '#ff8800', visible: true },
+    ];
+    s.set(spec);
+  });
+  await expect.poll(() => glColorAt(page, '中央公園')).toEqual([0, 170, 0, 255]);
+  await expect.poll(() => glColorAt(page, '駅前')).toEqual([255, 136, 0, 255]);
+  // A hidden category is not drawn.
+  await page.evaluate(() => {
+    const s = (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!;
+    const spec = s.get();
+    spec.categories[1].visible = false;
+    s.set(spec);
+  });
+  await expect.poll(async () => (await glColorAt(page, '駅前'))[3]).toBe(0);
+  await expect.poll(() => glColorAt(page, '中央公園')).toEqual([0, 170, 0, 255]);
+});

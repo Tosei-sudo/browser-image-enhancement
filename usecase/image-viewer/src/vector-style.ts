@@ -12,6 +12,7 @@ import type VectorLayer from 'ol/layer/Vector.js';
 import type { Pixel } from 'ol/pixel.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import type MultiPolygon from 'ol/geom/MultiPolygon.js';
+import type Point from 'ol/geom/Point.js';
 import type Polygon from 'ol/geom/Polygon.js';
 import { Circle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style.js';
 import type ImageStyle from 'ol/style/Image.js';
@@ -408,17 +409,65 @@ function labelPoint(feature: FeatureLike): Geometry | undefined {
   return g;
 }
 
+/**
+ * Labels that would cover one already placed, left out before OpenLayers
+ * measures them. With overlapping labels left out, OpenLayers still measures
+ * and places the text of every feature in view before it finds which fit:
+ * 50,000 features take over a second a frame to show a few hundred labels.
+ * Here each label claims the cells of a fine grid (in pixels) that a box
+ * smaller than any it could be covers — as high as the letters, half a
+ * letter wide per character — and one landing on a cell another label
+ * claimed in the same pass is left out: it would have overlapped that label
+ * anyway. OpenLayers then leaves out the rest that overlap, as before.
+ * Labels along lines are left to OpenLayers.
+ */
+export function labelThinner(size: number): (feature: FeatureLike, at: Geometry | undefined, text: string, resolution: number) => boolean {
+  const cell = size / 2;
+  let claimed = new Map<number, FeatureLike>();
+  let open = false;
+  return (feature, at, text, resolution) => {
+    // One pass of OpenLayers over the features in view runs in one task: a new task starts afresh.
+    if (!open) {
+      open = true;
+      claimed = new Map();
+      queueMicrotask(() => (open = false));
+    }
+    const point = at?.getType() === 'Point' ? (at as Point).getCoordinates() : null;
+    if (!point) return true;
+    const x = point[0] / resolution / cell;
+    const y = point[1] / resolution / cell;
+    // Cells wholly inside the box: half the label's width (text.length / 2 letters) and height (one letter) either side.
+    const halfWidth = (text.length * 0.5 * size) / 2 / cell;
+    const halfHeight = size / 2 / cell;
+    const x0 = Math.ceil(x - halfWidth);
+    const x1 = Math.floor(x + halfWidth) - 1;
+    const y0 = Math.ceil(y - halfHeight);
+    const y1 = Math.floor(y + halfHeight) - 1;
+    // Cells as one number: rows of 2^26 cells (a view of the whole world at 1 cm a pixel stays well inside).
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const owner = claimed.get(cy * 67_108_864 + cx);
+        if (owner && owner !== feature) return false;
+      }
+    }
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) claimed.set(cy * 67_108_864 + cx, feature);
+    return true;
+  };
+}
+
 /** The labels' styles, one per text (and kind of geometry), made as they are needed. */
-function labelStyles(label: LabelSpec): (feature: FeatureLike) => Style | null {
+function labelStyles(label: LabelSpec): (feature: FeatureLike, resolution: number) => Style | null {
   const cache = new Map<string, Style>();
+  const thin = label.overlap ? null : labelThinner(label.size);
   const font = `${label.bold ? 'bold ' : ''}${label.size}px system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif`;
   const fill = new Fill({ color: label.color });
   const halo = label.haloWidth > 0 ? new Stroke({ color: label.halo, width: label.haloWidth }) : undefined;
-  return (feature) => {
+  return (feature, resolution) => {
     const text = labelText(feature.get(label.field!));
     if (text === null) return null;
     const type = feature.getGeometry()?.getType();
     const kind = isLine(type) ? 'line' : type === 'Polygon' || type === 'MultiPolygon' ? 'area' : 'point';
+    if (thin && kind !== 'line' && !thin(feature, kind === 'area' ? labelPoint(feature) : (feature.getGeometry() as Geometry | undefined), text, resolution)) return null;
     const key = `${kind}\n${text}`;
     let style = cache.get(key);
     if (!style) {
@@ -519,7 +568,7 @@ export function styleFunction(spec: VectorStyleSpec, own?: StyleLike, latitude =
     // A feature hidden by its category gets no label either.
     if (!drawn || (Array.isArray(drawn) && drawn.length === 0)) return undefined;
     if (resolution > labelResolution) return symbols ? drawn : undefined;
-    const label = labels(feature);
+    const label = labels(feature, resolution);
     if (!symbols) return label ?? undefined;
     if (!label) return drawn;
     return [...(Array.isArray(drawn) ? drawn : [drawn]), label];

@@ -5,34 +5,34 @@
  * and polygons; the layer itself (a canvas layer) then draws only the labels,
  * so they keep their halo and are still left out where they overlap.
  *
- * The WebGL layer draws stand-ins of the features: each shares the geometry
- * of its feature (so edits move it too) and carries the colors it is drawn
- * in, worked out from the style. Features hidden by their category have no
- * stand-in. Layers drawn in the service's own style (Esri renderers) stay on
+ * The WebGL layer ({@link GlVectorLayer}) keeps each feature's shape on the
+ * GPU from when it is added or reshaped, and draws it in the colors worked
+ * out from the style. Features hidden by their category or a filter keep
+ * their shape there, undrawn, so showing them again is only a change of
+ * colors. Layers drawn in the service's own style (Esri renderers) stay on
  * the canvas.
  *
  * Clicks are matched to features by their geometry ({@link GlVector.featureAt}),
  * with the same tolerance as the canvas layers.
  *
- * The timeline's filter ({@link TimeFilter}) is a filter of the WebGL style:
- * each stand-in carries the time span of its feature, and moving the window
- * only updates two style variables, so the buffers are not built again.
+ * The timeline's filter ({@link TimeFilter}): each feature carries its time
+ * span, and moving the window only changes what the shaders compare it with.
  */
-import Feature from 'ol/Feature.js';
+import type Feature from 'ol/Feature.js';
 import type Map from 'ol/Map.js';
 import { unByKey } from 'ol/Observable.js';
 import type { EventsKey } from 'ol/events.js';
 import type { Coordinate } from 'ol/coordinate.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import type VectorLayer from 'ol/layer/Vector.js';
-import WebGLVectorLayer from 'ol/layer/WebGLVector.js';
-import VectorSource, { type VectorSourceEvent } from 'ol/source/Vector.js';
-import type { FlatStyle, FlatStyleLike } from 'ol/style/flat.js';
+import type VectorSource from 'ol/source/Vector.js';
+import type { VectorSourceEvent } from 'ol/source/Vector.js';
 import type { Pixel } from 'ol/pixel.js';
 import { asArray } from 'ol/color.js';
 import type RegularShape from 'ol/style/RegularShape.js';
 import { isLine, styleFunction, type LineDash, type VectorStyleSpec } from './vector-style.js';
 import type { TimeFilter } from './time.js';
+import { GlVectorLayer, type GlSymbol } from './gl-vector-layer.js';
 
 /** Times on the GPU: minutes since 2000 (32-bit floats keep minutes exact for decades either side). */
 const TIME_ORIGIN = Date.UTC(2000, 0, 1);
@@ -124,73 +124,26 @@ function colorOf(color: unknown): number[] {
 
 const dashes: Record<LineDash, number[] | undefined> = { solid: undefined, dash: [10, 6], dot: [1, 5], dashdot: [10, 5, 1, 5] };
 
-/** The WebGL style: colors and widths come from each stand-in, the shape of points from `spec`. */
-export function glStyle(spec: VectorStyleSpec): FlatStyle {
+/** The point symbol (sizes in CSS pixels) and line dash pattern of `spec`, as the canvas style draws them. */
+export function glSymbol(spec: VectorStyleSpec): { symbol: GlSymbol; dash: number[] } {
   const s = spec.symbol;
   const radius = Math.max(1, s.size / 2);
-  const fill = ['get', 'fill'];
-  const stroke = ['get', 'stroke'];
-  const width = ['get', 'width'];
-  const style: FlatStyle = { 'fill-color': fill, 'stroke-color': stroke, 'stroke-width': width, 'stroke-line-join': 'round' };
-  const dash = dashes[s.dash];
-  if (dash) style['stroke-line-dash'] = dash;
-  if (s.dash === 'dot') style['stroke-line-cap'] = 'round';
-  const shape = (points: number, r: number, angle = 0, r2?: number): FlatStyle => ({
-    'shape-points': points,
-    'shape-radius': r,
-    ...(r2 !== undefined ? { 'shape-radius2': r2 } : {}),
-    'shape-angle': angle,
-    'shape-fill-color': fill,
-    'shape-stroke-color': stroke,
-    'shape-stroke-width': width,
-  });
+  const dash = dashes[s.dash] ?? [];
   switch (s.shape) {
     case 'square':
-      return { ...style, ...shape(4, radius * Math.SQRT2, Math.PI / 4) };
+      return { symbol: { kind: 'polygon', points: 4, radius: radius * Math.SQRT2, angle: Math.PI / 4 }, dash };
     case 'triangle':
-      return { ...style, ...shape(3, radius * 1.2) };
+      return { symbol: { kind: 'polygon', points: 3, radius: radius * 1.2, angle: 0 }, dash };
     case 'diamond':
-      return { ...style, ...shape(4, radius * 1.2) };
+      return { symbol: { kind: 'polygon', points: 4, radius: radius * 1.2, angle: 0 }, dash };
     case 'star':
-      return { ...style, ...shape(5, radius * 1.3, 0, radius * 0.55) };
+      return { symbol: { kind: 'polygon', points: 5, radius: radius * 1.3, radius2: radius * 0.55, angle: 0 }, dash };
     case 'cross':
-    case 'x': {
-      // Two lines: a white picture tinted with the point's color (WebGL shapes are filled).
-      const arm = radius * 1.2;
-      const line = Math.max(2, s.size / 5);
-      const size = Math.ceil(2 * arm + line);
-      const c = size / 2;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><path d="M${c - arm} ${c}H${c + arm}M${c} ${c - arm}V${c + arm}" stroke="white" stroke-width="${line}" fill="none"/></svg>`;
-      return {
-        ...style,
-        'icon-src': `data:image/svg+xml,${encodeURIComponent(svg)}`,
-        'icon-width': size,
-        'icon-height': size,
-        'icon-color': stroke,
-        'icon-rotation': s.shape === 'x' ? Math.PI / 4 : 0,
-      };
-    }
+    case 'x':
+      // Two lines in the outline color.
+      return { symbol: { kind: 'cross', arm: radius * 1.2, line: Math.max(2, s.size / 5), angle: s.shape === 'x' ? Math.PI / 4 : 0 }, dash };
     default:
-      return { ...style, 'circle-radius': radius, 'circle-fill-color': fill, 'circle-stroke-color': stroke, 'circle-stroke-width': width };
-  }
-}
-
-/**
- * A WebGL vector layer that builds its buffers one set at a time.
- * OpenLayers builds them again (in its worker, from every feature) each time
- * the view stops or the features change, and queues a new build even while one
- * is running: moving the map faster than builds finish piles up builds, each
- * holding a copy of every feature, and memory grows until the map stays
- * still. Here a frame during a build draws the buffers it has, and the next
- * build starts when the running one is done (it redraws the layer).
- */
-class SteadyWebGLVectorLayer extends WebGLVectorLayer<VectorSource<Feature>> {
-  override createRenderer(): ReturnType<WebGLVectorLayer<VectorSource<Feature>>['createRenderer']> {
-    const renderer = super.createRenderer();
-    const inner = renderer as unknown as { prepareFrameInternal(frameState: unknown): boolean };
-    const prepare = inner.prepareFrameInternal.bind(renderer);
-    inner.prepareFrameInternal = (frameState) => (renderer.ready ? prepare(frameState) : true);
-    return renderer;
+      return { symbol: { kind: 'circle', radius }, dash };
   }
 }
 
@@ -200,14 +153,16 @@ const followed = ['visible', 'opacity', 'extent', 'minResolution', 'maxResolutio
 /**
  * The WebGL drawing of one vector layer. It is on the map while the layer
  * is, just under it (so the labels are on top), and follows its visibility
- * and opacity.
+ * and opacity. The features' shapes go to the GPU once; restyling, hiding
+ * and the timeline's window change only what each is drawn in (see
+ * {@link GlVectorLayer}).
  */
 export class GlVector {
-  private readonly proxies_ = new globalThis.Map<Feature, Feature>();
-  private readonly drawn_ = new VectorSource<Feature>();
-  private gl_: WebGLVectorLayer<VectorSource<Feature>> | null = null;
+  /** The paint of each feature drawn (hidden ones are kept by the WebGL layer, unpainted). */
+  private readonly paints_ = new globalThis.Map<Feature, Paint>();
+  private readonly drawn_: GlVectorLayer;
+  private attached_ = false;
   private paint_: (feature: Feature) => Paint | null;
-  private style_: FlatStyle;
   private radius_: number;
   private readonly keys_: EventsKey[];
   private time_: TimeFilter | null;
@@ -222,35 +177,54 @@ export class GlVector {
     this.time_ = time;
     this.filter_ = filter;
     this.paint_ = painter(spec);
-    this.style_ = glStyle(spec);
     this.radius_ = spec.symbol.size / 2;
+    this.drawn_ = new GlVectorLayer({ className: 'ol-layer gl-vector' });
+    this.applySymbol_(spec);
+    this.drawn_.setTimeWindow(time ? windowOf(time.window) : null);
     const source = this.source_();
-    this.drawn_.addFeatures(this.proxiesOf_(source.getFeatures()));
+    for (const feature of source.getFeatures()) this.draw_(feature);
     this.keys_ = [
-      source.on('addfeature', (e: VectorSourceEvent<Feature>) => this.added_(e.feature!)),
+      source.on('addfeature', (e: VectorSourceEvent<Feature>) => this.draw_(e.feature!)),
       source.on('removefeature', (e: VectorSourceEvent<Feature>) => this.removed_(e.feature!)),
-      source.on('changefeature', (e: VectorSourceEvent<Feature>) => this.changed_(e.feature!)),
+      source.on('changefeature', (e: VectorSourceEvent<Feature>) => this.draw_(e.feature!)),
       source.on('clear', () => {
-        this.proxies_.clear();
-        this.drawn_.clear(true);
+        this.paints_.clear();
+        this.drawn_.clearFeatures();
       }),
       layer.on('propertychange', (e) => {
         // Added to or taken off the map.
         if (e.key === 'map') return this.attach_();
-        if (!this.gl_) return;
-        if (e.key === 'zIndex') this.gl_.setZIndex(this.zIndex_());
-        else if (followed.includes(e.key)) this.gl_.set(e.key, layer.get(e.key));
+        if (e.key === 'zIndex') this.drawn_.setZIndex(this.zIndex_());
+        else if (followed.includes(e.key)) this.drawn_.set(e.key, layer.get(e.key));
       }),
     ];
+    for (const key of followed) {
+      const value = layer.get(key);
+      if (value !== undefined) this.drawn_.set(key, value);
+    }
+    this.drawn_.setZIndex(this.zIndex_());
+    this.idle_(!spec.label.field);
     this.attach_();
   }
 
   /** Draws with `spec` from now on. */
   setSpec(spec: VectorStyleSpec): void {
     this.paint_ = painter(spec);
-    this.style_ = glStyle(spec);
     this.radius_ = spec.symbol.size / 2;
-    this.rebuild_();
+    this.applySymbol_(spec);
+    this.idle_(!spec.label.field);
+    this.repaint_();
+  }
+
+  /**
+   * Whether the canvas layer skips drawing (no labels to draw). Without a
+   * style it would still go through every feature in view each frame, a
+   * tenth of a second for 200,000 features.
+   */
+  private idle_(idle: boolean): void {
+    const layer = this.layer as unknown as { render?: () => null };
+    if (idle) layer.render = () => null;
+    else delete layer.render;
   }
 
   /**
@@ -258,37 +232,30 @@ export class GlVector {
    * The same `span` function with another window only moves the window.
    */
   setTime(time: TimeFilter | null): void {
-    // Building the buffers again starts the WebGL layer afresh: it is blank until they are built.
     if (!time && !this.time_) return;
     const same = !!time && !!this.time_ && time.span === this.time_.span;
     this.time_ = time;
-    if (same) this.gl_?.updateStyleVariables(timeVariables(time.window));
-    else this.rebuild_();
+    this.drawn_.setTimeWindow(time ? windowOf(time.window) : null);
+    if (!same) this.repaint_();
   }
 
-  /** Draws only the features `filter` passes (null: all); they get stand-ins again. */
+  /** Draws only the features `filter` passes (null: all). */
   setFilter(filter: ((feature: Feature) => boolean) | null): void {
     this.filter_ = filter;
-    this.rebuild_();
+    this.repaint_();
   }
 
-  /** A new style or new stand-ins: the buffers are built again from the stand-ins on the next frame. */
-  private rebuild_(): void {
-    this.gl_?.setStyle(this.styleLike_());
-    if (this.time_) this.gl_?.updateStyleVariables(timeVariables(this.time_.window));
-    const features = this.source_().getFeatures();
-    this.proxies_.clear();
-    this.drawn_.clear(true);
-    this.drawn_.addFeatures(this.proxiesOf_(features));
+  /** What each feature is drawn in, worked out again (their shapes stay on the GPU). */
+  private repaint_(): void {
+    for (const feature of this.source_().getFeatures()) this.draw_(feature);
   }
 
-  /** The style, under the time filter when there is one. */
-  private styleLike_(): FlatStyleLike {
-    if (!this.time_) return this.style_;
-    return [{ filter: ['all', ['<=', ['get', 't0'], ['var', 'timeEnd']], ['>=', ['get', 't1'], ['var', 'timeStart']]], style: this.style_ }];
+  private applySymbol_(spec: VectorStyleSpec): void {
+    const { symbol, dash } = glSymbol(spec);
+    this.drawn_.setSymbol(symbol, dash);
   }
 
-  /** The time attributes of a stand-in. */
+  /** The time attributes of a feature. */
   private timeOf_(feature: Feature): { t0: number; t1: number } | null {
     if (!this.time_) return null;
     const span = this.time_.span(feature);
@@ -307,11 +274,11 @@ export class GlVector {
     const reach = (tolerance + this.radius_ + 2) * resolution;
     let best: { feature: Feature; rank: number; score: number } | undefined;
     for (const feature of this.source_().getFeaturesInExtent([at[0] - reach, at[1] - reach, at[0] + reach, at[1] + reach])) {
-      const proxy = this.proxies_.get(feature);
+      const paint = this.paints_.get(feature);
       const geometry = feature.getGeometry();
-      if (!proxy || !geometry) continue;
+      if (!paint || !geometry || !this.inWindow_(feature)) continue;
       const kind = kindOf(geometry);
-      const width = (proxy.get('width') as number) / 2;
+      const width = paint.width / 2;
       let score: number;
       if (kind === 'area' && geometry.intersectsCoordinate(at)) score = areaOf(geometry);
       else {
@@ -326,12 +293,21 @@ export class GlVector {
     return best?.feature;
   }
 
-  /** Takes the drawing off the map and lets go of the stand-ins. */
+  /** Takes the drawing off the map and lets go of the features. */
   dispose(): void {
+    this.idle_(false);
     unByKey(this.keys_);
     this.detach_();
-    this.proxies_.clear();
-    this.drawn_.clear(true);
+    this.paints_.clear();
+    this.drawn_.clearFeatures();
+    this.drawn_.dispose();
+  }
+
+  /** Whether `feature` is inside the timeline's window (always, without one). */
+  private inWindow_(feature: Feature): boolean {
+    if (!this.time_) return true;
+    const span = this.time_.span(feature);
+    return !!span && span[0] <= this.time_.window[1] && span[1] >= this.time_.window[0];
   }
 
   private source_(): VectorSource<Feature> {
@@ -346,75 +322,36 @@ export class GlVector {
   private attach_(): void {
     const map = this.layer.getMapInternal();
     if (!map) return this.detach_();
-    if (!this.gl_) {
-      this.gl_ = new SteadyWebGLVectorLayer({
-        source: this.drawn_,
-        style: this.styleLike_(),
-        variables: timeVariables(this.time_?.window ?? [-Infinity, Infinity]),
-        disableHitDetection: true,
-        className: 'ol-layer gl-vector',
-      });
-      for (const key of followed) {
-        const value = this.layer.get(key);
-        if (value !== undefined) this.gl_.set(key, value);
-      }
-      this.gl_.setZIndex(this.zIndex_());
-    }
-    this.gl_.setMap(map);
+    this.drawn_.setMap(map);
+    this.attached_ = true;
   }
 
   private detach_(): void {
-    if (!this.gl_) return;
-    this.gl_.setMap(null);
-    // A WebGL layer keeps its context until it is disposed.
-    this.gl_.dispose();
-    this.gl_ = null;
+    if (!this.attached_) return;
+    this.attached_ = false;
+    this.drawn_.setMap(null);
+    // A WebGL context is kept until it is let go; the shapes are kept for when the layer is back.
+    this.drawn_.release();
   }
 
-  private proxiesOf_(features: Feature[]): Feature[] {
-    const out: Feature[] = [];
-    for (const feature of features) {
-      if (this.filter_ && !this.filter_(feature)) continue;
-      const paint = this.paint_(feature);
-      if (!paint) continue;
-      const proxy = new Feature({ geometry: feature.getGeometry(), ...paint, ...this.timeOf_(feature) });
-      this.proxies_.set(feature, proxy);
-      out.push(proxy);
-    }
-    return out;
-  }
-
-  private added_(feature: Feature): void {
-    if (!this.proxies_.has(feature)) this.drawn_.addFeatures(this.proxiesOf_([feature]));
+  /** Gives the WebGL layer `feature` as it is now: its shape (when changed) and what it is drawn in. */
+  private draw_(feature: Feature): void {
+    const paint = this.filter_ && !this.filter_(feature) ? null : this.paint_(feature);
+    if (paint) this.paints_.set(feature, paint);
+    else this.paints_.delete(feature);
+    this.drawn_.draw(feature, paint, this.timeOf_(feature));
   }
 
   private removed_(feature: Feature): void {
-    const proxy = this.proxies_.get(feature);
-    if (!proxy) return;
-    this.proxies_.delete(feature);
-    if (this.drawn_.hasFeature(proxy)) this.drawn_.removeFeature(proxy);
-  }
-
-  /** A feature reshaped, given another geometry or other values (its category may change). */
-  private changed_(feature: Feature): void {
-    const proxy = this.proxies_.get(feature);
-    const paint = this.filter_ && !this.filter_(feature) ? null : this.paint_(feature);
-    if (!paint) return this.removed_(feature);
-    if (!proxy) return this.added_(feature);
-    const geometry = feature.getGeometry();
-    const time = this.timeOf_(feature);
-    const same = proxy.getGeometry() === geometry && samePaint(proxy, paint) && (!time || (proxy.get('t0') === time.t0 && proxy.get('t1') === time.t1));
-    // A geometry changed in place has moved its stand-in already.
-    if (same) return;
-    proxy.setGeometry(geometry);
-    for (const [key, value] of Object.entries({ ...paint, ...time })) proxy.set(key, value, true);
-    proxy.changed();
+    this.paints_.delete(feature);
+    this.drawn_.remove(feature);
   }
 }
 
-function samePaint(proxy: Feature, paint: Paint): boolean {
-  const eq = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => v === b[i]);
-  return proxy.get('width') === paint.width && eq(proxy.get('fill') as number[], paint.fill) && eq(proxy.get('stroke') as number[], paint.stroke);
+/** The timeline window in minutes. */
+function windowOf(window: TimeFilter['window']): [number, number] {
+  const v = timeVariables(window);
+  return [v.timeStart, v.timeEnd];
 }
 
 function distanceTo(geometry: Geometry, at: Coordinate): number {

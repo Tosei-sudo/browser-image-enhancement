@@ -22,6 +22,7 @@ import { isEmpty } from 'ol/extent.js';
 import type Projection from 'ol/proj/Projection.js';
 import type { EnhancedGeoTIFF, GeoTIFFRaster, LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { MAX_FEATURES, nextColor, projectionOf, type ServiceLayer } from './services/index.js';
+import { glVector, hasFastGpu } from './gl-vector.js';
 import { vectorLayer } from './services/vector.js';
 import { LayerStyle, singleSpec, type VectorStyleSpec } from './vector-style.js';
 import { readStyleQml } from './style-file.js';
@@ -588,10 +589,24 @@ function fileStyle(file: Pick<VectorFile, 'styleQml'>): VectorStyleSpec | null {
   }
 }
 
+/**
+ * The most features a vector file is read with: more where layers are drawn
+ * on the GPU ({@link drawsOnGpu}), which draws hundreds of thousands while
+ * the map moves; elsewhere the canvas would take seconds a frame.
+ */
+export function maxFileFeatures(): number {
+  if (glVector.mode === 'never') return MAX_FEATURES;
+  return glVector.mode === 'always' || hasFastGpu() ? MAX_GPU_FILE_FEATURES : MAX_FEATURES;
+}
+
+/** The most features of a file read when layers are drawn on the GPU. */
+export const MAX_GPU_FILE_FEATURES = 200_000;
+
 /** A layer for the list, like a service's vector layer but without a link; editable when it can be saved again. */
 export function vectorFileLayer(file: VectorFile): ServiceLayer {
-  const truncated = file.features.length > MAX_FEATURES;
-  const features = truncated ? file.features.slice(0, MAX_FEATURES) : file.features;
+  const max = maxFileFeatures();
+  const truncated = file.features.length > max;
+  const features = truncated ? file.features.slice(0, max) : file.features;
   const layer = vectorLayer(features);
   const source = layer.getSource()!;
   const extent = source.getExtent();
@@ -601,7 +616,7 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
   const info: Array<[string, string]> = [
     ['種類', editable ? file.format : `${file.format}（読み取り専用）`],
     ['座標系', file.crs],
-    ['地物数', `${file.features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
+    ['地物数', `${file.features.length.toLocaleString()}${truncated ? `（先頭 ${max.toLocaleString()} 件）` : ''}`],
   ];
   if (file.encoding) info.push(['文字コード', file.encoding === 'shift_jis' ? 'Shift_JIS' : file.encoding.toUpperCase()]);
   if (editable && file.format === 'Shapefile' && file.encoding !== 'utf-8') info.push(['保存', '属性は UTF-8（.cpg 付き）で書き込みます']);

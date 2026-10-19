@@ -10,6 +10,7 @@ import { readBandNames } from "./tiff-metadata.js";
 import { KNOWN_FILL_VALUES, floatNoData, isEightBit, keepEightBitRange, valuesTest } from "./geotiff-samples.js";
 import { floatTexturesFilterable } from "./float-textures.js";
 import { fastReadRasters } from "./fast-read.js";
+import { fastComposeTiles } from "./fast-compose.js";
 import { colorModeFor, fromRGBA, maskNoData, selectRGBA, toRGBA, toRgb, toSelectedTile } from "./tile-pixels.js";
 import GeoTIFF from "ol/source/GeoTIFF.js";
 import { getHeight, getIntersection, getWidth, isEmpty } from "ol/extent.js";
@@ -655,6 +656,7 @@ var EnhancedGeoTIFF = class extends GeoTIFF {
 				this.select_ = null;
 			}
 		}
+		fastComposeTiles(this);
 		this.packTiles_();
 		super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
 		this.preloadTileIndex_();

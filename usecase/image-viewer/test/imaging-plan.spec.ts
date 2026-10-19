@@ -231,6 +231,32 @@ test('takes points close together in one scene', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('plans 1,500 points one by one, listing the first rows', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await serve(page);
+  // A grid of points over the latitudes the test satellite flies over.
+  const many = {
+    type: 'FeatureCollection',
+    features: Array.from({ length: 1500 }, (_, i) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-180 + (i % 50) * 7.2, -45 + Math.floor(i / 50) * 3] },
+      properties: { name: `P${i}` },
+    })),
+  };
+  await openSites(page, many);
+  await openPanel(page);
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 60_000 });
+  // More opportunities than rows: the rest is counted in a last row.
+  await expect(dialog.locator('tbody tr')).toHaveCount(2001);
+  await expect(dialog.locator('tbody tr').last()).toContainText(/ほか [\d,]+ 件/);
+  expect(errors).toEqual([]);
+});
+
 test('plans a point from the map\'s right-click menu', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));

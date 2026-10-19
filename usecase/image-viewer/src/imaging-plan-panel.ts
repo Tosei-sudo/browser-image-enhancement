@@ -62,8 +62,13 @@ export interface PlanPanelOptions {
   view3d?: (right: number) => boolean;
 }
 
-/** The most features planned one by one. */
-export const MAX_TARGETS = 200;
+/**
+ * The most features planned one by one: about 4 s for 20 satellites over 7
+ * days (the work grows with features × satellites × days).
+ */
+export const MAX_TARGETS = 2000;
+/** The most opportunities listed as rows (the CSV and the layer take them all). */
+const MAX_ROWS = 2000;
 /** The most points of an area used for its width. */
 const MAX_POINTS = 256;
 /** About how many cells sample an area (fewer when the polygons fill little of their extent). */
@@ -806,7 +811,7 @@ export class ImagingPlanPanel {
         const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
         features
           .filter((f) => f.getGeometry())
-          .slice(0, 2000)
+          .slice(0, MAX_TARGETS)
           .forEach((f, i) => source.addFeature(new Feature({ kind: 'target', target: each ? i : 0, geometry: f.getGeometry()!.clone() })));
       }
     }
@@ -1027,8 +1032,17 @@ export class ImagingPlanPanel {
     }
     this.table_.tHead!.replaceChildren(head);
     this.shown_ = this.sorted();
+    const rest = this.shown_.length - MAX_ROWS;
+    const more = document.createElement('tr');
+    if (rest > 0) {
+      const td = document.createElement('td');
+      td.colSpan = columns.length;
+      td.className = 'plan-more-rows';
+      td.textContent = `ほか ${rest.toLocaleString()} 件（並べ替えると先頭が変わります。CSV とレイヤーにはすべて入ります）`;
+      more.append(td);
+    }
     this.table_.tBodies[0].replaceChildren(
-      ...this.shown_.map((op) => {
+      ...this.shown_.slice(0, MAX_ROWS).map((op) => {
         const row = document.createElement('tr');
         row.tabIndex = -1;
         for (const column of columns) {
@@ -1046,6 +1060,7 @@ export class ImagingPlanPanel {
         row.addEventListener('dblclick', () => this.zoomToChosen());
         return row;
       }),
+      ...(rest > 0 ? [more] : []),
     );
     this.update();
   }
@@ -1074,7 +1089,7 @@ export class ImagingPlanPanel {
   }
 
   private update(): void {
-    this.shown_.forEach((op, i) => {
+    this.shown_.slice(0, MAX_ROWS).forEach((op, i) => {
       const row = this.table_.tBodies[0].rows[i];
       row?.classList.toggle('chosen', op === this.chosen_);
       row?.setAttribute('aria-selected', String(op === this.chosen_));

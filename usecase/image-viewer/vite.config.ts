@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, relative } from 'node:path';
-import { defineConfig, type Plugin } from 'vite';
+import { build, defineConfig, type Plugin, type Rollup } from 'vite';
 
 /** Short hash of the commit being built, or '' outside a git checkout. */
 function commit(): string {
@@ -26,6 +26,18 @@ function filesOf(dir: string): string[] {
     .sort();
 }
 
+/** A module of src/ bundled as a plain script, for the service worker (which is not a module). */
+async function serviceWorkerPart(entry: string): Promise<string> {
+  const result = (await build({
+    configFile: false,
+    logLevel: 'warn',
+    build: { write: false, minify: true, emptyOutDir: false, lib: { entry, formats: ['iife'], name: 'imageViewerWatch', fileName: () => 'watch.js' } },
+  })) as Rollup.RollupOutput | Rollup.RollupOutput[];
+  const output = (Array.isArray(result) ? result[0] : result).output.find((o) => o.type === 'chunk');
+  if (!output) throw new Error(`${entry} could not be bundled`);
+  return output.code;
+}
+
 /**
  * Writes the service worker (sw.js beside this file) into the build, with
  * the list of the build's files to keep offline and a version made of their
@@ -39,7 +51,8 @@ function serviceWorker(): Plugin {
     configResolved(config) {
       outDir = join(config.root, config.build.outDir);
     },
-    closeBundle() {
+    async closeBundle() {
+      const watch = await serviceWorkerPart(new URL('./src/catalog-watch-sw.ts', import.meta.url).pathname);
       const files = filesOf(outDir).filter((f) => f !== 'sw.js' && !f.endsWith('.map'));
       // ONNX Runtime's WebAssembly (about 27 MB) and the sample models (models/, about 90 MB), the AI tools
       // only, are cached when first used, not on install.
@@ -52,7 +65,8 @@ function serviceWorker(): Plugin {
         template
           .replace("'__VERSION__'", JSON.stringify(hash.digest('hex').slice(0, 12)))
           .replace('/* __PRECACHE__ */ []', JSON.stringify(['./', ...files.filter((f) => !isLazy(f))]))
-          .replace('/* __LAZY__ */ []', JSON.stringify(files.filter(isLazy))),
+          .replace('/* __LAZY__ */ []', JSON.stringify(files.filter(isLazy)))
+          .replace('/* __WATCH__ */', () => watch),
       );
     },
   };

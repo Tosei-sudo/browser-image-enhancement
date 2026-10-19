@@ -144,15 +144,15 @@ test('on the GPU, a large Shapefile hides with its layer and is not drawn afresh
   await expect(page.locator('#status')).toContainText('circles を開きました');
   await expect.poll(() => featureCount(page)).toBe(900);
   await expect(page.locator('#map .gl-vector')).toHaveCount(1);
-  // The WebGL layer's renderer stays the same while the map moves and features load (a new one is blank until built).
+  // The WebGL layer keeps its GPU state while the map moves and features load (new state would be blank until built).
   const mark = () =>
     page.evaluate(() => {
       const layer = window.viewer.images.layers()[0];
       if (layer.type !== 'service') return false;
-      const style = layer.service.style as unknown as { gl_: { gl_: { getRenderer(): object } } };
-      const renderer = style.gl_.gl_.getRenderer() as { __mark?: boolean };
-      const marked = !!renderer.__mark;
-      renderer.__mark = true;
+      const style = layer.service.style as unknown as { gl_: { drawn_: { gpu_: { __mark?: boolean } } } };
+      const gpu = style.gl_.drawn_.gpu_;
+      const marked = !!gpu.__mark;
+      gpu.__mark = true;
       return marked;
     });
   expect(await mark()).toBe(false);
