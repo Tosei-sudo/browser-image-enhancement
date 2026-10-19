@@ -5017,4 +5017,61 @@ dialog.popped-out .dock-button {
 }
 dialog.docked > .dock-dialog-corner {
   right: 10px;
+
+/* 格子を敷き詰める (tessellate-dialog.ts): the shapes as picture buttons, and the draw buttons. */
+.tessellate-shapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.tessellate-shapes legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+.tessellate-shapes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tessellate-shapes label:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tessellate-shapes input {
+  margin: 0;
+}
+.tessellate-shapes svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+.tessellate-crs[hidden],
+.tessellate-draw[hidden],
+.tessellate-layer[hidden],
+.tessellate-bbox[hidden],
+.tessellate-point[hidden],
+.tessellate-code[hidden] {
+  display: none;
+}
+.tessellate-more {
+  grid-template-columns: 1fr 1fr;
+}
+.tessellate-draw {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tessellate-drawn {
+  color: var(--muted);
 }
