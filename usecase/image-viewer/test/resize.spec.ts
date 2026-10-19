@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /*
- * The layer panel width and the attribute table height: dragged, kept for
- * the next visit, back to the default on a double click.
+ * The layer panel width (the left dock's) and the attribute table height
+ * (the bottom dock's): dragged, kept for the next visit, back to the default
+ * on a double click.
  */
 
 async function open(page: Page) {
@@ -27,23 +28,23 @@ async function drag(page: Page, selector: string, dx: number, dy: number) {
 test('the layer panel width follows the handle and is kept', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await open(page);
-  const side = await width(page, '.side');
+  const side = await width(page, '.dock-left');
   const map = await width(page, '#map');
   await drag(page, '#side-resize', 120, 0);
-  await expect.poll(() => width(page, '.side')).toBeCloseTo(side + 120, -1);
+  await expect.poll(() => width(page, '.dock-left')).toBeCloseTo(side + 120, -1);
   await expect.poll(() => width(page, '#map')).toBeCloseTo(map - 120, -1);
   // The map canvas follows the new size.
   await expect.poll(() => page.evaluate(() => window.viewer.map.getSize()![0])).toBeCloseTo(map - 120, -1);
 
   await page.reload();
   await page.waitForFunction(() => window.viewer !== undefined);
-  expect(await width(page, '.side')).toBeCloseTo(side + 120, -1);
+  expect(await width(page, '.dock-left')).toBeCloseTo(side + 120, -1);
 
   await page.locator('#side-resize').dblclick();
-  await expect.poll(() => width(page, '.side')).toBeCloseTo(side, 0);
+  await expect.poll(() => width(page, '.dock-left')).toBeCloseTo(side, 0);
   // Too narrow is held at the smallest width.
   await drag(page, '#side-resize', -400, 0);
-  await expect.poll(() => width(page, '.side')).toBe(160);
+  await expect.poll(() => width(page, '.dock-left')).toBe(160);
 });
 
 test('the attribute table height follows the handle and is kept', async ({ page }) => {

@@ -35,7 +35,11 @@ export function movableOf(target: EventTarget | null, x?: number, y?: number): H
   if (panel) return panel;
   const dialog = target.closest<HTMLElement>(DIALOG);
   if (!dialog) return null;
-  if (target.closest(TITLE)?.closest(DIALOG) === dialog) return dialog;
+  // Docked (dock.ts): its title drags it to another place in the layout instead.
+  if (dialog.classList.contains('docked')) return null;
+  // A floating panel's window moves by its own title, not the panel's.
+  const title = dialog.classList.contains('dock-float') ? target.closest('.dock-float-head') : target.closest(TITLE);
+  if (title?.closest(DIALOG) === dialog) return dialog;
   if (target !== dialog || x === undefined || y === undefined) return null;
   const rect = dialog.getBoundingClientRect();
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom ? dialog : null;

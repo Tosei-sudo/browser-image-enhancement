@@ -5,6 +5,8 @@
  * side comparison.
  */
 import type { AttributeTable } from './table.js';
+import type { DockLayout } from './dock.js';
+import type { DockState } from './dock-state.js';
 import type { Dashboard, DashboardState } from './dashboard.js';
 import type { Timeline, TimelineState } from './timeline.js';
 import type { SplitState, SplitView } from './split-view.js';
@@ -24,6 +26,10 @@ export interface ProjectLayout {
   dashboard?: Partial<DashboardState>;
   /** The side by side comparison; its `layers` are indexes in the project's layers. Absent: off. */
   split?: SplitState;
+  /** Where the panels are (dock.ts). Absent: as they first were. */
+  dock?: DockState;
+  /** Attribute tables kept on a layer each: their id in `dock` and their layer (an index in the project's layers). */
+  tables?: Array<{ id: string; layer: number }>;
 }
 
 /** What the layout is made of. */
@@ -37,12 +43,19 @@ export interface LayoutParts {
   onResize: () => void;
   /** The side by side comparison, and the layer list its panes pick from. */
   split?: { view: SplitView; layers: () => readonly ViewerLayer[] };
+  /** The docking layout of the panels. */
+  dock?: DockLayout;
+  /** The attribute tables kept on a layer each. */
+  tables?: { list: () => Array<{ id: string; layer: ViewerLayer }>; set: (tables: Array<{ id: string; layer: ViewerLayer }>) => void };
+  /** The layers of the list (to turn the tables' layers into indexes and back). */
+  layers?: () => readonly ViewerLayer[];
 }
 
 const sizes: Array<[key: 'sideWidth' | 'dashboardWidth' | 'tableHeight', property: string, element: (p: LayoutParts) => HTMLElement]> = [
   ['sideWidth', '--side-width', (p) => p.app],
   ['dashboardWidth', '--dash-width', (p) => p.app],
-  ['tableHeight', '--table-height', (p) => p.table.element],
+  // The height of the bottom dock (the attribute table's, by default).
+  ['tableHeight', '--table-height', (p) => p.app],
 ];
 
 /** The layout now. `indexOf` turns a layer of the list into its index in the project (-1: not saved). */
@@ -63,6 +76,14 @@ export function collectLayout(parts: LayoutParts, indexOf: (listIndex: number) =
   layout.dashboard = { ...dashboard, layer: layer >= 0 ? layer : null };
   const split = parts.split?.view.getState((l) => indexOf(parts.split!.layers().indexOf(l)));
   if (split) layout.split = split;
+  if (parts.dock) layout.dock = parts.dock.getState();
+  if (parts.tables && parts.layers) {
+    const list = parts.layers();
+    layout.tables = parts.tables
+      .list()
+      .map((t) => ({ id: t.id, layer: indexOf(list.indexOf(t.layer)) }))
+      .filter((t) => t.layer >= 0);
+  }
   return layout;
 }
 
@@ -91,5 +112,15 @@ export function applyLayout(parts: LayoutParts, layout: ProjectLayout, listIndex
       return index >= 0 ? (layers()[index] ?? null) : null;
     });
   }
+  if (parts.tables && parts.layers) {
+    const list = parts.layers();
+    const tables = (layout.tables ?? []).flatMap((t) => {
+      const layer = typeof t?.layer === 'number' && typeof t.id === 'string' ? list[listIndexOf(t.layer)] : undefined;
+      return layer ? [{ id: t.id, layer }] : [];
+    });
+    parts.tables.set(tables);
+  }
+  // An older project has no layout of the panels: they stay where they are.
+  if (layout.dock) parts.dock?.setState(layout.dock);
   parts.onResize();
 }
