@@ -639,6 +639,114 @@ body {
 .drawing {
   cursor: crosshair;
 }
+.edit-more {
+  position: relative;
+}
+.edit-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 9em;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 12px #0003;
+}
+.edit-menu[hidden] {
+  display: none;
+}
+.edit-bar .edit-menu button {
+  border: none;
+  text-align: left;
+  white-space: nowrap;
+}
+.edit-bar .edit-menu button:hover:not(:disabled),
+.edit-bar .edit-menu button:focus-visible {
+  background: var(--accent-bg);
+}
+.edit-menu button[role='menuitemcheckbox']::before {
+  display: inline-block;
+  width: 1.2em;
+  content: '';
+}
+.edit-menu button[role='menuitemcheckbox'][aria-checked='true']::before {
+  content: '✓';
+}
+.edit-bar .edit-menu button[aria-checked='true'] {
+  background: none;
+  color: inherit;
+}
+.edit-panel {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.edit-panel[hidden] {
+  display: none;
+}
+.edit-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.edit-bar .edit-panel-close {
+  padding: 0 6px;
+  border: none;
+}
+.edit-row,
+.edit-coordinate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.edit-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.edit-pair[hidden],
+.edit-panel input[hidden] {
+  display: none;
+}
+.edit-panel input {
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+.edit-panel .edit-number {
+  width: 7em;
+}
+.edit-panel .edit-coordinate-text {
+  width: 22em;
+  max-width: 60vw;
+}
+.edit-crs {
+  max-width: 14em;
+}
+.edit-unit,
+.edit-hint,
+.edit-readout {
+  color: var(--muted);
+}
+.edit-hint {
+  margin: 0;
+  font-size: 12px;
+}
+.edit-readout {
+  min-width: 14em;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Attribute table under the map. */
 .table {
@@ -2631,6 +2739,36 @@ body {
 }
 .catalog-angle input {
   width: 7em;
+}
+/* 「似た画像」: its tolerances stand in for the sensor, angle, azimuth and view of the everyday search. */
+.catalog-similar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 6px 10px 8px;
+  border: 1px solid #dc262666;
+  border-radius: 4px;
+}
+.catalog-similar legend {
+  padding: 0 4px;
+  color: #dc2626;
+  font-weight: 600;
+}
+.catalog-similar label:not(.check) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.catalog-similar input[type='number'] {
+  width: 5em;
+}
+.catalog-similar-off {
+  margin-left: auto;
+}
+.catalog-form.similar :is(.catalog-sensor, .catalog-angle, .catalog-view, .catalog-azimuth) {
+  display: none;
 }
 .catalog-azimuth input {
   width: 5em;

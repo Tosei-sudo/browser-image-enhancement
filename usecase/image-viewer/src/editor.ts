@@ -1,47 +1,98 @@
 /**
- * The edit toolbar for an editable layer (an Esri layer, or a GeoJSON,
- * Shapefile or GeoPackage file), over the map: add features (drawn as the
- * layer's geometry type, or a chosen one when the file allows any), reshape them (drag a vertex; drag a
- * selected feature to move it), delete the selected ones, undo, discard,
- * and save. Only the tools the layer allows are shown. Leaving with unsaved
- * edits asks first, and so does closing the page.
+ * The edit toolbar for an editable layer (an Esri layer, a WFS-T layer, a
+ * temporary layer, or a GeoJSON, Shapefile or GeoPackage file), over the
+ * map: add features (drawn as the layer's geometry type, or a chosen one
+ * when the file allows any; polygons also as rectangles, circles and
+ * regular polygons), reshape them (drag a vertex, drag an edge to add one,
+ * Alt+click to remove one; drag a selected feature to move it), delete the
+ * selected ones, undo and redo, discard, and save. Drawing snaps to the
+ * vertices and edges of the layers shown.
+ *
+ * 「その他」 holds what is needed now and then: typing coordinates and
+ * lengths while drawing (the number panel, see edit-panel.ts), duplicating,
+ * moving and turning by numbers, parallel lines, splitting and merging.
+ * Only the tools the layer allows are shown. Leaving with unsaved edits
+ * asks first, and so does closing the page.
  */
-import type Feature from 'ol/Feature.js';
+import Feature from 'ol/Feature.js';
 import type OlMap from 'ol/Map.js';
 import type Geometry from 'ol/geom/Geometry.js';
-import Draw from 'ol/interaction/Draw.js';
-import Modify from 'ol/interaction/Modify.js';
-import Translate from 'ol/interaction/Translate.js';
-import MultiLineString from 'ol/geom/MultiLineString.js';
-import MultiPoint from 'ol/geom/MultiPoint.js';
-import MultiPolygon from 'ol/geom/MultiPolygon.js';
 import type LineString from 'ol/geom/LineString.js';
-import type Point from 'ol/geom/Point.js';
-import type Polygon from 'ol/geom/Polygon.js';
+import Point from 'ol/geom/Point.js';
+import Draw, { createBox, createRegularPolygon, type GeometryFunction } from 'ol/interaction/Draw.js';
+import Modify from 'ol/interaction/Modify.js';
+import Snap from 'ol/interaction/Snap.js';
+import Translate from 'ol/interaction/Translate.js';
+import type VectorSource from 'ol/source/Vector.js';
+import { fromLonLat, toLonLat } from 'ol/proj.js';
+import type { LonLat } from './coordinates.js';
+import {
+  CIRCLE_SIDES,
+  familyOf,
+  fitToType,
+  mergeGeometries,
+  moveBy,
+  moveTo,
+  offsetGeometry,
+  polygonOf,
+  rectangleRing,
+  regularRing,
+  rotateBy,
+  splitGeometry,
+} from './edit-geometry.js';
+import { EditPanel, edgeText, type PanelMode } from './edit-panel.js';
 import { EditSession, editTargetOf, type DrawableType, type SaveOutcome } from './edit-session.js';
+import { geodesicDestination, geodesicInverse } from './geodesic.js';
 import type { ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import type { AttributeTable } from './table.js';
 
-/** What is drawn for each type: one point, line or polygon (multi types get it as their only part). */
-const drawnAs: Record<DrawableType, 'Point' | 'LineString' | 'Polygon'> = {
-  Point: 'Point',
-  MultiPoint: 'Point',
-  LineString: 'LineString',
-  MultiLineString: 'LineString',
-  Polygon: 'Polygon',
-  MultiPolygon: 'Polygon',
-};
-
-/** A drawn geometry as the layer's type. */
+/** A drawn geometry as the layer's type (a multi type gets it as its only part). */
 export function asLayerType(geometry: Geometry, type: DrawableType): Geometry {
-  if (type === 'MultiPoint' && geometry.getType() === 'Point') return new MultiPoint([(geometry as Point).getCoordinates()]);
-  if (type === 'MultiLineString' && geometry.getType() === 'LineString') return new MultiLineString([(geometry as LineString).getCoordinates()]);
-  if (type === 'MultiPolygon' && geometry.getType() === 'Polygon') return new MultiPolygon([(geometry as Polygon).getCoordinates()]);
-  return geometry;
+  return fitToType(geometry, type) ?? geometry;
 }
 
-type Tool = 'select' | 'add' | 'reshape';
+/** What can be drawn: the geometry types, and shapes drawn as polygons. */
+export type DrawKind = 'Point' | 'LineString' | 'Polygon' | 'Rectangle' | 'Circle' | 'RegularPolygon';
+
+const kindNames: Array<[DrawKind, string]> = [
+  ['Point', '点'],
+  ['LineString', '線'],
+  ['Polygon', '面'],
+  ['Rectangle', '矩形'],
+  ['Circle', '円'],
+  ['RegularPolygon', '正多角形'],
+];
+
+/** The kinds a layer of `type` can take (any type: all). */
+export function kindsFor(type: DrawableType | null): DrawKind[] {
+  const family = type ? familyOf(type) : null;
+  if (family === 'point') return ['Point'];
+  if (family === 'line') return ['LineString'];
+  if (family === 'polygon') return ['Polygon', 'Rectangle', 'Circle', 'RegularPolygon'];
+  return kindNames.map(([k]) => k);
+}
+
+const panelModeOf: Record<DrawKind, PanelMode> = {
+  Point: 'point',
+  LineString: 'line',
+  Polygon: 'polygon',
+  Rectangle: 'rectangle',
+  Circle: 'circle',
+  RegularPolygon: 'regular',
+};
+
+type Tool = 'select' | 'add' | 'reshape' | 'split';
+
+/** Most features snapped to, over all layers. */
+const SNAP_LIMIT = 20_000;
+
+export interface EditorOptions {
+  say: (message: string) => void;
+  onChange?: () => void;
+  /** Other layers' features to snap to (the edited layer's own always are). */
+  snapSources?: () => VectorSource<Feature>[];
+}
 
 export class Editor {
   private session_: EditSession | null = null;
@@ -50,18 +101,27 @@ export class Editor {
   private draw_: Draw | null = null;
   private modify_: Modify | null = null;
   private translate_: Translate | null = null;
+  private snaps_: Snap[] = [];
+  /** The feature being drawn (until it ends or is given up). */
+  private sketch_: Feature | null = null;
   private readonly bar_: HTMLElement;
   private readonly buttons_: Record<string, HTMLButtonElement> = {};
   private readonly title_: HTMLElement;
-  /** The geometry type to draw, for files that hold any. */
+  /** What to draw, when the layer takes more than one kind. */
   private readonly kind_: HTMLSelectElement;
+  private readonly more_: HTMLElement;
+  private readonly menu_: HTMLElement;
+  private readonly panel_: EditPanel;
+  /** Whether the number panel shows while drawing. */
+  private numeric_ = false;
+  private snap_ = true;
   private saving_ = false;
 
   constructor(
     private readonly map: OlMap,
     private readonly selection: Selection,
     private readonly table: AttributeTable,
-    private readonly options: { say: (message: string) => void; onChange?: () => void },
+    private readonly options: EditorOptions,
   ) {
     this.bar_ = document.createElement('div');
     this.bar_.className = 'edit-bar';
@@ -71,40 +131,117 @@ export class Editor {
     this.title_ = document.createElement('span');
     this.title_.className = 'edit-title';
     this.bar_.append(this.title_);
-    const button = (key: string, text: string, run: () => void, toggle = false) => {
+    const button = (key: string, text: string, run: () => void, { toggle = false, title = '', into = this.bar_ } = {}) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = text;
       b.dataset.tool = key;
+      if (title) b.title = title;
       if (toggle) b.setAttribute('aria-pressed', 'false');
       b.addEventListener('click', run);
-      this.bar_.append(b);
+      into.append(b);
       this.buttons_[key] = b;
+      return b;
     };
     this.kind_ = document.createElement('select');
     this.kind_.className = 'edit-kind';
     this.kind_.title = '追加する図形';
     this.kind_.setAttribute('aria-label', '追加する図形');
-    for (const [value, text] of [
-      ['Point', '点'],
-      ['LineString', '線'],
-      ['Polygon', '面'],
-    ]) this.kind_.add(new Option(text, value));
-    this.kind_.addEventListener('change', () => this.tool_ === 'add' && this.setTool('add'));
+    this.kind_.addEventListener('change', () => (this.tool_ === 'add' ? this.setTool('add') : this.update_()));
     this.bar_.append(this.kind_);
-    button('add', '追加', () => this.setTool(this.tool_ === 'add' ? 'select' : 'add'), true);
-    button('reshape', '形状編集', () => this.setTool(this.tool_ === 'reshape' ? 'select' : 'reshape'), true);
+    button('add', '追加', () => this.setTool(this.tool_ === 'add' ? 'select' : 'add'), { toggle: true });
+    button('reshape', '形状編集', () => this.setTool(this.tool_ === 'reshape' ? 'select' : 'reshape'), {
+      toggle: true,
+      title: '頂点をドラッグで移動・辺をドラッグで頂点を追加・Alt+クリックで頂点を削除・選んだ地物をドラッグで移動',
+    });
     button('delete', '削除', () => this.deleteSelected());
-    button('undo', '元に戻す', () => this.session_?.undo());
+    button('undo', '元に戻す', () => this.undo(), { title: 'Ctrl+Z' });
+    button('redo', 'やり直し', () => this.redo(), { title: 'Ctrl+Y・Ctrl+Shift+Z' });
+
+    // 「その他」: what is needed now and then.
+    this.more_ = document.createElement('div');
+    this.more_.className = 'edit-more';
+    const moreButton = document.createElement('button');
+    moreButton.type = 'button';
+    moreButton.textContent = 'その他 ▾';
+    moreButton.setAttribute('aria-haspopup', 'menu');
+    moreButton.setAttribute('aria-expanded', 'false');
+    this.buttons_.more = moreButton;
+    this.menu_ = document.createElement('div');
+    this.menu_.className = 'edit-menu';
+    this.menu_.setAttribute('role', 'menu');
+    this.menu_.hidden = true;
+    const item = (key: string, text: string, run: () => void, title = '') => {
+      const b = button(key, text, () => {
+        this.closeMenu_();
+        run();
+      }, { title, into: this.menu_ });
+      b.setAttribute('role', 'menuitem');
+      return b;
+    };
+    const check = (key: string, text: string, run: () => void, title = '') => {
+      const b = item(key, text, run, title);
+      b.setAttribute('role', 'menuitemcheckbox');
+      b.setAttribute('aria-checked', 'false');
+    };
+    check('numeric', '数値入力', () => this.setNumeric(!this.numeric_), '描くときに座標・長さ・方位・幅と高さ・半径を入力します');
+    check('snap', 'スナップ', () => this.setSnap(!this.snap_), '描くとき・形を変えるときに、表示中のレイヤーの頂点や辺に吸い付けます');
+    item('duplicate', '複製', () => this.duplicate(), '選んだ地物（ほかのレイヤーのものも）をこのレイヤーに複製します');
+    item('move', '移動…', () => this.openPanel_('move'), '選んだ地物を距離か座標で動かします');
+    item('rotate', '回転…', () => this.openPanel_('rotate'), '選んだ地物を角度で回します');
+    item('offset', '平行線…', () => this.openPanel_('offset'), '選んだ線や面から、距離を指定して平行な線・面を作ります');
+    item('split', '分割', () => this.setTool('split'), '選んだ線や面を、地図に描いた線で切り分けます');
+    item('merge', '結合', () => this.mergeSelected(), '選んだ地物を 1 つにまとめます');
+    moreButton.addEventListener('click', () => (this.menu_.hidden ? this.openMenu_() : this.closeMenu_()));
+    this.more_.append(moreButton, this.menu_);
+    this.bar_.append(this.more_);
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.menu_.hidden && !this.more_.contains(e.target as Node)) this.closeMenu_();
+    });
+    this.menu_.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.closeMenu_();
+        moreButton.focus();
+      }
+    });
+
     button('discard', '破棄', () => this.discard());
     button('save', '保存', () => void this.save());
     button('end', '編集終了', () => this.stop());
+
+    const view = () => this.map.getView().getProjection();
+    this.panel_ = new EditPanel(view, {
+      say: (m) => this.options.say(m),
+      place: (at) => this.place_(at),
+      extend: (length, bearing) => this.extend_(length, bearing),
+      back: () => this.draw_?.removeLastPoint(),
+      finish: () => this.finish_(),
+      rectangle: (corner, width, height, angle) => {
+        const ring = rectangleRing(toLonLat(corner, view()) as LonLat, width, height, angle);
+        this.addShape_(polygonOf(ring, view()));
+      },
+      regular: (centre, radius, sides, angle) => {
+        const ring = regularRing(toLonLat(centre, view()) as LonLat, radius, sides ?? CIRCLE_SIDES, angle);
+        this.addShape_(polygonOf(ring, view()));
+      },
+      moveBy: (east, north) => this.transformSelected_('移動', (geometries) => moveBy(geometries, view(), east, north)),
+      moveTo: (at) => this.transformSelected_('移動', (geometries) => moveTo(geometries, at)),
+      rotate: (degrees) => this.transformSelected_('回転', (geometries) => rotateBy(geometries, degrees)),
+      offset: (metres) => this.offsetSelected(metres),
+      close: () => {
+        if (this.panel_.mode() && ['move', 'rotate', 'offset'].includes(this.panel_.mode()!)) this.panel_.show(null);
+        else this.setNumeric(false);
+        this.update_();
+      },
+    });
+    this.bar_.append(this.panel_.element);
     // Clicks on the toolbar must not reach the map (they would draw a feature under it).
     map.getOverlayContainerStopEvent().append(this.bar_);
 
     window.addEventListener('beforeunload', (e) => {
       if (this.session_?.count()) e.preventDefault();
     });
+    document.addEventListener('keydown', (e) => this.key_(e));
     selection.on('change', () => this.update_());
   }
 
@@ -117,9 +254,21 @@ export class Editor {
     return this.session_;
   }
 
-  /** Whether a map click belongs to the edit tools (adding) rather than to selecting. */
+  /** Whether a map click belongs to the edit tools (adding, cutting) rather than to selecting. */
   isDrawing(): boolean {
-    return this.tool_ === 'add';
+    return this.tool_ === 'add' || this.tool_ === 'split';
+  }
+
+  /** What is drawn when adding. */
+  kind(): DrawKind {
+    return this.kind_.value as DrawKind;
+  }
+
+  setKind(kind: DrawKind): void {
+    if (![...this.kind_.options].some((o) => o.value === kind)) return;
+    this.kind_.value = kind;
+    if (this.tool_ === 'add') this.setTool('add');
+    else this.update_();
   }
 
   /** Starts editing an editable layer (another layer's editing ends first). */
@@ -136,10 +285,20 @@ export class Editor {
       this.options.onChange?.();
     });
     this.title_.textContent = `編集中: ${entry.name}`;
+    const kinds = kindsFor(target.geometryType);
+    const kept = this.kind_.value as DrawKind;
+    this.kind_.replaceChildren(...kindNames.filter(([k]) => kinds.includes(k)).map(([k, name]) => new Option(name, k)));
+    this.kind_.value = kinds.includes(kept) ? kept : kinds[0];
     this.buttons_.add.hidden = !target.canCreate;
-    this.kind_.hidden = !target.canCreate || target.geometryType !== null;
+    this.kind_.hidden = !target.canCreate || kinds.length < 2;
     this.buttons_.reshape.hidden = !target.canUpdate;
     this.buttons_.delete.hidden = !target.canDelete;
+    for (const key of ['duplicate', 'offset']) this.buttons_[key].hidden = !target.canCreate;
+    for (const key of ['move', 'rotate']) this.buttons_[key].hidden = !target.canUpdate;
+    // Splitting and merging change one feature and add (or delete) others.
+    this.buttons_.split.hidden = !(target.canUpdate && target.canCreate) || familyOf(target.geometryType ?? 'Polygon') === 'point';
+    this.buttons_.merge.hidden = !(target.canUpdate && target.canDelete);
+    this.buttons_.numeric.hidden = !target.canCreate;
     this.bar_.hidden = false;
     entry.row.classList.add('editing');
     this.table.setSession(this.session_);
@@ -155,6 +314,8 @@ export class Editor {
     if (session.count() > 0 && !confirm(`未保存の変更が ${session.count()} 件あります。破棄して編集を終了しますか？`)) return false;
     session.discard();
     this.setTool('select');
+    this.panel_.show(null);
+    this.closeMenu_();
     this.entry_?.row.classList.remove('editing');
     this.entry_ = null;
     this.session_ = null;
@@ -165,23 +326,39 @@ export class Editor {
   }
 
   setTool(tool: Tool): void {
-    for (const i of [this.draw_, this.modify_, this.translate_]) if (i) this.map.removeInteraction(i);
+    for (const i of [this.draw_, this.modify_, this.translate_, ...this.snaps_]) if (i) this.map.removeInteraction(i);
     this.draw_ = this.modify_ = this.translate_ = null;
+    this.snaps_ = [];
+    this.sketch_ = null;
     this.tool_ = tool;
     const session = this.session_;
+    if (session && tool === 'split' && !this.splittable_()) {
+      this.options.say('分割する線か面を 1 つ選んでから「分割」を選んでください');
+      this.tool_ = tool = 'select';
+    }
     if (session && tool === 'add') {
-      const type = session.target.geometryType ?? (this.kind_.value as DrawableType);
-      this.draw_ = new Draw({ type: drawnAs[type] });
+      const kind = this.kind();
+      const type = session.target.geometryType;
+      this.draw_ = this.drawFor_(kind);
       this.draw_.on('drawend', (e) => {
-        const feature = e.feature as Feature;
-        feature.setGeometry(asLayerType(feature.getGeometry()!, type));
-        session.add(feature);
-        this.selection.set([feature]);
-        this.table.setMode('selected');
-        this.table.focusRow(feature);
-        this.options.say(`地物を追加しました。属性テーブルで属性を入力し、「保存」で${session.target.savedTo}に書き込みます`);
+        this.sketch_ = null;
+        this.addDrawn_(e.feature as Feature, type);
       });
       this.map.addInteraction(this.draw_);
+      if (this.numeric_) this.panel_.show(panelModeOf[kind]);
+    } else if (session && tool === 'split') {
+      this.draw_ = this.drawFor_('LineString');
+      this.draw_.on('drawend', (e) => {
+        this.sketch_ = null;
+        const knife = (e.feature as Feature).getGeometry() as LineString;
+        // After the event: the drawn line must not be added anywhere, and the tool goes back.
+        setTimeout(() => {
+          this.splitSelected(knife);
+          this.setTool('select');
+        });
+      });
+      this.map.addInteraction(this.draw_);
+      this.options.say('切り分ける線を地図に描いてください（ダブルクリックか Enter で終わり、Esc でやめる）');
     } else if (session && tool === 'reshape') {
       // Drag a selected feature to move it; drag a vertex or an edge of any feature to reshape it.
       this.translate_ = new Translate({ features: this.selection.features });
@@ -195,8 +372,44 @@ export class Editor {
       this.map.addInteraction(this.translate_);
       this.map.addInteraction(this.modify_);
     }
-    this.map.getViewport().classList.toggle('drawing', tool === 'add');
+    // The number panel belongs to drawing; the forms for the selection (move, rotate, offset) stay until closed, but not while drawing or cutting.
+    const forSelection = ['move', 'rotate', 'offset'].includes(this.panel_.mode() ?? '');
+    if (this.isDrawing() ? !(tool === 'add' && this.numeric_) : !forSelection) this.panel_.show(null);
+    // Snapping goes after the interactions it serves.
+    if (session && this.snap_ && tool !== 'select') {
+      // Snap indexes every edge it is given up front: layers past a limit (all together) are left out.
+      let left = SNAP_LIMIT;
+      const sources = [session.source, ...(this.options.snapSources?.() ?? []).filter((s) => s !== session.source)].filter((source) => {
+        left -= source.getFeatures().length;
+        return left >= 0;
+      });
+      this.snaps_ = sources.map((source) => new Snap({ source }));
+      for (const snap of this.snaps_) this.map.addInteraction(snap);
+    }
+    this.map.getViewport().classList.toggle('drawing', this.isDrawing());
     this.update_();
+  }
+
+  /** Shows or hides the number panel while drawing. */
+  setNumeric(on: boolean): void {
+    this.numeric_ = on;
+    if (on && this.tool_ !== 'add' && this.session_?.target.canCreate) this.setTool('add');
+    else if (this.tool_ === 'add') this.panel_.show(on ? panelModeOf[this.kind()] : null);
+    this.update_();
+  }
+
+  setSnap(on: boolean): void {
+    this.snap_ = on;
+    this.setTool(this.tool_);
+  }
+
+  undo(): void {
+    if (this.sketch_) this.draw_?.removeLastPoint();
+    else this.session_?.undo();
+  }
+
+  redo(): void {
+    if (!this.sketch_) this.session_?.redo();
   }
 
   /** Deletes the selected features (after asking). */
@@ -218,6 +431,131 @@ export class Editor {
     session.delete(features);
     this.options.say(`${features.length} 件を削除しました。「保存」で${to}に反映します（「元に戻す」で戻せます）`);
     return true;
+  }
+
+  /**
+   * Copies the selected features into the layer being edited, in place
+   * (move them after): its own, or another layer's whose geometry fits, with
+   * the attributes the two layers share. The copies are selected.
+   */
+  duplicate(): Feature[] {
+    const session = this.session_;
+    if (!session) return [];
+    const type = session.target.geometryType;
+    const editable = new Set(session.fields.filter((f) => f.editable).map((f) => f.name));
+    const copies: Feature[] = [];
+    let skipped = 0;
+    session.group(() => {
+      for (const feature of this.selection.list()) {
+        const source = feature.getGeometry();
+        const geometry = source && fitToType(source.clone(), type);
+        if (!geometry) {
+          skipped++;
+          continue;
+        }
+        const attributes = Object.fromEntries(Object.entries(feature.getProperties()).filter(([name]) => editable.has(name) && name !== feature.getGeometryName()));
+        const copy = new Feature(geometry);
+        session.add(copy, attributes);
+        copies.push(copy);
+      }
+    });
+    if (!copies.length) {
+      this.options.say(skipped ? 'このレイヤーの図形の種類に合わないため複製できません' : '複製する地物を地図か属性テーブルで選んでください');
+      return [];
+    }
+    this.selection.set(copies);
+    this.table.setMode('selected');
+    this.options.say(`${copies.length} 件を複製しました（同じ位置にあります。「移動…」か「形状編集」でドラッグして動かせます）${skipped ? `。${skipped} 件は図形の種類が合わず複製していません` : ''}`);
+    return copies;
+  }
+
+  /** A parallel copy of each selected line or polygon, `metres` away (lines: left positive; polygons: outward). */
+  offsetSelected(metres: number): Feature[] {
+    const session = this.session_;
+    if (!session) return [];
+    const projection = this.map.getView().getProjection();
+    const type = session.target.geometryType;
+    const made: Feature[] = [];
+    session.group(() => {
+      for (const feature of this.selection.list()) {
+        const g = feature.getGeometry();
+        const offset = g && offsetGeometry(g, projection, metres);
+        const geometry = offset && fitToType(offset, type);
+        if (!geometry) continue;
+        const copy = new Feature(geometry);
+        session.add(copy);
+        made.push(copy);
+      }
+    });
+    if (!made.length) {
+      this.options.say('平行線を作る線か面を選んでください（縮めて消える面や、レイヤーに合わない図形は作れません）');
+      return [];
+    }
+    this.selection.set(made);
+    this.table.setMode('selected');
+    this.options.say(`${made.length} 件の平行線（オフセット）を作りました`);
+    return made;
+  }
+
+  /** Cuts the selected line or polygon along `knife`: it keeps the first piece, and the others become new features with its attributes. */
+  splitSelected(knife: LineString): Feature[] {
+    const session = this.session_;
+    const [feature] = this.selection.list().filter((f) => session?.source.hasFeature(f));
+    const geometry = feature?.getGeometry();
+    if (!session || !feature || !geometry) {
+      this.options.say('分割する線か面を 1 つ選んでください');
+      return [];
+    }
+    const pieces = splitGeometry(geometry, knife)?.map((g) => fitToType(g, session.target.geometryType));
+    if (!pieces || pieces.some((p) => !p)) {
+      this.options.say('切り分けられませんでした。線か面を横切るように描いてください');
+      return [];
+    }
+    const editable = new Set(session.fields.filter((f) => f.editable).map((f) => f.name));
+    const attributes = Object.fromEntries(Object.entries(feature.getProperties()).filter(([name]) => editable.has(name) && name !== feature.getGeometryName()));
+    const result = [feature];
+    session.group(() => {
+      const before = new Map([[feature, geometry.clone()]]);
+      feature.setGeometry(pieces[0]!);
+      session.reshaped(before);
+      for (const piece of pieces.slice(1)) {
+        const f = new Feature(piece!);
+        session.add(f, attributes);
+        result.push(f);
+      }
+    });
+    this.selection.set(result);
+    this.table.setMode('selected');
+    this.options.say(`${result.length} つに分割しました（属性は元の地物から写しています）`);
+    return result;
+  }
+
+  /** Merges the selected features of the layer into the first of them; the others are deleted. */
+  mergeSelected(): Feature | null {
+    const session = this.session_;
+    const features = this.selection.list().filter((f) => session?.source.hasFeature(f));
+    if (!session || features.length < 2) {
+      this.options.say('結合する地物を 2 つ以上選んでください（Ctrl+クリックで追加）');
+      return null;
+    }
+    const merged = mergeGeometries(features.map((f) => f.getGeometry()!).filter(Boolean));
+    const geometry = merged && fitToType(merged, session.target.geometryType);
+    if (!geometry) {
+      this.options.say(
+        merged ? '結合すると離れた複数の部分になり、このレイヤー（単一の図形）には入りません。マルチ型のレイヤーで結合してください' : '同じ種類（点・線・面）の地物だけ結合できます',
+      );
+      return null;
+    }
+    const [keep, ...rest] = features;
+    session.group(() => {
+      const before = new Map([[keep, keep.getGeometry()?.clone()]]);
+      keep.setGeometry(geometry);
+      session.reshaped(before);
+      session.delete(rest);
+    });
+    this.selection.set([keep]);
+    this.options.say(`${features.length} 件を 1 つに結合しました（属性は最初の地物のものです）`);
+    return keep;
   }
 
   discard(): void {
@@ -254,15 +592,204 @@ export class Editor {
     }
   }
 
+  /** The Draw interaction for a kind; rectangles and circles are drawn by their corner or centre and a second click. */
+  private drawFor_(kind: DrawKind): Draw {
+    let draw: Draw;
+    if (kind === 'Rectangle' || kind === 'Circle' || kind === 'RegularPolygon') {
+      const shape: GeometryFunction = kind === 'Rectangle' ? createBox() : createRegularPolygon(kind === 'Circle' ? CIRCLE_SIDES : this.panel_.sides);
+      draw = new Draw({ type: 'Circle', geometryFunction: shape });
+    } else draw = new Draw({ type: kind as 'Point' | 'LineString' | 'Polygon' });
+    draw.on('drawstart', (e) => {
+      this.sketch_ = e.feature as Feature;
+      if (kind === 'Rectangle' || kind === 'Circle' || kind === 'RegularPolygon') {
+        const start = this.sketchCoordinates_()[0];
+        if (start) this.panel_.setBase(start);
+      }
+      this.sketch_.getGeometry()?.on('change', () => this.readout_());
+    });
+    draw.on('drawabort', () => {
+      this.sketch_ = null;
+      this.panel_.setReadout('');
+    });
+    return draw;
+  }
+
+  /** A drawn feature into the layer, as its type. */
+  private addDrawn_(feature: Feature, type: DrawableType | null): void {
+    const session = this.session_;
+    if (!session) return;
+    const geometry = feature.getGeometry()!;
+    feature.setGeometry(type ? asLayerType(geometry, type) : geometry);
+    session.add(feature);
+    this.selection.set([feature]);
+    this.table.setMode('selected');
+    this.table.focusRow(feature);
+    this.panel_.setReadout('');
+    this.options.say(`地物を追加しました。属性テーブルで属性を入力し、「保存」で${session.target.savedTo}に書き込みます`);
+  }
+
+  /** A shape made from numbers (rectangle, circle): any drawing under way is given up for it. */
+  private addShape_(geometry: Geometry): void {
+    if (this.sketch_) this.draw_?.abortDrawing();
+    this.addDrawn_(new Feature(geometry), this.session_?.target.geometryType ?? null);
+  }
+
+  /**
+   * The vertices of the shape being drawn, the last one following the
+   * pointer. Draw keeps them to itself (`sketchCoords_`), and has no other
+   * way to tell where the last vertex is.
+   */
+  private sketchVertices_(): number[][] {
+    const draw = this.draw_ as unknown as { sketchCoords_?: number[][] | number[][][]; mode_?: string } | null;
+    const coords = draw?.sketchCoords_;
+    if (!this.sketch_ || !coords) return [];
+    return (draw!.mode_ === 'Polygon' ? (coords as number[][][])[0] : (coords as number[][])) ?? [];
+  }
+
+  /** The vertices placed so far in the shape being drawn (the one following the pointer left out). */
+  private sketchCoordinates_(): number[][] {
+    return this.sketchVertices_().slice(0, -1);
+  }
+
+  /** A typed point: a point feature, or the next vertex of the line or polygon (the first starts it). */
+  private place_(at: number[]): void {
+    const session = this.session_;
+    if (!session) return;
+    if (this.tool_ !== 'add') this.setTool('add');
+    const kind = this.kind();
+    if (kind === 'Point') {
+      this.addShape_(new Point(at));
+      return;
+    }
+    if (kind !== 'LineString' && kind !== 'Polygon') {
+      this.panel_.setBase(at);
+      return;
+    }
+    this.draw_?.appendCoordinates([at]);
+    this.readout_();
+  }
+
+  /** The next vertex `length` metres from the last one, heading `bearing`. */
+  private extend_(length: number, bearing: number): void {
+    const last = this.sketchCoordinates_().at(-1);
+    if (!last) {
+      this.options.say('先に始点を地図のクリックか座標で置いてください');
+      return;
+    }
+    const projection = this.map.getView().getProjection();
+    const next = geodesicDestination(toLonLat(last, projection) as LonLat, bearing, length);
+    this.place_(fromLonLat(next, projection));
+  }
+
+  /** Ends the line or polygon being drawn, when it has enough vertices. */
+  private finish_(): void {
+    const placed = this.sketchCoordinates_().length;
+    const need = this.kind() === 'Polygon' ? 3 : 2;
+    if (!this.sketch_ || placed < need) {
+      this.options.say(`確定するには頂点を ${need} 点以上置いてください`);
+      return;
+    }
+    // Draw drops the vertex under the pointer itself.
+    this.draw_?.finishDrawing();
+  }
+
+  /** The edge to the pointer, in the number panel. */
+  private readout_(): void {
+    if (!this.numeric_) return;
+    const all = this.sketchVertices_();
+    const coords = all.slice(0, -1);
+    const last = coords.at(-1);
+    const pointer = all.at(-1);
+    if (!last || !pointer) return this.panel_.setReadout('');
+    const projection = this.map.getView().getProjection();
+    const { distance, bearing } = geodesicInverse(toLonLat(last, projection) as LonLat, toLonLat(pointer, projection) as LonLat);
+    this.panel_.setReadout(`${coords.length} 点・いまの辺 ${edgeText(distance, bearing)}`);
+  }
+
+  /** Changes the selected features of the layer as one undoable step. */
+  private transformSelected_(what: string, change: (geometries: Geometry[]) => void): void {
+    const session = this.session_;
+    const features = this.selection.list().filter((f) => session?.source.hasFeature(f) && f.getGeometry());
+    if (!session || !features.length) {
+      this.options.say(`${what}する地物を地図か属性テーブルで選んでください`);
+      return;
+    }
+    const before = new Map(features.map((f) => [f, f.getGeometry()!.clone()]));
+    const geometries = features.map((f) => f.getGeometry()!.clone());
+    change(geometries);
+    features.forEach((f, i) => f.setGeometry(geometries[i]));
+    session.reshaped(before);
+    this.options.say(`${features.length} 件を${what}しました`);
+  }
+
+  private splittable_(): boolean {
+    const session = this.session_;
+    const features = this.selection.list().filter((f) => session?.source.hasFeature(f));
+    const family = features[0] && familyOf(features[0].getGeometry()?.getType() ?? '');
+    return features.length === 1 && (family === 'line' || family === 'polygon');
+  }
+
+  private openPanel_(mode: PanelMode): void {
+    if (this.tool_ === 'add' || this.tool_ === 'split') this.setTool('select');
+    this.panel_.show(mode);
+    if (!this.selection.list().some((f) => this.session_?.source.hasFeature(f))) this.options.say('地図か属性テーブルで地物を選んでから実行してください');
+  }
+
+  private openMenu_(): void {
+    this.update_();
+    this.menu_.hidden = false;
+    this.buttons_.more.setAttribute('aria-expanded', 'true');
+    (this.menu_.querySelector('button:not([hidden]):not(:disabled)') as HTMLButtonElement | null)?.focus();
+  }
+
+  private closeMenu_(): void {
+    this.menu_.hidden = true;
+    this.buttons_.more?.setAttribute('aria-expanded', 'false');
+  }
+
+  /** Keys while editing: undo / redo; while drawing, Backspace takes back a vertex, Enter ends, Esc gives up. */
+  private key_(e: KeyboardEvent): void {
+    if (!this.session_ || e.isComposing || e.altKey) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], dialog')) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (ctrl && key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      this.undo();
+    } else if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) {
+      e.preventDefault();
+      this.redo();
+    } else if (!ctrl && this.sketch_ && e.key === 'Backspace') {
+      e.preventDefault();
+      this.draw_?.removeLastPoint();
+    } else if (!ctrl && this.sketch_ && e.key === 'Enter') {
+      e.preventDefault();
+      this.finish_();
+    } else if (!ctrl && e.key === 'Escape' && (this.sketch_ || this.tool_ === 'split')) {
+      if (this.sketch_) this.draw_?.abortDrawing();
+      else this.setTool('select');
+    }
+  }
+
   private update_(): void {
     const session = this.session_;
     if (!session) return;
     const count = session.count();
     for (const key of ['add', 'reshape'] as const) this.buttons_[key].setAttribute('aria-pressed', String(this.tool_ === key));
-    this.buttons_.delete.disabled = this.selection.list().length === 0;
-    this.buttons_.undo.disabled = !session.canUndo();
+    const own = this.selection.list().filter((f) => session.source.hasFeature(f));
+    const any = this.selection.list().length > 0;
+    this.buttons_.delete.disabled = own.length === 0;
+    this.buttons_.undo.disabled = !session.canUndo() && !this.sketch_;
+    this.buttons_.redo.disabled = !session.canRedo();
     this.buttons_.discard.disabled = count === 0;
     this.buttons_.save.disabled = count === 0 || this.saving_;
     this.buttons_.save.textContent = count ? `保存 (${count})` : '保存';
+    this.buttons_.numeric.setAttribute('aria-checked', String(this.numeric_));
+    this.buttons_.snap.setAttribute('aria-checked', String(this.snap_));
+    this.buttons_.duplicate.disabled = !any;
+    for (const key of ['move', 'rotate', 'offset']) this.buttons_[key].disabled = own.length === 0;
+    this.buttons_.split.disabled = !this.splittable_();
+    this.buttons_.merge.disabled = own.length < 2;
   }
 }

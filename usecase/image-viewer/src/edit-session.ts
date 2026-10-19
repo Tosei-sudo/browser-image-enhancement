@@ -122,10 +122,13 @@ export class EditSession extends Observable {
   private readonly geometry_ = new Set<Feature>();
   private readonly attributes_ = new Map<Feature, Set<string>>();
   /**
-   * Undo steps, last on top: each takes back its change feature by feature,
-   * so a save can drop the part of a step that is on the server now.
+   * Undo steps, last on top: each takes back (and puts again) its change
+   * feature by feature, so a save can drop the part of a step that is on
+   * the server now.
    */
-  private readonly undo_: Array<Map<Feature, () => void>> = [];
+  private readonly undo_: Step[] = [];
+  /** Steps taken back, the next to redo on top; a new edit clears them. */
+  private readonly redo_: Step[] = [];
   /** Why the server refused a feature, until it is saved. */
   private readonly errors_ = new Map<Feature, string>();
 
@@ -162,24 +165,34 @@ export class EditSession extends Observable {
     return this.undo_.length > 0;
   }
 
+  canRedo(): boolean {
+    return this.redo_.length > 0;
+  }
+
   /** Whether an attribute can be changed on this feature. */
   canEdit(feature: Feature, field: Field): boolean {
     return field.editable && (this.added_.has(feature) ? this.target.canCreate : this.target.canUpdate);
   }
 
-  /** A new feature, drawn on the map: it gets the template's attributes. */
-  add(feature: Feature): void {
-    for (const [name, value] of Object.entries(this.target.template)) feature.set(name, value, true);
-    this.source.addFeature(feature);
-    this.added_.add(feature);
+  /** A new feature, drawn on the map: it gets the template's attributes, then `attributes` (a copy's). */
+  add(feature: Feature, attributes: Record<string, unknown> = {}): void {
+    for (const [name, value] of Object.entries({ ...this.target.template, ...attributes })) feature.set(name, value, true);
+    const put = () => {
+      this.source.addFeature(feature);
+      this.added_.add(feature);
+    };
+    put();
     this.push_(
       new Map([
         [
           feature,
-          () => {
-            this.added_.delete(feature);
-            this.errors_.delete(feature);
-            if (this.source.hasFeature(feature)) this.source.removeFeature(feature);
+          {
+            undo: () => {
+              this.added_.delete(feature);
+              this.errors_.delete(feature);
+              if (this.source.hasFeature(feature)) this.source.removeFeature(feature);
+            },
+            redo: put,
           },
         ],
       ]),
@@ -205,10 +218,17 @@ export class EditSession extends Observable {
       new Map(
         removed.map(({ feature, added }) => [
           feature,
-          () => {
-            this.source.addFeature(feature);
-            if (added) this.added_.add(feature);
-            else this.deleted_.delete(feature);
+          {
+            undo: () => {
+              this.source.addFeature(feature);
+              if (added) this.added_.add(feature);
+              else this.deleted_.delete(feature);
+            },
+            redo: () => {
+              if (this.source.hasFeature(feature)) this.source.removeFeature(feature);
+              if (added) this.added_.delete(feature);
+              else this.deleted_.add(feature);
+            },
           },
         ]),
       ),
@@ -227,13 +247,22 @@ export class EditSession extends Observable {
     if (was.size === 0) return;
     this.push_(
       new Map(
-        [...was].map(([feature, had]) => [
-          feature,
-          () => {
-            feature.setGeometry(before.get(feature));
-            if (!had) this.geometry_.delete(feature);
-          },
-        ]),
+        [...was].map(([feature, had]) => {
+          const after = feature.getGeometry()?.clone();
+          return [
+            feature,
+            {
+              undo: () => {
+                feature.setGeometry(before.get(feature)?.clone());
+                if (!had) this.geometry_.delete(feature);
+              },
+              redo: () => {
+                feature.setGeometry(after?.clone());
+                this.geometry_.add(feature);
+              },
+            },
+          ];
+        }),
       ),
     );
   }
@@ -257,12 +286,19 @@ export class EditSession extends Observable {
       new Map([
         [
           feature,
-          () => {
-            feature.set(field.name, previous);
-            if (!had) {
-              changed.delete(field.name);
-              if (changed.size === 0) this.attributes_.delete(feature);
-            }
+          {
+            undo: () => {
+              feature.set(field.name, previous);
+              if (!had) {
+                changed.delete(field.name);
+                if (changed.size === 0) this.attributes_.delete(feature);
+              }
+            },
+            redo: () => {
+              feature.set(field.name, value);
+              changed.add(field.name);
+              this.attributes_.set(feature, changed);
+            },
           },
         ],
       ]),
@@ -299,11 +335,19 @@ export class EditSession extends Observable {
   merge(from: number): void {
     const steps = this.undo_.splice(Math.min(from, this.undo_.length));
     if (steps.length) {
-      const merged = new Map<Feature, () => void>();
+      const merged: Step = new Map();
       for (const step of steps) {
-        for (const [feature, undo] of step) {
+        for (const [feature, change] of step) {
           const before = merged.get(feature);
-          merged.set(feature, before ? () => (undo(), before()) : undo);
+          merged.set(
+            feature,
+            before
+              ? {
+                  undo: () => (change.undo(), before.undo()),
+                  redo: () => (before.redo(), change.redo()),
+                }
+              : change,
+          );
         }
       }
       this.undo_.push(merged);
@@ -314,13 +358,27 @@ export class EditSession extends Observable {
   /** Takes back the last edit. */
   undo(): void {
     const step = this.undo_.pop();
-    if (step) for (const undo of [...step.values()].reverse()) undo();
+    if (step) {
+      for (const change of [...step.values()].reverse()) change.undo();
+      this.redo_.push(step);
+    }
+    this.changed();
+  }
+
+  /** Puts back the last edit taken back. */
+  redo(): void {
+    const step = this.redo_.pop();
+    if (step) {
+      for (const change of step.values()) change.redo();
+      this.undo_.push(step);
+    }
     this.changed();
   }
 
   /** Takes back every unsaved edit. */
   discard(): void {
-    while (this.undo_.length) for (const undo of [...this.undo_.pop()!.values()].reverse()) undo();
+    while (this.undo_.length) for (const change of [...this.undo_.pop()!.values()].reverse()) change.undo();
+    this.redo_.length = 0;
     this.errors_.clear();
     this.changed();
   }
@@ -354,6 +412,8 @@ export class EditSession extends Observable {
     const failed = new Set(outcome.failed.map((f) => f.feature));
     for (const step of this.undo_) for (const feature of [...step.keys()]) if (!failed.has(feature)) step.delete(feature);
     for (let i = this.undo_.length - 1; i >= 0; i--) if (this.undo_[i].size === 0) this.undo_.splice(i, 1);
+    // Redoing would change the map only, not what was saved.
+    this.redo_.length = 0;
     this.changed();
     return outcome;
   }
@@ -365,11 +425,15 @@ export class EditSession extends Observable {
     this.errors_.delete(f);
   }
 
-  private push_(step: Map<Feature, () => void>): void {
+  private push_(step: Step): void {
     this.undo_.push(step);
+    this.redo_.length = 0;
     this.changed();
   }
 }
+
+/** One edit, feature by feature: how to take it back and how to put it again. */
+type Step = Map<Feature, { undo: () => void; redo: () => void }>;
 
 function sameCoordinates(a: Geometry, b: Geometry): boolean {
   const flat = (g: Geometry) => (g as unknown as { getFlatCoordinates?: () => number[] }).getFlatCoordinates?.() ?? [];
