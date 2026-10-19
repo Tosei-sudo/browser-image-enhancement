@@ -5017,6 +5017,7 @@ dialog.popped-out .dock-button {
 }
 dialog.docked > .dock-dialog-corner {
   right: 10px;
+}
 
 /* 格子を敷き詰める (tessellate-dialog.ts): the shapes as picture buttons, and the draw buttons. */
 .tessellate-shapes {
