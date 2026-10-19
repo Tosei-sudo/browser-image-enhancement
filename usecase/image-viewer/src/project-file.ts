@@ -362,7 +362,7 @@ function readGlobe(g: unknown): ProjectGlobe | null {
   };
 }
 
-/** The layout part, as far as it can be read; the timeline and the dashboard check theirs as they take it. */
+/** The layout part, as far as it can be read; the timeline, the dashboard, the split and the docks check theirs as they take them. */
 function readLayout(raw: Record<string, unknown>, layersSkipped: boolean): ProjectLayout {
   const layout: ProjectLayout = {};
   for (const key of ['sideWidth', 'dashboardWidth', 'tableHeight'] as const) if (isNumber(raw[key]) && raw[key] > 0) layout[key] = raw[key];
@@ -371,6 +371,14 @@ function readLayout(raw: Record<string, unknown>, layersSkipped: boolean): Proje
   if (isObject(raw.timeline)) layout.timeline = raw.timeline;
   // The dashboard's layer is an index: not when layers were left out.
   if (isObject(raw.dashboard)) layout.dashboard = layersSkipped ? { ...raw.dashboard, layer: null } : raw.dashboard;
+  // The side by side comparison (its panes' layers are indexes too); it checks the rest as it takes it.
+  if (isObject(raw.split)) layout.split = (layersSkipped ? { ...raw.split, layers: [] } : raw.split) as unknown as ProjectLayout['split'];
+  // Where the panels are (the layout checks it as it takes it).
+  if (isObject(raw.dock)) layout.dock = raw.dock as unknown as ProjectLayout['dock'];
+  // The kept attribute tables' layers are indexes too.
+  if (Array.isArray(raw.tables) && !layersSkipped) {
+    layout.tables = raw.tables.filter((t): t is { id: string; layer: number } => isObject(t) && typeof t.id === 'string' && Number.isInteger(t.layer) && (t.layer as number) >= 0);
+  }
   return layout;
 }
 

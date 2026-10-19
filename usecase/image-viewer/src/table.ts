@@ -19,7 +19,6 @@ import type Target from 'ol/events/Target.js';
 import { createEmpty, extend } from 'ol/extent.js';
 import { ContextMenu, type MenuItem } from './context-menu.js';
 import type { EditSession } from './edit-session.js';
-import { makeResizer } from './resize.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
 import { compareValues, display, localInput, toCsv, toTsv } from './table-text.js';
@@ -52,6 +51,7 @@ export class AttributeTable {
   private rows_: Feature[] = [];
   private session_: EditSession | null = null;
   private keys_: EventsKey[] = [];
+  private selectionKey_: EventsKey | EventsKey[] = [];
   private frame_ = 0;
   /** The row a Shift click selects from. */
   private anchor_: Feature | null = null;
@@ -64,6 +64,7 @@ export class AttributeTable {
   private readonly search_: HTMLInputElement;
   private readonly columns_: HTMLDetailsElement;
   private readonly csv_: HTMLButtonElement;
+  private pin_: HTMLButtonElement | null = null;
   private readonly scroller_: HTMLElement;
   private readonly table_: HTMLTableElement;
   private readonly empty_: HTMLElement;
@@ -78,6 +79,10 @@ export class AttributeTable {
       shapeLink?: (features: Feature[]) => string | null;
       /** More commands for the selected features (copying them as GeoJSON or WKT), after the copy ones. */
       menuItems?: (features: Feature[]) => MenuItem[];
+      /** Opens another table for the layer shown, kept on it (「固定」); absent: no such button. */
+      onPin?: () => void;
+      /** The table's own name, before the layer's (default 「属性テーブル」). */
+      heading?: string;
     },
   ) {
     element.classList.add('table-panel');
@@ -93,7 +98,7 @@ export class AttributeTable {
     toggle.addEventListener('click', () => this.setCollapsed(!this.isCollapsed()));
 
     this.title_ = document.createElement('h2');
-    this.title_.textContent = '属性テーブル';
+    this.title_.textContent = options.heading ?? '属性テーブル';
     this.count_ = document.createElement('span');
     this.count_.className = 'table-count';
 
@@ -130,6 +135,15 @@ export class AttributeTable {
     this.csv_.addEventListener('click', () => this.downloadCsv());
 
     bar.append(toggle, this.title_, this.count_, modes, this.search_, this.columns_, this.csv_);
+    if (options.onPin) {
+      this.pin_ = document.createElement('button');
+      this.pin_.type = 'button';
+      this.pin_.className = 'table-pin';
+      this.pin_.textContent = '固定';
+      this.pin_.title = 'このレイヤーの属性テーブルをもう1つ開きます。別のレイヤーを選んでも残るので、いくつも並べて見比べられます';
+      this.pin_.addEventListener('click', () => options.onPin!());
+      bar.append(this.pin_);
+    }
 
     this.scroller_ = document.createElement('div');
     this.scroller_.className = 'table-scroll';
@@ -152,30 +166,33 @@ export class AttributeTable {
       else this.selection.remove(this.rows_);
     });
 
-    // Drag the top edge to change the height.
-    const handle = document.createElement('div');
-    handle.className = 'table-resize';
-    makeResizer({
-      handle,
-      target: element,
-      property: '--table-height',
-      axis: 'y',
-      size: () => this.scroller_.getBoundingClientRect().height,
-      min: () => 80,
-      max: () => Math.max(80, window.innerHeight - 200),
-      key: 'image-viewer.table-height',
-      label: '属性テーブルの高さ',
-      onResize: () => map.updateSize(),
-    });
-
-    element.append(handle, bar, this.scroller_);
-    selection.on('change', () => {
+    element.append(bar, this.scroller_);
+    this.selectionKey_ = selection.on('change', () => {
       if (this.mode_ === 'selected') this.rebuild_();
       else this.renderRows_();
       this.updateCount_();
     });
     this.setMode('all');
     this.show(null, 'WFS・Esri のレイヤーを選ぶと属性を表示します');
+  }
+
+  /** The table's title (「属性テーブル: レイヤー名」), which also drags it to another place (dock.ts). */
+  get heading(): HTMLElement {
+    return this.title_;
+  }
+
+  /** The title of what it shows (the layer's name), or null. */
+  dataTitle(): string | null {
+    return this.data_?.title ?? null;
+  }
+
+  /** Stops following the selection and the layer (the table is closed for good). */
+  dispose(): void {
+    unByKey(this.keys_);
+    unByKey(this.selectionKey_);
+    cancelAnimationFrame(this.frame_);
+    this.menu_.close();
+    this.menu_.element.remove();
   }
 
   /** Shows `data` (null: nothing, with `message`). */
@@ -190,7 +207,9 @@ export class AttributeTable {
     this.data_ = data;
     this.message_ = message;
     this.menu_.close();
-    this.title_.textContent = data ? `属性テーブル: ${data.title}` : '属性テーブル';
+    const heading = this.options.heading ?? '属性テーブル';
+    this.title_.textContent = data ? `${heading}: ${data.title}` : heading;
+    if (this.pin_) this.pin_.disabled = !data;
     for (const w of data?.watch ?? []) {
       for (const type of ['change', 'addfeature', 'removefeature', 'changefeature', 'clear']) {
         this.keys_.push(listen(w, type, () => this.schedule_()));

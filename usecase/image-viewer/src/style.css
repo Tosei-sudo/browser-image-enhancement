@@ -56,18 +56,32 @@ body {
 .app {
   display: grid;
   height: 100%;
-  grid-template: 'bar bar bar' auto 'side map dash' 1fr 'side timeline dash' auto 'side table dash' auto / min(var(--side-width), 60vw) minmax(0, 1fr) auto;
+  grid-template: 'bar bar bar' auto 'left map right' 1fr 'left timeline right' auto 'left bottom right' auto / auto minmax(0, 1fr) auto;
   --side-width: 17rem;
 }
 
-/* Drag handles of the layer panel width and the attribute table height. */
+/* Drag handles of the docks' sizes: the left one's width, the right one's, the bottom one's height. */
 .side-resize {
-  grid-area: side;
+  grid-area: left;
   justify-self: end;
   z-index: 2;
   width: 7px;
   margin-right: -4px;
   cursor: ew-resize;
+}
+.app > .table-resize {
+  grid-area: bottom;
+  align-self: start;
+  z-index: 2;
+  height: 7px;
+  margin-top: -4px;
+  cursor: ns-resize;
+}
+.dock-bottom.dock-folded ~ .table-resize,
+.side-resize[hidden],
+.dashboard-resize[hidden],
+.table-resize[hidden] {
+  display: none;
 }
 .side-resize,
 .table-resize {
@@ -184,12 +198,10 @@ body {
 }
 
 .side {
-  grid-area: side;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   padding: 8px 12px;
-  border-right: 1px solid var(--line);
   font-size: 13px;
 }
 .side > * {
@@ -750,26 +762,11 @@ body {
 
 /* Attribute table under the map. */
 .table {
-  grid-area: table;
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-top: 1px solid var(--line);
   font-size: 12px;
-  --table-height: 30vh;
-}
-.table-resize {
-  position: absolute;
-  top: -3px;
-  right: 0;
-  left: 0;
-  z-index: 2;
-  height: 7px;
-  cursor: ns-resize;
-}
-.table.collapsed .table-resize {
-  display: none;
 }
 .table-bar {
   display: flex;
@@ -848,7 +845,8 @@ body {
   white-space: nowrap;
 }
 .table-scroll {
-  height: min(var(--table-height), calc(100vh - 200px));
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
   border-top: 1px solid var(--line);
 }
@@ -1067,17 +1065,28 @@ body {
 
 @media (max-width: 720px) {
   .app {
-    grid-template: 'bar' auto 'map' 1fr 'table' auto 'side' minmax(0, 35%) / 1fr;
+    grid-template: 'bar' auto 'map' 1fr 'timeline' auto 'bottom' auto 'left' minmax(0, 35%) 'right' auto / 1fr;
   }
   .bar {
     flex-wrap: wrap;
   }
-  .side-resize {
+  .side-resize,
+  .dashboard-resize,
+  .app > .table-resize {
     display: none;
   }
-  .side {
+  .dock-left,
+  .dock-right {
+    width: auto;
     border-right: 0;
+    border-left: 0;
     border-top: 1px solid var(--line);
+  }
+  .dock-right {
+    max-height: 45vh;
+  }
+  .dock-bottom {
+    height: min(var(--table-height, 30vh), 40vh);
   }
 }
 
@@ -3066,20 +3075,16 @@ body {
 
 /* The dashboard (src/dashboard.ts): a column right of the map. */
 .dashboard {
-  grid-area: dash;
   display: flex;
   flex-direction: column;
-  width: min(var(--dash-width, 22rem), 50vw);
   min-height: 0;
-  border-left: 1px solid var(--line);
   font-size: 12px;
 }
-.dashboard[hidden],
-.dashboard[hidden] + .dashboard-resize {
+.dashboard[hidden] {
   display: none;
 }
 .dashboard-resize {
-  grid-area: dash;
+  grid-area: right;
   justify-self: start;
   z-index: 2;
   width: 7px;
@@ -4243,6 +4248,8 @@ html.embed #dashboard,
 html.embed .dashboard-resize,
 html.embed #table,
 html.embed .table-resize,
+html.embed .dock,
+html.embed .dock-float,
 html.embed .guide,
 html.embed .ol-enhance {
   display: none !important;
@@ -4737,4 +4744,277 @@ html.embed .ol-enhance {
 .results-actions {
   display: flex;
   gap: 4px;
+}
+
+/* The docking layout (src/dock.ts): docks around the map, groups of tabs in them, floating panels. */
+.dock {
+  display: flex;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.dock[hidden] {
+  display: none;
+}
+.dock-left {
+  grid-area: left;
+  flex-direction: column;
+  width: min(var(--side-width), 60vw);
+  border-right: 1px solid var(--line);
+}
+.dock-right {
+  grid-area: right;
+  flex-direction: column;
+  width: min(var(--dash-width, 22rem), 60vw);
+  border-left: 1px solid var(--line);
+}
+.dock-bottom {
+  grid-area: bottom;
+  flex-direction: row;
+  height: min(var(--table-height, 30vh), calc(100vh - 160px));
+  border-top: 1px solid var(--line);
+}
+/* Every panel folded (the table's ▾): only their title bars. */
+.dock-bottom.dock-folded {
+  height: auto;
+}
+.dock-group {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.dock-group[hidden] {
+  display: none;
+}
+.dock-left > .dock-group.dock-folded,
+.dock-right > .dock-group.dock-folded {
+  flex: 0 0 auto;
+}
+.dock-body {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.dock-folded > .dock-body {
+  flex: 0 0 auto;
+}
+.dock-body > .dock-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.dock-body > .dock-panel.collapsed {
+  flex: 0 0 auto;
+}
+.dock-body > .dock-inactive,
+.dock-body > [hidden] {
+  display: none !important;
+}
+/* Between two groups of a dock: drag to share its length. */
+.dock-split {
+  flex: none;
+  background: var(--line);
+  touch-action: none;
+}
+.dock-left > .dock-split,
+.dock-right > .dock-split {
+  height: 1px;
+  margin: -3px 0;
+  border-block: 3px solid transparent;
+  background-clip: padding-box;
+  cursor: ns-resize;
+  z-index: 1;
+}
+.dock-bottom > .dock-split {
+  width: 1px;
+  margin: 0 -3px;
+  border-inline: 3px solid transparent;
+  background-clip: padding-box;
+  cursor: ew-resize;
+  z-index: 1;
+}
+.dock-split:hover {
+  background-color: var(--accent);
+}
+.dock-tabs {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--subtle-bg, color-mix(in srgb, var(--fg) 4%, transparent));
+  font-size: 12px;
+  scrollbar-width: thin;
+}
+.dock-tabs[hidden] {
+  display: none;
+}
+.dock-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 14em;
+  padding: 4px 6px 4px 10px;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.dock-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-tab[aria-selected='true'] {
+  background: var(--bg);
+  box-shadow: inset 0 2px 0 var(--accent);
+  color: var(--fg);
+}
+.dock-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.dock-tab-close {
+  padding: 0 3px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.dock-tab-close:hover {
+  background: var(--subtle-bg, color-mix(in srgb, var(--fg) 12%, transparent));
+}
+.dock-button {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dock-button:hover,
+.dock-button:focus-visible {
+  color: var(--fg);
+}
+.dock-tabs > .dock-button {
+  margin-left: auto;
+  padding: 0 8px;
+}
+/* A group with no tab strip: its ◧ at the top right. */
+.dock-button.dock-corner {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
+.table-bar .dock-button {
+  margin-left: -6px;
+}
+/* A panel's own title drags it to another place. */
+.dock-group .dock-grip,
+.dock-float .dock-body .dock-grip {
+  cursor: grab;
+}
+.dock-dragging,
+.dock-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.dock-drop {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+}
+.dock-drop[hidden] {
+  display: none;
+}
+.dock-ghost {
+  position: fixed;
+  z-index: 10001;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 2px 8px var(--shadow);
+  font-size: 12px;
+  pointer-events: none;
+}
+/* A floating panel: a window over the map, moved by its title, sized by its corner. */
+dialog.dock-float {
+  z-index: 5;
+  box-sizing: border-box;
+  flex-direction: column;
+  min-width: 200px;
+  min-height: 120px;
+  max-width: 100vw;
+  max-height: 100vh;
+  padding: 0;
+  overflow: hidden;
+  resize: both;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 6px 24px var(--shadow);
+  font-size: 13px;
+}
+dialog.dock-float[open] {
+  display: flex;
+}
+dialog.dock-float[hidden] {
+  display: none;
+}
+.dock-float-head {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.dock-float-head h2 {
+  font-size: 13px;
+}
+/* A dialog docked: a panel filling its group. */
+dialog.docked {
+  position: static !important;
+  box-sizing: border-box;
+  width: auto !important;
+  max-width: none !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none !important;
+  overflow: auto;
+}
+dialog:has(> .dock-dialog-corner) h2 {
+  padding-right: 48px;
+}
+dialog.docked .pop-out-button,
+dialog.popped-out .dock-button {
+  display: none;
+}
+.dock-dialog-corner {
+  position: absolute;
+  top: 10px;
+  right: 34px;
+  z-index: 1;
+}
+dialog.docked > .dock-dialog-corner {
+  right: 10px;
 }

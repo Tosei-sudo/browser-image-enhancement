@@ -178,6 +178,10 @@
                   <button type="button" role="radio" data-keep-open data-theme-choice="light" aria-checked="false">ライト</button>
                   <button type="button" role="radio" data-keep-open data-theme-choice="dark" aria-checked="false">ダーク</button>
                 </div>
+                <!-- The panels' places and sizes back as they first were: src/dock.ts. -->
+                <div class="point-tools">
+                  <button type="button" id="layout-reset" title="左・右・下に置いたパネルや浮かせたパネル、その大きさを最初の配置に戻します">レイアウトを元に戻す</button>
+                </div>
               </section>
             </div>
           </div>
@@ -226,14 +230,22 @@
         </details>
         <p id="build" class="build"></p>
       </aside>
-      <div id="side-resize" class="side-resize"></div>
       <main id="map" class="map"></main>
       <!-- Filtering every layer by a window of time: src/timeline.ts. -->
       <section id="timeline" aria-label="タイムライン" hidden></section>
       <!-- Counts, charts and a heatmap of a layer, beside the map: src/dashboard.ts. -->
       <aside id="dashboard" aria-label="ダッシュボード" hidden></aside>
-      <div id="dashboard-resize" class="dashboard-resize"></div>
       <section id="table" class="table" aria-label="属性テーブル"></section>
+      <!--
+        The docks around the map: the panels above (and the attribute tables kept on a layer, and any dialog
+        docked by its ◧) go into them as groups of tabs, wherever the user puts them: src/dock.ts.
+      -->
+      <div class="dock dock-left" data-dock="left"></div>
+      <div class="dock dock-right" data-dock="right"></div>
+      <div class="dock dock-bottom" data-dock="bottom"></div>
+      <div id="side-resize" class="side-resize"></div>
+      <div id="dashboard-resize" class="dashboard-resize"></div>
+      <div id="bottom-resize" class="table-resize"></div>
       <div id="status" class="status"></div>
     </div>
     <script type="module" src="./src/main.ts"></script>
