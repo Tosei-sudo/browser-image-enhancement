@@ -76,6 +76,7 @@ import { IMAGE_CHOICE, isImageServerUrl, isMapServerUrl, MAP_CHOICE } from './se
 import { RasterRulesDialog } from './raster-rules-dialog.js';
 import { elevationRange } from './dem.js';
 import { NewLayerDialog } from './new-layer-dialog.js';
+import { TessellateDialog } from './tessellate-dialog.js';
 import { ProcessingDialog, tools as processingTools } from './processing-dialog.js';
 import { bindPalette, buttonCommands, CommandPalette } from './command-palette.js';
 import { ZonalDialog } from './zonal-dialog.js';
@@ -642,6 +643,7 @@ const rasterTools = [
   { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open(), dialog: () => mosaic.dialog },
   { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open(), dialog: () => panSharpen.dialog },
   { id: 'zonal', label: 'ゾーン統計（ポリゴンごとの平均・最大など）', open: () => void zonal.open(), dialog: () => zonal.dialog },
+  { id: 'tessellate', label: '格子を敷き詰める（正方形・六角形・三角形）', open: () => tessellateDialog.open(), dialog: () => tessellateDialog.dialog, vector: true },
 ];
 const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
   layers: () => images.inputs(),
@@ -698,7 +700,8 @@ const palette = new CommandPalette(() => [
   { id: 'bookmark-add', label: '今の表示をブックマークに追加', detail: 'ブックマーク', keys: 'M', run: () => bookmarks.add() },
   ...buttonCommands(document.querySelectorAll('.bar, .side .analysis-tools, #metadata-open')).filter((c) => c.id !== 'palette-open'),
   ...processingTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（ベクター）', run: () => processing.open(t.id) })),
-  ...rasterTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（画像）', run: t.open })),
+  // The grid tool has a button of its own in ツール (listed with the bar's buttons).
+  ...rasterTools.filter((t) => !('vector' in t)).map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（画像）', run: t.open })),
 ]);
 bindPalette(palette);
 document.getElementById('palette-open')!.addEventListener('click', () => palette.open());
@@ -756,6 +759,29 @@ const newLayer = new NewLayerDialog(document.getElementById('new-layer') as HTML
       editor.setTool('add');
       say(`${record.title} を作成しました。地図をクリックして描き始めてください（属性は属性テーブルで入力し、「保存」でブラウザに保存します）`);
     }
+  },
+});
+
+// Squares, hexagons or triangles over an area (drawn, a layer's features, the view): a temporary polygon layer.
+const tessellateDialog = new TessellateDialog(document.getElementById('tessellate-open') as HTMLButtonElement, selection, {
+  map,
+  layers: () => images.layers().filter((l): l is ViewerService => l.type === 'service' && !!l.service.vector),
+  selected: () => {
+    const layer = images.selectedLayer();
+    return layer?.type === 'service' ? layer : null;
+  },
+  say,
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+  onStart: () => {
+    points.setAdding(false);
+    measure.setMode(null);
+    aiSegment.setActive(false);
+    shadowHeight.setActive(false);
+    annotations.setActive(false);
   },
 });
 
@@ -1263,6 +1289,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'stac', label: 'STAC 検索', dialog: stac.dialog, open: () => stac.open(), run: () => stac.search() },
     { id: 'gp', label: 'サーバ処理（ArcGIS GP・OGC API – Processes）', dialog: gp.dialog, open: () => gp.open(), run: () => gp.run() },
     { id: 'webmap-open', label: 'ArcGIS Web マップを開く', dialog: webMaps.openDialog, open: () => webMaps.open(), run: () => webMaps.openTyped() },
+    { id: 'tessellate', label: '格子を敷き詰める（正方形・六角形・三角形）', dialog: tessellateDialog.dialog, open: () => tessellateDialog.open(), run: () => tessellateDialog.run() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1618,6 +1645,7 @@ declare global {
       processing: ProcessingDialog;
       zonal: ZonalDialog;
       newLayer: NewLayerDialog;
+      tessellate: TessellateDialog;
       panSharpen: PanSharpenDialog;
       colorize: ColorizeDialog;
       classLegend: ClassLegend;
@@ -1661,4 +1689,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
