@@ -16,6 +16,7 @@ const project: Project = {
   ],
   selected: 2,
   elevationServices: ['https://example.com/arcgis/rest/services/Terrain3D/ImageServer'],
+  scripts: [{ name: '面積', code: 'print(1);' }],
 };
 
 describe('project files', () => {

@@ -124,6 +124,7 @@ import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { ScriptDialog } from './script-dialog.js';
+import type { SavedScript } from './script/saved.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
@@ -975,6 +976,7 @@ const project = new ProjectControl({
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
   bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
+  scripts: { get: (): SavedScript[] => scripts.savedScripts(), add: (list: SavedScript[]): void => scripts.addSaved(list) },
   elevationServices: {
     get: () => geometry.elevationServiceRefs().map((s) => s.url),
     add: async (urls) => {

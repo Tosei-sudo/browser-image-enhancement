@@ -45,6 +45,7 @@ import {
 import type { ProjectLayout } from './layout.js';
 import { markRow } from './colorize-dialog.js';
 import type { Bookmark } from './bookmarks.js';
+import type { SavedScript } from './script/saved.js';
 import type { SavedNotes } from './annotations.js';
 import { isQgisName, qgisText, readQgs, writeQgs } from './qgis-project.js';
 import { symbolKindOf } from './style-file.js';
@@ -94,6 +95,8 @@ export interface ProjectOptions {
   elevationServices?: { get: () => string[]; add: (urls: string[]) => Promise<void> };
   /** The bookmarks: saved with the project, and added to the viewer's when it opens. */
   bookmarks?: { get: () => Bookmark[]; merge: (list: Bookmark[]) => void };
+  /** The saved scripts: saved with the project, and added to the browser's when it opens (none is run). */
+  scripts?: { get: () => SavedScript[]; add: (list: SavedScript[]) => void };
   /** The notes drawn on the map: saved with the project, and put back (or cleared) when it opens. */
   notes?: { get: () => SavedNotes | null; set: (saved: SavedNotes | null) => void };
   /** The projections set for images without one (georef-dialog.ts): saved, and set again when the project opens. */
@@ -371,6 +374,7 @@ export class ProjectControl {
         ...(savedGroups.length ? { groups: savedGroups.map((g): ProjectGroup => ({ name: g.name, visible: g.visible, collapsed: g.collapsed })) } : {}),
         ...(globe ? { globe } : {}),
         ...(this.options.bookmarks?.get().length ? { bookmarks: this.options.bookmarks.get() } : {}),
+        ...(this.options.scripts?.get().length ? { scripts: this.options.scripts.get() } : {}),
         ...(this.options.elevationServices?.get().length ? { elevationServices: this.options.elevationServices.get() } : {}),
         ...(this.options.notes?.get() ? { annotations: this.options.notes.get()! } : {}),
         ...(this.options.layout ? { layout: this.options.layout.collect((i) => listed.indexOf(images.layers()[i])) } : {}),
@@ -555,6 +559,7 @@ export class ProjectControl {
       });
       if (!threeD) this.restoreView_(project);
       if (project.bookmarks?.length) this.options.bookmarks?.merge(project.bookmarks);
+      if (project.scripts?.length) this.options.scripts?.add(project.scripts);
       this.options.notes?.set(project.annotations ?? null);
       // The correction panel shows the selected layer's correction as it is now.
       const selected = project.selected !== null ? found[project.selected] : found.find((l) => l);

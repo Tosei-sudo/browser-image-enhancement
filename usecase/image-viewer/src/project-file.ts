@@ -19,6 +19,7 @@ import type { VectorStyleSpec } from './vector-style.js';
 import type { TargetCrs } from './vector-write.js';
 import type { ProjectLayout } from './layout.js';
 import { readBookmarks, type Bookmark } from './bookmarks.js';
+import { readScripts, type SavedScript } from './script/saved.js';
 import type { SavedNotes } from './annotations.js';
 import type { Georef, GeorefMethod } from './georef.js';
 
@@ -159,6 +160,8 @@ export interface Project {
   annotations?: SavedNotes;
   /** ArcGIS elevation services used as elevation data, by URL (tokens are not kept). */
   elevationServices?: string[];
+  /** The scripts saved in the browser (script-dialog.ts): added to the saved ones when the project opens, never run by it. */
+  scripts?: SavedScript[];
 }
 
 /** Whether a file name is a project file's. */
@@ -226,6 +229,7 @@ export function readProject(text: string): { project: Project; skipped: number }
   const selected = isNumber(json.selected) && Number.isInteger(json.selected) && json.selected >= 0 && json.selected < layers.length ? json.selected : null;
   const globe = readGlobe(json.globe);
   const bookmarks = readBookmarks(json.bookmarks);
+  const scripts = readScripts(json.scripts);
   return {
     project: {
       format: PROJECT_FORMAT,
@@ -243,6 +247,7 @@ export function readProject(text: string): { project: Project; skipped: number }
       ...(globe ? { globe } : {}),
       ...(isObject(json.layout) ? { layout: readLayout(json.layout, skipped > 0) } : {}),
       ...(bookmarks.length ? { bookmarks } : {}),
+      ...(scripts.length ? { scripts } : {}),
       ...(Array.isArray(json.elevationServices) && json.elevationServices.some((u) => typeof u === 'string') ? { elevationServices: json.elevationServices.filter((u): u is string => typeof u === 'string') } : {}),
       ...(isObject(json.annotations) && json.annotations.type === 'FeatureCollection' && Array.isArray(json.annotations.features) ? { annotations: json.annotations as unknown as SavedNotes } : {}),
     },
