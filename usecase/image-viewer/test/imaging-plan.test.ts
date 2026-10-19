@@ -15,6 +15,7 @@ import {
   sunElevation,
   tleEpoch,
   tleLines,
+  type Opportunity,
   type PlanOptions,
   type PlanTarget,
   type SatelliteSpec,
@@ -155,6 +156,25 @@ describe('planning', () => {
     expect(opportunities.length).toBeGreaterThan(5);
     expect(opportunities.every((o, i) => i === 0 || o.time > opportunities[i - 1].time)).toBe(true);
     expect(opportunities.every((o) => o.offNadir <= 45)).toBe(true);
+  });
+
+  it('plans many targets together as each alone, with the closest moments as SGP4 finds them', () => {
+    // Targets near each other and far apart (grouped for the horizon test), over a day.
+    const centers: Array<[number, number]> = [[139.7, 35.7], [139.9, 35.6], [140.3, 36.1], [-74, 40.7], [2.35, 48.85], [151.2, -33.9], [179.9, 0], [-179.9, 0.2], [0, 89]];
+    const targets = centers.map((center, i) => ({ label: `t${i}`, center, points: [] }));
+    const options: PlanOptions = { start: epoch, end: epoch + 86400000, maxOffNadir: null, daylight: 'none', minSunElevation: 10 };
+    const together = planAccess([iss()], targets, options).opportunities;
+    const alone = targets.flatMap((t, i) => planAccess([iss()], [t], options).opportunities.map((o) => ({ ...o, target: i })));
+    const key = (o: Opportunity) => `${o.target}:${o.time}`;
+    expect(together.map(key).sort()).toEqual(alone.map(key).sort());
+    expect(together.length).toBeGreaterThan(10);
+    // A step over two minutes searches with SGP4 itself instead of the curve between samples: the same moments.
+    const coarse = planAccess([iss()], targets, { ...options, step: 150 }).opportunities;
+    for (const o of together) {
+      const match = coarse.find((c) => c.target === o.target && Math.abs(c.time - o.time) < 60000);
+      if (match) expect(Math.abs(match.time - o.time)).toBeLessThan(200);
+    }
+    expect(coarse.filter((c) => together.some((o) => o.target === c.target && Math.abs(c.time - o.time) < 200)).length).toBeGreaterThan(10);
   });
 
   it('counts the scenes side by side that cover a wide area', () => {

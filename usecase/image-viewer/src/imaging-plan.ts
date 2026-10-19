@@ -331,7 +331,8 @@ type Vec = [number, number, number];
 const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a: Vec, b: Vec): Vec => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a: Vec, b: Vec): Vec => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const norm = (a: Vec) => Math.hypot(a[0], a[1], a[2]);
+// Not Math.hypot: it is several times slower, and the plan computes millions of these.
+const norm = (a: Vec) => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
 const unit = (a: Vec): Vec => {
   const n = norm(a);
   return [a[0] / n, a[1] / n, a[2] / n];
@@ -567,6 +568,42 @@ function prepare(t: PlanTarget): Prepared {
   return { r, up: upOf(t.center), points, cells, radius };
 }
 
+/** The Earth's polar radius (km): no place on the ellipsoid is nearer the centre, so none sees further to the horizon. */
+const POLAR_RADIUS = 6356.752;
+/** Slack (radians) on the horizon test of a group of targets, for the up direction leaning off the radius (≤ 0.2°). */
+const HORIZON_MARGIN = 0.5 * (Math.PI / 180);
+/** Size (degrees of latitude and longitude) of the cells that group targets for the horizon test. */
+const GROUP_CELL = 4;
+
+/**
+ * Groups targets that lie close together: each group's middle direction and
+ * the angle (radians) it reaches from there, with the area of its targets.
+ */
+function groupTargets(prepared: Prepared[]): { groups: Array<{ direction: Vec; radius: number }>; groupOf: Int32Array } {
+  const keys = new Map<string, number[]>();
+  prepared.forEach((t, i) => {
+    const [lon, lat] = lonLatOf(t.r);
+    const key = `${Math.floor(lat / GROUP_CELL)},${Math.floor(lon / GROUP_CELL)}`;
+    const list = keys.get(key);
+    if (list) list.push(i);
+    else keys.set(key, [i]);
+  });
+  const groupOf = new Int32Array(prepared.length);
+  const groups = [...keys.values()].map((members, g) => {
+    const sum: Vec = [0, 0, 0];
+    for (const i of members) {
+      const u = unit(prepared[i].r);
+      for (let j = 0; j < 3; j++) sum[j] += u[j];
+      groupOf[i] = g;
+    }
+    const direction = norm(sum) > 0 ? unit(sum) : unit(prepared[members[0]].r);
+    let radius = 0;
+    for (const i of members) radius = Math.max(radius, Math.acos(Math.max(-1, Math.min(1, dot(unit(prepared[i].r), direction)))) + prepared[i].radius);
+    return { direction, radius };
+  });
+  return { groups, groupOf };
+}
+
 /** How an orbit sees a target at one moment. */
 function look(state: { r: Vec; v: Vec }, t: Prepared) {
   const d = sub(t.r, state.r);
@@ -589,10 +626,33 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
   const step = (options.step ?? 60) * 1000;
   const count = Math.max(2, Math.ceil((options.end - options.start) / step) + 1);
   const prepared = targets.map(prepare);
+  const { groups, groupOf } = groupTargets(prepared);
   const xs = new Float64Array(count);
   const ys = new Float64Array(count);
   const zs = new Float64Array(count);
+  const rs = new Float64Array(count);
   const ns = new Float64Array(count * 3);
+  const vs = new Float64Array(count * 3);
+  // Between samples the orbit is a cubic (Hermite) curve through their positions and velocities: within a metre of
+  // SGP4 for a step of a minute or so, and much cheaper, so the search for each pass's closest moment uses it.
+  const smooth = step <= 120000;
+  const between = (ms: number): Vec | null => {
+    const u = (ms - options.start) / step;
+    const k = Math.min(count - 2, Math.max(0, Math.floor(u)));
+    if (Number.isNaN(xs[k]) || Number.isNaN(xs[k + 1])) return null;
+    const f = u - k;
+    const h = step / 1000;
+    const h00 = (1 + 2 * f) * (1 - f) * (1 - f);
+    const h10 = f * (1 - f) * (1 - f) * h;
+    const h01 = f * f * (3 - 2 * f);
+    const h11 = f * f * (f - 1) * h;
+    const v = k * 3;
+    return [
+      h00 * xs[k] + h10 * vs[v] + h01 * xs[k + 1] + h11 * vs[v + 3],
+      h00 * ys[k] + h10 * vs[v + 1] + h01 * ys[k + 1] + h11 * vs[v + 4],
+      h00 * zs[k] + h10 * vs[v + 2] + h01 * zs[k + 1] + h11 * vs[v + 5],
+    ];
+  };
 
   sats.forEach((sat, s) => {
     const satrec = satrecOf(sat);
@@ -616,6 +676,8 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
         continue;
       }
       [xs[k], ys[k], zs[k]] = st.r;
+      rs[k] = norm(st.r);
+      vs.set(st.v, k * 3);
       const n = unit(cross(st.r, st.v));
       ns.set(n, k * 3);
     }
@@ -625,35 +687,73 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
       return;
     }
 
-    prepared.forEach((t, ti) => {
-      // cos of the off-nadir angle at each sample, or −2 where the target is below the horizon.
-      const c = (k: number) => {
-        if (k < 0 || k >= count || Number.isNaN(xs[k])) return -2;
-        const r: Vec = [xs[k], ys[k], zs[k]];
-        const v = look({ r, v: [0, 0, 0] }, t);
-        return v.elevation > 0 ? v.cosOff : -2;
-      };
-      let prev = -2;
-      let here = c(0);
+    // The samples at which each group of targets may be above the horizon (with the samples either side), so
+    // that each target only looks at those: a satellite is over a region for a few minutes of each orbit.
+    let reach = 0;
+    for (let k = 0; k < count; k++) if (rs[k] > POLAR_RADIUS) reach = Math.max(reach, Math.acos(POLAR_RADIUS / rs[k]));
+    const ranges = groups.map((g) => {
+      const cosine = Math.cos(Math.min(Math.PI, reach + g.radius + HORIZON_MARGIN));
+      const [gx, gy, gz] = g.direction;
+      const out: number[] = [];
       for (let k = 0; k < count; k++) {
-        const next = c(k + 1);
-        if (here > -2 && here >= prev && here > next) {
-          // Cheap test before refining: the target's distance from the orbit's plane (less how far
-          // the area reaches) bounds the smallest angle of the pass.
-          const r: Vec = [xs[k], ys[k], zs[k]];
-          const n: Vec = [ns[k * 3], ns[k * 3 + 1], ns[k * 3 + 2]];
-          const across = Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(unit(t.r), n)))));
-          if (offNadirFor(Math.max(0, across - t.radius), norm(r)) <= limit + 1) {
-            const found = refine(satrec, t, options.start + (k - 1) * step, options.start + (k + 1) * step);
-            if (found) {
-              const op = judge(sat, s, ti, t, found, limit, options, epoch);
-              if (op && sat.leadTime > 0 && options.now !== undefined && op.time - sat.leadTime * 3600000 < options.now) tooSoon++;
-              else if (op) opportunities.push(op);
+        if (!(xs[k] * gx + ys[k] * gy + zs[k] * gz > cosine * rs[k])) continue;
+        const from = Math.max(0, k - 1);
+        let to = k + 1;
+        while (to < count && xs[to] * gx + ys[to] * gy + zs[to] * gz > cosine * rs[to]) to++;
+        const last = Math.min(count - 1, to);
+        if (out.length && out[out.length - 1] >= from - 1) out[out.length - 1] = last;
+        else out.push(from, last);
+        k = to;
+      }
+      return out;
+    });
+
+    prepared.forEach((t, ti) => {
+      // cos of the off-nadir angle at each sample, or −2 where the target is below the horizon (as look(), inline:
+      // this runs for many samples of every satellite and target, so it allocates nothing and skips the square
+      // root and division while the satellite is below the target's horizon).
+      const [tx, ty, tz] = t.r;
+      const [ux, uy, uz] = t.up;
+      const level = tx * ux + ty * uy + tz * uz;
+      const c = (k: number) => {
+        if (k < 0 || k >= count) return -2;
+        const x = xs[k];
+        const y = ys[k];
+        const z = zs[k];
+        // Above the horizon: the satellite is higher than the target along its up direction (NaN fails too).
+        if (!(x * ux + y * uy + z * uz > level)) return -2;
+        const dx = tx - x;
+        const dy = ty - y;
+        const dz = tz - z;
+        return -(x * dx + y * dy + z * dz) / (rs[k] * Math.sqrt(dx * dx + dy * dy + dz * dz));
+      };
+      const span = ranges[groupOf[ti]];
+      for (let i = 0; i < span.length; i += 2) {
+        let prev = c(span[i] - 1);
+        let here = c(span[i]);
+        for (let k = span[i]; k <= span[i + 1]; k++) {
+          const next = c(k + 1);
+          if (here > -2 && here >= prev && here > next) {
+            // Cheap test before refining: the target's distance from the orbit's plane (less how far
+            // the area reaches) bounds the smallest angle of the pass.
+            const r: Vec = [xs[k], ys[k], zs[k]];
+            const n: Vec = [ns[k * 3], ns[k * 3 + 1], ns[k * 3 + 2]];
+            const across = Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(unit(t.r), n)))));
+            if (offNadirFor(Math.max(0, across - t.radius), norm(r)) <= limit + 1) {
+              const a = options.start + (k - 1) * step;
+              const b = options.start + (k + 1) * step;
+              const position = smooth && k > 0 && k < count - 1 && !Number.isNaN(xs[k - 1]) && !Number.isNaN(xs[k + 1]) ? between : (ms: number) => stateAt(satrec, ms)?.r ?? null;
+              const found = refine(position, t, a, b);
+              if (found) {
+                const op = judge(sat, satrec, s, ti, t, found, limit, options, epoch);
+                if (op && sat.leadTime > 0 && options.now !== undefined && op.time - sat.leadTime * 3600000 < options.now) tooSoon++;
+                else if (op) opportunities.push(op);
+              }
             }
           }
+          prev = here;
+          here = next;
         }
-        prev = here;
-        here = next;
       }
     });
     onProgress?.((s + 1) / sats.length);
@@ -663,11 +763,11 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
 }
 
 /** The moment between `a` and `b` with the smallest off-nadir angle to the target (golden-section search). */
-function refine(satrec: SatRec, t: Prepared, a: number, b: number): number | null {
+function refine(position: (ms: number) => Vec | null, t: Prepared, a: number, b: number): number | null {
   const g = (Math.sqrt(5) - 1) / 2;
   const f = (ms: number) => {
-    const st = stateAt(satrec, ms);
-    return st ? look(st, t).cosOff : -2;
+    const r = position(ms);
+    return r ? look({ r, v: [0, 0, 0] }, t).cosOff : -2;
   };
   let x1 = b - g * (b - a);
   let x2 = a + g * (b - a);
@@ -774,8 +874,7 @@ function lookAt(x: number, distance: number) {
 }
 
 /** The opportunity at `time`, or null when the satellite cannot take it. */
-function judge(sat: SatelliteSpec, s: number, ti: number, t: Prepared, time: number, limit: number, options: PlanOptions, epoch: number): Opportunity | null {
-  const satrec = satrecOf(sat) as SatRec;
+function judge(sat: SatelliteSpec, satrec: SatRec, s: number, ti: number, t: Prepared, time: number, limit: number, options: PlanOptions, epoch: number): Opportunity | null {
   const st = stateAt(satrec, time)!;
   const center = lonLatOf(t.r);
   const sun = sunElevation(center, time);
