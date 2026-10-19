@@ -197,8 +197,8 @@ export interface ProcessingDialogOptions {
   /** Opens a result as a temporary layer. */
   onResult: (result: ProcessingResult, made: string) => Promise<void>;
   say: (message: string) => void;
-  /** Tools on images, with dialogs of their own: choosing one opens it in place of this one. */
-  rasterTools?: Array<{ id: string; label: string; open: () => void; dialog?: () => HTMLDialogElement }>;
+  /** Tools on images (and `vector` ones that make vector layers), with dialogs of their own: choosing one opens it in place of this one. */
+  rasterTools?: Array<{ id: string; label: string; open: () => void; dialog?: () => HTMLDialogElement; vector?: boolean }>;
   /** Files as inputs, without adding them to the map (📂). */
   sources?: DataSources;
 }
@@ -344,10 +344,13 @@ export class ProcessingDialog {
 
   /** The tool choices: vector tools, then the image tools under their own heading. */
   private toolOptions_(): string {
-    const vector = tools.map((t) => `<option value="${t.id}">${t.label}</option>`).join('');
-    const raster = this.options.rasterTools ?? [];
+    const own = (list: Array<{ id: string; label: string }>) => list.map((t) => `<option value="${t.id}">${escape(t.label)}</option>`).join('');
+    const others = this.options.rasterTools ?? [];
+    // Tools with dialogs of their own that make vector layers (the grid) go with the vector tools.
+    const vector = own([...tools, ...others.filter((t) => t.vector)]);
+    const raster = others.filter((t) => !t.vector);
     if (!raster.length) return vector;
-    return `<optgroup label="ベクター">${vector}</optgroup><optgroup label="画像">${raster.map((t) => `<option value="${t.id}">${escape(t.label)}</option>`).join('')}</optgroup>`;
+    return `<optgroup label="ベクター">${vector}</optgroup><optgroup label="画像">${own(raster)}</optgroup>`;
   }
 
   /** Fills the input layers the tool takes, and (when `tool` changed or the layer did) its settings. */
