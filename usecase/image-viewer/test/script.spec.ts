@@ -327,3 +327,44 @@ print('sample', JSON.stringify(await viewer.sample(id, [lonLat.coordinates])));`
   // x = 31: (410 - 100) / (410 + 100)
   await expect(output(page)).toContainText(`sample [[${Math.fround(310 / 510)}]]`);
 });
+
+test('a saved script repeats at an interval while the page is open, with a record of each run, until 「停止」', async ({ page }) => {
+  await page.clock.install();
+  await open(page);
+  await openScripts(page);
+  await dialog(page).getByLabel('スクリプト（JavaScript）').fill('print("run");');
+  page.once('dialog', (d) => void d.accept('数える'));
+  await dialog(page).getByRole('button', { name: '保存' }).click();
+  await expect(dialog(page).getByLabel('スクリプトを開く')).toHaveValue('saved:0');
+
+  await dialog(page).getByLabel('繰り返し').selectOption({ label: '1分ごと' });
+  await dialog(page).getByRole('button', { name: '実行' }).click();
+  const status = dialog(page).locator('.script-status');
+  await expect(status).toContainText('次は');
+  // Waiting for the next run, 「停止」 is still there (it ends the repeat), and so is 「実行」.
+  await expect(dialog(page).getByRole('button', { name: '停止' })).toBeEnabled();
+  // 「実行の記録」 opens under the output.
+  await dialog(page).locator('.script-log summary').click();
+  const log = dialog(page).getByRole('list', { name: '実行の記録' });
+  await expect(log.locator('li')).toHaveCount(1);
+  await expect(log.locator('li').first()).toContainText('「数える」 完了');
+
+  // An edit to the editor does not change what repeats.
+  await dialog(page).getByLabel('スクリプト（JavaScript）').fill('throw new Error("edited");');
+  await page.clock.fastForward(61_000);
+  await expect(log.locator('li')).toHaveCount(2);
+  await expect(log.locator('li').first()).toContainText('完了');
+  await expect(dialog(page).locator('.script-log summary')).toContainText('2 回');
+
+  // Closing the panel keeps it going.
+  await dialog(page).getByRole('button', { name: '閉じる' }).click();
+  await page.clock.fastForward(61_000);
+  await openScripts(page);
+  await expect(log.locator('li')).toHaveCount(3);
+
+  await dialog(page).getByRole('button', { name: '停止' }).click();
+  await expect(status).toContainText('繰り返しを止めました');
+  await expect(dialog(page).getByRole('button', { name: '停止' })).toBeDisabled();
+  await page.clock.fastForward(130_000);
+  await expect(log.locator('li')).toHaveCount(3);
+});

@@ -3683,6 +3683,43 @@ body {
 .script-actions progress {
   width: 6rem;
 }
+.script-actions select {
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+/* 「繰り返し」 going on: the choice is marked, and so is the menu item while the panel is closed. */
+.script-dialog.repeating select[name='repeat'] {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.script-repeating::after {
+  content: ' ⟳' / '';
+  color: var(--accent);
+}
+.script-log summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.script-log ol {
+  max-height: 10rem;
+  margin: 4px 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  font-size: 12px;
+}
+.script-log ol:empty::before {
+  color: var(--muted);
+  content: 'まだ実行していません';
+}
+.script-log time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .script-status {
   flex: 1;
   color: var(--muted);
