@@ -73,6 +73,7 @@ import { readBandNames, type TiffImageLike } from './tiff-metadata.js';
 import { floatNoData, isEightBit, keepEightBitRange, KNOWN_FILL_VALUES, valuesTest } from './geotiff-samples.js';
 import { floatTexturesFilterable } from './float-textures.js';
 import { fastReadRasters } from './fast-read.js';
+import { fastComposeTiles } from './fast-compose.js';
 import { colorModeFor, maskNoData, selectRGBA, toRgb, toRGBA, toSelectedTile, fromRGBA } from './tile-pixels.js';
 
 /** The part of geotiff.js's `ImageFileDirectory` used to preload the tile index. */
@@ -795,6 +796,7 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
         this.select_ = null;
       }
     }
+    fastComposeTiles(this);
     this.packTiles_();
     super.setLoader((z, x, y, options) => this.loadEnhanced_(loader, z, x, y, options));
     this.preloadTileIndex_();
