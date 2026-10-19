@@ -3350,6 +3350,10 @@ body {
   color: var(--warn);
   font-size: 11px;
 }
+.plan-more-rows {
+  color: var(--muted);
+  text-align: center;
+}
 .plan-old-cell::after {
   content: ' ⚠';
   color: var(--warn);
