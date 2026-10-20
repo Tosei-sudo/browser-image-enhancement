@@ -12,8 +12,8 @@
  */
 import { ContextMenu } from './context-menu.js';
 import type { DockLayout } from './dock.js';
-import type { DockSide, FloatRect } from './dock-state.js';
-import { isPoppedOut } from './pop-out.js';
+import type { DockSide, DropTarget, FloatRect } from './dock-state.js';
+import { bringBack, draggedOut, isPoppedOut } from './pop-out.js';
 
 /** The dialogs' titles (as in move-windows.ts and pop-out.ts). */
 const TITLE = 'h2, .catalog-head';
@@ -103,14 +103,27 @@ function openUndockedMenu(dialog: HTMLDialogElement, layout: DockLayout, x: numb
   undockedMenu.open(sides.map(([side, label]) => ({ label, run: () => dockDialog(dialog, layout, side) })), x, y);
 }
 
-/** Puts an open dialog in the layout: at the end of the dock `side`, or where the layout keeps it. */
-export function dockDialog(dialog: HTMLDialogElement, layout: DockLayout, side?: DockSide): void {
-  if (!dialog.open || isPoppedOut(dialog)) return;
+/**
+ * Puts an open dialog in the layout: at the end of the dock `where`, at the
+ * drop target `where`, or where the layout keeps it. A dialog in a window of
+ * its own comes back into the tab for it.
+ */
+export function dockDialog(dialog: HTMLDialogElement, layout: DockLayout, where?: DockSide | DropTarget): void {
+  if (isPoppedOut(dialog)) bringBack(dialog);
+  if (!dialog.open) return;
   const id = dockIdOf(dialog);
-  if (docked.has(dialog)) {
-    if (side) layout.dockTo(id, side);
+  const target: DropTarget | undefined = typeof where === 'string' ? { kind: 'split', side: where, index: layout.getState()[where].length } : where;
+  if (target?.kind === 'float') {
+    // Not docked: a dialog where it was dropped.
+    if (docked.has(dialog)) layout.move(id, target);
+    else placeAt(dialog, target.rect);
     return;
   }
+  if (docked.has(dialog)) {
+    if (target) layout.move(id, target);
+    return;
+  }
+  const side = target?.side;
   const record: Docked = { id, place: document.createComment('dock'), modal: dialog.matches(':modal'), style: dialog.getAttribute('style'), undo: [] };
   docked.set(dialog, record);
   dialog.before(record.place);
@@ -144,10 +157,15 @@ export function dockDialog(dialog: HTMLDialogElement, layout: DockLayout, side?:
       onFloat: (rect) => undock(dialog, layout, true, rect),
       onEvict: () => undock(dialog, layout, true),
     },
-    side && !layout.remembers(id) ? { kind: 'split', side, index: layout.getState()[side].length } : undefined,
+    target,
   );
-  if (side && layout.remembers(id) && layout.placeOf(id) !== side) layout.dockTo(id, side);
   layout.activate(id);
+}
+
+/** Puts a dialog (not docked) at the page point of `rect`'s top left, as dragging its title would. */
+function placeAt(dialog: HTMLDialogElement, rect: FloatRect): void {
+  Object.assign(dialog.style, { position: 'fixed', inset: 'auto', margin: '0', transform: 'none', left: `${Math.max(0, rect.left)}px`, top: `${Math.max(0, rect.top)}px` });
+  dialog.dataset.moved = '';
 }
 
 /** Takes a dialog out of the layout, back where it was in the page; `float`: open as a dialog again (at `rect`), and its place in the layout forgotten. */
@@ -168,10 +186,7 @@ function undock(dialog: HTMLDialogElement, layout: DockLayout, float: boolean, r
     dialog.removeAttribute('open');
     dialog.showModal();
   }
-  if (rect) {
-    Object.assign(dialog.style, { position: 'fixed', inset: 'auto', margin: '0', transform: 'none', left: `${Math.max(0, rect.left)}px`, top: `${Math.max(0, rect.top)}px` });
-    dialog.dataset.moved = '';
-  }
+  if (rect) placeAt(dialog, rect);
 }
 
 /** Wires the ◧ buttons of every dialog of the page, and docks a dialog that opens where the layout keeps it (once per page). */
@@ -186,4 +201,31 @@ export function enableDialogDocking(layout: DockLayout): void {
   // A dialog gets its button when it opens; its content may be built only then.
   new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
   scan();
+
+  // A dialog's title dragged out of its own window (⧉) onto the tab: docked where it is dropped, as its tab would be.
+  const targetOf = (dialog: HTMLDialogElement, e: DragEvent) => layout.dropTargetAt(dockIdOf(dialog), e.clientX, e.clientY);
+  document.addEventListener('dragover', (e) => {
+    const dialog = draggedOut();
+    if (!dialog) return;
+    const found = targetOf(dialog, e);
+    layout.previewDrop(found?.rect ?? null);
+    if (!found) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  });
+  document.addEventListener('dragleave', (e) => {
+    // Out of the tab's window.
+    if (!e.relatedTarget) layout.previewDrop(null);
+  });
+  document.addEventListener('drop', (e) => {
+    const dialog = draggedOut();
+    layout.previewDrop(null);
+    if (!dialog) return;
+    const found = targetOf(dialog, e);
+    if (!found) return;
+    e.preventDefault();
+    dockDialog(dialog, layout, found.target);
+    window.focus();
+  });
+  document.addEventListener('dragend', () => layout.previewDrop(null));
 }

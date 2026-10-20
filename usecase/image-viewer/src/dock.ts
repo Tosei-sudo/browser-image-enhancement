@@ -594,7 +594,26 @@ export class DockLayout {
     document.addEventListener('keydown', key, true);
   }
 
-  /** Where dropping the panel `id` at (`x`, `y`) puts it, and the area to show. */
+  /** Where dropping the panel `id` at the page point (`x`, `y`) puts it, and the area to show; null: nowhere. */
+  dropTargetAt(id: string, x: number, y: number): { target: DropTarget; rect: DOMRect } | null {
+    return this.targetAt_(id, x, y);
+  }
+
+  /** Shows where a drop would put a panel (null: hides it), for drags the layout does not run itself. */
+  previewDrop(rect: DOMRect | null): void {
+    let drop = document.querySelector<HTMLElement>('body > .dock-drop.dock-drop-external');
+    if (!rect) {
+      drop?.remove();
+      return;
+    }
+    if (!drop) {
+      drop = document.createElement('div');
+      drop.className = 'dock-drop dock-drop-external';
+      document.body.append(drop);
+    }
+    Object.assign(drop.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  }
+
   private targetAt_(id: string, x: number, y: number): { target: DropTarget; rect: DOMRect } | null {
     const at = findPanel(this.state_, id);
     for (const g of this.groups_) {
