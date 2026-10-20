@@ -5185,9 +5185,12 @@ dialog.docked {
 dialog:has(> .dock-dialog-corner) h2 {
   padding-right: 48px;
 }
-dialog.docked .pop-out-button,
-dialog.popped-out .dock-button {
+dialog.docked .pop-out-button {
   display: none;
+}
+/* In its own window, its title can be dragged onto the tab to dock it. */
+dialog.popped-out :is(h2, .catalog-head)[draggable='true'] {
+  cursor: grab;
 }
 .dock-dialog-corner {
   position: absolute;

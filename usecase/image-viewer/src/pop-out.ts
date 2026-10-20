@@ -7,15 +7,18 @@
  *
  * The dialog itself moves (not a copy), so what it shows, its inputs and what
  * its buttons do stay the same, run by the same page. It takes the page's
- * styles, also light or dark, along. Closing the window, or ↩ in it, brings
- * the dialog back into the tab where it was; closing the dialog (its × or
- * buttons) closes the window too. A modal dialog does not hold the tab while
- * it is outside, so the map can be used next to it.
+ * styles, also light or dark, along. ↩ in the window brings the dialog back
+ * into the tab where it was; closing the window closes the dialog, as its ×
+ * does (which closes the window too). Its title dragged onto the tab docks it
+ * there (dock-dialogs.ts). A modal dialog does not hold the tab while it is
+ * outside, so the map can be used next to it.
  */
 
 /** The dialogs' titles, where the button goes (as in move-windows.ts). */
 const TITLE = 'h2, .catalog-head';
 const BUTTON = 'pop-out-button';
+/** The drag data type of a popped-out dialog's title. */
+const DRAG_TYPE = 'application/x-image-viewer-window';
 /** Smallest size of a new window, in CSS pixels. */
 const MIN_WIDTH = 280;
 const MIN_HEIGHT = 160;
@@ -44,6 +47,13 @@ interface PoppedOut {
 }
 
 const popped = new Map<HTMLDialogElement, PoppedOut>();
+/** The dialog whose title is being dragged out of its window, if any. */
+let dragged: HTMLDialogElement | null = null;
+
+/** The dialog whose title is being dragged out of its window (onto the tab, to dock it), or null. */
+export function draggedOut(): HTMLDialogElement | null {
+  return dragged && popped.has(dragged) ? dragged : null;
+}
 
 /** Whether `dialog` is in a window of its own now. */
 export function isPoppedOut(dialog: HTMLDialogElement): boolean {
@@ -162,8 +172,8 @@ export async function popOut(dialog: HTMLDialogElement, front = false): Promise<
   const closed = (): void => bringBack(dialog);
   dialog.addEventListener('close', closed);
   out.undo.push(() => dialog.removeEventListener('close', closed));
-  // Closing the window brings the dialog back, still open.
-  const gone = (): void => bringBack(dialog);
+  // Closing the window closes the dialog: it goes back into the tab, closed.
+  const gone = (): void => bringBack(dialog, true);
   win.addEventListener('pagehide', gone);
   out.undo.push(() => win.removeEventListener('pagehide', gone));
   // Esc closes a modal dialog there as it does in the tab (the browser's own handling stays in the tab).
@@ -181,12 +191,36 @@ export async function popOut(dialog: HTMLDialogElement, front = false): Promise<
   };
   win.addEventListener('resize', resized);
   out.undo.push(() => win.removeEventListener('resize', resized));
+  // Its title can be dragged onto the tab, which docks it there (dock-dialogs.ts listens on the tab).
+  const title = dialog.querySelector<HTMLElement>(TITLE);
+  if (title) {
+    const draggable = title.getAttribute('draggable');
+    title.draggable = true;
+    const start = (e: DragEvent): void => {
+      if ((e.target as Element | null)?.closest?.('button, input, select, textarea, a')) return;
+      dragged = dialog;
+      e.dataTransfer?.setData(DRAG_TYPE, titleOf(dialog));
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    };
+    const end = (): void => {
+      if (dragged === dialog) dragged = null;
+    };
+    title.addEventListener('dragstart', start);
+    title.addEventListener('dragend', end);
+    out.undo.push(() => {
+      title.removeEventListener('dragstart', start);
+      title.removeEventListener('dragend', end);
+      if (draggable === null) title.removeAttribute('draggable');
+      else title.setAttribute('draggable', draggable);
+      end();
+    });
+  }
   win.focus();
   return true;
 }
 
-/** Brings a dialog back from its window into the tab, where it was. */
-export function bringBack(dialog: HTMLDialogElement): void {
+/** Brings a dialog back from its window into the tab, where it was; `close`: closed (its window was closed). */
+export function bringBack(dialog: HTMLDialogElement, close = false): void {
   const out = popped.get(dialog);
   if (!out) return;
   popped.delete(dialog);
@@ -196,8 +230,10 @@ export function bringBack(dialog: HTMLDialogElement): void {
   else dialog.setAttribute('style', out.style);
   if (out.place.isConnected) out.place.replaceWith(dialog);
   else out.place.ownerDocument.body.append(dialog);
-  // Still open (its window was closed): open as it was, modal again if it was.
-  if (dialog.open && out.modal) {
+  if (close) {
+    if (dialog.open) dialog.close();
+  } else if (dialog.open && out.modal) {
+    // Still open (↩): open as it was, modal again if it was.
     dialog.removeAttribute('open');
     dialog.showModal();
   }
