@@ -71,6 +71,7 @@ import type { MenuItem } from './context-menu.js';
 import { DockLayout } from './dock.js';
 import { enableDialogDocking } from './dock-dialogs.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
+import { Hints } from './help.js';
 import { Theme } from './theme.js';
 import { AttributeTable, type TableData } from './table.js';
 import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from './services/index.js';
@@ -200,8 +201,10 @@ dock.add({ id: 'layers', title: () => 'レイヤー', element: side, grip: docum
 const toolMenu = new ToolMenu(document.getElementById('tools-menu')!);
 // 「表示」 in the menu: light, dark or the system's setting.
 new Theme(document.getElementById('theme-choices')!);
-const guide = new Guide(mapElement);
-const help = new HelpDialog(guide);
+// Opt-in help for those new to it: explanations beside the controls (off until turned on).
+const hints = new Hints();
+const guide = new Guide(mapElement, hints);
+const help = new HelpDialog(guide, hints);
 document.getElementById('help')!.addEventListener('click', () => help.open());
 const press = (id: string) => () => document.getElementById(id)!.click();
 bindShortcuts({
@@ -754,6 +757,9 @@ const palette = new CommandPalette(() => [
   { id: 'open-file', label: 'ファイルを開く', detail: '画像・GeoTIFF・Shapefile・GeoJSON など', keys: 'O', run: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click() },
   { id: 'jump', label: '座標・地名へ移動', detail: '緯度経度・MGRS・UTM・地名・住所', keys: '/', run: () => document.querySelector<HTMLInputElement>('#jump input')!.focus() },
   { id: 'bookmark-add', label: '今の表示をブックマークに追加', detail: 'ブックマーク', keys: 'M', run: () => bookmarks.add() },
+  { id: 'help-topics', label: 'やりたいことから探す（ヘルプ）', detail: '操作の手順と、そのボタンの場所', run: () => help.open('topics') },
+  { id: 'help-terms', label: '用語の説明（ヘルプ）', detail: 'バンド・DRA・オルソ補正などの言葉', run: () => help.open('terms') },
+  { id: 'help-hints', label: hints.isEnabled() ? 'ボタンの説明をやめる' : 'ボタンの説明を出す（初心者向け）', detail: 'ヘルプ — マウスを乗せたボタンやスライダーの説明', run: () => hints.toggle() },
   ...buttonCommands(document.querySelectorAll('.bar, .side .analysis-tools, #metadata-open')).filter((c) => c.id !== 'palette-open'),
   ...processingTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（ベクター）', run: () => processing.open(t.id) })),
   // The grid tool has a button of its own in ツール (listed with the bar's buttons).
@@ -1723,6 +1729,7 @@ declare global {
       toolMenu: ToolMenu;
       guide: Guide;
       help: HelpDialog;
+      hints: Hints;
       swipe: SwipeTool;
       split: SplitView;
       histogram: HistogramPanel;
@@ -1747,4 +1754,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

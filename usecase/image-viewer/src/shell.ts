@@ -5,6 +5,9 @@
  * (single keys for the common tools, so they work with the menu closed).
  */
 
+import { score } from './command-palette.js';
+import { GLOSSARY, HELP_TOPICS, pointAt, searchHelp, type HelpTopic, type Hints } from './help.js';
+
 /** Whether a key press belongs to a text field rather than to the viewer. */
 function typing(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
@@ -153,7 +156,7 @@ const GUIDE_KEY = 'image-viewer.guide-seen';
 export class Guide {
   readonly element: HTMLElement;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, hints?: Hints) {
     const el = (this.element = document.createElement('section'));
     el.className = 'guide';
     el.setAttribute('aria-labelledby', 'guide-title');
@@ -164,9 +167,19 @@ export class Guide {
         <li>左上のフォルダのボタンで画像・GeoTIFF・Shapefile などを開きます。地図へのドラッグ＆ドロップでも開けます。</li>
         <li>右上のパネルで明るさ・コントラストなどを調整します。調整は画像ごとに残ります。</li>
         <li>計測やポイントは「ツール」に、細かな操作は「?」のショートカット一覧にまとめてあります。どの機能も <kbd>Ctrl</kbd>+<kbd>K</kbd> で名前から探せます。</li>
+        <li>わからないときは右上の「?」で、やりたいことから操作の手順と場所を探せます。</li>
       </ol>
-      <div class="guide-actions"><button type="button" class="bar-button">はじめる</button></div>`;
-    el.querySelector('button')!.addEventListener('click', () => this.close());
+      <div class="guide-actions">
+        <button type="button" class="bar-button guide-hints" title="ボタンやスライダーにマウスを乗せると、何をするものかを説明します。「?」からいつでもやめられます">ボタンの説明を出す</button>
+        <button type="button" class="bar-button guide-start">はじめる</button>
+      </div>`;
+    el.querySelector('.guide-start')!.addEventListener('click', () => this.close());
+    const hintsButton = el.querySelector<HTMLButtonElement>('.guide-hints')!;
+    hintsButton.hidden = !hints;
+    hintsButton.addEventListener('click', () => {
+      hints?.set(true);
+      this.close();
+    });
     parent.append(el);
     if (readFlag(GUIDE_KEY) === null) this.show();
   }
@@ -269,23 +282,231 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
   ],
 ];
 
-/** The 「?」 dialog: what every key and mouse gesture does, and the way back to the guide. */
+type HelpTab = 'topics' | 'terms' | 'keys';
+const HELP_TAB_KEY = 'image-viewer.help.tab';
+
+/**
+ * The 「?」 dialog: 「やりたいこと」 (tasks in plain words, with steps and a
+ * pointer to the button), 「用語」, every key and mouse gesture, a search over
+ * all of them, the switch of the hints and the way back to the guide. It
+ * opens on the tab used last.
+ */
 export class HelpDialog {
   readonly dialog: HTMLDialogElement;
+  private readonly search_: HTMLInputElement;
+  private readonly tabs_ = new Map<HelpTab, { tab: HTMLButtonElement; panel: HTMLElement }>();
+  private readonly results_: HTMLElement;
+  private readonly note_: HTMLElement;
 
-  constructor(guide: Guide) {
+  constructor(guide: Guide, hints?: Hints) {
     const dialog = (this.dialog = document.createElement('dialog'));
     dialog.className = 'add-service help-dialog';
     dialog.setAttribute('aria-labelledby', 'help-title');
     const title = document.createElement('h2');
     title.id = 'help-title';
     title.textContent = '使い方とショートカット';
-    const body = document.createElement('div');
-    body.className = 'help-groups';
-    for (const [name, rows] of SHORTCUTS) {
+
+    const search = (this.search_ = document.createElement('input'));
+    search.type = 'search';
+    search.className = 'help-search';
+    search.placeholder = 'やりたいこと・言葉で探す（例: 明るく、距離、バンド）';
+    search.setAttribute('aria-label', 'ヘルプを検索');
+    search.autocomplete = 'off';
+    search.addEventListener('input', () => this.filter_());
+
+    const tablist = document.createElement('div');
+    tablist.className = 'help-tabs';
+    tablist.setAttribute('role', 'tablist');
+    const panels = document.createElement('div');
+    panels.className = 'help-panels';
+    const tabs: Array<[HelpTab, string, HTMLElement]> = [
+      ['topics', 'やりたいこと', this.topics_(HELP_TOPICS)],
+      ['terms', '用語', this.terms_(GLOSSARY)],
+      ['keys', 'ショートカット', this.keys_()],
+    ];
+    for (const [id, name, panel] of tabs) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.id = `help-tab-${id}`;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-controls', `help-panel-${id}`);
+      tab.textContent = name;
+      tab.addEventListener('click', () => this.show(id));
+      panel.id = `help-panel-${id}`;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', tab.id);
+      this.tabs_.set(id, { tab, panel });
+      tablist.append(tab);
+      panels.append(panel);
+    }
+    tablist.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const ids = [...this.tabs_.keys()];
+      const at = ids.findIndex((id) => this.tabs_.get(id)!.tab === document.activeElement);
+      const next = ids[(at + (e.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length];
+      this.show(next);
+      this.tabs_.get(next)!.tab.focus();
+      e.preventDefault();
+    });
+    const results = (this.results_ = document.createElement('div'));
+    results.className = 'help-results';
+    results.setAttribute('aria-live', 'polite');
+    results.hidden = true;
+    panels.append(results);
+
+    const note = (this.note_ = document.createElement('p'));
+    note.className = 'help-note';
+    note.setAttribute('role', 'status');
+
+    const actions = document.createElement('div');
+    actions.className = 'service-actions help-actions';
+    if (hints) {
+      const label = document.createElement('label');
+      label.className = 'help-hints';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = hints.isEnabled();
+      box.addEventListener('change', () => hints.set(box.checked));
+      hints.onChange((on) => (box.checked = on));
+      label.append(box, 'ボタンやスライダーに説明を出す（初心者向け）');
+      actions.append(label);
+    }
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.textContent = 'はじめにのガイドを表示';
+    again.addEventListener('click', () => {
+      dialog.close();
+      guide.show();
+    });
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '閉じる';
+    close.addEventListener('click', () => dialog.close());
+    actions.append(again, close);
+    dialog.append(title, search, tablist, panels, note, actions);
+    // A click on the backdrop closes it.
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) {
+        const r = dialog.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
+      }
+    });
+    document.body.append(dialog);
+    const saved = readFlag(HELP_TAB_KEY);
+    this.show(saved === 'terms' || saved === 'keys' ? saved : 'topics', false);
+  }
+
+  /** Opens the dialog, on `tab` when given (else the one used last). */
+  open(tab?: HelpTab): void {
+    if (tab) this.show(tab);
+    this.note_.textContent = '';
+    if (!this.dialog.open) this.dialog.showModal();
+  }
+
+  /** Switches to `tab` (and clears a search). */
+  show(tab: HelpTab, remember = true): void {
+    if (this.search_.value) {
+      this.search_.value = '';
+      this.filter_();
+    }
+    for (const [id, { tab: button, panel }] of this.tabs_) {
+      button.setAttribute('aria-selected', String(id === tab));
+      button.tabIndex = id === tab ? 0 : -1;
+      panel.hidden = id !== tab;
+    }
+    if (remember) writeFlag(HELP_TAB_KEY, tab);
+  }
+
+  private filter_(): void {
+    const query = this.search_.value.trim();
+    const current = [...this.tabs_.values()].find(({ tab }) => tab.getAttribute('aria-selected') === 'true');
+    this.results_.hidden = !query;
+    for (const { panel } of this.tabs_.values()) panel.hidden = !!query || panel !== current?.panel;
+    if (!query) return;
+    const { topics, terms } = searchHelp(query);
+    const keys = SHORTCUTS.map(([group, rows]) => [group, rows.filter(([k, what]) => score({ label: what, detail: k.join(' ') }, query) >= 0)] as [string, Shortcut[]]).filter(([, rows]) => rows.length);
+    const parts: HTMLElement[] = [];
+    if (topics.length) parts.push(this.topics_([['やりたいこと', topics]], topics.length === 1));
+    if (terms.length) parts.push(this.terms_(terms, '用語'));
+    if (keys.length) parts.push(this.keys_(keys, 'ショートカット'));
+    if (!parts.length) {
+      const empty = document.createElement('p');
+      empty.className = 'help-empty';
+      empty.textContent = '見つかりませんでした。別の言葉で探すか、Ctrl + K で機能の名前から探してください。';
+      parts.push(empty);
+    }
+    this.results_.replaceChildren(...parts);
+  }
+
+  private topics_(groups: Array<[string, HelpTopic[]]>, open = false): HTMLElement {
+    const root = document.createElement('div');
+    root.className = 'help-topics';
+    for (const [name, topics] of groups) {
       const group = document.createElement('section');
       const h = document.createElement('h3');
       h.textContent = name;
+      group.append(h);
+      for (const topic of topics) {
+        const item = document.createElement('details');
+        item.className = 'help-topic';
+        item.open = open;
+        const summary = document.createElement('summary');
+        summary.textContent = topic.title;
+        const steps = document.createElement('ol');
+        for (const step of topic.steps) {
+          const li = document.createElement('li');
+          li.textContent = step;
+          steps.append(li);
+        }
+        item.append(summary, steps);
+        if (topic.target) {
+          const where = document.createElement('button');
+          where.type = 'button';
+          where.className = 'help-where';
+          where.textContent = '場所を見る';
+          where.addEventListener('click', () => {
+            this.dialog.close();
+            pointAt(topic, (text) => {
+              this.dialog.showModal();
+              this.note_.textContent = text;
+            });
+          });
+          item.append(where);
+        }
+        group.append(item);
+      }
+      root.append(group);
+    }
+    return root;
+  }
+
+  private terms_(terms: typeof GLOSSARY, heading?: string): HTMLElement {
+    const root = document.createElement('section');
+    root.className = 'help-terms';
+    if (heading) {
+      const h = document.createElement('h3');
+      h.textContent = heading;
+      root.append(h);
+    }
+    const list = document.createElement('dl');
+    for (const [term, , text] of terms) {
+      const dt = document.createElement('dt');
+      dt.textContent = term;
+      const dd = document.createElement('dd');
+      dd.textContent = text;
+      list.append(dt, dd);
+    }
+    root.append(list);
+    return root;
+  }
+
+  private keys_(groups = SHORTCUTS, heading?: string): HTMLElement {
+    const body = document.createElement('div');
+    body.className = 'help-groups';
+    for (const [name, rows] of groups) {
+      const group = document.createElement('section');
+      const h = document.createElement('h3');
+      h.textContent = heading ? `${heading}: ${name}` : name;
       const list = document.createElement('dl');
       for (const [keys, what] of rows) {
         const dt = document.createElement('dt');
@@ -302,33 +523,7 @@ export class HelpDialog {
       group.append(h, list);
       body.append(group);
     }
-    const actions = document.createElement('div');
-    actions.className = 'service-actions help-actions';
-    const again = document.createElement('button');
-    again.type = 'button';
-    again.textContent = 'はじめにのガイドを表示';
-    again.addEventListener('click', () => {
-      dialog.close();
-      guide.show();
-    });
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.textContent = '閉じる';
-    close.addEventListener('click', () => dialog.close());
-    actions.append(again, close);
-    dialog.append(title, body, actions);
-    // A click on the backdrop closes it.
-    dialog.addEventListener('click', (e) => {
-      if (e.target === dialog) {
-        const r = dialog.getBoundingClientRect();
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
-      }
-    });
-    document.body.append(dialog);
-  }
-
-  open(): void {
-    if (!this.dialog.open) this.dialog.showModal();
+    return body;
   }
 }
 

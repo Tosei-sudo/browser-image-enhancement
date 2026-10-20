@@ -30,6 +30,14 @@ test.describe('a first visit', () => {
     await expect(help).toBeHidden();
     await expect(guide).toBeVisible();
   });
+
+  test('the guide can turn the explanations of the controls on', async ({ page }) => {
+    await open(page);
+    await page.getByRole('region', { name: 'はじめに' }).getByRole('button', { name: 'ボタンの説明を出す' }).click();
+    await expect(page.getByRole('region', { name: 'はじめに' })).toBeHidden();
+    await page.locator('#add-service').hover();
+    await expect(page.getByRole('tooltip')).toContainText('インターネット上の地図サービス');
+  });
 });
 
 test('the click tools are in one menu, marked while one is on, with single-key shortcuts', async ({ page }) => {
@@ -119,6 +127,7 @@ test('? lists the shortcuts', async ({ page }) => {
   await page.keyboard.press('Shift+?');
   const help = page.getByRole('dialog', { name: '使い方とショートカット' });
   await expect(help).toBeVisible();
+  await help.getByRole('tab', { name: 'ショートカット' }).click();
   await expect(help).toContainText('距離を測る');
   await expect(help).toContainText('属性テーブル');
   // Keys do nothing while the dialog is open.
@@ -148,4 +157,99 @@ test('side panel sections fold, remember it, and points show once there are some
   await page.evaluate(() => document.getElementById('points')!.append(document.createElement('li')));
   await expect(points).toBeVisible();
   await expect(points).toHaveAttribute('open', '');
+});
+
+test('「?」 finds a task by plain words, with its steps, and points at its button', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: '?' }).click();
+  const help = page.getByRole('dialog', { name: '使い方とショートカット' });
+  await expect(help.getByRole('tab', { name: 'やりたいこと' })).toHaveAttribute('aria-selected', 'true');
+
+  // Kana finds the kanji, and the words of a task's steps count too.
+  await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('きょり');
+  const topic = help.locator('.help-results .help-topic', { hasText: '距離や面積を測る' });
+  await expect(topic).toBeVisible();
+  await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('暗い');
+  await expect(help.locator('.help-results')).toContainText('画像を明るく・くっきりさせる');
+  await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('ばんど');
+  await expect(help.locator('.help-results .help-terms')).toContainText('バンド');
+  await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('ぜんぜんない言葉');
+  await expect(help.locator('.help-results')).toContainText('見つかりませんでした');
+
+  // 「場所を見る」 opens the menu the button is in and rings it.
+  await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('');
+  const measure = help.locator('#help-panel-topics .help-topic', { hasText: '距離や面積を測る' });
+  await measure.locator('summary').click();
+  await expect(measure.locator('ol')).toContainText('ダブルクリックで終わります');
+  await measure.getByRole('button', { name: '場所を見る' }).click();
+  await expect(help).toBeHidden();
+  await expect(page.locator('#measure-distance')).toBeVisible();
+  await expect(page.locator('.help-spot-caption')).toHaveText('ここです: 距離や面積を測る');
+  const ring = (await page.locator('.help-spot').boundingBox())!;
+  const button = (await page.locator('#measure-distance').boundingBox())!;
+  expect(Math.abs(ring.x + ring.width / 2 - (button.x + button.width / 2))).toBeLessThan(2);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.help-spot')).toHaveCount(0);
+
+  // A button that is not there yet (no layer open): the dialog says why instead.
+  await page.getByRole('button', { name: '?' }).click();
+  const colorize = help.locator('#help-panel-topics .help-topic', { hasText: '白黒の画像に色を付ける' });
+  await colorize.locator('summary').click();
+  await colorize.getByRole('button', { name: '場所を見る' }).click();
+  await expect(help).toBeVisible();
+  await expect(help.getByRole('status')).toContainText('先に画像を開いてください');
+
+  // The tab used last is the one it opens on.
+  await help.getByRole('tab', { name: '用語' }).click();
+  await expect(help.getByRole('tabpanel')).toContainText('オルソ補正');
+  await page.reload();
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.keyboard.press('Shift+?');
+  await expect(help.getByRole('tab', { name: '用語' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('the explanations of the controls are off until turned on, and stay as chosen', async ({ page }) => {
+  await open(page);
+  const add = page.locator('#add-service');
+  const tooltip = page.getByRole('tooltip');
+  await add.hover();
+  await page.waitForTimeout(400);
+  await expect(tooltip).toBeHidden();
+
+  await page.getByRole('button', { name: '?' }).click();
+  const help = page.getByRole('dialog', { name: '使い方とショートカット' });
+  await help.getByLabel('ボタンやスライダーに説明を出す（初心者向け）').check();
+  await help.getByRole('button', { name: '閉じる', exact: true }).click();
+  await page.mouse.move(700, 400);
+  await add.hover();
+  await expect(tooltip).toContainText('サービスを追加');
+  await expect(tooltip).toContainText('WMS・WMTS・WFS・ArcGIS');
+
+  // Its own tooltip is kept aside while the bubble shows (so the two do not overlap), and put back after.
+  const distance = page.locator('#measure-distance');
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await distance.hover();
+  await expect(tooltip).toContainText('測地線');
+  await expect(tooltip.locator('kbd')).toHaveText('D');
+  await expect(distance).toHaveAttribute('title', '');
+  await page.mouse.move(700, 600);
+  await expect(tooltip).toBeHidden();
+  await expect(distance).toHaveAttribute('title', /測地線/);
+  await page.keyboard.press('Escape');
+
+  // The sliders of the correction panel, which have no tooltip of their own.
+  await page.locator('.ol-enhance-row', { hasText: 'コントラスト' }).first().hover();
+  await expect(tooltip).toContainText('くっきり');
+
+  await page.reload();
+  await page.waitForFunction(() => window.viewer !== undefined);
+  expect(await page.evaluate(() => window.viewer.hints.isEnabled())).toBe(true);
+  // Ctrl+K turns it off again.
+  await page.keyboard.press('Control+k');
+  await page.keyboard.type('ボタンの説明');
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => window.viewer.hints.isEnabled())).toBe(false);
+  await add.hover();
+  await page.waitForTimeout(400);
+  await expect(tooltip).toBeHidden();
 });
