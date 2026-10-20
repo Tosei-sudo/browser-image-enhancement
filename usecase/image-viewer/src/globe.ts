@@ -81,6 +81,8 @@ import { GlobeMeasure, type GlobeMeasureMode, type MeasureResult } from './globe
 import { drawProfile, profileCsv } from './profile-chart.js';
 import { isLocalTiles, serveFolder } from './local-tiles.js';
 import { GlobeSatellites } from './globe-satellite.js';
+import { GlobeTracks } from './globe-tracks.js';
+import type { Track3d } from './satellite-track.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
 import { isSceneServer, openSceneService } from './i3s.js';
 import type { ImageList, ViewerService } from './images.js';
@@ -106,6 +108,8 @@ export interface GlobeContext {
   onMeasure?: (mode: 'distance' | 'area' | null) => void;
   /** The passes of the imaging plan to draw (the chosen opportunity, and the rest of its combination). */
   satellitePasses?: () => SatellitePass3d[];
+  /** The tracks of the 「衛星パス」 panel to draw. */
+  satelliteTracks?: () => Track3d[];
 }
 
 /** A camera position: degrees, metres above the ellipsoid, heading and pitch in degrees. */
@@ -315,6 +319,7 @@ export class Globe {
   private readonly panel_: GlobePanel;
   private readonly measure_: GlobeMeasure;
   private readonly satellites_: GlobeSatellites;
+  private readonly tracks_: GlobeTracks;
   private readonly unwatch_: Array<() => void> = [];
 
   constructor(
@@ -370,6 +375,7 @@ export class Globe {
       say: context.say,
     });
     this.satellites_ = new GlobeSatellites(this.widget);
+    this.tracks_ = new GlobeTracks(this.widget);
     // Esc clears a measurement, or stops picking the observer.
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' || !this.open_) return;
@@ -410,6 +416,7 @@ export class Globe {
     if (extent) this.flyTo(transformExtent(extent, view.getProjection(), 'EPSG:4326'), 0);
     this.refresh();
     this.updateSatellites();
+    this.updateTracks();
   }
 
   // ----- imaging plans ------------------------------------------------------------
@@ -417,6 +424,16 @@ export class Globe {
   /** Draws the imaging plan's passes as they are now (none when nothing is chosen). */
   updateSatellites(): void {
     this.satellites_.show(this.context.satellitePasses?.() ?? []);
+  }
+
+  /** Draws the 「衛星パス」 panel's tracks as they are now. */
+  updateTracks(): void {
+    this.tracks_.show(this.context.satelliteTracks?.() ?? []);
+  }
+
+  /** The 「衛星パス」 drawing, for the tests. */
+  get tracks(): GlobeTracks {
+    return this.tracks_;
   }
 
   /** Looks at the chosen pass from the side (framed left of `right` covered pixels); false when there is none. */
