@@ -1207,3 +1207,25 @@ export function subSatellitePoint(sat: SatelliteSpec, ms: number): [number, numb
   const g = eciToGeodetic({ x: st.eci[0], y: st.eci[1], z: st.eci[2] }, st.gmst);
   return [g.longitude * deg, g.latitude * deg];
 }
+
+/** Where a satellite is at a moment, and the ground it reaches across its track. */
+export interface GroundState {
+  /** The sub-satellite point (longitude, latitude). */
+  lonLat: [number, number];
+  /** Height above the ellipsoid, km. */
+  height: number;
+  ascending: boolean;
+  /** The points `offNadirs` degrees across the track (left positive), longitude, latitude. */
+  across: Array<[number, number]>;
+}
+
+/** The satellite (its `satrec`) at `ms`, with the points `offNadirs` degrees across its track; null when SGP4 fails. */
+export function groundStateAt(satrec: SatRec, ms: number, offNadirs: readonly number[]): GroundState | null {
+  const st = stateAt(satrec, ms);
+  if (!st) return null;
+  const g = eciToGeodetic({ x: st.eci[0], y: st.eci[1], z: st.eci[2] }, st.gmst);
+  const f = frameOf(st);
+  const distance = norm(st.r);
+  const across = offNadirs.map((a) => lonLatOf(pointAt(f, (Math.sign(a) * groundRange(Math.abs(a), distance)) / R, 0)));
+  return { lonLat: [g.longitude * deg, g.latitude * deg], height: g.height, ascending: st.north, across };
+}

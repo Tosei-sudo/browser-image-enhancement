@@ -49,7 +49,7 @@ const SCREEN_SHARE = 0.035;
 const cartesian = (p: Xyz) => new Cartesian3(p[0], p[1], p[2]);
 
 /** The parts of the satellite model, about 1 unit across, in its own frame (x along the track, z away from the aim). */
-function modelParts(): GeometryInstance[] {
+export function modelParts(): GeometryInstance[] {
   const part = (geometry: BoxGeometry | CylinderGeometry, at: [number, number, number], color: Color, id: string) =>
     new GeometryInstance({
       geometry,
@@ -70,7 +70,7 @@ function modelParts(): GeometryInstance[] {
 }
 
 /** Where the satellite model is and which way it faces, at `scale` metres a unit. */
-function modelMatrix(pass: SatellitePass3d, scale: number, result: Matrix4): Matrix4 {
+export function modelMatrix(pass: Pick<SatellitePass3d, 'position' | 'velocity' | 'aim'>, scale: number, result: Matrix4): Matrix4 {
   const { x, y, z } = attitude(pass);
   const p = pass.position;
   // Columns: the model's axes in the Earth's frame, scaled, then where it is.
@@ -243,7 +243,7 @@ export class GlobeSatellites {
 }
 
 /** Local date and time, to the minute. */
-function timeText(ms: number): string {
+export function timeText(ms: number): string {
   const d = new Date(ms);
   const two = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;

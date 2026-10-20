@@ -2880,6 +2880,7 @@ body {
 /* Image catalog panel (in the add-a-service dialog's style): non-modal, at the right, so the map stays usable. */
 .catalog-dialog[open],
 .plan-dialog[open],
+.track-dialog[open],
 .watch-dialog[open] {
   position: fixed;
   inset: 56px 16px auto auto;
@@ -3584,6 +3585,52 @@ body {
 }
 .plan-view[hidden],
 .plan-view label[hidden] {
+  display: none;
+}
+
+/* Satellite passes (src/satellite-track-panel.ts): the satellites, the time, details folded. */
+.track-form {
+  grid-template-columns: auto auto auto 1fr;
+  margin-top: 10px;
+}
+.track-sats input[type='search'] {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+.track-sats input[hidden] {
+  display: none;
+}
+.track-list {
+  max-height: 11rem;
+}
+.track-time {
+  display: flex;
+  gap: 4px;
+}
+.track-more-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+.track-more-body textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: 11px ui-monospace, monospace;
+}
+.track-swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.track-table tbody tr {
+  cursor: pointer;
+}
+.track-results[hidden] {
   display: none;
 }
 

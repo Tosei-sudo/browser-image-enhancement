@@ -127,6 +127,7 @@ import { MovingDialog } from './moving-dialog.js';
 import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
+import { SatelliteTrackPanel } from './satellite-track-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SavedScript } from './script/saved.js';
 import type { SatellitePass3d } from './imaging-plan-3d.js';
@@ -1294,9 +1295,22 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   view3d: (right): boolean => (globeToggle.isOpen() ? (globeToggle.globe()?.viewSatellite(right) ?? false) : false),
 });
 
+// Satellite passes: the chosen satellites' ground tracks and what they can image, at a moment or over a period.
+const satelliteTracks = new SatelliteTrackPanel(document.getElementById('track-open') as HTMLButtonElement, map, {
+  satellites: () => imagingPlan.catalogSatellites(),
+  say,
+  onLayer: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+    say(`${made} をレイヤーとして追加しました`);
+  },
+  onChange: (): void => globeToggle.globe()?.updateTracks(),
+});
+
 // Scripts (like arcpy): JavaScript run apart from the page, reaching the viewer only through its script functions.
 /** Menu buttons a script may press (viewer.command): ones that open a panel or a tool, not ones that save or open files. */
-const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'moving-open', 'stac-open'];
+const SCRIPT_COMMANDS = ['catalog-open', 'globe-toggle', 'add-service', 'measure-distance', 'measure-area', 'measure-clear', 'add-point', 'new-layer', 'processing', 'ai-detect', 'ai-segment', 'timeline-open', 'dashboard-open', 'plan-open', 'track-open', 'annotate', 'save-view', 'print', 'metadata-open', 'swipe', 'split', 'histogram-open', 'moving-open', 'stac-open'];
 const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLButtonElement, {
   map,
   layers: () => images.layers(),
@@ -1530,8 +1544,11 @@ const globeToggle = new GlobeToggle(map, {
       for (const [id, mode] of Object.entries(threeDMeasure)) document.getElementById(id)!.setAttribute('aria-pressed', String(now === mode));
     },
     satellitePasses: (): SatellitePass3d[] => imagingPlan.chosenPasses(),
+    satelliteTracks: () => satelliteTracks.tracks3d(),
   },
   onToggle: (open) => {
+    // The satellite tracks stand up in 3D on their own; draped on the globe too they would show twice.
+    satelliteTracks.overlay.setVisible(!open);
     if (open) {
       measure.setMode(null);
       shadowHeight.setActive(false);
@@ -1743,6 +1760,7 @@ declare global {
       timeline: Timeline;
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
+      satelliteTracks: SatelliteTrackPanel;
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
       bookmarks: Bookmarks;
@@ -1754,4 +1772,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
