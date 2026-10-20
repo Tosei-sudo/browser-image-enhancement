@@ -65,9 +65,11 @@ import { StyleDialog } from './style-dialog.js';
 import { MetadataDialog } from './metadata.js';
 import { editTargetOf } from './edit-session.js';
 import { Selection } from './selection.js';
-import { makeResizer } from './resize.js';
 import { enableWindowMoving } from './move-windows.js';
 import { enablePopOut } from './pop-out.js';
+import type { MenuItem } from './context-menu.js';
+import { DockLayout } from './dock.js';
+import { enableDialogDocking } from './dock-dialogs.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { Hints } from './help.js';
 import { Theme } from './theme.js';
@@ -189,21 +191,11 @@ const map = new Map({
 enableWindowMoving();
 enablePopOut();
 
-// Drag the right edge of the layer panel to change its width.
 const side = document.querySelector<HTMLElement>('.side')!;
 foldSections(side);
-makeResizer({
-  handle: document.getElementById('side-resize')!,
-  target: document.querySelector<HTMLElement>('.app')!,
-  property: '--side-width',
-  axis: 'x',
-  size: () => side.getBoundingClientRect().width,
-  min: () => 160,
-  max: () => Math.max(160, window.innerWidth * 0.6),
-  key: 'image-viewer.side-width',
-  label: 'レイヤーパネルの幅',
-  onResize: () => map.updateSize(),
-});
+// The panels around the map (layers, attribute tables, dashboard, docked dialogs) in left, right and bottom docks, as tabs.
+const dock = new DockLayout(document.querySelector<HTMLElement>('.app')!, { onResize: () => requestAnimationFrame(() => map.updateSize()) });
+dock.add({ id: 'layers', title: () => 'レイヤー', element: side, grip: document.getElementById('images-title'), home: 'left' });
 
 // The shell: the click tools in one menu, a guide on the first visit, 「?」 for every shortcut.
 const toolMenu = new ToolMenu(document.getElementById('tools-menu')!);
@@ -248,17 +240,59 @@ const signIn = new SignInMenu(document.getElementById('signin-menu')!, { say });
 const rsetShown = new RsetIndicator(map);
 const rsetProgress = new RsetProgress(mapElement);
 const selection = new Selection(map);
+/** Features of `layer` as a link (`?geom=` WKT), labeled as the layer's labels are: opened, it shows them as a temporary layer. */
+const shapeLinkOf = (layer: ViewerLayer | null, features: Feature[]): string | null => {
+  const service = layer?.type === 'service' ? layer.service : null;
+  return linkOfShapes(location.href, features, { name: service?.title, labelField: service?.style?.get().label.field ?? null });
+};
 const table = new AttributeTable(document.getElementById('table')!, map, selection, {
   say,
-  // Features as a link (`?geom=` WKT), labeled as the layer's labels are: opened, it shows them as a temporary layer.
-  shapeLink: (features) => {
-    const layer = images.selectedLayer();
-    const service = layer?.type === 'service' ? layer.service : null;
-    return linkOfShapes(location.href, features, { name: service?.title, labelField: service?.style?.get().label.field ?? null });
-  },
+  shapeLink: (features) => shapeLinkOf(images.selectedLayer(), features),
   // 「GeoJSON でコピー」・「WKT でコピー」.
   menuItems: (features) => clipboard.menuItems(features),
+  onPin: () => {
+    const layer = images.selectedLayer();
+    if (layer) pinTable(layer);
+  },
 });
+dock.add({ id: 'table', title: () => '属性テーブル', element: table.element, grip: table.heading, placeButton: (b) => table.heading.after(b), home: 'bottom' });
+
+/** Attribute tables kept on one layer each (「固定」, or 「属性テーブルを開く」 of a layer's menu), by their id in the layout. */
+const pinnedTables = new globalThis.Map<string, { layer: ViewerLayer; table: AttributeTable }>();
+let pinnedCount = 0;
+
+/** Opens a table kept on `layer` (or brings its open one to the front); `id`: its id in a saved layout. */
+function pinTable(layer: ViewerLayer, id?: string): void {
+  if (!id) {
+    const open = [...pinnedTables].find(([, p]) => p.layer === layer);
+    if (open) return dock.activate(open[0]);
+  }
+  while (!id || pinnedTables.has(id)) id = `table:${++pinnedCount}`;
+  const element = document.createElement('section');
+  element.className = 'table';
+  element.setAttribute('aria-label', `属性テーブル: ${layer.name}`);
+  const pinned = new AttributeTable(element, map, selection, {
+    say,
+    shapeLink: (features) => shapeLinkOf(layer, features),
+    menuItems: (features) => clipboard.menuItems(features),
+    heading: '属性',
+  });
+  pinnedTables.set(id, { layer, table: pinned });
+  pinned.show(...tableDataOf(layer));
+  const panelId = id;
+  dock.add({ id, title: () => layer.name, element, grip: pinned.heading, placeButton: (b) => pinned.heading.after(b), close: () => unpinTable(panelId), home: 'bottom', homeWith: 'table' });
+  dock.activate(id);
+}
+
+/** Closes a kept table. */
+function unpinTable(id: string): void {
+  const pinned = pinnedTables.get(id);
+  if (!pinned) return;
+  pinnedTables.delete(id);
+  dock.remove(id, true);
+  pinned.table.dispose();
+  pinned.table.element.remove();
+}
 const editor = new Editor(map, selection, table, {
   say,
   onChange: () => showTable(images.selectedLayer()),
@@ -274,8 +308,14 @@ const baseMap = new BaseMapSwitch(document.getElementById('basemap')!, map, conf
 /** Features found by the last WMS GetFeatureInfo, per layer. */
 const featureInfo = new WeakMap<ViewerService, TableData>();
 
-/** What the attribute table shows for a layer. */
+/** What the attribute table shows for a layer (and the kept tables for theirs). */
 function showTable(layer: ViewerLayer | null): void {
+  table.show(...tableDataOf(layer));
+  for (const p of pinnedTables.values()) p.table.show(...tableDataOf(p.layer));
+}
+
+/** What an attribute table shows for `layer`: its features, or none with a message. */
+function tableDataOf(layer: ViewerLayer | null): [data: TableData | null, message?: string] {
   const service = layer?.type === 'service' ? layer.service : null;
   const vector = service?.vector;
   if (layer?.type === 'service' && vector && service) {
@@ -286,7 +326,7 @@ function showTable(layer: ViewerLayer | null): void {
       dashboard.filters(layer) ? 'ダッシュボードで絞り込み中' : '',
     ].filter(Boolean);
     const style = service.style;
-    table.show({
+    return [{
       title: layer.name,
       fields: vector.fields,
       // What the map shows: the timeline's window and the dashboard's filter.
@@ -301,12 +341,11 @@ function showTable(layer: ViewerLayer | null): void {
             editor.deleteFeatures(features);
           }
         : undefined,
-    });
+    }];
   } else if (layer?.type === 'service' && service?.featureInfo) {
-    table.show(featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示します');
-  } else {
-    table.show(null, layer?.type === 'service' ? 'このレイヤーには属性がありません' : 'WFS・Esri・ファイルのベクターレイヤーを選ぶと属性を表示します');
+    return [featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示します'];
   }
+  return [null, layer?.type === 'service' ? 'このレイヤーには属性がありません' : 'WFS・Esri・ファイルのベクターレイヤーを選ぶと属性を表示します'];
 }
 
 const images = new ImageList(document.getElementById('images') as HTMLOListElement, map, {
@@ -332,6 +371,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     spectral?.setImage(layer?.type === 'image' ? layer : null);
   },
   onRemove: (layer) => {
+    for (const [id, p] of pinnedTables) if (p.layer === layer) unpinTable(id);
     if (layer.type === 'image') {
       points.removeImage(layer);
       geometry.remove(layer);
@@ -346,6 +386,8 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     if (list.length && guide.isShown()) guide.close();
     updateLink();
     embed?.layersChanged();
+    // A layer renamed: the tabs of its kept tables.
+    if (pinnedTables.size) dock.refresh();
   },
   onEdit: (layer) => {
     if (editor.start(layer)) showTable(layer);
@@ -362,9 +404,10 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   // An image from 「画像カタログ」: the catalog's images taken like it (same sensor, near angles, same ground).
   layerMenu: (layer) => {
     const from = layer.type === 'image' ? catalogRecords.get(layer) : undefined;
-    return from
-      ? [{ label: '似た画像を探す…', run: () => void catalogPanel.findSimilar(from.record, from.catalog) }]
-      : [];
+    const items: MenuItem[] = from ? [{ label: '似た画像を探す…', run: () => void catalogPanel.findSimilar(from.record, from.catalog) }] : [];
+    // Its own table, kept beside the others (several layers' tables at once).
+    if (layer.type === 'service' && (layer.service.vector || layer.service.featureInfo)) items.push({ label: '属性テーブルを開く', run: () => pinTable(layer) });
+    return items;
   },
 });
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
@@ -383,21 +426,33 @@ const dashboard: Dashboard = new Dashboard(map, images, {
   say,
   onToggle: () => requestAnimationFrame(() => map.updateSize()),
 });
-makeResizer({
-  handle: document.getElementById('dashboard-resize')!,
-  target: document.querySelector<HTMLElement>('.app')!,
-  property: '--dash-width',
-  axis: 'x',
-  reverse: true,
-  size: () => dashboard.element.getBoundingClientRect().width,
-  min: () => 220,
-  max: () => Math.max(220, window.innerWidth * 0.5),
-  key: 'image-viewer.dash-width',
-  label: 'ダッシュボードの幅',
-  onResize: () => map.updateSize(),
-});
+{
+  const head = dashboard.element.querySelector<HTMLElement>('.dashboard-head h2');
+  const close = dashboard.element.querySelector<HTMLElement>('[data-action=close]');
+  dock.add({ id: 'dashboard', title: () => 'ダッシュボード', element: dashboard.element, grip: head, placeButton: (b) => (close ? close.before(b) : head?.after(b)), close: () => dashboard.setOpen(false), home: 'right' });
+}
+dock.sizeHandles({ left: document.getElementById('side-resize')!, right: document.getElementById('dashboard-resize')!, bottom: document.getElementById('bottom-resize')! });
+// Every dialog can be docked too (its ◧ button), and opens where it was docked.
+enableDialogDocking(dock);
+document.getElementById('layout-reset')!.addEventListener('click', () => dock.reset());
 /** The panels a project keeps the layout of. */
-const layoutParts: LayoutParts = { app: document.querySelector<HTMLElement>('.app')!, side, table, timeline, dashboard, onResize: () => requestAnimationFrame(() => map.updateSize()) };
+const layoutParts: LayoutParts = {
+  app: document.querySelector<HTMLElement>('.app')!,
+  side,
+  table,
+  timeline,
+  dashboard,
+  dock,
+  // The kept tables, by their layers.
+  tables: {
+    list: () => [...pinnedTables].map(([id, p]) => ({ id, layer: p.layer })),
+    set: (tables) => {
+      for (const id of [...pinnedTables.keys()]) unpinTable(id);
+      for (const t of tables) pinTable(t.layer, t.id);
+    },
+  },
+  onResize: () => requestAnimationFrame(() => map.updateSize()),
+};
 // The table's note says whether it is filtered; the 3D view drapes the map as filtered.
 let tableNote = '';
 const filtersChanged = () => {
@@ -441,6 +496,7 @@ const split = new SplitView(map, {
   onResize: () => {},
 });
 layoutParts.split = { view: split, layers: () => images.layers() };
+layoutParts.layers = () => images.layers();
 const histogramPanel = new HistogramPanel(map, { button: document.getElementById('histogram-open') as HTMLButtonElement, element: document.getElementById('histogram')! });
 histogramPanel.setLayer(null);
 // Every band's values at points clicked on the map, overlaid, for the selected image.
@@ -1636,6 +1692,8 @@ declare global {
       onGpu: boolean;
       selection: Selection;
       table: AttributeTable;
+      dock: DockLayout;
+      pinTable: (layer: ViewerLayer) => void;
       editor: Editor;
       exporter: ExportDialog;
       styler: StyleDialog;
@@ -1696,4 +1754,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
