@@ -127,6 +127,7 @@ import { MovingDialog } from './moving-dialog.js';
 import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
+import { startReminders } from './imaging-plan-remind.js';
 import { SatelliteTrackPanel } from './satellite-track-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SavedScript } from './script/saved.js';
@@ -1295,6 +1296,9 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   onChosen: (): void => globeToggle.globe()?.updateSatellites(),
   view3d: (right): boolean => (globeToggle.isOpen() ? (globeToggle.globe()?.viewSatellite(right) ?? false) : false),
 });
+
+// Reminders of planned shots become notices of the notification centre a set time before them.
+startReminders((n) => say(`撮像予定の通知が ${n} 件あります（「通知」）`));
 
 // Satellite passes: the chosen satellites' ground tracks and what they can image, at a moment or over a period.
 const satelliteTracks = new SatelliteTrackPanel(document.getElementById('track-open') as HTMLButtonElement, map, {

@@ -454,6 +454,19 @@ export interface PlanOptions {
    * that many hours after this. Absent: lead times are not checked.
    */
   now?: number;
+  /** The smallest and largest incidence angle (degrees) a shot may have; absent or null for no limit. */
+  minIncidence?: number | null;
+  maxIncidence?: number | null;
+  /** Only passes going this way (`ascending`: north); absent or null for both. */
+  pass?: 'ascending' | 'descending' | null;
+  /** Only shots looking to this side of the track; absent or null for both. */
+  side?: 'left' | 'right' | null;
+}
+
+/** The side a satellite may look to under `options`: its own sides narrowed to the one asked for; null when none is left. */
+export function sideFor(sat: SatelliteSpec, options: Pick<PlanOptions, 'side'>): LookSide | null {
+  if (!options.side) return sat.lookSide;
+  return sat.lookSide === 'both' || sat.lookSide === options.side ? options.side : null;
 }
 
 /** One chance to take a picture. */
@@ -517,6 +530,8 @@ export interface Opportunity {
   scene?: [number, number];
   /** Days between the TLE's epoch and this moment. */
   tleAge: number;
+  /** Whether its scenes were moved by hand ({@link shiftScene}). */
+  adjusted?: boolean;
   /** The satellite's distance from the Earth's centre, km (for looking elsewhere across the track). */
   orbitRadius: number;
 }
@@ -662,7 +677,7 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
       return;
     }
     const limit = Math.min(sat.maxOffNadir, options.maxOffNadir ?? Infinity);
-    if (limit < sat.minOffNadir) {
+    if (limit < sat.minOffNadir || !sideFor(sat, options)) {
       onProgress?.((s + 1) / sats.length);
       return;
     }
@@ -873,12 +888,37 @@ function lookAt(x: number, distance: number) {
   return { offNadir, incidence, elevation: 90 - incidence, range };
 }
 
+/** Ground angle (radians from the sub-satellite point) at which the line of sight meets the ground at `incidence` degrees, from `distance` km. */
+function centralAngleFor(incidence: number, distance: number): number {
+  const offNadir = Math.asin(Math.min(1, (R / distance) * Math.sin(incidence * rad)));
+  return Math.max(0, incidence * rad - offNadir);
+}
+
+/**
+ * How far across the track (radians from the sub-satellite point, either
+ * side) the satellite can look from `distance` km: from its smallest
+ * off-nadir angle (and the smallest incidence asked for) to `limit` (and the
+ * largest incidence).
+ */
+function reachOf(sat: SatelliteSpec, limit: number, distance: number, options: Pick<PlanOptions, 'minIncidence' | 'maxIncidence'>): [number, number] {
+  let near = sat.minOffNadir > 0 ? groundRange(sat.minOffNadir, distance) / R : 0;
+  let far = groundRange(limit, distance) / R;
+  if (options.minIncidence != null) near = Math.max(near, centralAngleFor(options.minIncidence, distance));
+  if (options.maxIncidence != null) far = Math.min(far, centralAngleFor(options.maxIncidence, distance));
+  return [near, far];
+}
+
 /** The opportunity at `time`, or null when the satellite cannot take it. */
 function judge(sat: SatelliteSpec, satrec: SatRec, s: number, ti: number, t: Prepared, time: number, limit: number, options: PlanOptions, epoch: number): Opportunity | null {
   const st = stateAt(satrec, time)!;
+  if (options.pass && st.north !== (options.pass === 'ascending')) return null;
+  const lookSide = sideFor(sat, options);
+  if (!lookSide) return null;
   const center = lonLatOf(t.r);
   const sun = sunElevation(center, time);
   if (options.daylight === 'optical' && !sat.sar && sun < options.minSunElevation) return null;
+  const minIncidence = options.minIncidence ?? null;
+  const maxIncidence = options.maxIncidence ?? null;
   const f = frameOf(st);
   const distance = norm(st.r);
   const { width, y0, y1 } = spread(st, t);
@@ -905,21 +945,22 @@ function judge(sat: SatelliteSpec, satrec: SatRec, s: number, ti: number, t: Pre
     if (elevation <= 0) return null;
     const offNadir = Math.acos(Math.min(1, cosOff)) * deg;
     if (offNadir > limit || offNadir < sat.minOffNadir) return null;
+    const incidence = 90 - elevation;
+    if ((minIncidence !== null && incidence < minIncidence) || (maxIncidence !== null && incidence > maxIncidence)) return null;
     const side = dot(d, f.n) > 0 ? 'left' : 'right';
-    if (sat.lookSide !== 'both' && sat.lookSide !== side) return null;
+    if (lookSide !== 'both' && lookSide !== side) return null;
     const x = trackAngles(unit(t.r), f)[0];
     return { ...common, offNadir, incidence: 90 - elevation, elevation, side, range, coverage: 1, window: [x - sw / 2, x + sw / 2], along: framed(y0, y1, sl, sat.scenesPerPass) };
   }
 
   // An area: the cells within reach (on a side it looks to, between its smallest and largest angles), and the
   // scenes placed over as many of them as they can take.
-  const near = sat.minOffNadir > 0 ? groundRange(sat.minOffNadir, distance) / R : 0;
-  const far = groundRange(limit, distance) / R;
+  const [near, far] = reachOf(sat, limit, distance, options);
   const across = new Float32Array(t.cells.length);
   const alongs = new Float32Array(t.cells.length);
   t.cells.forEach((p, i) => {
     const [x, y] = trackAngles(p, f);
-    const ok = Math.abs(x) >= near && Math.abs(x) <= far && (sat.lookSide === 'both' || (x > 0) === (sat.lookSide === 'left'));
+    const ok = Math.abs(x) >= near && Math.abs(x) <= far && (lookSide === 'both' || (x > 0) === (lookSide === 'left'));
     across[i] = ok ? x : Number.NaN;
     alongs[i] = y;
   });
@@ -1176,6 +1217,63 @@ export function passShapes(sat: SatelliteSpec, target: PlanTarget, op: Opportuni
     scenes.push(ring);
   }
   return { track, reach, scenes, position: [g.longitude * deg, g.latitude * deg] };
+}
+
+/** Where an opportunity's scenes are along the track (radians, as `along`); for a shared scene, from its first point to its last. */
+function alongOf(op: Opportunity, sat: SatelliteSpec): [number, number] {
+  if (!op.scene) return op.along;
+  const rate = trackRate(op.orbitRadius);
+  return framed(((op.scene[0] - op.time) / 1000) * rate, ((op.scene[1] - op.time) / 1000) * rate, sat.length / R, sat.scenesPerPass);
+}
+
+/** Where a place (longitude, latitude) is seen from a satellite's orbit at `time`: radians across the track (left positive) and along it; null when SGP4 fails. */
+export function trackPlace(sat: SatelliteSpec, time: number, lonLat: [number, number]): [number, number] | null {
+  const satrec = satrecOf(sat);
+  if (typeof satrec === 'string') return null;
+  const st = stateAt(satrec, time);
+  return st ? trackAngles(unit(ecefOf(lonLat)), frameOf(st)) : null;
+}
+
+/**
+ * An opportunity with its scenes moved `dx` radians across the track and
+ * `dy` along it (dragged on the map): kept where the satellite can look (its
+ * off-nadir angles, a tighter limit, the incidences and side asked for), with
+ * its angles and how much of `target` it takes worked out again.
+ */
+export function shiftScene(
+  op: Opportunity,
+  sat: SatelliteSpec,
+  target: PlanTarget,
+  dx: number,
+  dy: number,
+  options: Partial<Pick<PlanOptions, 'maxOffNadir' | 'minIncidence' | 'maxIncidence' | 'side'>>,
+): Opportunity {
+  const limit = Math.min(sat.maxOffNadir, options.maxOffNadir ?? Infinity);
+  const [near, far] = reachOf(sat, limit, op.orbitRadius, options);
+  const lookSide = sideFor(sat, options) ?? sat.lookSide;
+  const half = (op.window[1] - op.window[0]) / 2;
+  let mid = (op.window[0] + op.window[1]) / 2 + dx;
+  // Toward the side it may look to: within its nearest and farthest reach there.
+  const sign = lookSide === 'both' ? (mid >= 0 ? 1 : -1) : lookSide === 'left' ? 1 : -1;
+  mid = sign * Math.min(far, Math.max(near, sign * mid));
+  const base = alongOf(op, sat);
+  const along: [number, number] = [base[0] + dy, base[1] + dy];
+  const window: [number, number] = [mid - half, mid + half];
+  const inside = (x: number, y: number) => x >= window[0] && x <= window[1] && y >= along[0] && y <= along[1];
+  let coverage: number;
+  if (op.cells && op.cellsAlong) {
+    let n = 0;
+    op.cells.forEach((x, i) => {
+      if (!Number.isNaN(x) && inside(x, op.cellsAlong![i])) n++;
+    });
+    coverage = n / op.cells.length;
+  } else {
+    const at = trackPlace(sat, op.time, target.center);
+    coverage = at && inside(at[0], at[1]) ? 1 : 0;
+  }
+  const { scene: _scene, ...rest } = op;
+  void _scene;
+  return { ...rest, window, along, ...lookAt(mid, op.orbitRadius), side: mid > 0 ? 'left' : 'right', coverage, adjusted: true };
 }
 
 /** How many scenes an opportunity takes, one after another along the pass. */

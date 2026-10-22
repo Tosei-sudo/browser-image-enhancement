@@ -3615,6 +3615,85 @@ body {
   display: none;
 }
 
+.plan-conds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.plan-range {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.plan-range input {
+  width: 3.6em;
+}
+.plan-conds select {
+  max-width: 7.5em;
+}
+/* The timeline of the listed shots (src/imaging-plan-timeline.ts). */
+.plan-timeline {
+  margin: 0 0 6px;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.plan-timeline[hidden] {
+  display: none;
+}
+.plan-timeline svg {
+  display: block;
+  font: 10px sans-serif;
+}
+.plan-tl-tick,
+.plan-tl-label {
+  fill: var(--fg);
+}
+.plan-tl-tick {
+  fill: var(--muted);
+}
+.plan-tl-day {
+  stroke: var(--line);
+}
+.plan-tl-band {
+  fill: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.plan-tl-busy {
+  fill: color-mix(in srgb, var(--muted) 25%, transparent);
+}
+.plan-tl-shot {
+  cursor: pointer;
+}
+.plan-tl-shot.chosen {
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+/* Reminders and the calendar file of the listed shots. */
+.plan-remind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+.plan-remind[hidden] {
+  display: none;
+}
+.plan-remind label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.plan-remind input[type='number'] {
+  width: 4.5em;
+}
+.plan-remind-count {
+  color: var(--muted);
+}
+
 /* Satellite passes (src/satellite-track-panel.ts): the satellites, the time, details folded. */
 .track-form {
   grid-template-columns: auto auto auto 1fr;
