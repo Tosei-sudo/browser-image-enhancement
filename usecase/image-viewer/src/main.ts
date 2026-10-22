@@ -1295,6 +1295,8 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   // In 3D the chosen pass stands up: its orbit, the satellite and its beam.
   onChosen: (): void => globeToggle.globe()?.updateSatellites(),
   view3d: (right): boolean => (globeToggle.isOpen() ? (globeToggle.globe()?.viewSatellite(right) ?? false) : false),
+  cloudForecast: config.cloudForecast,
+  stations: config.groundStations,
 });
 
 // Reminders of planned shots become notices of the notification centre a set time before them.

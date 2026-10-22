@@ -3015,6 +3015,13 @@ body {
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+/* The plan's form can grow tall (詳細条件 open): the list keeps some rows, and the panel scrolls instead. */
+.plan-dialog[open] {
+  overflow-y: auto;
+}
+.plan-dialog .catalog-results {
+  min-height: 9em;
+}
 .catalog-table {
   width: 100%;
   border-collapse: collapse;
@@ -3615,11 +3622,18 @@ body {
   display: none;
 }
 
-.plan-conds {
+.plan-conds,
+.plan-cloud {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 8px;
+}
+.plan-cloud[hidden] {
+  display: none;
+}
+.plan-cloud input[type='number'] {
+  width: 4em;
 }
 .plan-range {
   display: flex;

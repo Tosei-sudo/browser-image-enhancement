@@ -41,6 +41,7 @@ import {
   shiftScene,
   trackPlace,
   type CoverPlan,
+  type GroundStation,
   type Opportunity,
   type PlanOptions,
   type PlanResult,
@@ -54,6 +55,7 @@ import { collator } from './table-text.js';
 import { SatelliteTree } from './satellite-tree.js';
 import { drawTimeline } from './imaging-plan-timeline.js';
 import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-plan-remind.js';
+import { applyClouds, fetchClouds, placesFor, type CloudForecastConfig } from './imaging-plan-weather.js';
 
 export interface PlanPanelOptions {
   /** The layers of the viewer, for the target. */
@@ -66,7 +68,14 @@ export interface PlanPanelOptions {
   onChosen?: () => void;
   /** Shows the chosen pass in the 3D view (`right` pixels covered by the panel) instead of fitting the map; false when the 3D view is closed. */
   view3d?: (right: number) => boolean;
+  /** Where cloud cover forecasts come from (asked only once turned on); null or absent hides the choice. */
+  cloudForecast?: CloudForecastConfig | null;
+  /** Ground stations, for when each shot can be sent down; none hides the column. */
+  stations?: GroundStation[];
 }
+
+/** Where the panel remembers whether cloud forecasts are on. */
+const CLOUD_KEY = 'image-viewer-plan-cloud';
 
 /**
  * The most features planned one by one: about 4 s for 20 satellites over 7
@@ -222,13 +231,15 @@ const coverTitle = (op: Opportunity, sat: SatelliteSpec) =>
       : '';
 
 /** The CSV of a plan's opportunities (with a BOM, for spreadsheets). */
-export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: PlanTarget[]): string {
+export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: PlanTarget[], stations: readonly GroundStation[] = []): string {
   const cell = (v: unknown) => {
     const text = String(v ?? '');
     return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
   const combined = ops.some((op) => op.cumulative !== undefined);
   const prioritized = targets.some((t) => t.priority !== undefined);
+  const clouded = ops.some((op) => op.cloud !== undefined);
+  const downlinked = stations.length > 0;
   const head = [
     '日時（UTC）',
     '日時（ローカル）',
@@ -248,6 +259,8 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     '長さkm',
     'シーン数',
     '被覆率%',
+    ...(clouded ? ['雲量予報%'] : []),
+    ...(downlinked ? ['受信見込み（ローカル）', '地上局'] : []),
     ...(combined ? ['追加%', '累計%', 'シーン番号', '同じシーンの地点数'] : []),
     'TLE経過日数',
   ];
@@ -273,6 +286,8 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       round(op.length, 1),
       op.strips * op.frames,
       round(op.coverage * 100, 1),
+      ...(clouded ? [op.cloud ?? ''] : []),
+      ...(downlinked ? [op.downlink ? localText(op.downlink.time, true) : '', op.downlink ? (stations[op.downlink.station]?.name ?? '') : ''] : []),
       ...(combined ? [round((op.gain ?? 0) * 100, 1), round((op.cumulative ?? 0) * 100, 1), op.shot ?? '', op.shotTargets ?? ''] : []),
       round(op.tleAge, 1),
     ];
@@ -280,7 +295,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
 
-type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative' | 'shot';
+type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cloud' | 'downlink' | 'cover' | 'gain' | 'cumulative' | 'shot';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
   switch (feature.get('kind')) {
@@ -344,6 +359,8 @@ export class ImagingPlanPanel {
   private readonly remind_: HTMLButtonElement;
   private readonly timeline_: HTMLInputElement;
   private readonly timelineHost_: HTMLElement;
+  private readonly cloud_: HTMLInputElement;
+  private readonly maxCloud_: HTMLInputElement;
   /** The scene being dragged on the map: the opportunity as it was, and where the drag began in its orbit's frame. */
   private drag_: { op: Opportunity; origin: Opportunity; from: [number, number] } | null = null;
   private catalog_: SatelliteCatalogConfig | null;
@@ -399,6 +416,10 @@ export class ImagingPlanPanel {
                 <label title="地表から見た衛星の視線と鉛直のなす角。範囲をそろえると見え方（SAR の明るさ・建物の倒れ込み）がそろいます">入射角<span class="plan-range"><input name="minIncidence" type="number" min="0" max="89" step="any" placeholder="下限" aria-label="入射角の下限" />〜<input name="maxIncidence" type="number" min="0" max="89" step="any" placeholder="上限" aria-label="入射角の上限" />°</span></label>
                 <label title="北へ進むパス（昇交）か南へ進むパス（降交）か">軌道<select name="pass"><option value="">北行・南行</option><option value="ascending">北行のみ</option><option value="descending">南行のみ</option></select></label>
                 <label title="衛星の進行方向に対して、どちら側を見るか">向き<select name="side"><option value="">左右とも</option><option value="right">右のみ</option><option value="left">左のみ</option></select></label>
+              </div>
+              <div class="plan-cloud wide" hidden>
+                <label class="check" title="光学衛星の撮像機会ごとに、その時刻・地点の雲量予報（16 日先まで）を出します。対象の位置を予報サービスへ送ります"><input name="cloud" type="checkbox" />雲量予報（<span class="plan-cloud-label"></span>）</label>
+                <label>雲量（以下）<input name="maxCloud" type="number" min="0" max="100" step="1" placeholder="—" />%</label>
               </div>
               <label class="check"><input name="each" type="checkbox" checked />地物ごとに計算</label>
               <label class="plan-name" title="一覧・CSV・レイヤーで対象の名前に使う属性。自動は name・名称 などを探し、なければ ID">名前の属性<select name="nameField"><option value="">自動</option></select></label>
@@ -461,6 +482,34 @@ export class ImagingPlanPanel {
     this.remind_ = this.dialog.querySelector('button[value=remind]')!;
     this.timeline_ = this.dialog.querySelector('input[name=timeline]')!;
     this.timelineHost_ = this.dialog.querySelector('.plan-timeline')!;
+    this.cloud_ = this.dialog.querySelector('input[name=cloud]')!;
+    this.maxCloud_ = this.dialog.querySelector('input[name=maxCloud]')!;
+    if (options.cloudForecast) {
+      this.dialog.querySelector<HTMLElement>('.plan-cloud')!.hidden = false;
+      this.dialog.querySelector('.plan-cloud-label')!.textContent = options.cloudForecast.label;
+      try {
+        this.cloud_.checked = localStorage.getItem(CLOUD_KEY) === '1';
+      } catch {
+        // Storage blocked: off.
+      }
+    }
+    this.cloud_.addEventListener('change', () => {
+      try {
+        localStorage.setItem(CLOUD_KEY, this.cloud_.checked ? '1' : '0');
+      } catch {
+        // Storage blocked: remembered for this page only.
+      }
+      if (this.cloud_.checked) void this.loadClouds();
+      else if (this.plan_) {
+        for (const op of this.plan_.result.opportunities) delete op.cloud;
+        this.cover_ = null;
+        this.render();
+      }
+    });
+    this.maxCloud_.addEventListener('change', () => {
+      this.cover_ = null;
+      if (this.plan_) this.render();
+    });
 
     catalogs.forEach((c, i) => this.catalogs_.add(new Option(c.label, String(i))));
     this.catalogs_.addEventListener('change', () => {
@@ -759,6 +808,7 @@ export class ImagingPlanPanel {
       maxIncidence: angle('maxIncidence'),
       pass: pass === 'ascending' || pass === 'descending' ? pass : null,
       side: side === 'left' || side === 'right' ? side : null,
+      ...(this.options.stations?.length ? { stations: this.options.stations } : {}),
     };
   }
 
@@ -792,6 +842,42 @@ export class ImagingPlanPanel {
     for (const op of result.opportunities) if (op.cells) best.set(op.target, Math.max(best.get(op.target) ?? 0, op.coverage));
     this.view_.value = [...best.values()].some((c) => c < 0.95) ? 'cover' : 'all';
     this.showView();
+    if (this.cloud_.checked && this.options.cloudForecast) await this.loadClouds();
+  }
+
+  /** Asks the forecast service for the cloud cover of the last plan's optical shots, and lists them with it. */
+  async loadClouds(): Promise<void> {
+    const plan = this.plan_;
+    const config = this.options.cloudForecast;
+    if (!plan || !config) return;
+    const { sats, targets, result } = plan;
+    const places = placesFor(result.opportunities, sats, targets);
+    if (!places.length) return void (this.status_.textContent = `${this.status_.textContent}（雲量予報は 16 日先までの光学衛星の機会だけです）`);
+    const before = this.status_.textContent;
+    this.status_.textContent = `${config.label} に雲量予報を問い合わせています…`;
+    try {
+      const forecasts = await fetchClouds(config, places);
+      if (this.plan_ !== plan) return;
+      const n = applyClouds(result.opportunities, sats, targets, forecasts);
+      this.cover_ = null;
+      this.render();
+      this.status_.textContent = `${before}（雲量予報 ${n} 回分: ${config.label}）`;
+    } catch (error) {
+      this.status_.textContent = `${before}（雲量予報を取得できませんでした: ${error instanceof Error ? error.message : String(error)}）`;
+    }
+  }
+
+  /** The largest cloud cover asked for (percent), or null for any. */
+  private maxCloud(): number | null {
+    const v = this.maxCloud_.value;
+    return v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+  }
+
+  /** The last plan's opportunities that pass the cloud cover asked for (those without a forecast stay). */
+  private candidates(): Opportunity[] {
+    const ops = this.plan_?.result.opportunities ?? [];
+    const max = this.maxCloud();
+    return max === null ? ops : ops.filter((op) => op.cloud === undefined || op.cloud <= max);
   }
 
   /** Whether the list is the combination rather than every opportunity. */
@@ -804,7 +890,7 @@ export class ImagingPlanPanel {
     const plan = this.plan_!;
     const goal = Math.min(1, Math.max(0.1, (Number(this.goal_.value) || 95) / 100));
     const share = this.share_.checked;
-    if (this.cover_?.goal !== goal || this.cover_.share !== share) this.cover_ = { goal, share, plans: coverPlan(plan.result.opportunities, plan.targets, plan.sats, goal, undefined, share) };
+    if (this.cover_?.goal !== goal || this.cover_.share !== share) this.cover_ = { goal, share, plans: coverPlan(this.candidates(), plan.targets, plan.sats, goal, undefined, share) };
     return this.cover_.plans;
   }
 
@@ -876,6 +962,20 @@ export class ImagingPlanPanel {
       { key: 'offNadir', label: 'オフナディア角', text: (op) => `${round(op.offNadir)}°`, title: (op) => `入射角 ${round(op.incidence)}°・距離 ${round(op.range, 0)} km` },
       { key: 'side', label: '方向', text: sideText, title: () => '衛星の進行方向に対して対象が右か左か、北行（昇交）か南行（降交）か' },
       { key: 'sun', label: '太陽高度', text: (op) => `${round(op.sunElevation, 0)}°` },
+      ...(plan.result.opportunities.some((op) => op.cloud !== undefined)
+        ? [{ key: 'cloud' as const, label: '雲量', text: (op: Opportunity) => (op.cloud === undefined ? '—' : `${op.cloud}%`), title: (op: Opportunity) => (op.cloud === undefined ? (plan.sats[op.satellite].sar ? 'SAR は雲を通して撮像します' : '予報の範囲外（16 日先まで）') : `${this.options.cloudForecast?.label ?? ''} の雲量予報`) }]
+        : []),
+      ...(plan.options.stations?.length
+        ? [
+            {
+              key: 'downlink' as const,
+              label: '受信見込み',
+              text: (op: Opportunity) => (op.downlink ? localText(op.downlink.time) : '1 日以内なし'),
+              title: (op: Opportunity) =>
+                op.downlink ? `${plan.options.stations![op.downlink.station]?.name ?? ''}・撮像から ${Math.round((op.downlink.time - op.time) / 60000)} 分（衛星が地上局の上に来る時刻。データの処理・配信の時間は含みません）` : '撮像から 24 時間以内に地上局の上を通りません',
+            },
+          ]
+        : []),
       ...(this.combining()
         ? [
             { key: 'gain' as const, label: '追加', text: (op: Opportunity) => `+${percent(op.gain ?? 0)}`, title: () => 'この回で新たに撮像できる対象の割合' },
@@ -897,7 +997,7 @@ export class ImagingPlanPanel {
 
   private sorted(): Opportunity[] {
     const plan = this.plan_!;
-    let ops = this.combining() ? this.coverPlans().flatMap((p) => p.steps) : plan.result.opportunities;
+    let ops = this.combining() ? this.coverPlans().flatMap((p) => p.steps) : this.candidates();
     if (!this.combining() && this.firstOnly_.checked) {
       const seen = new Set<string>();
       ops = ops.filter((op) => {
@@ -919,6 +1019,10 @@ export class ImagingPlanPanel {
           return sideText(op);
         case 'sun':
           return op.sunElevation;
+        case 'cloud':
+          return op.cloud ?? 1000;
+        case 'downlink':
+          return op.downlink?.time ?? Infinity;
         case 'cover':
           return op.cells ? op.coverage : op.strips * op.frames * 1e6 + op.width;
         case 'gain':
@@ -1195,15 +1299,15 @@ export class ImagingPlanPanel {
     if (!this.plan_ || !this.shown_.length) return;
     const { sats, targets, options } = this.plan_;
     const day = (ms: number) => localText(ms).slice(0, 10).replaceAll('/', '');
-    download(`imaging-plan_${day(options.start)}-${day(options.end)}.csv`, planCsv(this.shown_, sats, targets), 'text/csv');
+    download(`imaging-plan_${day(options.start)}-${day(options.end)}.csv`, planCsv(this.shown_, sats, targets, options.stations ?? []), 'text/csv');
     this.options.say(`撮像機会 ${this.shown_.length} 件を CSV で保存しました`);
   }
 
   /** The listed opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
   planLayer(): ProcessingResult | null {
     if (!this.plan_ || !this.shown_.length) return null;
-    const { sats, targets } = this.plan_;
-    return planFeatures(this.shown_, sats, targets, this.combining());
+    const { sats, targets, options } = this.plan_;
+    return planFeatures(this.shown_, sats, targets, this.combining(), options.stations ?? []);
   }
 
   /** The satellites of the catalog (loaded when first asked), or the samples without one. */
@@ -1221,7 +1325,8 @@ export class ImagingPlanPanel {
 }
 
 /** Opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
-export function planFeatures(ops: readonly Opportunity[], sats: readonly SatelliteSpec[], targets: readonly PlanTarget[], combined: boolean): ProcessingResult {
+export function planFeatures(ops: readonly Opportunity[], sats: readonly SatelliteSpec[], targets: readonly PlanTarget[], combined: boolean, stations: readonly GroundStation[] = []): ProcessingResult {
+  const clouded = ops.some((op) => op.cloud !== undefined);
   const features: Feature[] = [];
   for (const op of ops) {
     const sat = sats[op.satellite];
@@ -1242,6 +1347,8 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
         sun: Math.round(op.sunElevation * 10) / 10,
         scenes: shapes.scenes.length,
         coverage: Math.round(op.coverage * 1000) / 10,
+        ...(clouded ? { cloud: op.cloud ?? null } : {}),
+        ...(stations.length ? { downlink: op.downlink?.time ?? null, station: op.downlink ? (stations[op.downlink.station]?.name ?? null) : null } : {}),
         ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10, shot: op.shot, shot_targets: op.shotTargets } : {}),
       }),
     );
@@ -1261,6 +1368,8 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
       field('sun', 'double', '太陽高度'),
       field('scenes', 'integer', 'シーン数'),
       field('coverage', 'double', '被覆率%'),
+      ...(clouded ? [field('cloud', 'double', '雲量予報%')] : []),
+      ...(stations.length ? [field('downlink', 'date', '受信見込み'), field('station', 'string', '地上局')] : []),
       ...(combined ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%'), field('shot', 'integer', 'シーン番号'), field('shot_targets', 'integer', '同じシーンの地点数')] : []),
     ],
     crs: wgs84,
