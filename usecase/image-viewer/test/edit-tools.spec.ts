@@ -86,10 +86,13 @@ test('a line is drawn from a typed start, then lengths and bearings; undo and re
   expect(geodesicInverse(b, c).distance).toBeCloseTo(500, 3);
   expect(geodesicInverse(b, c).bearing).toBeCloseTo(0, 4);
 
-  // Undo and redo, by the keys (not typed into a field).
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  // Only once the drawing is in the history (the undo button turns on), and the layer may follow a frame later.
+  // Undo and redo, by the keys (not typed into a field). The panel puts the focus back in its first field
+  // on a timer after 確定, so leave the fields after that timer has run.
   await expect(page.getByRole('button', { name: '元に戻す' })).toBeEnabled();
+  await page.evaluate(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await shapes(page)).length).toBe(0);
   await page.keyboard.press('Control+y');
