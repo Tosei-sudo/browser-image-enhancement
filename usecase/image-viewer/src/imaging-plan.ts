@@ -18,6 +18,7 @@
  * Everything here is plain computation, run in a worker (imaging-plan-worker.ts);
  * the panel is imaging-plan-panel.ts.
  */
+import type { PlanPair } from './imaging-plan-pairs.js';
 import { eciToEcf, eciToGeodetic, geodeticToEcf, gstime, sgp4, sunPos, twoline2satrec, type SatRec } from 'satellite.js';
 
 /** Attribute names of the satellite catalog, by role. The TLE (`tle`, or `tle1` and `tle2`) is required. */
@@ -381,6 +382,18 @@ function stateAt(satrec: SatRec, ms: number): { r: Vec; v: Vec; north: boolean; 
   return { r, v, north: pv.velocity.z > 0, gmst, eci: [pv.position.x, pv.position.y, pv.position.z] };
 }
 
+/** The azimuth (degrees clockwise from north) of a direction `v` (ECEF) seen from a place. */
+function azimuthOf([lon, lat]: [number, number], v: Vec): number {
+  const east: Vec = [-Math.sin(lon * rad), Math.cos(lon * rad), 0];
+  const north: Vec = [-Math.sin(lat * rad) * Math.cos(lon * rad), -Math.sin(lat * rad) * Math.sin(lon * rad), Math.cos(lat * rad)];
+  return (Math.atan2(dot(v, east), dot(v, north)) * deg + 360) % 360;
+}
+
+/** A place on the WGS 84 ellipsoid (longitude, latitude) as an ECEF vector, km. */
+export function ecefAt(lonLat: [number, number]): [number, number, number] {
+  return ecefOf(lonLat);
+}
+
 /** Elevation of the Sun at a place, in degrees. */
 export function sunElevation(lonLat: [number, number], ms: number): number {
   return sunAngles(lonLat, ms).elevation;
@@ -565,8 +578,14 @@ export interface Opportunity {
   downlink?: { time: number; station: number };
   /** The cloud cover forecast for the shot, percent (filled in by the panel for optical satellites). */
   cloud?: number;
+  /** Where the satellite is seen from the target's middle: azimuth clockwise from north, degrees. */
+  azimuth: number;
+  /** Where the satellite is at the moment, ECEF km (for the angle and baseline between two shots). */
+  satEcef: [number, number, number];
   /** The satellite's distance from the Earth's centre, km (for looking elsewhere across the track). */
   orbitRadius: number;
+  /** In the panel's pair views: the pair this row stands for (its first shot). */
+  pair?: PlanPair;
 }
 
 export interface PlanResult {
@@ -1029,6 +1048,8 @@ function judge(sat: SatelliteSpec, satrec: SatRec, s: number, ti: number, t: Pre
     frames: framesFor(along, sat.length),
     tleAge: (time - epoch) / 86400000,
     orbitRadius: distance,
+    azimuth: azimuthOf(center, sub(st.r, t.r)),
+    satEcef: [st.r[0], st.r[1], st.r[2]] as [number, number, number],
   };
 
   if (!t.cells.length) {

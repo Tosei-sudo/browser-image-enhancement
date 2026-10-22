@@ -16,7 +16,7 @@ const targets: PlanTarget[] = [
   { label: '大阪', center: [135.5, 34.7], points: [] },
 ];
 const T0 = Date.UTC(2026, 9, 10, 1, 0);
-const base = { offNadir: 10, incidence: 11, elevation: 79, side: 'left' as const, ascending: false, sunElevation: 30, range: 500, width: 0, strips: 1, length: 0, frames: 1, coverage: 1, window: [0, 0] as [number, number], along: [0, 0] as [number, number], tleAge: 1, orbitRadius: 6800 };
+const base = { offNadir: 10, incidence: 11, elevation: 79, side: 'left' as const, ascending: false, sunElevation: 30, range: 500, width: 0, strips: 1, length: 0, frames: 1, coverage: 1, window: [0, 0] as [number, number], along: [0, 0] as [number, number], tleAge: 1, orbitRadius: 6800, azimuth: 0, satEcef: [0, 0, 6800] as [number, number, number] };
 const ops: Opportunity[] = [
   { ...base, satellite: 0, target: 0, time: T0 },
   { ...base, satellite: 1, target: 1, time: T0 + 86400000 },

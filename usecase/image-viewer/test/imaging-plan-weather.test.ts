@@ -80,7 +80,7 @@ describe('cloud forecasts', () => {
       { label: 'b', center: [139.71, 35.71] as [number, number], points: [] },
       { label: 'c', center: [135.5, 34.7] as [number, number], points: [] },
     ];
-    const base = { offNadir: 1, incidence: 1, elevation: 89, side: 'left' as const, ascending: true, sunElevation: 30, range: 400, width: 0, strips: 1, length: 0, frames: 1, coverage: 1, window: [0, 0] as [number, number], along: [0, 0] as [number, number], tleAge: 0, orbitRadius: 6800 };
+    const base = { offNadir: 1, incidence: 1, elevation: 89, side: 'left' as const, ascending: true, sunElevation: 30, range: 400, width: 0, strips: 1, length: 0, frames: 1, coverage: 1, window: [0, 0] as [number, number], along: [0, 0] as [number, number], tleAge: 0, orbitRadius: 6800, azimuth: 0, satEcef: [0, 0, 6800] as [number, number, number] };
     const ops: Opportunity[] = [
       { ...base, satellite: 0, target: 0, time: now + 3600000 },
       { ...base, satellite: 0, target: 1, time: now + 5400000 },
