@@ -88,13 +88,15 @@ test('a line is drawn from a typed start, then lengths and bearings; undo and re
 
   // Undo and redo, by the keys (not typed into a field).
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  // Only once the drawing is in the history (the undo button turns on), and the layer may follow a frame later.
+  await expect(page.getByRole('button', { name: '元に戻す' })).toBeEnabled();
   await page.keyboard.press('Control+z');
-  expect(await shapes(page)).toHaveLength(0);
+  await expect.poll(async () => (await shapes(page)).length).toBe(0);
   await page.keyboard.press('Control+y');
-  expect(await shapes(page)).toHaveLength(1);
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
   await page.getByRole('button', { name: '元に戻す' }).click();
   await page.getByRole('button', { name: 'やり直し' }).click();
-  expect(await shapes(page)).toHaveLength(1);
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
   expect(errors).toEqual([]);
 });
 
