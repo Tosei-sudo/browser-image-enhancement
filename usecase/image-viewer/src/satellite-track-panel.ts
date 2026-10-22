@@ -24,6 +24,7 @@ import { localText } from './imaging-plan-panel.js';
 import { bandRings, sampleAt, satelliteTrack, track3d, wrapLine, wrapPolygon, type SatelliteTrack, type Track3d } from './satellite-track.js';
 import { field, type ProcessingResult } from './processing/common.js';
 import { wgs84 } from './vector-write.js';
+import { SatelliteTree, satelliteKey } from './satellite-tree.js';
 
 export interface TrackPanelOptions {
   /** The satellites to choose from (the imaging plan's catalog, or its samples). */
@@ -43,20 +44,12 @@ export const TRACK_COLORS = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3ae
 const MAX_TICKS = 48;
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440];
 
-interface Listed {
-  sat: SatelliteSpec;
-  key: string;
-  box: HTMLInputElement;
-  label: HTMLLabelElement;
-}
-
 const pad = (n: number) => String(n).padStart(2, '0');
 const inputText = (ms: number) => {
   const d = new Date(ms);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 const round = (v: number, digits = 1) => String(Math.round(v * 10 ** digits) / 10 ** digits);
-const keyOf = (sat: SatelliteSpec) => `${sat.source}\n${sat.id}`;
 
 const styleOf = (feature: Feature): Style | Style[] => {
   const color = String(feature.get('color') ?? '#2563eb');
@@ -91,8 +84,10 @@ export class SatelliteTrackPanel {
   /** The tracks on the map while the panel is open. */
   readonly overlay = new VectorLayer({ source: new VectorSource<Feature>(), style: (f) => styleOf(f as Feature), zIndex: 1000, declutter: true });
   private readonly form_: HTMLFormElement;
-  private readonly list_: HTMLElement;
-  private readonly count_: HTMLElement;
+  /** The satellites as the imaging plan lists them: kind → series → satellite. */
+  private readonly tree_: SatelliteTree;
+  /** Each listed satellite's colour swatch. */
+  private readonly swatches_ = new Map<string, HTMLElement>();
   private readonly filter_: HTMLInputElement;
   private readonly status_: HTMLElement;
   private readonly table_: HTMLTableElement;
@@ -100,7 +95,6 @@ export class SatelliteTrackPanel {
   private readonly zoom_: HTMLButtonElement;
   private catalog_: SatelliteSpec[] = [];
   private loaded_: Promise<void> | null = null;
-  private listed_: Listed[] = [];
   /** Each satellite's colour, kept while it stays chosen. */
   private readonly colors_ = new Map<string, string>();
   private tracks_: Array<{ track: SatelliteTrack; color: string }> = [];
@@ -156,8 +150,18 @@ export class SatelliteTrackPanel {
       </div>`;
     document.body.append(this.dialog);
     this.form_ = this.dialog.querySelector('form')!;
-    this.list_ = this.dialog.querySelector('.track-list')!;
-    this.count_ = this.dialog.querySelector('.track-count')!;
+    this.tree_ = new SatelliteTree(this.dialog.querySelector('.track-list')!, this.dialog.querySelector('.track-count'), {
+      onChange: () => {
+        this.paint();
+        this.schedule();
+      },
+      marker: (sat) => {
+        const swatch = document.createElement('i');
+        swatch.className = 'track-swatch';
+        this.swatches_.set(satelliteKey(sat), swatch);
+        return swatch;
+      },
+    });
     this.filter_ = this.dialog.querySelector('input[name=filter]')!;
     this.status_ = this.dialog.querySelector('.service-status')!;
     this.table_ = this.dialog.querySelector('table')!;
@@ -182,18 +186,14 @@ export class SatelliteTrackPanel {
     });
     this.form_.addEventListener('input', (e) => {
       const target = e.target as HTMLInputElement;
-      if (target.name === 'filter') this.applyFilter();
+      if (target.name === 'filter') this.tree_.filter(target.value);
       else if (target.type === 'datetime-local' || target.type === 'number') this.schedule();
     });
     this.dialog.querySelector('button[value=now]')!.addEventListener('click', () => {
       this.input('at').value = inputText(Date.now());
       this.schedule();
     });
-    this.dialog.querySelector('.track-sats button[value=none]')!.addEventListener('click', () => {
-      for (const l of this.listed_) l.box.checked = false;
-      this.countSats();
-      this.schedule();
-    });
+    this.dialog.querySelector('.track-sats button[value=none]')!.addEventListener('click', () => this.tree_.checkAll(false));
     this.layer_.addEventListener('click', () => this.addLayer());
     this.zoom_.addEventListener('click', () => this.zoomTo());
   }
@@ -215,13 +215,12 @@ export class SatelliteTrackPanel {
 
   /** The satellites listed, and whether each is chosen. */
   satellites(): Array<{ sat: SatelliteSpec; checked: boolean }> {
-    return this.listed_.map((l) => ({ sat: l.sat, checked: l.box.checked }));
+    return this.tree_.items().map((l) => ({ sat: l.sat, checked: l.box.checked }));
   }
 
   /** Chooses the satellites named (or with these ids) and draws them. */
   choose(names: string[]): void {
-    for (const l of this.listed_) l.box.checked = names.includes(l.sat.name) || names.includes(l.sat.id);
-    this.countSats();
+    this.tree_.checkOnly(names);
     this.draw();
   }
 
@@ -316,64 +315,28 @@ export class SatelliteTrackPanel {
     });
   }
 
-  /** Lists the satellites with checkboxes, keeping which were chosen (pasted ones start chosen). */
+  /** Lists the satellites in the tree, keeping which were chosen (pasted ones start chosen, and the samples). */
   private listSats(): void {
-    const before = new Map(this.listed_.map((l) => [l.key, l.box.checked]));
-    const first = !this.listed_.length;
     const pasted = this.pasted();
     const all = [...this.catalog_, ...pasted];
-    this.listed_ = [...all]
-      .sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }))
-      .map((sat) => {
-        const key = keyOf(sat);
-        const box = document.createElement('input');
-        box.type = 'checkbox';
-        // At first only a few satellites (the samples) start chosen, so something shows at once.
-        box.checked = before.get(key) ?? (pasted.includes(sat) || (first && all.length <= 2));
-        const label = document.createElement('label');
-        label.className = 'check';
-        const swatch = document.createElement('i');
-        swatch.className = 'track-swatch';
-        const note = document.createElement('small');
-        const side = sat.lookSide === 'both' ? '左右' : sat.lookSide === 'right' ? '右' : '左';
-        note.textContent = `${sat.minOffNadir > 0 ? `${round(sat.minOffNadir)}〜` : ''}${round(sat.maxOffNadir)}°・${side}${sat.sar ? '・SAR' : ''}`;
-        label.title = sat.source;
-        label.append(box, swatch, document.createTextNode(sat.name), note);
-        box.addEventListener('change', () => {
-          this.countSats();
-          this.schedule();
-        });
-        return { sat, key, box, label };
-      });
-    this.list_.replaceChildren(...this.listed_.map((l) => l.label));
-    this.filter_.hidden = this.listed_.length <= 8;
-    this.applyFilter();
-    this.countSats();
+    this.swatches_.clear();
+    // At first only a few satellites (the samples) start chosen, so something shows at once.
+    this.tree_.set(all, (sat, first) => pasted.includes(sat) || (first && all.length <= 2));
+    this.filter_.hidden = all.length <= 8;
+    this.tree_.filter(this.filter_.value);
+    this.paint();
   }
 
-  private applyFilter(): void {
-    const words = this.filter_.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    for (const l of this.listed_) {
-      const text = `${l.sat.name} ${l.sat.id} ${l.sat.series}`.toLowerCase();
-      // Chosen ones stay in sight.
-      l.label.hidden = !l.box.checked && !words.every((w) => text.includes(w));
-    }
-  }
-
-  private countSats(): void {
-    const chosen = this.listed_.filter((l) => l.box.checked);
-    this.count_.textContent = `（${chosen.length} / ${this.listed_.length}）`;
-    // Colours: kept while chosen, the first free one for a newly chosen satellite.
+  /** Colours: kept while chosen, the first free one for a newly chosen satellite. */
+  private paint(): void {
+    const chosen = this.tree_.items().filter((l) => l.box.checked);
     for (const key of [...this.colors_.keys()]) if (!chosen.some((l) => l.key === key)) this.colors_.delete(key);
     for (const l of chosen) {
       if (this.colors_.has(l.key)) continue;
       const used = new Set(this.colors_.values());
       this.colors_.set(l.key, TRACK_COLORS.find((c) => !used.has(c)) ?? TRACK_COLORS[this.colors_.size % TRACK_COLORS.length]);
     }
-    for (const l of this.listed_) {
-      const swatch = l.label.querySelector<HTMLElement>('.track-swatch')!;
-      swatch.style.background = this.colors_.get(l.key) ?? 'transparent';
-    }
+    for (const [key, swatch] of this.swatches_) swatch.style.background = this.colors_.get(key) ?? 'transparent';
   }
 
   private schedule(): void {
@@ -407,9 +370,9 @@ export class SatelliteTrackPanel {
     const source = this.overlay.getSource()!;
     source.clear();
     this.tracks_ = [];
-    const chosen = this.listed_.filter((l) => l.box.checked);
+    const chosen = this.tree_.items().filter((l) => l.box.checked);
     const period = this.period();
-    if (!this.listed_.length) {
+    if (!this.tree_.items().length) {
       this.status_.textContent = '衛星がありません。「詳細」で TLE を貼り付けて追加できます';
     } else if (!chosen.length) {
       this.status_.textContent = '表示する衛星を選んでください（複数選べます）';
