@@ -245,7 +245,7 @@ export class WatchPanel {
     this.count_.hidden = unread === 0;
     this.count_.textContent = unread > 99 ? '99+' : String(unread);
     this.button.title = unread ? `未読の通知が ${unread} 件あります` : '画像カタログの新着画像・撮像予定の通知と監視条件';
-    this.button.hidden = this.options.catalogs.length === 0 && this.notices_.length === 0;
+    this.button.hidden = this.options.catalogs.length === 0 && !this.notices_.some((n) => n.kind === 'plan');
     void updateBadge();
     this.renderNotices();
     this.renderWatches();
