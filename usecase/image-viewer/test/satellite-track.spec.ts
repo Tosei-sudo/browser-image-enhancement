@@ -40,6 +40,14 @@ test('shows several satellites at a moment, then over a period', async ({ page }
   expect(count.track).toBeGreaterThanOrEqual(2);
   expect(count.reach).toBeGreaterThanOrEqual(2);
   expect(count.satellite).toBe(2);
+  // The satellites in the imaging plan's tree: kind, then series, then each satellite.
+  await expect(dialog.locator('.track-list > .plan-group-1 > summary')).toHaveText([/光学/, /SAR/]);
+  await expect(dialog.locator('.track-list .plan-group-2 > summary').first()).toContainText('サンプル');
+  // A kind's checkbox clears all in it.
+  await dialog.locator('.track-list > .plan-group-1', { hasText: 'SAR' }).locator('summary input').first().uncheck();
+  await expect(dialog.locator('tbody tr')).toHaveCount(1);
+  await dialog.locator('.track-list > .plan-group-1', { hasText: 'SAR' }).locator('summary input').first().check();
+  await expect(dialog.locator('tbody tr')).toHaveCount(2);
   // Details stay folded.
   await expect(dialog.locator('select[name=window]')).toBeHidden();
 
