@@ -357,3 +357,47 @@ test('lists stereo and interferometric pairs, and maps how long each place waits
   expect(layer).toBe(9);
   expect(errors).toEqual([]);
 });
+
+test('plans ships of an AIS feed where they will be, with the circle they may be off by', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('**/stub/ais.json', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        type: 'FeatureCollection',
+        features: [
+          { type: 'Feature', properties: { mmsi: 431000001, shipname: 'HIKARI', cog: 45, sog: 12, timestamp: new Date().toISOString() }, geometry: { type: 'Point', coordinates: [139.75, 35.6] } },
+          { type: 'Feature', properties: { mmsi: 431000002, shipname: 'NOZOMI', cog: 270, sog: 8, timestamp: new Date().toISOString() }, geometry: { type: 'Point', coordinates: [139.8, 35.55] } },
+        ],
+      }),
+    }),
+  );
+  await start(page);
+  await page.evaluate(() => window.viewer.moving.connect({ label: 'AIS', type: 'poll', url: './stub/ais.json', interval: 600, kind: 'ship' }));
+  await expect.poll(() => page.evaluate(() => window.viewer.moving.feeds()[0]?.source.getFeatures().length ?? 0)).toBe(2);
+  const dialog = page.locator('.plan-dialog');
+  // The feed is a target choice like any layer; from now, over three days.
+  await page.evaluate(() => window.viewer.imagingPlan.listTargets());
+  const choice = await dialog.locator('select[name=target] option', { hasText: 'AIS' }).getAttribute('value');
+  await dialog.locator('select[name=target]').selectOption(choice!);
+  await dialog.locator('select[name=days]').selectOption('3');
+  await dialog.locator('select[name=daylight]').selectOption('none');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 60_000 });
+  await expect(dialog.locator('thead')).toContainText('位置の誤差');
+  const plan = await page.evaluate(() => {
+    const ops = window.viewer.imagingPlan.opportunities();
+    const rows = [...document.querySelectorAll('.plan-dialog tbody tr')].map((r) => r.textContent ?? '');
+    return { n: ops.length, rows };
+  });
+  expect(plan.n).toBeGreaterThan(0);
+  expect(plan.rows.some((r) => r.includes('HIKARI'))).toBe(true);
+  expect(plan.rows.every((r) => /±\d/.test(r))).toBe(true);
+  // The chosen shot's circle is on the map with its scene.
+  const kinds = await page.evaluate(() => window.viewer.imagingPlan.overlay.getSource()!.getFeatures().map((f) => `${f.get('kind')}:${f.getGeometry()!.getType()}`));
+  expect(kinds).toContain('target:Polygon');
+  expect(kinds).toContain('scene:Polygon');
+  expect(errors).toEqual([]);
+});

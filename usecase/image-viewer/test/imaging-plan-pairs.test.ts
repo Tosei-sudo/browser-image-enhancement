@@ -111,9 +111,10 @@ describe('revisit map', () => {
     expect(stats[0]).toEqual({ count: 2, meanGap: 20, maxGap: 20 });
     expect(stats[1]).toEqual({ count: 0, meanGap: null, maxGap: 48 });
     expect(stats[2]).toEqual({ count: 1, meanGap: null, maxGap: 40 });
-    expect(revisitColor(stats[0], 48)).toEqual(expect.arrayContaining([expect.any(Number)]));
-    expect(revisitColor(stats[1], 48)).toEqual([148, 163, 184]);
-    expect(revisitColor({ count: 1, meanGap: null, maxGap: 0 }, 48)).toEqual([22, 163, 74]);
+    expect(revisitColor(stats[0], 0, 48)).toEqual(expect.arrayContaining([expect.any(Number)]));
+    expect(revisitColor(stats[1], 0, 48)).toEqual([148, 163, 184]);
+    expect(revisitColor({ count: 1, meanGap: null, maxGap: 10 }, 10, 48)).toEqual([22, 163, 74]);
+    expect(revisitColor({ count: 1, meanGap: null, maxGap: 48 }, 10, 48)).toEqual([220, 38, 38]);
     expect(hoursText(5.25)).toBe('5.3 時間');
     expect(hoursText(50)).toBe('2 日 2 時間');
     expect(hoursText(null)).toBe('—');

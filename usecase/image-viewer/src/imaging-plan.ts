@@ -447,6 +447,10 @@ export interface PlanTarget {
   priority?: number;
   /** How the priority reads (the attribute's value), for lists. */
   priorityText?: string;
+  /** For a moving ship: how far off its guessed place may be (the circle's radius), km. */
+  uncertainty?: number;
+  /** For a moving ship: how long after its last report the place is guessed, ms. */
+  guessed?: number;
 }
 
 export interface PlanOptions {
