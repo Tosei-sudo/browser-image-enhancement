@@ -57,6 +57,8 @@ import { drawTimeline } from './imaging-plan-timeline.js';
 import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-plan-remind.js';
 import { applyClouds, fetchClouds, placesFor, type CloudForecastConfig } from './imaging-plan-weather.js';
 import { addShots, newPlanId, shotFeatures, type PlanStoreConfig, type StoreAsk } from './imaging-plan-store.js';
+import { repeatPairs, stereoPairs, type PlanPair } from './imaging-plan-pairs.js';
+import { boxOf, cellTargets, gridCells, hoursText, revisitColor, revisitStats, type RevisitCell, type RevisitStats } from './imaging-plan-revisit.js';
 
 export interface PlanPanelOptions {
   /** The layers of the viewer, for the target. */
@@ -247,6 +249,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   const prioritized = targets.some((t) => t.priority !== undefined);
   const clouded = ops.some((op) => op.cloud !== undefined);
   const downlinked = stations.length > 0;
+  const paired = ops.some((op) => op.pair);
   const head = [
     '日時（UTC）',
     '日時（ローカル）',
@@ -269,6 +272,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     ...(clouded ? ['雲量予報%'] : []),
     ...(downlinked ? ['受信見込み（ローカル）', '地上局'] : []),
     ...(combined ? ['追加%', '累計%', 'シーン番号', '同じシーンの地点数'] : []),
+    ...(paired ? ['2回目（UTC）', '2回目の衛星', '2回目のオフナディア角', '2回目の入射角', '交会角', 'B/H', '垂直基線m', '間隔日'] : []),
     'TLE経過日数',
   ];
   const rows = ops.map((op) => {
@@ -296,13 +300,27 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       ...(clouded ? [op.cloud ?? ''] : []),
       ...(downlinked ? [op.downlink ? localText(op.downlink.time, true) : '', op.downlink ? (stations[op.downlink.station]?.name ?? '') : ''] : []),
       ...(combined ? [round((op.gain ?? 0) * 100, 1), round((op.cumulative ?? 0) * 100, 1), op.shot ?? '', op.shotTargets ?? ''] : []),
+      ...(paired && op.pair
+        ? [
+            new Date(op.pair.b.time).toISOString().replace(/\.\d+Z$/, 'Z'),
+            sats[op.pair.b.satellite].name,
+            round(op.pair.b.offNadir, 2),
+            round(op.pair.b.incidence, 2),
+            round(op.pair.convergence, 2),
+            round(op.pair.bh, 3),
+            Math.round(op.pair.baseline),
+            round(op.pair.days, 2),
+          ]
+        : paired
+          ? ['', '', '', '', '', '', '', '']
+          : []),
       round(op.tleAge, 1),
     ];
   });
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
 
-type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cloud' | 'downlink' | 'cover' | 'gain' | 'cumulative' | 'shot';
+type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cloud' | 'downlink' | 'cover' | 'gain' | 'cumulative' | 'shot' | 'second' | 'angle' | 'baseline' | 'days';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
   switch (feature.get('kind')) {
@@ -331,6 +349,15 @@ const overlayStyle = (feature: Feature): Style | Style[] => {
           stroke: new Stroke({ color: '#fff', width: 3 }),
         }),
       });
+    case 'revisit': {
+      // A cell of the revisit map, coloured by its longest wait.
+      const [r, g, b] = feature.get('color') as [number, number, number];
+      return new Style({
+        stroke: new Stroke({ color: `rgba(${r}, ${g}, ${b}, 0.9)`, width: 1 }),
+        fill: new Fill({ color: `rgba(${r}, ${g}, ${b}, ${feature.get('chosen') ? 0.6 : 0.35})` }),
+        text: new Text({ text: String(feature.get('label') ?? ''), font: '11px sans-serif', fill: new Fill({ color: '#111' }), stroke: new Stroke({ color: '#fff', width: 3 }) }),
+      });
+    }
     case 'satellite':
       return new Style({
         image: new Circle({ radius: 7, stroke: new Stroke({ color: '#fff', width: 2 }), fill: new Fill({ color: '#1e3a5f' }) }),
@@ -380,6 +407,10 @@ export class ImagingPlanPanel {
   private worker_: Worker | null = null;
   /** The last plan: what was planned and what was found. */
   private plan_: { sats: SatelliteSpec[]; targets: PlanTarget[]; result: PlanResult; options: PlanOptions } | null = null;
+  /** The pairs of the last plan in a pair view, for the conditions they were found with. */
+  private pairs_: { key: string; pairs: PlanPair[] } | null = null;
+  /** The revisit map of the last plan: its grid, how often each cell is seen, and the cell chosen. */
+  private revisit_: { size: number; cells: RevisitCell[]; stats: RevisitStats[]; chosen: number | null } | null = null;
   /** The combination of the last plan, for the goal it was made for. */
   private cover_: { goal: number; share: boolean; plans: CoverPlan[] } | null = null;
   private shown_: Opportunity[] = [];
@@ -451,7 +482,13 @@ export class ImagingPlanPanel {
         <select name="view" aria-label="表示">
           <option value="all">すべての機会</option>
           <option value="cover">組み合わせ（全域を最短で）</option>
+          <option value="stereo">ステレオペア</option>
+          <option value="repeat">干渉ペア（同じ軌道・SAR）</option>
+          <option value="revisit">再訪間隔マップ</option>
         </select>
+        <span class="plan-pair-stereo" hidden title="2 回の撮像の視線のなす角（交会角）。15〜45° が DSM・建物の高さに向きます">交会角<input name="stereoMin" type="number" min="1" max="90" step="1" value="15" aria-label="交会角の下限" />〜<input name="stereoMax" type="number" min="1" max="90" step="1" value="45" aria-label="交会角の上限" />°・<input name="stereoDays" type="number" min="0.01" max="60" step="any" value="7" aria-label="日数の上限" />日以内<label class="check"><input name="stereoSeries" type="checkbox" checked />同じシリーズ</label></span>
+        <span class="plan-pair-repeat" hidden title="同じ衛星（シリーズ）が同じ軌道（北行・南行、向き、入射角、方位）で戻ってきた 2 回">入射角の差<input name="repeatIncidence" type="number" min="0.01" max="10" step="any" value="1" aria-label="入射角の差の上限" />°以内・基線<input name="repeatBaseline" type="number" min="1" step="any" placeholder="制限なし" aria-label="垂直基線の上限" />m以下<label class="check" title="同じシリーズの衛星（同じ軌道のコンステレーション）同士もペアにします"><input name="repeatSeries" type="checkbox" />同じシリーズ</label></span>
+        <span class="plan-revisit-opts" hidden title="対象を囲む範囲をこの数 × この数のセルに分け、セルごとに撮像機会の間隔を求めます">格子<input name="revisitGrid" type="number" min="2" max="30" step="1" value="10" aria-label="格子の数" />×</span>
         <label class="plan-goal" hidden title="面の対象をどこまで覆えば完了とするか">目標<input name="goal" type="number" min="10" max="100" step="1" value="95" />%</label>
         <label class="check plan-share" hidden title="同じパスで 1 シーン（観測幅 × シーン長）に収まる地点を、1 回の撮像でまとめて撮ります"><input type="checkbox" name="share" checked />近い地点を 1 シーンにまとめる</label>
         <label class="check plan-first"><input type="checkbox" name="firstOnly" />衛星・対象ごとに最初の機会のみ</label>
@@ -555,6 +592,8 @@ export class ImagingPlanPanel {
     for (const name of ['tle', 'pasteMax', 'pasteSwath', 'pasteGap', 'pastePerDay', 'pasteLead', 'pasteSar']) (this.form_.elements.namedItem(name) as HTMLInputElement).addEventListener('change', () => this.listSats());
     this.firstOnly_.addEventListener('change', () => this.render());
     this.view_.addEventListener('change', () => this.showView());
+    for (const name of ['stereoMin', 'stereoMax', 'stereoDays', 'stereoSeries', 'repeatIncidence', 'repeatBaseline', 'repeatSeries', 'revisitGrid'])
+      this.dialog.querySelector<HTMLInputElement>(`input[name=${name}]`)!.addEventListener('change', () => this.showView());
     this.goal_.addEventListener('change', () => this.showView());
     this.share_.addEventListener('change', () => this.showView());
     this.csv_.addEventListener('click', () => this.saveCsv());
@@ -812,6 +851,7 @@ export class ImagingPlanPanel {
           .forEach((f, i) => source.addFeature(new Feature({ kind: 'target', target: each ? i : 0, geometry: f.getGeometry()!.clone() })));
       }
     }
+    if (this.revisit_ && this.view_.value === 'revisit' && this.plan_) this.drawRevisit();
     if (this.chosen_ && this.plan_) this.drawPass(this.chosen_);
   }
 
@@ -864,6 +904,8 @@ export class ImagingPlanPanel {
     if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
     this.plan_ = { sats, targets, result, options };
     this.cover_ = null;
+    this.pairs_ = null;
+    this.revisit_ = null;
     this.dialog.querySelector<HTMLElement>('.plan-view')!.hidden = result.opportunities.length === 0;
     // An area no single pass covers: start with the combination that covers it.
     const best = new Map<number, number>();
@@ -888,6 +930,8 @@ export class ImagingPlanPanel {
       if (this.plan_ !== plan) return;
       const n = applyClouds(result.opportunities, sats, targets, forecasts);
       this.cover_ = null;
+      this.pairs_ = null;
+      if (this.view_.value === 'revisit') return void (this.status_.textContent = `${before}（雲量予報 ${n} 回分: ${config.label}）`);
       this.render();
       this.status_.textContent = `${before}（雲量予報 ${n} 回分: ${config.label}）`;
     } catch (error) {
@@ -913,6 +957,37 @@ export class ImagingPlanPanel {
     return this.view_.value === 'cover';
   }
 
+  /** The pair view shown: stereo or repeat pairs; null in the other views. */
+  private pairing(): 'stereo' | 'repeat' | null {
+    const v = this.view_.value;
+    return v === 'stereo' || v === 'repeat' ? v : null;
+  }
+
+  /** The pairs of the last plan for the conditions in the form (found again when they change). */
+  pairs(): PlanPair[] {
+    const plan = this.plan_!;
+    const kind = this.pairing();
+    const num = (name: string, fallback: number | null) => {
+      const v = this.dialog.querySelector<HTMLInputElement>(`input[name=${name}]`)!.value;
+      return v === '' || !Number.isFinite(Number(v)) || Number(v) <= 0 ? fallback : Number(v);
+    };
+    const checked = (name: string) => this.dialog.querySelector<HTMLInputElement>(`input[name=${name}]`)!.checked;
+    const options =
+      kind === 'stereo'
+        ? { minAngle: num('stereoMin', 15)!, maxAngle: num('stereoMax', 45)!, maxDays: num('stereoDays', 7)!, sameSeries: checked('stereoSeries') }
+        : { maxIncidence: num('repeatIncidence', 1)!, maxAzimuth: 2, maxBaseline: num('repeatBaseline', null), sameSeries: checked('repeatSeries') };
+    const key = `${kind}:${JSON.stringify(options)}:${this.maxCloud()}`;
+    if (this.pairs_?.key !== key) {
+      const ops = this.candidates();
+      const pairs =
+        kind === 'stereo'
+          ? stereoPairs(ops, plan.sats, plan.targets, options as Parameters<typeof stereoPairs>[3])
+          : repeatPairs(ops, plan.sats, plan.targets, options as Parameters<typeof repeatPairs>[3]);
+      this.pairs_ = { key, pairs };
+    }
+    return this.pairs_.pairs;
+  }
+
   /** The combination of the last plan for the goal in the form (made again when the goal changes). */
   coverPlans(): CoverPlan[] {
     const plan = this.plan_!;
@@ -927,15 +1002,23 @@ export class ImagingPlanPanel {
     const plan = this.plan_;
     if (!plan) return;
     const combining = this.combining();
+    const pairing = this.pairing();
+    const revisit = this.view_.value === 'revisit';
     this.goal_.closest('label')!.hidden = !combining;
     // Sharing scenes is for points: shown when there are two or more.
     this.share_.closest('label')!.hidden = !combining || plan.targets.filter((t) => !t.cells?.length).length < 2;
-    this.firstOnly_.closest('label')!.hidden = combining;
-    // A column the view does not have sorts by time instead.
-    if (combining ? this.sort_.key === 'cover' : this.sort_.key === 'gain' || this.sort_.key === 'cumulative' || this.sort_.key === 'shot') this.sort_ = { key: 'time', descending: false };
+    this.firstOnly_.closest('label')!.hidden = combining || !!pairing || revisit;
+    this.timeline_.closest('label')!.hidden = revisit;
+    this.dialog.querySelector<HTMLElement>('.plan-pair-stereo')!.hidden = pairing !== 'stereo';
+    this.dialog.querySelector<HTMLElement>('.plan-pair-repeat')!.hidden = pairing !== 'repeat';
+    this.dialog.querySelector<HTMLElement>('.plan-revisit-opts')!.hidden = !revisit;
     this.chosen_ = null;
     this.options.onChosen?.();
+    if (revisit) return void this.showRevisit();
+    // A column the view does not have sorts by time instead.
+    if (!this.columns().some((c) => c.key === this.sort_.key)) this.sort_ = { key: 'time', descending: false };
     this.render();
+    this.showTargets();
     const { sats, targets, result } = plan;
     const problems =
       (result.problems.length ? `（計算できなかった衛星: ${result.problems.join('、')}）` : '') +
@@ -943,6 +1026,13 @@ export class ImagingPlanPanel {
     const first = result.opportunities[0];
     if (!first) {
       this.status_.textContent = `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角・入射角・軌道・向きの制限や日照条件を見直してください${problems}`;
+    } else if (pairing) {
+      const pairs = this.pairs();
+      const what = pairing === 'stereo' ? 'ステレオペア' : '干渉ペア';
+      const hint = pairing === 'stereo' ? '交会角・日数の条件を緩めるか、オフナディア角の上限を上げてください' : 'SAR 衛星を選び、期間を回帰日数より長くするか、入射角の差の条件を緩めてください';
+      this.status_.textContent = pairs.length
+        ? `${what} ${pairs.length.toLocaleString()} 組。最初の 2 回目は ${localText(pairs[0][pairing === 'stereo' ? 'b' : 'a'].time)}。行を選ぶと 1 回目（青）と 2 回目（番号 2）の撮像範囲を地図に表示します${problems}`
+        : `条件に合う${what}はありません。${hint}${problems}`;
     } else if (!combining) {
       this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${sats[first.satellite].name}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します（撮像範囲はドラッグで動かせます）${problems}`;
     } else {
@@ -1004,7 +1094,10 @@ export class ImagingPlanPanel {
             },
           ]
         : []),
-      ...(this.combining()
+      ...(this.pairing() ? this.pairColumns() : []),
+      ...(this.pairing()
+        ? []
+        : this.combining()
         ? [
             { key: 'gain' as const, label: '追加', text: (op: Opportunity) => `+${percent(op.gain ?? 0)}`, title: () => 'この回で新たに撮像できる対象の割合' },
             { key: 'cumulative' as const, label: '累計', text: (op: Opportunity) => percent(op.cumulative ?? 0), title: () => 'この回までに撮像できた対象の割合' },
@@ -1023,10 +1116,28 @@ export class ImagingPlanPanel {
     ];
   }
 
+  /** The columns of a pair view: the second shot, how the two looks relate, and the days between. */
+  private pairColumns(): Array<{ key: SortKey; label: string; text: (op: Opportunity) => string; title?: (op: Opportunity) => string }> {
+    const plan = this.plan_!;
+    const second = (op: Opportunity) => op.pair!.b;
+    return [
+      {
+        key: 'second',
+        label: '2 回目',
+        text: (op) => `${localText(second(op).time)} ${plan.sats[second(op).satellite].name}`,
+        title: (op) => `オフナディア角 ${round(second(op).offNadir)}°・入射角 ${round(second(op).incidence)}°・${sideText(second(op))}`,
+      },
+      this.pairing() === 'stereo'
+        ? { key: 'angle', label: '交会角', text: (op) => `${round(op.pair!.convergence)}°`, title: (op) => `B/H ${round(op.pair!.bh, 2)}（2 回の視線のなす角。大きいほど高さの精度が上がり、大きすぎると対応づけにくくなります）` }
+        : { key: 'baseline', label: '垂直基線', text: (op) => `${Math.round(op.pair!.baseline).toLocaleString()} m`, title: (op) => `入射角の差 ${round(Math.abs(second(op).incidence - op.incidence), 2)}°（基線が短いほど干渉しやすく、長いほど地形の高さに敏感です）` },
+      { key: 'days', label: '間隔', text: (op) => hoursText(op.pair!.days * 24), title: () => '1 回目から 2 回目までの時間' },
+    ];
+  }
+
   private sorted(): Opportunity[] {
     const plan = this.plan_!;
-    let ops = this.combining() ? this.coverPlans().flatMap((p) => p.steps) : this.candidates();
-    if (!this.combining() && this.firstOnly_.checked) {
+    let ops = this.pairing() ? this.pairs().map((pair) => ({ ...pair.a, pair })) : this.combining() ? this.coverPlans().flatMap((p) => p.steps) : this.candidates();
+    if (!this.combining() && !this.pairing() && this.firstOnly_.checked) {
       const seen = new Set<string>();
       ops = ops.filter((op) => {
         const key = `${op.satellite}:${op.target}`;
@@ -1059,6 +1170,14 @@ export class ImagingPlanPanel {
           return op.target * 10 + (op.cumulative ?? 0);
         case 'shot':
           return op.shot ?? 0;
+        case 'second':
+          return op.pair?.b.time ?? 0;
+        case 'angle':
+          return op.pair?.convergence ?? 0;
+        case 'baseline':
+          return op.pair?.baseline ?? 0;
+        case 'days':
+          return op.pair?.days ?? 0;
         default:
           return op.time;
       }
@@ -1124,6 +1243,102 @@ export class ImagingPlanPanel {
     );
     this.update();
     this.drawTimeline();
+  }
+
+  /** The revisit map of the last plan: planned again over a grid of cells around the targets (in a worker), then listed and drawn. */
+  private async showRevisit(): Promise<void> {
+    const plan = this.plan_!;
+    const size = Math.max(2, Math.min(30, Math.round(Number(this.dialog.querySelector<HTMLInputElement>('input[name=revisitGrid]')!.value) || 10)));
+    this.shown_ = [];
+    this.timelineHost_.hidden = true;
+    if (this.revisit_?.size !== size) {
+      this.revisit_ = null;
+      this.table_.tHead!.replaceChildren();
+      this.table_.tBodies[0].replaceChildren();
+      this.update();
+      this.showTargets();
+      const cells = gridCells(boxOf(plan.targets), size);
+      this.worker_?.terminate();
+      const { worker, result: planned } = startPlan(plan.sats, cellTargets(cells), { ...plan.options, stations: [] }, (done) => {
+        this.status_.textContent = `再訪間隔を ${cells.length} セルで計算しています… ${Math.round(done * 100)}%`;
+      });
+      this.worker_ = worker;
+      this.status_.textContent = `再訪間隔を ${cells.length} セルで計算しています…`;
+      const result = await planned;
+      if (this.worker_ !== worker) return;
+      this.worker_ = null;
+      if (this.plan_ !== plan || this.view_.value !== 'revisit') return;
+      if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
+      this.revisit_ = { size, cells, stats: revisitStats(result.opportunities, cells.length, plan.options.start, plan.options.end), chosen: null };
+    }
+    this.renderRevisit();
+    this.showTargets();
+    const stats = this.revisit_!.stats;
+    const seen = stats.filter((s) => s.count > 0);
+    const worst = Math.max(...stats.map((s) => s.maxGap));
+    const days = (plan.options.end - plan.options.start) / 86400000;
+    this.status_.textContent = seen.length
+      ? `${stats.length} セルのうち ${seen.length} セルで撮像機会があります。最長の待ちは ${hoursText(worst)}、平均で ${round(seen.reduce((n, s) => n + s.count, 0) / stats.length / days, 2)} 回/日（緑ほど早く撮れ、赤ほど待ちます）。行を選ぶとセルを示します`
+      : `この期間、範囲内のどのセルにも撮像機会がありません。期間を延ばすか条件を見直してください`;
+  }
+
+  /** Lists the revisit map's cells, longest wait first. */
+  private renderRevisit(): void {
+    const revisit = this.revisit_!;
+    const head = document.createElement('tr');
+    for (const label of ['セル', '回数', '平均間隔', '最長の待ち']) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      head.append(th);
+    }
+    this.table_.tHead!.replaceChildren(head);
+    const order = revisit.stats.map((_, i) => i).sort((a, b) => revisit.stats[b].maxGap - revisit.stats[a].maxGap || a - b);
+    this.table_.tBodies[0].replaceChildren(
+      ...order.slice(0, MAX_ROWS).map((i) => {
+        const s = revisit.stats[i];
+        const row = document.createElement('tr');
+        row.tabIndex = -1;
+        row.classList.toggle('chosen', revisit.chosen === i);
+        for (const text of [`${i + 1}`, `${s.count}`, hoursText(s.meanGap), hoursText(s.maxGap)]) {
+          const td = document.createElement('td');
+          td.textContent = text;
+          row.append(td);
+        }
+        row.title = `中心 ${round(revisit.cells[i].center[1], 4)}, ${round(revisit.cells[i].center[0], 4)}`;
+        row.addEventListener('click', () => {
+          revisit.chosen = i;
+          for (const r of this.table_.tBodies[0].rows) r.classList.toggle('chosen', r === row);
+          this.showTargets();
+          row.focus();
+        });
+        row.addEventListener('dblclick', () => this.map.getView().animate({ center: fromLonLat(revisit.cells[i].center, this.map.getView().getProjection()), duration: 250 }));
+        return row;
+      }),
+    );
+    this.update();
+    this.csv_.disabled = false;
+    this.layer_.disabled = false;
+  }
+
+  /** Draws the revisit map's cells, coloured by their longest wait. */
+  private drawRevisit(): void {
+    const revisit = this.revisit_!;
+    const projection = this.map.getView().getProjection();
+    const longest = Math.max(...revisit.stats.map((s) => s.maxGap));
+    const many = revisit.cells.length > 144;
+    const source = this.overlay.getSource()!;
+    revisit.cells.forEach((cell, i) => {
+      const s = revisit.stats[i];
+      source.addFeature(
+        new Feature({
+          kind: 'revisit',
+          color: revisitColor(s, longest),
+          chosen: revisit.chosen === i,
+          label: many && revisit.chosen !== i ? '' : s.count ? hoursText(s.maxGap) : 'なし',
+          geometry: new Polygon([cell.ring.map((c) => fromLonLat(c, projection))]),
+        }),
+      );
+    });
   }
 
   /** Chooses an opportunity: its row, and its pass on the map. */
@@ -1269,6 +1484,7 @@ export class ImagingPlanPanel {
     const plan = this.plan_;
     if (!op || !plan || !this.dialog.open) return [];
     const passes = [satellitePass3d(plan.sats[op.satellite], plan.targets[op.target], op, true)];
+    if (op.pair) passes.push(satellitePass3d(plan.sats[op.pair.b.satellite], plan.targets[op.pair.b.target], op.pair.b, false));
     if (this.combining()) {
       for (const step of this.coverPlans()[op.target]?.steps ?? []) {
         if (step.time === op.time && step.satellite === op.satellite) continue;
@@ -1312,6 +1528,11 @@ export class ImagingPlanPanel {
     for (const part of lines(shapes.track)) source.addFeature(new Feature({ kind: 'track', geometry: new LineString(part.map(to)) }));
     for (const edge of shapes.reach) for (const part of lines(edge)) source.addFeature(new Feature({ kind: 'reach', geometry: new LineString(part.map(to)) }));
     for (const ring of shapes.scenes) source.addFeature(new Feature({ kind: 'scene', geometry: new Polygon([ring.map(to)]) }));
+    if (op.pair) {
+      // The pair's second shot, numbered 2.
+      const rings = passShapes(plan.sats[op.pair.b.satellite], plan.targets[op.pair.b.target], op.pair.b)?.scenes ?? [];
+      rings.forEach((ring, k) => source.addFeature(new Feature({ kind: 'step', label: k === Math.floor(rings.length / 2) ? '2' : '', geometry: new Polygon([ring.map(to)]) })));
+    }
     if (this.combining()) {
       // The other passes of the same target's combination, numbered, so what each adds can be seen.
       const steps = this.coverPlans()[op.target]?.steps ?? [];
@@ -1348,6 +1569,10 @@ export class ImagingPlanPanel {
 
   /** Saves the listed opportunities as CSV. */
   saveCsv(): void {
+    if (this.plan_ && this.revisit_ && this.view_.value === 'revisit') {
+      download('revisit.csv', revisitCsv(this.revisit_.cells, this.revisit_.stats), 'text/csv');
+      return void this.options.say(`再訪間隔 ${this.revisit_.cells.length} セルを CSV で保存しました`);
+    }
     if (!this.plan_ || !this.shown_.length) return;
     const { sats, targets, options } = this.plan_;
     const day = (ms: number) => localText(ms).slice(0, 10).replaceAll('/', '');
@@ -1357,6 +1582,7 @@ export class ImagingPlanPanel {
 
   /** The listed opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
   planLayer(): ProcessingResult | null {
+    if (this.plan_ && this.revisit_ && this.view_.value === 'revisit') return revisitFeatures(this.revisit_.cells, this.revisit_.stats);
     if (!this.plan_ || !this.shown_.length) return null;
     const { sats, targets, options } = this.plan_;
     return planFeatures(this.shown_, sats, targets, this.combining(), options.stations ?? []);
@@ -1372,6 +1598,7 @@ export class ImagingPlanPanel {
     const result = this.planLayer();
     if (!result || !this.plan_) return;
     const { options } = this.plan_;
+    if (this.view_.value === 'revisit') return this.options.onLayer(result, `再訪間隔 ${localText(options.start)} から ${Math.round((options.end - options.start) / 86400000)} 日`);
     this.options.onLayer(result, `撮像計画 ${localText(options.start)} から ${Math.round((options.end - options.start) / 86400000)} 日（${result.features.length} 回）`);
   }
 }
@@ -1379,6 +1606,7 @@ export class ImagingPlanPanel {
 /** Opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
 export function planFeatures(ops: readonly Opportunity[], sats: readonly SatelliteSpec[], targets: readonly PlanTarget[], combined: boolean, stations: readonly GroundStation[] = []): ProcessingResult {
   const clouded = ops.some((op) => op.cloud !== undefined);
+  const paired = ops.some((op) => op.pair);
   const features: Feature[] = [];
   for (const op of ops) {
     const sat = sats[op.satellite];
@@ -1401,6 +1629,16 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
         coverage: Math.round(op.coverage * 1000) / 10,
         ...(clouded ? { cloud: op.cloud ?? null } : {}),
         ...(stations.length ? { downlink: op.downlink?.time ?? null, station: op.downlink ? (stations[op.downlink.station]?.name ?? null) : null } : {}),
+        ...(paired
+          ? {
+              pair_time: op.pair?.b.time ?? null,
+              pair_satellite: op.pair ? sats[op.pair.b.satellite].name : null,
+              convergence: op.pair ? Math.round(op.pair.convergence * 100) / 100 : null,
+              bh: op.pair ? Math.round(op.pair.bh * 1000) / 1000 : null,
+              baseline: op.pair ? Math.round(op.pair.baseline) : null,
+              days: op.pair ? Math.round(op.pair.days * 100) / 100 : null,
+            }
+          : {}),
         ...(op.cumulative !== undefined ? { gain: Math.round((op.gain ?? 0) * 1000) / 10, cumulative: Math.round(op.cumulative * 1000) / 10, shot: op.shot, shot_targets: op.shotTargets } : {}),
       }),
     );
@@ -1422,10 +1660,40 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
       field('coverage', 'double', '被覆率%'),
       ...(clouded ? [field('cloud', 'double', '雲量予報%')] : []),
       ...(stations.length ? [field('downlink', 'date', '受信見込み'), field('station', 'string', '地上局')] : []),
+      ...(paired
+        ? [field('pair_time', 'date', '2回目'), field('pair_satellite', 'string', '2回目の衛星'), field('convergence', 'double', '交会角'), field('bh', 'double', 'B/H'), field('baseline', 'double', '垂直基線m'), field('days', 'double', '間隔日')]
+        : []),
       ...(combined ? [field('gain', 'double', '追加%'), field('cumulative', 'double', '累計%'), field('shot', 'integer', 'シーン番号'), field('shot_targets', 'integer', '同じシーンの地点数')] : []),
     ],
     crs: wgs84,
   };
+}
+
+/** The revisit map's cells as a layer: one square per cell, with how often it is seen. */
+export function revisitFeatures(cells: readonly RevisitCell[], stats: readonly RevisitStats[]): ProcessingResult {
+  const hours = (h: number | null) => (h === null ? null : Math.round(h * 10) / 10);
+  return {
+    title: '再訪間隔',
+    features: cells.map(
+      (cell, i) =>
+        new Feature({
+          geometry: new Polygon([cell.ring.map((c) => fromLonLat(c, 'EPSG:3857'))]),
+          cell: i + 1,
+          count: stats[i].count,
+          mean_gap_h: hours(stats[i].meanGap),
+          max_gap_h: hours(stats[i].maxGap),
+        }),
+    ),
+    fields: [field('cell', 'integer', 'セル'), field('count', 'integer', '回数'), field('mean_gap_h', 'double', '平均間隔（時間）'), field('max_gap_h', 'double', '最長の待ち（時間）')],
+    crs: wgs84,
+  };
+}
+
+/** The revisit map's cells as CSV (with a BOM, for spreadsheets). */
+export function revisitCsv(cells: readonly RevisitCell[], stats: readonly RevisitStats[]): string {
+  const hours = (h: number | null) => (h === null ? '' : round(h, 1));
+  const rows = cells.map((cell, i) => [i + 1, round(cell.center[0], 6), round(cell.center[1], 6), stats[i].count, hours(stats[i].meanGap), hours(stats[i].maxGap)]);
+  return `\ufeff${[['セル', '経度', '緯度', '回数', '平均間隔（時間）', '最長の待ち（時間）'], ...rows].map((r) => r.join(',')).join('\r\n')}\r\n`;
 }
 
 /**

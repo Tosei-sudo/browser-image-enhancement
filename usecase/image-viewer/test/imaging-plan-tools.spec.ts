@@ -304,3 +304,56 @@ test('saves a plan to a feature service and follows its shots up in the image ca
   expect(fake.shots).toHaveLength(0);
   expect(errors).toEqual([]);
 });
+
+test('lists stereo and interferometric pairs, and maps how long each place waits', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await start(page);
+  const dialog = page.locator('.plan-dialog');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.locator('select[name=days]').selectOption('14');
+  await dialog.locator('select[name=daylight]').selectOption('none');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+
+  // Stereo: pairs of one kind of sensor, their convergence within the range asked for.
+  await dialog.locator('select[name=view]').selectOption('stereo');
+  await expect(dialog.locator('.plan-pair-stereo')).toBeVisible();
+  await expect(dialog.locator('.service-status')).toContainText('ステレオペア');
+  await expect(dialog.locator('thead')).toContainText('交会角');
+  const column = (await dialog.locator('thead th').allTextContents()).findIndex((t) => t.startsWith('交会角')) + 1;
+  const angles = await dialog.locator(`tbody tr td:nth-child(${column})`).allTextContents();
+  expect(angles.length).toBeGreaterThan(0);
+  for (const a of angles) {
+    expect(parseFloat(a)).toBeGreaterThanOrEqual(15);
+    expect(parseFloat(a)).toBeLessThanOrEqual(45);
+  }
+  // The first row's two shots on the map: its own scene and the second, numbered 2.
+  const kinds = await page.evaluate(() => window.viewer.imagingPlan.overlay.getSource()!.getFeatures().map((f) => `${f.get('kind')}:${f.get('label') ?? ''}`));
+  expect(kinds).toContain('scene:');
+  expect(kinds).toContain('step:2');
+  const [csv] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'CSV' }).click()]);
+  const text = await (await csv.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString('utf8'));
+  expect(text.split('\r\n')[0]).toContain('交会角');
+
+  // Interferometry: SAR returns on the same track; the ISS orbit does not repeat exactly, so loosen the incidence.
+  await dialog.locator('select[name=view]').selectOption('repeat');
+  await dialog.locator('input[name=repeatIncidence]').fill('5');
+  await dialog.locator('input[name=repeatIncidence]').dispatchEvent('change');
+  await expect(dialog.locator('.service-status')).toContainText('干渉ペア');
+  const rows = await dialog.locator('tbody tr').count();
+  if (rows) await expect(dialog.locator('thead')).toContainText('垂直基線');
+
+  // The revisit map: a 3 × 3 grid around the two places, coloured on the map.
+  await dialog.locator('select[name=view]').selectOption('revisit');
+  await dialog.locator('input[name=revisitGrid]').fill('3');
+  await dialog.locator('input[name=revisitGrid]').dispatchEvent('change');
+  await expect(dialog.locator('.service-status')).toContainText('9 セルのうち', { timeout: 30_000 });
+  await expect(dialog.locator('tbody tr')).toHaveCount(9);
+  await expect(dialog.locator('thead')).toContainText('最長の待ち');
+  const cells = await page.evaluate(() => window.viewer.imagingPlan.overlay.getSource()!.getFeatures().filter((f) => f.get('kind') === 'revisit').length);
+  expect(cells).toBe(9);
+  const layer = await page.evaluate(() => window.viewer.imagingPlan.planLayer()?.features.length);
+  expect(layer).toBe(9);
+  expect(errors).toEqual([]);
+});

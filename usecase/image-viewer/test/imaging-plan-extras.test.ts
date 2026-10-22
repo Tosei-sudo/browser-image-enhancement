@@ -97,7 +97,7 @@ describe('calendar and timeline', () => {
     { label: '東京', center: [139.7, 35.7], points: [] },
     { label: '横浜', center: [139.6, 35.4], points: [] },
   ];
-  const base = { offNadir: 10, incidence: 11, elevation: 79, side: 'left' as const, ascending: true, sunElevation: 30, range: 500, width: 0, strips: 1, length: 0, frames: 1, coverage: 1, window: [0, 0] as [number, number], along: [0, 0] as [number, number], tleAge: 1, orbitRadius: 6800 };
+  const base = { offNadir: 10, incidence: 11, elevation: 79, side: 'left' as const, ascending: true, sunElevation: 30, range: 500, width: 0, strips: 1, length: 0, frames: 1, coverage: 1, window: [0, 0] as [number, number], along: [0, 0] as [number, number], tleAge: 1, orbitRadius: 6800, azimuth: 0, satEcef: [0, 0, 6800] as [number, number, number] };
   const ops = [
     { ...base, satellite: 0, target: 0, time: Date.UTC(2026, 9, 23, 1, 0), shot: 1, shotTargets: 2 },
     { ...base, satellite: 0, target: 1, time: Date.UTC(2026, 9, 23, 1, 0, 3), shot: 1, shotTargets: 2 },
