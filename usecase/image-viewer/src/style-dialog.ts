@@ -6,6 +6,7 @@
  * change; OK keeps the style for the next time the layer is opened, Cancel
  * goes back to what it was.
  */
+import type Feature from 'ol/Feature.js';
 import { baseName, type ViewerService } from './images.js';
 import { exportStyle, importStyle, readStyleFile, styleExtension, styleFormats, type StyleFormat } from './qgis-style.js';
 import { symbolKindOf, type SymbolKind } from './style-file.js';
@@ -58,6 +59,10 @@ export class StyleDialog {
   private style_: LayerStyle | null = null;
   /** The style when the dialog opened, for Cancel. */
   private before_: VectorStyleSpec | null = null;
+  /** More layers styled with it (a group's vector layers), and their styles when the dialog opened. */
+  private others_: Array<{ entry: ViewerService; style: LayerStyle; before: VectorStyleSpec }> = [];
+  /** The group's name, when the dialog styles a group's layers. */
+  private group_: string | null = null;
   private committed_ = false;
   private categoryList_: Category[] = [];
   private counts_ = new Map<string, number>();
@@ -200,8 +205,12 @@ export class StyleDialog {
     });
   }
 
-  /** Opens the dialog for a vector layer. */
-  open(entry: ViewerService): void {
+  /**
+   * Opens the dialog for a vector layer, or for a group's vector layers
+   * (`group`: the first is `entry`, the style goes to them all; the
+   * attributes are those of any of them).
+   */
+  open(entry: ViewerService, group?: { name: string; layers: readonly ViewerService[] }): void {
     const style = entry.service.style;
     const vector = entry.service.vector;
     if (!style || !vector) return;
@@ -209,12 +218,17 @@ export class StyleDialog {
     this.style_ = style;
     this.committed_ = false;
     this.before_ = style.get();
-    this.title_.textContent = `スタイル: ${entry.name}`;
-    const fieldOptions = vector.fields.map((f) => new Option(f.alias && f.alias !== f.name ? `${f.alias}（${f.name}）` : f.name, f.name));
+    this.group_ = group?.name ?? null;
+    this.others_ = (group?.layers ?? [])
+      .filter((l) => l !== entry && l.service.style && l.service.vector)
+      .map((l) => ({ entry: l, style: l.service.style!, before: l.service.style!.get() }));
+    this.title_.textContent = this.group_ !== null ? `スタイル: グループ「${this.group_}」（ベクター ${this.others_.length + 1} 件）` : `スタイル: ${entry.name}`;
+    const fields = [vector, ...this.others_.map((o) => o.entry.service.vector!)].flatMap((v) => v.fields).filter((f, i, all) => all.findIndex((g) => g.name === f.name) === i);
+    const fieldOptions = fields.map((f) => new Option(f.alias && f.alias !== f.name ? `${f.alias}（${f.name}）` : f.name, f.name));
     this.select_('field').replaceChildren(...fieldOptions.map((o) => o.cloneNode(true)));
     // Numbers, and text that holds numbers (WFS values are text).
-    const sample = vector.source.getFeatures().slice(0, 500);
-    const numeric = vector.fields
+    const sample = this.features_().slice(0, 500);
+    const numeric = fields
       .filter((f) => {
         if (f.type === 'integer' || f.type === 'double') return true;
         if (f.type !== 'string' || f.codes) return false;
@@ -246,7 +260,7 @@ export class StyleDialog {
       this.note_.textContent = `${file.name} を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
-    const fields = new Set(this.entry_?.service.vector?.fields.map((f) => f.name) ?? []);
+    const fields = new Set([this.entry_, ...this.others_.map((o) => o.entry)].flatMap((e) => e?.service.vector?.fields.map((f) => f.name) ?? []));
     const missing = [read.spec.mode === 'categorized' || read.spec.mode === 'graduated' ? read.spec.field : null, read.spec.label.field].filter((f): f is string => !!f && !fields.has(f));
     this.fill_(read.spec);
     // The ranges as the file has them (not made again from the values).
@@ -279,11 +293,22 @@ export class StyleDialog {
   /** The kind of geometry of the layer: the most common among its features (polygons when it has none). */
   private kind_(): SymbolKind {
     const counts = new Map<SymbolKind, number>();
-    for (const f of this.entry_?.service.vector?.source.getFeatures().slice(0, 2000) ?? []) {
+    for (const f of this.features_().slice(0, 2000)) {
       const kind = symbolKindOf(f.getGeometry()?.getType());
       if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
     return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'polygon';
+  }
+
+  /** The features of the layer, or of every layer styled. */
+  private features_(): Feature[] {
+    const own = this.entry_?.service.vector?.source.getFeatures() ?? [];
+    return this.others_.length ? [...own, ...this.others_.flatMap((o) => o.entry.service.vector!.source.getFeatures())] : own;
+  }
+
+  /** Draws the other layers styled with `spec` (one without a style of its own draws one symbol instead). */
+  private setOthers_(spec: VectorStyleSpec, keep: boolean): void {
+    for (const o of this.others_) o.style.set(spec.mode === 'own' && !o.style.hasOwn() ? { ...spec, mode: 'single' } : spec, keep);
   }
 
   /** Goes back to the style the layer had and closes. */
@@ -294,19 +319,27 @@ export class StyleDialog {
 
   /** Puts back the style the layer had unless OK kept the new one, and forgets the layer. */
   private end_(): void {
-    if (!this.committed_ && this.style_ && this.before_) this.style_.set(this.before_, false);
+    if (!this.committed_ && this.style_ && this.before_) {
+      this.style_.set(this.before_, false);
+      for (const o of this.others_) o.style.set(o.before, false);
+    }
     this.entry_ = this.style_ = this.before_ = null;
+    this.others_ = [];
   }
 
   /** Keeps the style shown and closes. */
   commit(): void {
     const entry = this.entry_;
     if (!this.style_ || !entry) return;
-    this.style_.set(this.read_());
+    const spec = this.read_();
+    this.style_.set(spec);
+    this.setOthers_(spec, true);
+    const n = this.others_.length + 1;
+    const group = this.group_;
     this.committed_ = true;
     this.end_();
     this.dialog.close();
-    this.options.say(`${entry.name} のスタイルを変更しました`);
+    this.options.say(group !== null ? `グループ「${group}」のベクターレイヤー ${n} 件のスタイルを変更しました` : `${entry.name} のスタイルを変更しました`);
   }
 
   private select_(name: string): HTMLSelectElement {
@@ -383,7 +416,7 @@ export class StyleDialog {
   /** The ranges of the chosen number as rows (made again from the values when `remake`). */
   private loadClasses_(remake: boolean): void {
     const field = this.select_('gradField').value;
-    const features = this.entry_?.service.vector?.source.getFeatures() ?? [];
+    const features = this.features_();
     this.classRows_ = [];
     if (!field) {
       this.classes_.replaceChildren();
@@ -419,7 +452,7 @@ export class StyleDialog {
   /** The rows' bounds, names and counts, after a bound moved (the rows stay, and so does the focus). */
   private updateClassRows_(): void {
     const field = this.select_('gradField').value;
-    const features = this.entry_?.service.vector?.source.getFeatures() ?? [];
+    const features = this.features_();
     const counts = new Array<number>(this.classList_.length).fill(0);
     let others = 0;
     for (const f of features) {
@@ -484,7 +517,7 @@ export class StyleDialog {
   /** The values of the chosen attribute, as rows with a color each. */
   private loadCategories_(): void {
     const field = this.select_('field').value;
-    const features = this.entry_?.service.vector?.source.getFeatures() ?? [];
+    const features = this.features_();
     if (!field) {
       this.categories_.replaceChildren();
       return;
@@ -695,5 +728,6 @@ export class StyleDialog {
     for (const sync of spec.mode === 'categorized' ? this.categorySyncs_ : spec.mode === 'graduated' ? this.classSyncs_ : []) sync(spec);
     if (spec.minScale && spec.maxScale && spec.maxScale >= spec.minScale) this.note_.textContent = '「拡大したら隠す」縮尺は「縮小したら隠す」縮尺より大きく（分母を小さく）してください';
     this.style_?.set(spec, false);
+    this.setOthers_(spec, false);
   }
 }
