@@ -170,3 +170,63 @@ test('moves the chosen scene by dragging it on the map', async ({ page }) => {
   await expect(dialog.locator('tbody tr').first()).toContainText('✎');
   expect(errors).toEqual([]);
 });
+
+test('adds the cloud forecast of optical shots and when each can be sent down', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const forecastUrl = 'http://localhost:4175/wx/v1/forecast';
+  const asked: string[] = [];
+  await page.route(`${forecastUrl}**`, (route) => {
+    asked.push(route.request().url());
+    const url = new URL(route.request().url());
+    const n = url.searchParams.get('latitude')!.split(',').length;
+    const now = Math.floor(Date.now() / 3600000) * 3600;
+    const hours = Array.from({ length: 16 * 24 }, (_, i) => now - 3600 + i * 3600);
+    // Clear on even hours, overcast on odd ones.
+    const one = { hourly: { time: hours, cloud_cover: hours.map((t) => ((t / 3600) % 2 ? 100 : 0)) } };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(n === 1 ? one : Array.from({ length: n }, () => one)) });
+  });
+  await page.route('**/config.json', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...config, cloudForecast: { url: forecastUrl, label: 'テスト予報' }, groundStations: [{ name: '勝浦', lon: 140.3, lat: 35.15 }] }) }),
+  );
+  await page.route(`${layerUrl}**`, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ features: satellites }) }));
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.evaluate(async (text) => window.viewer.project.openFiles([new File([text], 'sites.geojson', { type: 'application/geo+json' })]), JSON.stringify(sites));
+  await page.locator('#tools-menu .menu-button').click();
+  await page.locator('#plan-open').click();
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('.plan-more > summary').click();
+  // Off until turned on: nothing is asked.
+  await expect(dialog.locator('input[name=cloud]')).not.toBeChecked();
+  await dialog.locator('select[name=days]').selectOption('7');
+  await dialog.locator('select[name=daylight]').selectOption('none');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+  expect(asked).toHaveLength(0);
+  await expect(dialog.locator('thead')).toContainText('受信見込み');
+  await expect(dialog.locator('thead')).not.toContainText('雲量');
+  const ops = await page.evaluate(() => window.viewer.imagingPlan.opportunities());
+  expect(ops.some((o) => o.downlink)).toBe(true);
+
+  await dialog.locator('input[name=cloud]').check();
+  await expect(dialog.locator('thead')).toContainText('雲量');
+  expect(asked.length).toBeGreaterThan(0);
+  const clouded = await page.evaluate(() => window.viewer.imagingPlan.opportunities());
+  const sats = await page.evaluate(() => window.viewer.imagingPlan.satellites().map((s) => s.sat.name));
+  // The optical satellite's shots have a forecast; the SAR one's do not.
+  expect(clouded.filter((o) => sats[o.satellite] === 'OPT-1').every((o) => o.cloud !== undefined)).toBe(true);
+  expect(clouded.filter((o) => sats[o.satellite] === 'SAR-1').every((o) => o.cloud === undefined)).toBe(true);
+  // At most 30%: the cloudy optical shots go; SAR ones stay.
+  await dialog.locator('input[name=maxCloud]').fill('30');
+  await dialog.locator('input[name=maxCloud]').dispatchEvent('change');
+  const clear = await page.evaluate(() => window.viewer.imagingPlan.opportunities());
+  expect(clear.length).toBeLessThan(clouded.length);
+  expect(clear.every((o) => o.cloud === undefined || o.cloud <= 30)).toBe(true);
+  const [file] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'CSV 保存' }).click()]);
+  const text = await (await file.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString('utf8'));
+  expect(text).toContain('雲量予報%');
+  expect(text).toContain('勝浦');
+  expect(errors).toEqual([]);
+});

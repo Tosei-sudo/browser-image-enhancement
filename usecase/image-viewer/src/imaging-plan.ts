@@ -461,6 +461,31 @@ export interface PlanOptions {
   pass?: 'ascending' | 'descending' | null;
   /** Only shots looking to this side of the track; absent or null for both. */
   side?: 'left' | 'right' | null;
+  /** Ground stations: each opportunity is told when the satellite next comes over one of them (to send its pictures down). */
+  stations?: GroundStation[];
+}
+
+/** A ground station of config.json's `groundStations`: where the satellites send their pictures down. */
+export interface GroundStation {
+  name: string;
+  lon: number;
+  lat: number;
+  /** The lowest elevation (degrees) at which it can receive; 5 when absent. */
+  minElevation: number;
+}
+
+/** The ground stations of `config.json`'s `groundStations`, each checked on its own (problems say what was left out). */
+export function groundStationsOf(value: unknown, problems: string[]): GroundStation[] {
+  if (!Array.isArray(value)) return (problems.push('groundStations が配列ではありません'), []);
+  return value.flatMap((v, i) => {
+    const at = `groundStations[${i}]`;
+    if (!isRecord(v)) return (problems.push(`${at} がオブジェクトではありません`), []);
+    const { name, lon, lat, minElevation } = v;
+    if (typeof lon !== 'number' || typeof lat !== 'number' || Math.abs(lat) > 90 || Math.abs(lon) > 180) return (problems.push(`${at} の lon・lat は経度・緯度の数にしてください`), []);
+    const min = typeof minElevation === 'number' && minElevation >= 0 && minElevation < 90 ? minElevation : 5;
+    if (minElevation !== undefined && min !== minElevation) problems.push(`${at} の minElevation は 0〜90 の数にしてください`);
+    return [{ name: typeof name === 'string' && name ? name : `地上局 ${i + 1}`, lon, lat, minElevation: min }];
+  });
 }
 
 /** The side a satellite may look to under `options`: its own sides narrowed to the one asked for; null when none is left. */
@@ -532,6 +557,14 @@ export interface Opportunity {
   tleAge: number;
   /** Whether its scenes were moved by hand ({@link shiftScene}). */
   adjusted?: boolean;
+  /**
+   * With ground stations: when the satellite next comes over one of them
+   * after the shot (at once when it is over one already), and which; absent
+   * when none comes within a day.
+   */
+  downlink?: { time: number; station: number };
+  /** The cloud cover forecast for the shot, percent (filled in by the panel for optical satellites). */
+  cloud?: number;
   /** The satellite's distance from the Earth's centre, km (for looking elsewhere across the track). */
   orbitRadius: number;
 }
@@ -771,10 +804,69 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
         }
       }
     });
+    if (options.stations?.length) {
+      const mine = opportunities.filter((op) => op.satellite === s);
+      if (mine.length) addDownlinks(satrec, mine, options.stations);
+    }
     onProgress?.((s + 1) / sats.length);
   });
   opportunities.sort((a, b) => a.time - b.time);
   return { opportunities, problems, tooSoon };
+}
+
+/** How long after a shot to look for a ground station. */
+const DOWNLINK_WINDOW = 86400000;
+/** Seconds between the samples of the search for ground stations. */
+const DOWNLINK_STEP = 30;
+
+/**
+ * Tells each of a satellite's opportunities (`ops`, its own) when it next
+ * comes over one of `stations`, high enough above its horizon: the moment it
+ * rises there (to within a second), or the shot itself when it is over one
+ * already.
+ */
+export function addDownlinks(satrec: SatRec, ops: Opportunity[], stations: readonly GroundStation[]): void {
+  const sites = stations.map((g) => ({ r: ecefOf([g.lon, g.lat]), up: upOf([g.lon, g.lat]), sin: Math.sin(g.minElevation * rad) }));
+  /** The first station in view at `ms`, or -1. */
+  const inView = (ms: number): number => {
+    const st = stateAt(satrec, ms);
+    if (!st) return -1;
+    for (let i = 0; i < sites.length; i++) {
+      const d = sub(st.r, sites[i].r);
+      if (dot(d, sites[i].up) / norm(d) >= sites[i].sin) return i;
+    }
+    return -1;
+  };
+  const sorted = [...ops].sort((a, b) => a.time - b.time);
+  const step = DOWNLINK_STEP * 1000;
+  // One sweep: the samples of the shots' windows, shared where shots are close together.
+  const seen = new Map<number, number>();
+  const sample = (ms: number) => {
+    let v = seen.get(ms);
+    if (v === undefined) seen.set(ms, (v = inView(ms)));
+    return v;
+  };
+  for (const op of sorted) {
+    if (sample(op.time) >= 0) {
+      op.downlink = { time: op.time, station: sample(op.time) };
+      continue;
+    }
+    const first = Math.ceil(op.time / step) * step;
+    for (let t = first; t <= op.time + DOWNLINK_WINDOW; t += step) {
+      const station = sample(t);
+      if (station < 0) continue;
+      // Rising between the sample before and this one.
+      let a = Math.max(op.time, t - step);
+      let b = t;
+      while (b - a > 1000) {
+        const m = Math.round((a + b) / 2);
+        if (inView(m) >= 0) b = m;
+        else a = m;
+      }
+      op.downlink = { time: b, station: inView(b) >= 0 ? inView(b) : station };
+      break;
+    }
+  }
 }
 
 /** The moment between `a` and `b` with the smallest off-nadir angle to the target (golden-section search). */
