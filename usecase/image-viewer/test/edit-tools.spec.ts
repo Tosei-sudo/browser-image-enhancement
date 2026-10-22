@@ -86,15 +86,20 @@ test('a line is drawn from a typed start, then lengths and bearings; undo and re
   expect(geodesicInverse(b, c).distance).toBeCloseTo(500, 3);
   expect(geodesicInverse(b, c).bearing).toBeCloseTo(0, 4);
 
-  // Undo and redo, by the keys (not typed into a field).
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  // Undo and redo, by the keys (not typed into a field). The panel puts the focus back in its first field
+  // on a timer after 確定, so leave the fields after that timer has run.
+  await expect(page.getByRole('button', { name: '元に戻す' })).toBeEnabled();
+  await page.evaluate(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
   await page.keyboard.press('Control+z');
-  expect(await shapes(page)).toHaveLength(0);
+  await expect.poll(async () => (await shapes(page)).length).toBe(0);
   await page.keyboard.press('Control+y');
-  expect(await shapes(page)).toHaveLength(1);
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
   await page.getByRole('button', { name: '元に戻す' }).click();
   await page.getByRole('button', { name: 'やり直し' }).click();
-  expect(await shapes(page)).toHaveLength(1);
+  await expect.poll(async () => (await shapes(page)).length).toBe(1);
   expect(errors).toEqual([]);
 });
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fakeEsri, type FakeImage } from './plan-store-fake.js';
 
 /*
  * The imaging plan panel's extra tools: conditions on the incidence, the
@@ -228,5 +229,78 @@ test('adds the cloud forecast of optical shots and when each can be sent down', 
   const text = await (await file.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString('utf8'));
   expect(text).toContain('雲量予報%');
   expect(text).toContain('勝浦');
+  expect(errors).toEqual([]);
+});
+
+test('saves a plan to a feature service and follows its shots up in the image catalog', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const planUrl = 'http://localhost:4175/svc/plans/FeatureServer/0';
+  const catalogUrl = 'http://localhost:4175/svc/images/FeatureServer/0';
+  const images: FakeImage[] = [];
+  const fake = fakeEsri(planUrl, catalogUrl, images);
+  for (const url of [planUrl, catalogUrl]) {
+    await page.route(`${url}**`, (route) => {
+      const request = route.request();
+      const target = request.url().split('?')[0];
+      const params = Object.fromEntries(new URLSearchParams(request.postData() ?? request.url().split('?')[1] ?? ''));
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(fake.answer(target, params)) });
+    });
+  }
+  await page.route('**/config.json', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...config,
+        imageCatalogs: [{ label: '画像', url: catalogUrl, fields: { id: 'IMAGE_ID', acquired: 'ACQ', sensor: 'SENSOR', source: 'URL' } }],
+        planStores: [{ label: '計画レイヤー', url: planUrl }],
+      }),
+    }),
+  );
+  await page.route(`${layerUrl}**`, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ features: satellites }) }));
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.evaluate(async (text) => window.viewer.project.openFiles([new File([text], 'sites.geojson', { type: 'application/geo+json' })]), JSON.stringify(sites));
+  await page.locator('#tools-menu .menu-button').click();
+  await page.locator('#plan-open').click();
+  const dialog = page.locator('.plan-dialog');
+  await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
+  await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
+  await dialog.locator('select[name=days]').selectOption('3');
+  await dialog.getByRole('button', { name: '計算' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('最短は', { timeout: 30_000 });
+  await dialog.locator('input[name=firstOnly]').check();
+  const ops = await page.evaluate(() => window.viewer.imagingPlan.opportunities().map((o) => ({ time: o.time, target: o.target })));
+  // An image came over the first shot's target 5 minutes after it.
+  const first = ops[0];
+  const center = sites.features[first.target].geometry.coordinates as number[];
+  images.push({ attributes: { IMAGE_ID: 'IMG-1', ACQ: first.time + 300000, SENSOR: 'OPT-1', URL: 'https://example.com/a.tif' }, box: [center[0] - 0.2, center[1] - 0.2, center[0] + 0.2, center[1] + 0.2] });
+
+  await dialog.getByRole('button', { name: '保存・追跡…' }).click();
+  await dialog.locator('input[name=planName]').fill('テスト計画');
+  await dialog.getByRole('button', { name: '保存先に保存' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('「テスト計画」を 計画レイヤー に保存しました');
+  expect(fake.shots.length).toBe(ops.length);
+
+  await dialog.getByRole('button', { name: '保存した計画…' }).click();
+  const saved = page.locator('.plan-saved-dialog');
+  await expect(saved.locator('.plan-saved-list tbody tr')).toHaveCount(1);
+  await saved.locator('.plan-saved-list tbody tr').first().dispatchEvent('click');
+  // Opened, the shots long past are followed up: the first was taken, the others are missed.
+  await expect(saved.locator('.service-status')).toContainText('新たに撮像済み 1 回', { timeout: 10_000 });
+  await expect(saved.locator('.plan-saved-shots tbody tr').first()).toContainText('IMG-1');
+  const statuses = await page.evaluate(() => window.viewer.savedPlans.shots().map((s) => s.status));
+  expect(statuses[0]).toBe('撮像済み');
+  expect(statuses.slice(1).every((s) => s === '未撮像')).toBe(true);
+  expect(fake.shots.find((s) => s.attributes.IMAGE_ID === 'IMG-1')).toBeDefined();
+  // A status set by hand is saved.
+  await saved.locator('.plan-saved-shots tbody tr').nth(1).locator('select').selectOption('取消');
+  await expect.poll(() => fake.shots.filter((s) => s.attributes.STATUS === '取消').length).toBe(1);
+  // Deleting takes two presses.
+  await saved.getByRole('button', { name: '計画を削除' }).dispatchEvent('click');
+  await saved.getByRole('button', { name: 'もう一度押すと削除' }).dispatchEvent('click');
+  await expect(saved.locator('.service-status')).toContainText('保存した計画はまだありません');
+  expect(fake.shots).toHaveLength(0);
   expect(errors).toEqual([]);
 });
