@@ -128,6 +128,7 @@ import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { startReminders } from './imaging-plan-remind.js';
+import { SavedPlansPanel } from './imaging-plan-saved.js';
 import { SatelliteTrackPanel } from './satellite-track-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SavedScript } from './script/saved.js';
@@ -1297,6 +1298,24 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   view3d: (right): boolean => (globeToggle.isOpen() ? (globeToggle.globe()?.viewSatellite(right) ?? false) : false),
   cloudForecast: config.cloudForecast,
   stations: config.groundStations,
+  planStores: config.planStores,
+  storeAsk: (url, params, token) => esriJson(url, params, token, true),
+  openSaved: (planId) => void savedPlans.open(planId),
+});
+
+// Imaging plans kept in Esri feature services (config.json's planStores), followed up in the image catalog.
+const savedPlans = new SavedPlansPanel(map, {
+  stores: config.planStores,
+  catalogs: config.imageCatalogs,
+  ask: (url, params, token) => esriJson(url, params, token, true),
+  open: async (record, catalog) => {
+    const source = record.source;
+    if (!source) throw new Error('画像の場所がありません');
+    if (source.kind === 'url') await openCatalogUrl(source.url, record, catalog);
+    else if (openCatalogPath) await openCatalogPath(source.path, record, catalog);
+    else throw new Error('ローカルパスの画像は開けません');
+  },
+  say,
 });
 
 // Reminders of planned shots become notices of the notification centre a set time before them.
@@ -1767,6 +1786,7 @@ declare global {
       timeline: Timeline;
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
+      savedPlans: SavedPlansPanel;
       satelliteTracks: SatelliteTrackPanel;
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
@@ -1779,4 +1799,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

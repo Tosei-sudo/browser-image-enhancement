@@ -2907,6 +2907,7 @@ body {
 /* Image catalog panel (in the add-a-service dialog's style): non-modal, at the right, so the map stays usable. */
 .catalog-dialog[open],
 .plan-dialog[open],
+.plan-saved-dialog[open],
 .track-dialog[open],
 .watch-dialog[open] {
   position: fixed;
@@ -3703,6 +3704,45 @@ body {
 }
 .plan-remind input[type='number'] {
   width: 4.5em;
+}
+.plan-save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+.plan-save[hidden],
+.plan-save select[hidden] {
+  display: none;
+}
+.plan-save label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Saved plans (src/imaging-plan-saved.ts): the plans, then the chosen plan's shots by status. */
+.plan-saved-list {
+  max-height: 30vh;
+}
+.plan-saved-shots[hidden] {
+  display: none;
+}
+.plan-saved-dialog tr {
+  cursor: pointer;
+}
+.plan-saved-dialog td select {
+  font-size: 12px;
+}
+.plan-shot-1 td:first-child {
+  box-shadow: inset 3px 0 #16a34a;
+}
+.plan-shot-2 td:first-child {
+  box-shadow: inset 3px 0 #dc2626;
+}
+.plan-shot-3 td {
+  color: var(--muted);
 }
 .plan-remind-count {
   color: var(--muted);

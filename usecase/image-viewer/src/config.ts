@@ -8,6 +8,7 @@
 import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 import { catalogOf, type CatalogConfig } from './catalog.js';
 import { groundStationsOf, satelliteCatalogOf, type GroundStation, type SatelliteCatalogConfig } from './imaging-plan.js';
+import { planStoreOf, type PlanStoreConfig } from './imaging-plan-store.js';
 import { cloudForecastOf, defaultCloudForecast, type CloudForecastConfig } from './imaging-plan-weather.js';
 import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.js';
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
@@ -115,6 +116,8 @@ export interface ViewerConfig {
   cloudForecast: CloudForecastConfig | null;
   /** Ground stations, for when the imaging plan's shots can be sent down (imaging-plan.ts); none hides the column. */
   groundStations: GroundStation[];
+  /** Esri feature layers imaging plans are saved to and followed up in (imaging-plan-store.ts); none hides 「保存・追跡…」. */
+  planStores: PlanStoreConfig[];
   /** ONNX models for the AI tools (ai-tools.ts): object detection and click segmentation. Files can be chosen too. */
   aiModels: AiModelConfig[];
   /** Esri feature layers the AI tools' results are written to (ai-transfer.ts), attributes mapped by role; none hides 「DB へ転記」. */
@@ -212,6 +215,7 @@ export const defaultConfig: ViewerConfig = {
   satelliteCatalogs: [],
   cloudForecast: defaultCloudForecast,
   groundStations: [],
+  planStores: [],
   aiModels: sampleModels(),
   detectionOutputs: [],
   serviceRules: [],
@@ -293,7 +297,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], groundStations: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], groundStations: [], planStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -387,6 +391,10 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
 
   if ('cloudForecast' in json) config.cloudForecast = cloudForecastOf(json.cloudForecast, problems);
   if ('groundStations' in json) config.groundStations = groundStationsOf(json.groundStations, problems);
+  if ('planStores' in json) {
+    if (Array.isArray(json.planStores)) config.planStores = json.planStores.map((v, i) => planStoreOf(v, problems, i)).filter((v): v is PlanStoreConfig => v !== null);
+    else problems.push('planStores が配列ではありません');
+  }
 
   if ('aiModels' in json) {
     if (Array.isArray(json.aiModels)) config.aiModels = json.aiModels.map((m, i) => aiModelOf(m, problems, i)).filter((m): m is AiModelConfig => m !== null);

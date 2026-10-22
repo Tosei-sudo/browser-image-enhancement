@@ -56,6 +56,7 @@ import { SatelliteTree } from './satellite-tree.js';
 import { drawTimeline } from './imaging-plan-timeline.js';
 import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-plan-remind.js';
 import { applyClouds, fetchClouds, placesFor, type CloudForecastConfig } from './imaging-plan-weather.js';
+import { addShots, newPlanId, shotFeatures, type PlanStoreConfig, type StoreAsk } from './imaging-plan-store.js';
 
 export interface PlanPanelOptions {
   /** The layers of the viewer, for the target. */
@@ -72,6 +73,12 @@ export interface PlanPanelOptions {
   cloudForecast?: CloudForecastConfig | null;
   /** Ground stations, for when each shot can be sent down; none hides the column. */
   stations?: GroundStation[];
+  /** Esri layers plans are saved to; none hides 「保存・追跡…」. */
+  planStores?: PlanStoreConfig[];
+  /** Asks a plan layer (with the viewer's sign-in). */
+  storeAsk?: StoreAsk;
+  /** Opens the saved plans (on one plan when given). */
+  openSaved?: (planId?: string) => void;
 }
 
 /** Where the panel remembers whether cloud forecasts are on. */
@@ -459,7 +466,14 @@ export class ImagingPlanPanel {
         <button type="button" value="unnotify" title="設定したすべての撮像の通知を解除します">通知を解除</button>
         <span class="plan-remind-count"></span>
       </div>
+      <div class="plan-save" hidden>
+        <label>計画名<input name="planName" type="text" autocomplete="off" /></label>
+        <select name="planStore" aria-label="保存先"></select>
+        <button type="button" value="save" title="一覧の撮像（組み合わせではシーンごと）を保存先のフィーチャーサービスに保存します。撮像時刻を過ぎると、画像カタログで撮れたかを確かめられます">保存先に保存</button>
+        <button type="button" value="saved" title="保存した計画を開き、撮像されたかを確かめます">保存した計画…</button>
+      </div>
       <div class="service-actions catalog-actions">
+        <button type="button" value="store" hidden title="計画をフィーチャーサービスに保存し、撮れたかを追跡します">保存・追跡…</button>
         <button type="button" value="remind" disabled title="撮像の前に通知する・予定表（.ics）に保存する">予定・通知…</button>
         <button type="button" value="csv" disabled title="一覧を CSV で保存します">CSV 保存</button>
         <button type="button" value="layer" disabled title="撮像範囲をレイヤーとして追加します（撮像時刻つき。タイムラインで絞り込めます）">レイヤーとして追加</button>
@@ -561,6 +575,20 @@ export class ImagingPlanPanel {
       this.options.say('撮像の通知をすべて解除しました');
     });
     map.addInteraction(this.dragInteraction());
+    const stores = options.planStores ?? [];
+    const storeButton = this.dialog.querySelector<HTMLButtonElement>('button[value=store]')!;
+    const saveRow = this.dialog.querySelector<HTMLElement>('.plan-save')!;
+    const storeSelect = saveRow.querySelector<HTMLSelectElement>('select[name=planStore]')!;
+    stores.forEach((st, i) => storeSelect.add(new Option(st.label, String(i))));
+    storeSelect.hidden = stores.length < 2;
+    storeButton.hidden = stores.length === 0;
+    storeButton.addEventListener('click', () => {
+      saveRow.hidden = !saveRow.hidden;
+      const name = saveRow.querySelector<HTMLInputElement>('input[name=planName]')!;
+      if (!name.value && this.plan_) name.value = `撮像計画 ${localText(this.plan_.options.start).slice(0, 10)}`;
+    });
+    saveRow.querySelector('button[value=save]')!.addEventListener('click', () => void this.saveToStore());
+    saveRow.querySelector('button[value=saved]')!.addEventListener('click', () => options.openSaved?.());
     options.selection.on('change', () => {
       if (this.dialog.open) this.listTargets();
     });
@@ -1200,6 +1228,30 @@ export class ImagingPlanPanel {
     this.countReminders();
     this.options.say(n ? `撮像 ${n} 件の ${this.remindMinutes()} 分前に「通知」で知らせます（このビューアを開いている間）` : 'これから先の撮像がないため、通知は設定しませんでした');
     return n;
+  }
+
+  /** Saves the listed shots to the chosen plan layer; resolves with the plan's id (null when nothing was saved). */
+  async saveToStore(): Promise<string | null> {
+    const plan = this.plan_;
+    const stores = this.options.planStores ?? [];
+    const ask = this.options.storeAsk;
+    const row = this.dialog.querySelector<HTMLElement>('.plan-save')!;
+    const store = stores[Number(row.querySelector<HTMLSelectElement>('select[name=planStore]')!.value) || 0];
+    if (!plan || !this.shown_.length || !store || !ask) return null;
+    const nameInput = row.querySelector<HTMLInputElement>('input[name=planName]')!;
+    const name = nameInput.value.trim() || `撮像計画 ${localText(plan.options.start).slice(0, 10)}`;
+    const id = newPlanId();
+    const features = shotFeatures(this.shown_, plan.sats, plan.targets, (op) => passShapes(plan.sats[op.satellite], plan.targets[op.target], op)?.scenes ?? [], { id, name }, store.fields);
+    this.status_.textContent = `${store.label} に ${features.length} 回の撮像を保存しています…`;
+    try {
+      const { saved, failed } = await addShots(store, ask, features);
+      this.status_.textContent = `「${name}」を ${store.label} に保存しました（${saved} 回${failed.length ? `。保存できなかったもの ${failed.length} 回: ${failed[0]}` : ''}）。「保存した計画…」で撮れたかを確かめられます`;
+      this.options.say(`撮像計画「${name}」を保存しました`);
+      return saved ? id : null;
+    } catch (error) {
+      this.status_.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      return null;
+    }
   }
 
   /** Saves the listed shots as an iCalendar file. */
