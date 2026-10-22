@@ -58,6 +58,8 @@ import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-
 import { applyClouds, fetchClouds, placesFor, type CloudForecastConfig } from './imaging-plan-weather.js';
 import { addShots, newPlanId, shotFeatures, type PlanStoreConfig, type StoreAsk } from './imaging-plan-store.js';
 import { repeatPairs, stereoPairs, type PlanPair } from './imaging-plan-pairs.js';
+import { MAX_HORIZON, MAX_SHIPS, refineShots, sampleTargets, shipOf, shipPlan, shipWindow, type ShipState } from './imaging-plan-moving.js';
+import type { Track } from './moving.js';
 import { boxOf, cellTargets, gridCells, hoursText, revisitColor, revisitStats, type RevisitCell, type RevisitStats } from './imaging-plan-revisit.js';
 
 export interface PlanPanelOptions {
@@ -81,6 +83,8 @@ export interface PlanPanelOptions {
   storeAsk?: StoreAsk;
   /** Opens the saved plans (on one plan when given). */
   openSaved?: (planId?: string) => void;
+  /** The track of a moving object's feature (its id `moving:…`), for planning ships followed by AIS. */
+  shipTrack?: (featureId: string) => Track | null;
 }
 
 /** Where the panel remembers whether cloud forecasts are on. */
@@ -250,6 +254,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   const clouded = ops.some((op) => op.cloud !== undefined);
   const downlinked = stations.length > 0;
   const paired = ops.some((op) => op.pair);
+  const moving = targets.some((t) => t.uncertainty !== undefined);
   const head = [
     '日時（UTC）',
     '日時（ローカル）',
@@ -260,6 +265,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
     ...(prioritized ? ['優先度'] : []),
     '経度',
     '緯度',
+    ...(moving ? ['位置の誤差km', '報告からの時間h'] : []),
     'オフナディア角',
     '入射角',
     '方向',
@@ -288,6 +294,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       ...(prioritized ? [t.priorityText ?? ''] : []),
       round(t.center[0], 6),
       round(t.center[1], 6),
+      ...(moving ? [round(t.uncertainty ?? 0, 2), round((t.guessed ?? 0) / 3600000, 2)] : []),
       round(op.offNadir, 2),
       round(op.incidence, 2),
       op.side === 'right' ? '右' : '左',
@@ -320,7 +327,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
 
-type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cloud' | 'downlink' | 'cover' | 'gain' | 'cumulative' | 'shot' | 'second' | 'angle' | 'baseline' | 'days';
+type SortKey = 'time' | 'satellite' | 'target' | 'uncertainty' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cloud' | 'downlink' | 'cover' | 'gain' | 'cumulative' | 'shot' | 'second' | 'angle' | 'baseline' | 'days';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
   switch (feature.get('kind')) {
@@ -884,13 +891,15 @@ export class ImagingPlanPanel {
   async run(): Promise<void> {
     if (this.catalog_) await this.loadCatalog();
     const sats = this.tree_.checked();
-    const targets = this.targets();
+    const ships = this.ships();
+    const targets = ships ? [] : this.targets();
     if (typeof targets === 'string') return void (this.status_.textContent = targets);
     if (!sats.length) {
       this.dialog.querySelector<HTMLDetailsElement>('.plan-more')!.open = true;
       this.status_.textContent = this.tree_.items().length ? '衛星を選んでください（詳細条件）' : '衛星がありません。衛星カタログを確認するか、「詳細条件」に TLE を貼り付けてください';
       return;
     }
+    if (ships) return this.runShips(sats, ships);
     const options = this.planOptions();
     this.worker_?.terminate();
     const { worker, result: planned } = startPlan(sats, targets, options, (done) => {
@@ -902,17 +911,67 @@ export class ImagingPlanPanel {
     if (this.worker_ !== worker) return;
     this.worker_ = null;
     if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
-    this.plan_ = { sats, targets, result, options };
-    this.cover_ = null;
-    this.pairs_ = null;
-    this.revisit_ = null;
-    this.dialog.querySelector<HTMLElement>('.plan-view')!.hidden = result.opportunities.length === 0;
     // An area no single pass covers: start with the combination that covers it.
     const best = new Map<number, number>();
     for (const op of result.opportunities) if (op.cells) best.set(op.target, Math.max(best.get(op.target) ?? 0, op.coverage));
-    this.view_.value = [...best.values()].some((c) => c < 0.95) ? 'cover' : 'all';
+    await this.showPlan({ sats, targets, result, options }, [...best.values()].some((c) => c < 0.95) ? 'cover' : 'all');
+  }
+
+  /** Lists a new plan in `view`, with the cloud forecast when it is on. */
+  private async showPlan(plan: NonNullable<ImagingPlanPanel['plan_']>, view: string): Promise<void> {
+    this.plan_ = plan;
+    this.cover_ = null;
+    this.pairs_ = null;
+    this.revisit_ = null;
+    this.dialog.querySelector<HTMLElement>('.plan-view')!.hidden = plan.result.opportunities.length === 0;
+    this.view_.value = view;
     this.showView();
     if (this.cloud_.checked && this.options.cloudForecast) await this.loadClouds();
+  }
+
+  /** The ships of the target choice when it holds moving objects (an AIS feed or ships selected in one); null otherwise. */
+  private ships(): ShipState[] | null {
+    const features = this.chosenFeatures();
+    const track = this.options.shipTrack;
+    if (!features?.length || !track || !features.every((f) => String(f.getId() ?? '').startsWith('moving:'))) return null;
+    return features.flatMap((f) => {
+      const t = track(String(f.getId()));
+      const ship = t && shipOf(t);
+      return ship ? [ship] : [];
+    });
+  }
+
+  /**
+   * Plans ships followed by AIS: where each will be (carried on along its
+   * course at its speed, up to {@link MAX_HORIZON} hours after its last
+   * report) is planned every hour in the worker, then each pass found is
+   * aimed again at the circle around where the ship is at that moment.
+   */
+  private async runShips(sats: SatelliteSpec[], all: ShipState[]): Promise<void> {
+    const ships = all.sort((a, b) => b.t - a.t).slice(0, MAX_SHIPS);
+    const left = all.length - ships.length;
+    const options = this.planOptions();
+    const span = shipWindow(ships, options);
+    if (!ships.length || span.end <= span.start) {
+      return void (this.status_.textContent = ships.length ? `船の位置は最後の AIS 報告から ${MAX_HORIZON} 時間先までしか推測しません。開始日時を報告の近くにしてください` : 'AIS の位置報告がある船がありません');
+    }
+    const planned = { ...options, ...span };
+    const { targets, samples } = sampleTargets(ships, span.start, span.end);
+    this.worker_?.terminate();
+    const { worker, result: first } = startPlan(sats, targets, planned, (done) => {
+      this.status_.textContent = `${sats.length} 機 × 船 ${ships.length} 隻の推測位置を計算しています… ${Math.round(done * 100)}%`;
+    });
+    this.worker_ = worker;
+    this.status_.textContent = `${sats.length} 機 × 船 ${ships.length} 隻の推測位置を計算しています…`;
+    const result = await first;
+    if (this.worker_ !== worker) return;
+    this.worker_ = null;
+    if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
+    this.status_.textContent = '撮像の時刻の船の位置に合わせて計算し直しています…';
+    await new Promise((resolve) => setTimeout(resolve));
+    const plan = shipPlan(refineShots(result, samples, ships, sats, planned), result);
+    if (left > 0) plan.problems = [...plan.problems, `船が多いため最近報告のあった ${MAX_SHIPS} 隻だけを計算しました（ほか ${left} 隻）`];
+    await this.showPlan({ sats, targets: plan.targets, result: plan, options: planned }, 'all');
   }
 
   /** Asks the forecast service for the cloud cover of the last plan's optical shots, and lists them with it. */
@@ -1077,6 +1136,17 @@ export class ImagingPlanPanel {
       ...(many && plan.targets.some((t) => t.priority !== undefined)
         ? [{ key: 'priority' as const, label: '優先度', text: (op: Opportunity) => plan.targets[op.target].priorityText ?? '', title: () => '対象の優先度（属性の値）。並べ替えると優先度の高い順' }]
         : []),
+      ...(plan.targets.some((t) => t.uncertainty !== undefined)
+        ? [
+            {
+              key: 'uncertainty' as const,
+              label: '位置の誤差',
+              text: (op: Opportunity) => `±${round(plan.targets[op.target].uncertainty ?? 0, 1)} km`,
+              title: (op: Opportunity) =>
+                `最後の AIS 報告から ${hoursText((plan.targets[op.target].guessed ?? 0) / 3600000)} 後の推測位置（針路・速力から）。誤差の円のうち撮像範囲に入る割合が被覆です`,
+            },
+          ]
+        : []),
       { key: 'offNadir', label: 'オフナディア角', text: (op) => `${round(op.offNadir)}°`, title: (op) => `入射角 ${round(op.incidence)}°・距離 ${round(op.range, 0)} km` },
       { key: 'side', label: '方向', text: sideText, title: () => '衛星の進行方向に対して対象が右か左か、北行（昇交）か南行（降交）か' },
       { key: 'sun', label: '太陽高度', text: (op) => `${round(op.sunElevation, 0)}°` },
@@ -1170,6 +1240,8 @@ export class ImagingPlanPanel {
           return op.target * 10 + (op.cumulative ?? 0);
         case 'shot':
           return op.shot ?? 0;
+        case 'uncertainty':
+          return plan.targets[op.target].uncertainty ?? 0;
         case 'second':
           return op.pair?.b.time ?? 0;
         case 'angle':
@@ -1324,7 +1396,8 @@ export class ImagingPlanPanel {
   private drawRevisit(): void {
     const revisit = this.revisit_!;
     const projection = this.map.getView().getProjection();
-    const longest = Math.max(...revisit.stats.map((s) => s.maxGap));
+    const seen = revisit.stats.filter((s) => s.count > 0).map((s) => s.maxGap);
+    const [shortest, longest] = [Math.min(...seen), Math.max(...seen)];
     const many = revisit.cells.length > 144;
     const source = this.overlay.getSource()!;
     revisit.cells.forEach((cell, i) => {
@@ -1332,7 +1405,7 @@ export class ImagingPlanPanel {
       source.addFeature(
         new Feature({
           kind: 'revisit',
-          color: revisitColor(s, longest),
+          color: revisitColor(s, shortest, longest),
           chosen: revisit.chosen === i,
           label: many && revisit.chosen !== i ? '' : s.count ? hoursText(s.maxGap) : 'なし',
           geometry: new Polygon([cell.ring.map((c) => fromLonLat(c, projection))]),
@@ -1528,6 +1601,9 @@ export class ImagingPlanPanel {
     for (const part of lines(shapes.track)) source.addFeature(new Feature({ kind: 'track', geometry: new LineString(part.map(to)) }));
     for (const edge of shapes.reach) for (const part of lines(edge)) source.addFeature(new Feature({ kind: 'reach', geometry: new LineString(part.map(to)) }));
     for (const ring of shapes.scenes) source.addFeature(new Feature({ kind: 'scene', geometry: new Polygon([ring.map(to)]) }));
+    const target = plan.targets[op.target];
+    // A ship: the circle its guessed place may be off by, at the moment of the pass.
+    if (target.uncertainty !== undefined && target.points.length > 2) source.addFeature(new Feature({ kind: 'target', target: op.target, geometry: new Polygon([[...target.points, target.points[0]].map(to)]) }));
     if (op.pair) {
       // The pair's second shot, numbered 2.
       const rings = passShapes(plan.sats[op.pair.b.satellite], plan.targets[op.pair.b.target], op.pair.b)?.scenes ?? [];
@@ -1607,6 +1683,7 @@ export class ImagingPlanPanel {
 export function planFeatures(ops: readonly Opportunity[], sats: readonly SatelliteSpec[], targets: readonly PlanTarget[], combined: boolean, stations: readonly GroundStation[] = []): ProcessingResult {
   const clouded = ops.some((op) => op.cloud !== undefined);
   const paired = ops.some((op) => op.pair);
+  const moving = targets.some((t) => t.uncertainty !== undefined);
   const features: Feature[] = [];
   for (const op of ops) {
     const sat = sats[op.satellite];
@@ -1620,6 +1697,7 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
         satellite: sat.name,
         satellite_id: sat.id,
         target: targets[op.target].label,
+        ...(moving ? { uncertainty_km: Math.round((targets[op.target].uncertainty ?? 0) * 100) / 100 } : {}),
         off_nadir: Math.round(op.offNadir * 100) / 100,
         incidence: Math.round(op.incidence * 100) / 100,
         side: op.side === 'right' ? '右' : '左',
@@ -1651,6 +1729,7 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
       field('satellite', 'string', '衛星'),
       field('satellite_id', 'string', '衛星ID'),
       field('target', 'string', '対象'),
+      ...(moving ? [field('uncertainty_km', 'double', '位置の誤差km')] : []),
       field('off_nadir', 'double', 'オフナディア角'),
       field('incidence', 'double', '入射角'),
       field('side', 'string', '方向'),

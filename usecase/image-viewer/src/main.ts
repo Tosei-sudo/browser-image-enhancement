@@ -124,6 +124,8 @@ import { ResultSaveDialog } from './result-save-dialog.js';
 import { ResultsDialog } from './results-dialog.js';
 import { Timeline } from './timeline.js';
 import { MovingDialog } from './moving-dialog.js';
+import type { MovingLayer } from './moving-layer.js';
+import type { Track } from './moving.js';
 import { MatchDialog } from './moving-match-dialog.js';
 import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
@@ -1284,6 +1286,13 @@ const stac = new StacPanel(document.getElementById('stac-open') as HTMLButtonEle
 
 // Imaging plans (config.json's satelliteCatalogs, or pasted TLEs): when the satellites can next image a layer's features.
 const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as HTMLButtonElement, map, config.satelliteCatalogs, {
+  shipTrack: (id): Track | null => {
+    for (const feed of moving.feeds() as MovingLayer[]) {
+      const track = feed.store.tracks.get(id.slice('moving:'.length));
+      if (track) return track;
+    }
+    return null;
+  },
   layers: () => images.layers(),
   selection,
   say,

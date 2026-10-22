@@ -76,10 +76,10 @@ export function revisitStats(ops: readonly Opportunity[], cells: number, start: 
   });
 }
 
-/** Colours (r, g, b) from short waits (green) through yellow to long ones (red); grey for a cell never seen. */
-export function revisitColor(stats: RevisitStats, longest: number): [number, number, number] {
+/** Colours (r, g, b) from the shortest wait of the map (green) through yellow to the longest (red); grey for a cell never seen. */
+export function revisitColor(stats: RevisitStats, shortest: number, longest: number): [number, number, number] {
   if (!stats.count) return [148, 163, 184];
-  const f = longest > 0 ? Math.max(0, Math.min(1, stats.maxGap / longest)) : 0;
+  const f = longest > shortest ? Math.max(0, Math.min(1, (stats.maxGap - shortest) / (longest - shortest))) : 0;
   const stops: Array<[number, number, number]> = [
     [22, 163, 74],
     [234, 179, 8],
