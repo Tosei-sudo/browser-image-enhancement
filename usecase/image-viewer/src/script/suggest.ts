@@ -30,7 +30,7 @@ export const ENTRIES: readonly ScriptEntry[] = [
   { name: 'viewer.saveEdits', args: '()', doc: '未保存の変更を保存（件数を示して確認してから書き込みます）' },
   { name: 'viewer.createLayer', args: '(name, features, { fields })', doc: '一時レイヤーを作る（ブラウザに保存）' },
   { name: 'viewer.runTool', args: "('buffer', layer, { distance, selected, dissolve, addLayer })", doc: 'buffer・centroid・pointsToLine・voronoi。addLayer: "名前" でレイヤーに' },
-  { name: 'viewer.imagingPlan', args: '({ target, start, days, maxOffNadir, daylight, satellites, firstOnly, addLayer })', doc: '撮像計画の機会を計算' },
+  { name: 'viewer.imagingPlan', args: '({ target, start, days, maxOffNadir, minIncidence, maxIncidence, pass, side, daylight, satellites, firstOnly, addLayer })', doc: '撮像計画の機会を計算' },
   { name: 'viewer.satellites', args: '()', doc: '撮像計画の衛星の一覧' },
   { name: 'viewer.rasterInfo', args: '(layer)', doc: '画像の大きさ・バンド数・座標系・範囲' },
   { name: 'viewer.readPixels', args: '(layer, { window, bbox, width, height, bands })', doc: '画素値（バンドごとの配列）。大きな範囲は縮小して読みます' },

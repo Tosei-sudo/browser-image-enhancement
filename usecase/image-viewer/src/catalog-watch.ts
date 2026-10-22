@@ -66,6 +66,8 @@ export interface WatchNotice {
   acquired: unknown;
   sensor: string;
   feature: EsriFeature;
+  /** `plan`: a reminder of a planned shot (imaging-plan-remind.ts) rather than a new image; it has nothing to open. */
+  kind?: 'plan';
 }
 
 /** How many image keys a watch remembers. */
@@ -280,6 +282,18 @@ export async function deleteWatch(id: string): Promise<void> {
   await inStores([WATCHES, NOTICES], 'readwrite', (tx) => {
     tx.objectStore(WATCHES).delete(id);
     for (const n of notices) if (n.watchId === id) tx.objectStore(NOTICES).delete(n.id);
+  });
+  await changed();
+}
+
+/** Adds notices made elsewhere (the imaging plan's reminders), keeping at most the usual number. */
+export async function addNotices(notices: WatchNotice[]): Promise<void> {
+  if (!notices.length) return;
+  const existing = (await listNotices()).map((n) => n.id);
+  await inStores([NOTICES], 'readwrite', (tx) => {
+    for (const n of notices) tx.objectStore(NOTICES).put(n);
+    const extra = existing.length + notices.length - MAX_NOTICES;
+    for (const id of extra > 0 ? existing.slice(-extra) : []) tx.objectStore(NOTICES).delete(id);
   });
   await changed();
 }

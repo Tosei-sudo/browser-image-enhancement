@@ -181,7 +181,11 @@ export class WatchPanel {
     } catch {
       // No BroadcastChannel: this window refreshes after its own changes only.
     }
-    if (options.catalogs.length === 0) return;
+    if (options.catalogs.length === 0) {
+      // No catalog to watch: the centre still holds the imaging plan's reminders.
+      void this.refresh();
+      return;
+    }
     // As the viewer starts: what came while it was closed, then every interval while it is open.
     void this.refresh().then(() => this.check());
     setInterval(() => void this.check(), MINUTE);
@@ -240,7 +244,8 @@ export class WatchPanel {
     const unread = this.notices_.filter((n) => !n.read).length;
     this.count_.hidden = unread === 0;
     this.count_.textContent = unread > 99 ? '99+' : String(unread);
-    this.button.title = unread ? `監視条件に合う新着画像が ${unread} 件あります` : '画像カタログの新着画像の通知と監視条件';
+    this.button.title = unread ? `未読の通知が ${unread} 件あります` : '画像カタログの新着画像・撮像予定の通知と監視条件';
+    this.button.hidden = this.options.catalogs.length === 0 && this.notices_.length === 0;
     void updateBadge();
     this.renderNotices();
     this.renderWatches();
@@ -266,19 +271,22 @@ export class WatchPanel {
         const title = document.createElement('strong');
         title.textContent = notice.imageId;
         const detail = document.createElement('span');
-        detail.textContent = [timeText(notice.acquired), notice.sensor, notice.watchName].filter(Boolean).join(' ・ ');
+        detail.textContent = notice.kind === 'plan' ? [notice.sensor, notice.watchName].filter(Boolean).join(' ・ ') : [timeText(notice.acquired), notice.sensor, notice.watchName].filter(Boolean).join(' ・ ');
         detail.title = `見つけた日時 ${timeText(notice.found)}`;
         text.append(title, detail);
         const go = document.createElement('button');
         go.type = 'button';
         go.textContent = '移動';
         go.addEventListener('click', () => this.goTo(notice));
+        li.append(text, go);
+        // A reminder of a planned shot has no image to open.
+        if (notice.kind === 'plan') return li;
         const open = document.createElement('button');
         open.type = 'button';
         open.className = 'primary';
         open.textContent = '開く';
         open.addEventListener('click', () => void this.openNotice(notice));
-        li.append(text, go, open);
+        li.append(open);
         return li;
       }),
     );

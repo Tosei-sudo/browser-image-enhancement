@@ -764,6 +764,10 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
         daylight: o.daylight === 'none' ? 'none' : 'optical',
         minSunElevation: num(o.minSunElevation, 'minSunElevation', 10, -18, 90),
         now: Date.now(),
+        minIncidence: o.minIncidence === undefined || o.minIncidence === null ? null : num(o.minIncidence, 'minIncidence', undefined, 0, 89),
+        maxIncidence: o.maxIncidence === undefined || o.maxIncidence === null ? null : num(o.maxIncidence, 'maxIncidence', undefined, 0, 89),
+        pass: o.pass === 'ascending' || o.pass === 'descending' ? o.pass : null,
+        side: o.side === 'left' || o.side === 'right' ? o.side : null,
       };
       const { result: planned } = startPlan(sats, targets, planOptions);
       const result = await planned;

@@ -19,6 +19,8 @@ import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style.js';
 import { LineString, MultiPolygon, Point, Polygon, type Geometry } from 'ol/geom.js';
+import PointerInteraction from 'ol/interaction/Pointer.js';
+import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import { createEmpty, extend, getCenter, isEmpty } from 'ol/extent.js';
 import { fromLonLat, transform } from 'ol/proj.js';
 import type { Selection } from './selection.js';
@@ -36,7 +38,9 @@ import {
   satelliteOf,
   satellitesFromText,
   scenesTaken,
+  shiftScene,
   tleEpoch,
+  trackPlace,
   type CoverPlan,
   type Opportunity,
   type PlanOptions,
@@ -48,6 +52,8 @@ import {
 import type { PlanJob } from './imaging-plan-worker.js';
 import { satellitePass3d, type SatellitePass3d } from './imaging-plan-3d.js';
 import { collator } from './table-text.js';
+import { drawTimeline } from './imaging-plan-timeline.js';
+import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-plan-remind.js';
 
 export interface PlanPanelOptions {
   /** The layers of the viewer, for the target. */
@@ -343,6 +349,11 @@ export class ImagingPlanPanel {
   private readonly csv_: HTMLButtonElement;
   private readonly layer_: HTMLButtonElement;
   private readonly zoom_: HTMLButtonElement;
+  private readonly remind_: HTMLButtonElement;
+  private readonly timeline_: HTMLInputElement;
+  private readonly timelineHost_: HTMLElement;
+  /** The scene being dragged on the map: the opportunity as it was, and where the drag began in its orbit's frame. */
+  private drag_: { op: Opportunity; origin: Opportunity; from: [number, number] } | null = null;
   private catalog_: SatelliteCatalogConfig | null;
   private loaded_: Promise<void> | null = null;
   private catalogSats_: SatelliteSpec[] = [];
@@ -393,6 +404,11 @@ export class ImagingPlanPanel {
             <div class="plan-options">
               <label>日照条件<select name="daylight"><option value="optical">光学衛星は日中のみ</option><option value="none">考慮しない</option></select></label>
               <label>太陽高度（以上）<input name="minSun" type="number" min="-18" max="90" step="any" value="10" /></label>
+              <div class="plan-conds wide">
+                <label title="地表から見た衛星の視線と鉛直のなす角。範囲をそろえると見え方（SAR の明るさ・建物の倒れ込み）がそろいます">入射角<span class="plan-range"><input name="minIncidence" type="number" min="0" max="89" step="any" placeholder="下限" aria-label="入射角の下限" />〜<input name="maxIncidence" type="number" min="0" max="89" step="any" placeholder="上限" aria-label="入射角の上限" />°</span></label>
+                <label title="北へ進むパス（昇交）か南へ進むパス（降交）か">軌道<select name="pass"><option value="">北行・南行</option><option value="ascending">北行のみ</option><option value="descending">南行のみ</option></select></label>
+                <label title="衛星の進行方向に対して、どちら側を見るか">向き<select name="side"><option value="">左右とも</option><option value="right">右のみ</option><option value="left">左のみ</option></select></label>
+              </div>
               <label class="check"><input name="each" type="checkbox" checked />地物ごとに計算</label>
               <label class="plan-name" title="一覧・CSV・レイヤーで対象の名前に使う属性。自動は name・名称 などを探し、なければ ID">名前の属性<select name="nameField"><option value="">自動</option></select></label>
               <label class="plan-priority" title="組み合わせで、優先度の高い地物から衛星の撮像を割り当てます（撮像間隔・1 日の上限で取り合いになるとき、高い方が先に撮れます）">優先度の属性<select name="priority"><option value="">なし</option></select></label>
@@ -420,9 +436,19 @@ export class ImagingPlanPanel {
         <label class="plan-goal" hidden title="面の対象をどこまで覆えば完了とするか">目標<input name="goal" type="number" min="10" max="100" step="1" value="95" />%</label>
         <label class="check plan-share" hidden title="同じパスで 1 シーン（観測幅 × シーン長）に収まる地点を、1 回の撮像でまとめて撮ります"><input type="checkbox" name="share" checked />近い地点を 1 シーンにまとめる</label>
         <label class="check plan-first"><input type="checkbox" name="firstOnly" />衛星・対象ごとに最初の機会のみ</label>
+        <label class="check plan-tl-toggle" title="衛星ごとの撮像を時間軸に並べます（薄い帯は撮像間隔で次を撮れない時間）"><input type="checkbox" name="timeline" />タイムライン</label>
       </div>
+      <div class="plan-timeline" hidden></div>
       <div class="catalog-results"><table class="catalog-table plan-table"><thead></thead><tbody></tbody></table></div>
+      <div class="plan-remind" hidden>
+        <label>撮像の<input name="remindMinutes" type="number" min="0" max="1440" step="1" value="30" aria-label="何分前" />分前</label>
+        <button type="button" value="notify" title="一覧の撮像（組み合わせではシーンごと）の前に、ヘッダーの「通知」とアプリのバッジで知らせます（このビューアを開いている間）">通知を設定</button>
+        <button type="button" value="ics" title="一覧の撮像を予定表（iCalendar .ics）で保存します。Outlook などに取り込めます（設定した分前のアラームつき）">予定表 (.ics)</button>
+        <button type="button" value="unnotify" title="設定したすべての撮像の通知を解除します">通知を解除</button>
+        <span class="plan-remind-count"></span>
+      </div>
       <div class="service-actions catalog-actions">
+        <button type="button" value="remind" disabled title="撮像の前に通知する・予定表（.ics）に保存する">予定・通知…</button>
         <button type="button" value="csv" disabled title="一覧を CSV で保存します">CSV 保存</button>
         <button type="button" value="layer" disabled title="撮像範囲をレイヤーとして追加します（撮像時刻つき。タイムラインで絞り込めます）">レイヤーとして追加</button>
         <button type="button" value="zoom" class="primary" disabled>範囲へ移動</button>
@@ -442,6 +468,9 @@ export class ImagingPlanPanel {
     this.csv_ = this.dialog.querySelector('button[value=csv]')!;
     this.layer_ = this.dialog.querySelector('button[value=layer]')!;
     this.zoom_ = this.dialog.querySelector('button[value=zoom]')!;
+    this.remind_ = this.dialog.querySelector('button[value=remind]')!;
+    this.timeline_ = this.dialog.querySelector('input[name=timeline]')!;
+    this.timelineHost_ = this.dialog.querySelector('.plan-timeline')!;
 
     catalogs.forEach((c, i) => this.catalogs_.add(new Option(c.label, String(i))));
     this.catalogs_.addEventListener('change', () => {
@@ -479,6 +508,21 @@ export class ImagingPlanPanel {
     this.csv_.addEventListener('click', () => this.saveCsv());
     this.layer_.addEventListener('click', () => this.addLayer());
     this.zoom_.addEventListener('click', () => this.zoomToChosen());
+    this.timeline_.addEventListener('change', () => this.drawTimeline());
+    new ResizeObserver(() => this.drawTimeline()).observe(this.timelineHost_);
+    const remind = this.dialog.querySelector<HTMLElement>('.plan-remind')!;
+    this.remind_.addEventListener('click', () => {
+      remind.hidden = !remind.hidden;
+      this.countReminders();
+    });
+    this.dialog.querySelector('button[value=notify]')!.addEventListener('click', () => this.setReminders());
+    this.dialog.querySelector('button[value=ics]')!.addEventListener('click', () => this.saveIcs());
+    this.dialog.querySelector('button[value=unnotify]')!.addEventListener('click', () => {
+      clearReminders();
+      this.countReminders();
+      this.options.say('撮像の通知をすべて解除しました');
+    });
+    map.addInteraction(this.dragInteraction());
     options.selection.on('change', () => {
       if (this.dialog.open) this.listTargets();
     });
@@ -825,6 +869,9 @@ export class ImagingPlanPanel {
     const days = Number(value('days')) || 7;
     const cap = value('maxOffNadir');
     const sun = Number(value('minSun'));
+    const angle = (name: string) => (value(name) === '' || !Number.isFinite(Number(value(name))) ? null : Number(value(name)));
+    const pass = value('pass');
+    const side = value('side');
     return {
       start,
       end: start + days * 86400000,
@@ -832,6 +879,10 @@ export class ImagingPlanPanel {
       daylight: value('daylight') === 'none' ? 'none' : 'optical',
       minSunElevation: Number.isFinite(sun) ? sun : 10,
       now: Date.now(),
+      minIncidence: angle('minIncidence'),
+      maxIncidence: angle('maxIncidence'),
+      pass: pass === 'ascending' || pass === 'descending' ? pass : null,
+      side: side === 'left' || side === 'right' ? side : null,
     };
   }
 
@@ -901,9 +952,9 @@ export class ImagingPlanPanel {
       (result.tooSoon ? `（発注リードタイムに間に合わない機会 ${result.tooSoon} 回を除きました）` : '');
     const first = result.opportunities[0];
     if (!first) {
-      this.status_.textContent = `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角の制限・日照条件を見直してください${problems}`;
+      this.status_.textContent = `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角・入射角・軌道・向きの制限や日照条件を見直してください${problems}`;
     } else if (!combining) {
-      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${sats[first.satellite].name}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します${problems}`;
+      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${sats[first.satellite].name}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します（撮像範囲はドラッグで動かせます）${problems}`;
     } else {
       const plans = this.coverPlans();
       const done = plans.filter((p) => p.done !== null);
@@ -932,8 +983,9 @@ export class ImagingPlanPanel {
       {
         key: 'time',
         label: '日時',
-        text: (op) => localText(op.time),
-        title: (op) => (plan.sats[op.satellite].leadTime > 0 ? `発注期限 ${localText(op.time - plan.sats[op.satellite].leadTime * 3600000)}` : ''),
+        text: (op) => `${localText(op.time)}${op.adjusted ? ' ✎' : ''}`,
+        title: (op) =>
+          [plan.sats[op.satellite].leadTime > 0 ? `発注期限 ${localText(op.time - plan.sats[op.satellite].leadTime * 3600000)}` : '', op.adjusted ? '撮像範囲を地図で動かしました（✎）' : ''].filter(Boolean).join('・'),
       },
       {
         key: 'satellite',
@@ -1063,6 +1115,7 @@ export class ImagingPlanPanel {
       ...(rest > 0 ? [more] : []),
     );
     this.update();
+    this.drawTimeline();
   }
 
   /** Chooses an opportunity: its row, and its pass on the map. */
@@ -1070,7 +1123,112 @@ export class ImagingPlanPanel {
     this.chosen_ = op;
     this.showTargets();
     this.update();
+    this.drawTimeline();
     this.options.onChosen?.();
+  }
+
+  /** Draws the timeline of the listed shots (when it is asked for). */
+  private drawTimeline(): void {
+    const plan = this.plan_;
+    const on = this.timeline_.checked && !!plan && this.shown_.length > 0;
+    this.timelineHost_.hidden = !on;
+    if (!on || !plan) return;
+    const many = plan.targets.length > 1;
+    drawTimeline(this.timelineHost_, {
+      ops: this.shown_,
+      sats: plan.sats,
+      start: plan.options.start,
+      end: plan.options.end,
+      chosen: this.chosen_,
+      title: (op) => `${localText(op.time)} ${plan.sats[op.satellite].name}${many ? ` → ${plan.targets[op.target].label}` : ''}・オフナディア角 ${round(op.offNadir)}°`,
+      onPick: (op) => {
+        this.choose(op);
+        const i = this.shown_.indexOf(op);
+        if (i >= 0 && i < MAX_ROWS) this.table_.tBodies[0].rows[i]?.scrollIntoView({ block: 'nearest' });
+      },
+    });
+  }
+
+  /**
+   * Dragging the chosen pass's scenes (blue) on the map moves them along and
+   * across the track, within what the satellite can reach; the row's angles
+   * and coverage follow, and so do the CSV, the layer and the calendar.
+   */
+  private dragInteraction(): PointerInteraction {
+    const lonLatOf = (e: MapBrowserEvent) => transform(e.coordinate, this.map.getView().getProjection(), 'EPSG:4326') as [number, number];
+    const onScene = (e: MapBrowserEvent) =>
+      this.map.forEachFeatureAtPixel(e.pixel, (f) => (f.get('kind') === 'scene' ? true : undefined), { layerFilter: (l) => l === this.overlay, hitTolerance: 2 }) ?? false;
+    let pointer = false;
+    return new PointerInteraction({
+      handleDownEvent: (e) => {
+        const op = this.chosen_;
+        const plan = this.plan_;
+        if (!this.dialog.open || !op || !plan || !onScene(e)) return false;
+        const from = trackPlace(plan.sats[op.satellite], op.time, lonLatOf(e));
+        if (!from) return false;
+        this.drag_ = { op, origin: { ...op }, from };
+        return true;
+      },
+      handleDragEvent: (e) => {
+        const drag = this.drag_;
+        const plan = this.plan_;
+        if (!drag || !plan) return;
+        const sat = plan.sats[drag.op.satellite];
+        const at = trackPlace(sat, drag.op.time, lonLatOf(e));
+        if (!at) return;
+        const moved = shiftScene(drag.origin, sat, plan.targets[drag.op.target], at[0] - drag.from[0], at[1] - drag.from[1], plan.options);
+        delete drag.op.scene;
+        Object.assign(drag.op, moved);
+        this.showTargets();
+      },
+      handleUpEvent: () => {
+        const drag = this.drag_;
+        this.drag_ = null;
+        if (!drag || !this.plan_) return false;
+        this.render();
+        this.options.onChosen?.();
+        const op = drag.op;
+        this.status_.textContent = `撮像範囲を動かしました: オフナディア角 ${round(op.offNadir)}°・入射角 ${round(op.incidence)}°・${op.cells ? `被覆 ${percent(op.coverage)}` : op.coverage ? '対象を含みます' : '対象から外れています'}`;
+        return false;
+      },
+      handleMoveEvent: (e) => {
+        if (!this.dialog.open || !this.chosen_) return;
+        const over = onScene(e);
+        if (over === pointer) return;
+        pointer = over;
+        this.map.getTargetElement().style.cursor = over ? 'move' : '';
+      },
+    });
+  }
+
+  /** Says how many reminders are set. */
+  private countReminders(): void {
+    const n = loadReminders().filter((r) => r.time > Date.now()).length;
+    this.dialog.querySelector('.plan-remind-count')!.textContent = n ? `通知予定 ${n} 件` : '';
+  }
+
+  private remindMinutes(): number {
+    const v = Number((this.dialog.querySelector('input[name=remindMinutes]') as HTMLInputElement).value);
+    return Number.isFinite(v) && v >= 0 ? Math.min(1440, v) : 30;
+  }
+
+  /** Sets reminders before the listed shots. */
+  setReminders(): number {
+    const plan = this.plan_;
+    if (!plan || !this.shown_.length) return 0;
+    const n = addReminders(this.shown_, plan.sats, plan.targets, this.remindMinutes(), (op) => passShapes(plan.sats[op.satellite], plan.targets[op.target], op)?.scenes ?? []);
+    this.countReminders();
+    this.options.say(n ? `撮像 ${n} 件の ${this.remindMinutes()} 分前に「通知」で知らせます（このビューアを開いている間）` : 'これから先の撮像がないため、通知は設定しませんでした');
+    return n;
+  }
+
+  /** Saves the listed shots as an iCalendar file. */
+  saveIcs(): void {
+    const plan = this.plan_;
+    if (!plan || !this.shown_.length) return;
+    const day = (ms: number) => localText(ms).slice(0, 10).replaceAll('/', '');
+    download(`imaging-plan_${day(plan.options.start)}-${day(plan.options.end)}.ics`, planIcs(this.shown_, plan.sats, plan.targets, this.remindMinutes()), 'text/calendar');
+    this.options.say('撮像の予定を予定表（.ics）で保存しました');
   }
 
   /** The chosen pass for the 3D view, and in a combination the other passes over the same target; none while the panel is closed. */
@@ -1096,6 +1254,7 @@ export class ImagingPlanPanel {
     });
     const any = this.shown_.length > 0;
     this.csv_.disabled = !any;
+    this.remind_.disabled = !any;
     this.layer_.disabled = !any;
     this.zoom_.disabled = !this.chosen_;
   }
