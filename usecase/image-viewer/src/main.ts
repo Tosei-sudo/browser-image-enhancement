@@ -396,6 +396,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   },
   onExport: (layer) => exporter.open(layer),
   onStyle: (layer) => styler.open(layer),
+  onGroupStyle: (group, layers) => styler.open(layers[0], { name: group.name, layers }),
   onColorize: (layer) => void colorize.open(layer),
   onRules: (layer) => rasterRules.open(layer),
   onGeoref: (layer) => georef.open(layer),

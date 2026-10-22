@@ -3,7 +3,9 @@
  * of services, newest on top. A row shows and hides its layer, sets its
  * opacity, moves it up or down, zooms to it and closes it; clicking a row
  * selects the layer the correction panel (images, WMS, WMTS) or the
- * attribute table (WFS, Esri) works on.
+ * attribute table (WFS, Esri) works on. Ctrl+click and Shift+click pick
+ * more layers, which ↑ ↓, the right-click menu and dragging take together;
+ * rows and groups are reordered by dragging them (onto a group's row: into it).
  *
  * Layers can be kept in groups (one level): a group's row folds its layers
  * away, shows and hides them together, sets their opacity and moves and
@@ -74,7 +76,15 @@ interface GroupParts {
   list: HTMLOListElement;
   up: HTMLButtonElement;
   down: HTMLButtonElement;
+  style: HTMLButtonElement;
 }
+
+/** Where dragged rows go: before or after a layer, before or after a group, into a group (on top), or at the bottom. */
+type DropTarget =
+  | { kind: 'layer'; layer: ViewerLayer; before: boolean }
+  | { kind: 'group'; group: LayerGroup; before: boolean }
+  | { kind: 'into'; group: LayerGroup }
+  | { kind: 'end' };
 
 /** Layers being added together (see {@link ImageList.beginBatch}). */
 interface Batch {
@@ -99,6 +109,8 @@ export interface ImageListOptions {
   onExport?: (layer: ViewerService) => void;
   /** Called by the style button of a vector layer. */
   onStyle?: (layer: ViewerService) => void;
+  /** Called by the style button of a group: one style for its vector layers (top first; never empty). */
+  onGroupStyle?: (group: LayerGroup, layers: ViewerService[]) => void;
   /** Called by the color button of an image (color scale and blend, colorize-dialog.ts). */
   onColorize?: (layer: ViewerImage) => void;
   /** Called by the display rules button of an Esri image or map service layer. */
@@ -115,6 +127,12 @@ export class ImageList {
   /** Top first, as listed. */
   private images_: ViewerLayer[] = [];
   private selected_: ViewerLayer | null = null;
+  /** The layers picked with Ctrl+click or Shift+click, the selected one among them (one alone: just the selected one). */
+  private picked_ = new Set<ViewerLayer>();
+  /** What is being dragged in the list. */
+  private drag_: { layers: ViewerLayer[] } | { group: LayerGroup } | null = null;
+  private dropMark_: { element: HTMLElement; className: string } | null = null;
+  private dropTarget_: DropTarget | null = null;
   /** Layers the timeline hides (outside its window), whatever their check box says. */
   private readonly timeHidden_ = new Set<ViewerLayer>();
   private groups_: LayerGroup[] = [];
@@ -136,6 +154,7 @@ export class ImageList {
   ) {
     // Layers shown only at some scales are dimmed in the list where they are not drawn.
     map.on('moveend', () => this.images_.forEach((l) => this.markScale_(l)));
+    this.bindDrag_();
   }
 
   /** Dims the row of a layer the map does not draw at this scale (its style's scale range). */
@@ -352,13 +371,59 @@ export class ImageList {
   }
 
   select(image: ViewerLayer | null): void {
-    if (image === this.selected_) return;
+    if (image === this.selected_) {
+      if (this.picked_.size > 1) this.pick(image ? [image] : []);
+      return;
+    }
     this.selected_ = image;
+    this.picked_ = new Set(image ? [image] : []);
     for (const i of this.images_) {
       i.row.classList.toggle('selected', i === image);
       i.row.setAttribute('aria-current', String(i === image));
     }
+    this.markPicked_();
     this.options.onSelect(image);
+  }
+
+  /** The layers picked (top first): those Ctrl+click or Shift+click picked, else the selected one. */
+  picked(): ViewerLayer[] {
+    return this.images_.filter((l) => this.picked_.has(l));
+  }
+
+  /** Picks `layers` together; the selected one stays selected when among them, else the first is. */
+  pick(layers: readonly ViewerLayer[]): void {
+    const open = this.images_.filter((l) => layers.includes(l));
+    if (!this.selected_ || !open.includes(this.selected_)) this.select(open[0] ?? null);
+    this.picked_ = new Set(open);
+    this.markPicked_();
+  }
+
+  private markPicked_(): void {
+    const many = this.picked_.size > 1;
+    for (const l of this.images_) {
+      l.row.classList.toggle('picked', many && this.picked_.has(l));
+      l.row.setAttribute('aria-selected', String(this.picked_.has(l)));
+    }
+  }
+
+  /** A click on a layer's name: selects it; with Ctrl (⌘) adds it to the picked ones or takes it out, with Shift picks all from the selected one to it. */
+  private clickRow_(image: ViewerLayer, e: MouseEvent): void {
+    if (e.shiftKey && this.selected_ && this.selected_ !== image) {
+      const a = this.images_.indexOf(this.selected_);
+      const b = this.images_.indexOf(image);
+      this.picked_ = new Set(this.images_.slice(Math.min(a, b), Math.max(a, b) + 1));
+      this.markPicked_();
+    } else if ((e.ctrlKey || e.metaKey) && this.selected_) {
+      if (this.picked_.has(image) && image !== this.selected_) this.picked_.delete(image);
+      else this.picked_.add(image);
+      this.markPicked_();
+    } else this.select(image);
+  }
+
+  /** ↑ ↓ of a row: the picked layers together, when it is one of them. */
+  private moveRow_(image: ViewerLayer, by: number): void {
+    if (this.picked_.size > 1 && this.picked_.has(image)) this.moveMany(this.picked(), by);
+    else this.move(image, by);
   }
 
   /** Closes a layer: it leaves the map and its source is disposed. */
@@ -367,6 +432,7 @@ export class ImageList {
     if (index < 0) return;
     this.images_.splice(index, 1);
     this.timeHidden_.delete(image);
+    this.picked_.delete(image);
     const group = this.groupOf_.get(image);
     this.groupOf_.delete(image);
     // A group goes with its last layer (not one still opening its files).
@@ -400,6 +466,33 @@ export class ImageList {
     const rest = this.images_.filter((l) => this.groupOf_.get(l) !== group);
     rest.splice(at, 0, ...members);
     this.images_ = rest;
+    this.restack_();
+  }
+
+  /**
+   * Moves several layers `by` places toward the top (negative: toward the
+   * bottom) together: each within its group, or among the top-level rows
+   * when in none; ones already at the end wait there for the others.
+   */
+  moveMany(layers: readonly ViewerLayer[], by: number): void {
+    const picked = new Set(layers.filter((l) => this.images_.includes(l)));
+    if (picked.size <= 1) {
+      const [one] = picked;
+      if (one) this.move(one, by);
+      return;
+    }
+    const up = by > 0;
+    // One place: each picked one past the unpicked one above (below) it.
+    const step = <T>(list: T[], isPicked: (item: T) => boolean): T[] => {
+      const order = up ? [...list] : [...list].reverse();
+      for (let i = 1; i < order.length; i++) if (isPicked(order[i]) && !isPicked(order[i - 1])) [order[i - 1], order[i]] = [order[i], order[i - 1]];
+      return up ? order : order.reverse();
+    };
+    let blocks = this.blocks_();
+    for (let n = 0; n < Math.abs(by); n++) {
+      blocks = step(blocks, (b) => !Array.isArray(b) && picked.has(b)).map((b) => (Array.isArray(b) ? step(b, (l) => picked.has(l)) : b));
+    }
+    this.images_ = blocks.flat();
     this.restack_();
   }
 
@@ -624,6 +717,171 @@ export class ImageList {
     this.restack_();
   }
 
+  /** Puts dragged layers (top first) where they are dropped: into the group of the layer they go beside, or into none. */
+  private dropLayers_(layers: readonly ViewerLayer[], target: DropTarget): void {
+    const moving = this.images_.filter((l) => layers.includes(l));
+    const rest = this.images_.filter((l) => !layers.includes(l));
+    if (!moving.length) return;
+    const of = (group: LayerGroup) => rest.flatMap((l, i) => (this.groupOf_.get(l) === group ? [i] : []));
+    let dest: LayerGroup | null = null;
+    let at: number;
+    if (target.kind === 'layer') {
+      if (!rest.includes(target.layer)) return;
+      dest = this.groupOf_.get(target.layer) ?? null;
+      at = rest.indexOf(target.layer) + (target.before ? 0 : 1);
+    } else if (target.kind === 'end') at = rest.length;
+    else {
+      const members = of(target.group);
+      // All of it dragged: it has no place to go into.
+      if (!members.length) return;
+      if (target.kind === 'into') dest = target.group;
+      at = target.kind === 'group' && !target.before ? members[members.length - 1] + 1 : members[0];
+    }
+    const from = new Set(moving.map((l) => this.groupOf_.get(l)).filter((g): g is LayerGroup => !!g));
+    for (const l of moving) {
+      if (dest) this.groupOf_.set(l, dest);
+      else this.groupOf_.delete(l);
+    }
+    rest.splice(at, 0, ...moving);
+    this.images_ = rest;
+    for (const g of from) if (!this.members(g).length) this.dropGroup_(g);
+    moving.forEach((l) => this.applyVisible_(l));
+    this.restack_();
+  }
+
+  /** Puts a dragged group before or after a top-level row (a layer in no group, or another group), or at the bottom. */
+  private dropGroup2_(group: LayerGroup, target: DropTarget): void {
+    const blocks = this.blocks_();
+    const index = (item: ViewerLayer | LayerGroup) => blocks.findIndex((b) => (Array.isArray(b) ? this.groupOf_.get(b[0]) === item : b === item));
+    const from = index(group);
+    if (from < 0) return;
+    const [block] = blocks.splice(from, 1);
+    let at = blocks.length;
+    if (target.kind === 'layer' || target.kind === 'group') {
+      const i = index(target.kind === 'layer' ? target.layer : target.group);
+      if (i < 0) return;
+      at = i + (target.before ? 0 : 1);
+    }
+    blocks.splice(at, 0, block);
+    this.images_ = blocks.flat();
+    this.restack_();
+  }
+
+  /** Dragging rows and groups to reorder them (a press on a slider or a check box does not drag). */
+  private bindDrag_(): void {
+    const el = this.element;
+    const handleOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>('li.image, .group-head') : null);
+    const layerOf = (row: Element) => this.images_.find((l) => l.row === row);
+    const groupOf = (head: Element) => this.groups_.find((g) => g.row === head.parentElement);
+    el.addEventListener('pointerdown', (e) => {
+      const handle = handleOf(e.target);
+      if (handle) handle.draggable = !(e.target as Element).closest('input, select, textarea');
+    });
+    el.addEventListener('dragstart', (e) => {
+      const handle = handleOf(e.target);
+      if (!handle || !e.dataTransfer) return;
+      let name: string;
+      if (handle.matches('li.image')) {
+        const layer = layerOf(handle);
+        if (!layer) return;
+        const layers = this.picked_.size > 1 && this.picked_.has(layer) ? this.picked() : [layer];
+        this.drag_ = { layers };
+        layers.forEach((l) => l.row.classList.add('dragging'));
+        name = layers.map((l) => l.name).join('\n');
+      } else {
+        const group = groupOf(handle);
+        if (!group) return;
+        this.drag_ = { group };
+        group.row.classList.add('dragging');
+        name = group.name;
+      }
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', name);
+    });
+    el.addEventListener('dragover', (e) => {
+      const target = this.targetAt_(e);
+      this.markDrop_(target);
+      if (!target) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    });
+    el.addEventListener('dragleave', (e) => {
+      if (!(e.relatedTarget instanceof Node) || !el.contains(e.relatedTarget)) this.markDrop_(null);
+    });
+    el.addEventListener('drop', (e) => {
+      const target = this.targetAt_(e);
+      const drag = this.drag_;
+      this.endDrag_();
+      if (!target || !drag) return;
+      e.preventDefault();
+      if ('layers' in drag) this.dropLayers_(drag.layers, target);
+      else this.dropGroup2_(drag.group, target);
+    });
+    el.addEventListener('dragend', () => this.endDrag_());
+  }
+
+  private endDrag_(): void {
+    this.markDrop_(null);
+    this.drag_ = null;
+    for (const d of this.element.querySelectorAll('.dragging')) d.classList.remove('dragging');
+  }
+
+  /** Where the rows dragged would go, dropped at the pointer (null: nowhere, such as onto themselves). */
+  private targetAt_(e: DragEvent): DropTarget | null {
+    const drag = this.drag_;
+    if (!drag) return null;
+    const handle = e.target instanceof Element ? e.target.closest<HTMLElement>('li.image, .group-head') : null;
+    // In a gap between rows: where it was; below them all: at the bottom.
+    if (!handle) {
+      const last = this.element.lastElementChild;
+      return !last || e.clientY > last.getBoundingClientRect().bottom ? { kind: 'end' } : this.dropTarget_;
+    }
+    const half = (box: Element) => {
+      const r = box.getBoundingClientRect();
+      return e.clientY < r.top + r.height / 2;
+    };
+    const before = half(handle);
+    if (handle.matches('li.image')) {
+      const layer = this.images_.find((l) => l.row === handle);
+      if (!layer) return null;
+      const group = this.groupOf_.get(layer);
+      if ('layers' in drag) return drag.layers.includes(layer) ? null : { kind: 'layer', layer, before };
+      // A group goes beside a group, not into it.
+      if (group) return group === drag.group ? null : { kind: 'group', group, before: half(group.row) };
+      return { kind: 'layer', layer, before };
+    }
+    const group = this.groups_.find((g) => g.row === handle.parentElement);
+    if (!group) return null;
+    if ('layers' in drag) return before ? { kind: 'group', group, before: true } : { kind: 'into', group };
+    return group === drag.group ? null : { kind: 'group', group, before };
+  }
+
+  /** Shows where a drop would put the rows: a line above or below a row, or the group's row lit. */
+  private markDrop_(target: DropTarget | null): void {
+    let mark: { element: HTMLElement; className: string } | null = null;
+    if (target?.kind === 'layer') mark = { element: target.layer.row, className: target.before ? 'drop-before' : 'drop-after' };
+    else if (target?.kind === 'group') mark = { element: target.group.row, className: target.before ? 'drop-before' : 'drop-after' };
+    else if (target?.kind === 'into') mark = { element: target.group.row, className: 'drop-into' };
+    else if (target?.kind === 'end') mark = { element: this.element, className: 'drop-end' };
+    this.dropTarget_ = target;
+    if (this.dropMark_?.element === mark?.element && this.dropMark_?.className === mark?.className) return;
+    this.dropMark_?.element.classList.remove(this.dropMark_.className);
+    mark?.element.classList.add(mark.className);
+    this.dropMark_ = mark;
+  }
+
+  /** A group's vector layers that take a style (top first). */
+  styledMembers(group: LayerGroup): ViewerService[] {
+    return this.members(group).filter((l): l is ViewerService => l.type === 'service' && !!l.service.style && !!l.service.vector && !l.service.tableOnly);
+  }
+
+  /** Opens the style dialog for a group's vector layers. */
+  private styleGroup_(group: LayerGroup): void {
+    const layers = this.styledMembers(group);
+    if (layers.length) this.options.onGroupStyle?.(group, layers);
+  }
+
   /** Shows or hides a layer, as its check box does. */
   setVisible(image: ViewerLayer, visible: boolean): void {
     image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked = visible;
@@ -693,6 +951,7 @@ export class ImageList {
       parts.count.textContent = '0';
       parts.list.replaceChildren();
       enable(parts.up, parts.down, true, true);
+      parts.style.hidden = true;
       rows.push(group.row);
     }
     blocks.forEach((block, b) => {
@@ -706,12 +965,14 @@ export class ImageList {
       const group = this.groupOf_.get(block[0])!;
       const parts = this.parts_.get(group)!;
       enable(parts.up, parts.down, first, last);
+      parts.style.hidden = !this.options.onGroupStyle || !this.styledMembers(group).length;
       block.forEach((l, i) => enable(...buttons(l.row), i === 0, i === block.length - 1));
       parts.count.textContent = String(block.length);
       parts.list.replaceChildren(...block.map((l) => l.row));
       rows.push(group.row);
     });
     this.element.replaceChildren(...rows);
+    this.markPicked_();
     this.options.onChange(this.images_);
   }
 
@@ -782,6 +1043,8 @@ export class ImageList {
       tools.append(b);
       return b;
     };
+    const style = button('style', '◐', 'まとめてスタイル（中のベクターレイヤーすべてに。画像は対象外）', () => this.styleGroup_(group));
+    style.hidden = true;
     button('zoom', '⤢', 'このグループへ移動', () => void this.zoomToGroup(group));
     const up = button('up', '↑', 'グループを上へ', () => this.moveGroup(group, 1));
     const down = button('down', '↓', 'グループを下へ', () => this.moveGroup(group, -1));
@@ -815,7 +1078,7 @@ export class ImageList {
     const list = document.createElement('ol');
     list.className = 'group-layers';
     row.append(head, list);
-    this.parts_.set(group, { visible, toggle, name: label, count, opacity, tag, list, up, down });
+    this.parts_.set(group, { visible, toggle, name: label, count, opacity, tag, list, up, down, style });
     this.groups_.push(group);
     this.setGroupCollapsed(group, collapsed);
     return group;
@@ -834,6 +1097,7 @@ export class ImageList {
   private openGroupMenu_(group: LayerGroup, x: number, y: number): void {
     const items: MenuItem[] = [
       { label: '名前を変更…', run: () => this.askName_(group) },
+      ...(this.options.onGroupStyle && this.styledMembers(group).length ? [{ label: 'スタイルをまとめて設定…（ベクターのみ）', run: () => this.styleGroup_(group) }] : []),
       { label: '中のレイヤーをすべて表示', run: () => this.members(group).forEach((l) => this.setVisible(l, true)) },
       { label: '中のレイヤーをすべて隠す', run: () => this.members(group).forEach((l) => this.setVisible(l, false)) },
       { label: 'グループを解除（レイヤーは残す）', run: () => this.ungroup(group) },
@@ -843,6 +1107,23 @@ export class ImageList {
   }
 
   private openLayerMenu_(layer: ViewerLayer, x: number, y: number): void {
+    // Several picked: what goes for them together.
+    const picked = this.picked();
+    if (picked.length > 1 && picked.includes(layer)) {
+      const n = picked.length;
+      const items: MenuItem[] = [
+        { label: `選択した ${n} 件を新しいグループに入れる…`, run: () => this.askNewGroup_(picked) },
+        { label: `選択した ${n} 件を上へ`, run: () => this.moveMany(picked, 1) },
+        { label: `選択した ${n} 件を下へ`, run: () => this.moveMany(picked, -1) },
+        { label: `選択した ${n} 件をいちばん上へ`, run: () => this.moveMany(picked, this.images_.length) },
+        { label: `選択した ${n} 件をいちばん下へ`, run: () => this.moveMany(picked, -this.images_.length) },
+        { label: `選択した ${n} 件を表示`, run: () => picked.forEach((l) => this.setVisible(l, true)) },
+        { label: `選択した ${n} 件を隠す`, run: () => picked.forEach((l) => this.setVisible(l, false)) },
+        { label: `選択した ${n} 件を閉じる`, danger: true, run: () => confirm(`選択した ${n} 件のレイヤーを閉じますか？`) && picked.forEach((l) => this.remove(l)) },
+      ];
+      this.contextMenu_().open(items, x, y);
+      return;
+    }
     const current = this.groupOf_.get(layer);
     const items: MenuItem[] = [{ label: '新しいグループに入れる…', run: () => this.askNewGroup_(layer) }];
     const save = layer.row.querySelector<HTMLButtonElement>('button[data-action=save]');
@@ -855,11 +1136,11 @@ export class ImageList {
     this.contextMenu_().open(items, x, y);
   }
 
-  /** Puts a layer in a new group, named by the person. */
-  private askNewGroup_(layer: ViewerLayer): void {
+  /** Puts layers in a new group, named by the person. */
+  private askNewGroup_(layers: ViewerLayer | readonly ViewerLayer[]): void {
     const name = prompt('新しいグループの名前', '新しいグループ');
     if (name === null) return;
-    this.createGroup([layer], name.trim() || '新しいグループ');
+    this.createGroup(Array.isArray(layers) ? layers : [layers as ViewerLayer], name.trim() || '新しいグループ');
   }
 
   private buildRow_(image: ViewerLayer): void {
@@ -880,7 +1161,8 @@ export class ImageList {
     name.textContent = image.type === 'image' ? shortName(image.name) : image.name;
     const ref = image.type === 'service' ? image.service.ref : null;
     name.title = image.type === 'image' ? image.name : ref ? `${serviceNames[ref.kind]}: ${ref.url}` : image.service.editTarget ? image.name : `${image.name}（読み取り専用）`;
-    name.addEventListener('click', () => this.select(image));
+    name.title += '\nCtrl（⌘）+クリック・Shift+クリックで複数選択、ドラッグで並べ替え';
+    name.addEventListener('click', (e) => this.clickRow_(image, e));
     if (image.type === 'service') {
       const badge = document.createElement('span');
       badge.className = 'badge';
@@ -945,8 +1227,8 @@ export class ImageList {
       tools.lastElementChild!.toggleAttribute('hidden', true);
     }
     button('zoom', '⤢', image.type === 'image' ? 'この画像へ移動' : 'このレイヤーへ移動', () => void this.zoomTo(image));
-    button('up', '↑', '上へ', () => this.move(image, 1));
-    button('down', '↓', '下へ', () => this.move(image, -1));
+    button('up', '↑', '上へ（複数選択中はまとめて）', () => this.moveRow_(image, 1));
+    button('down', '↓', '下へ（複数選択中はまとめて）', () => this.moveRow_(image, -1));
     button('remove', '×', '閉じる', () => {
       const warning = image.type === 'service' ? image.service.closeWarning : undefined;
       if (!warning || confirm(warning)) this.remove(image);

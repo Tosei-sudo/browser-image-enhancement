@@ -39,7 +39,6 @@ import {
   satellitesFromText,
   scenesTaken,
   shiftScene,
-  tleEpoch,
   trackPlace,
   type CoverPlan,
   type Opportunity,
@@ -52,6 +51,7 @@ import {
 import type { PlanJob } from './imaging-plan-worker.js';
 import { satellitePass3d, type SatellitePass3d } from './imaging-plan-3d.js';
 import { collator } from './table-text.js';
+import { SatelliteTree } from './satellite-tree.js';
 import { drawTimeline } from './imaging-plan-timeline.js';
 import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-plan-remind.js';
 
@@ -280,12 +280,6 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
 
-/** What one listed satellite is, for its checkbox. */
-interface Listed {
-  sat: SatelliteSpec;
-  box: HTMLInputElement;
-}
-
 type SortKey = 'time' | 'satellite' | 'target' | 'priority' | 'offNadir' | 'side' | 'sun' | 'cover' | 'gain' | 'cumulative' | 'shot';
 
 const overlayStyle = (feature: Feature): Style | Style[] => {
@@ -338,8 +332,6 @@ export class ImagingPlanPanel {
   private readonly form_: HTMLFormElement;
   private readonly catalogs_: HTMLSelectElement;
   private readonly target_: HTMLSelectElement;
-  private readonly sats_: HTMLElement;
-  private readonly satsSummary_: HTMLElement;
   private readonly status_: HTMLElement;
   private readonly table_: HTMLTableElement;
   private readonly firstOnly_: HTMLInputElement;
@@ -357,9 +349,8 @@ export class ImagingPlanPanel {
   private catalog_: SatelliteCatalogConfig | null;
   private loaded_: Promise<void> | null = null;
   private catalogSats_: SatelliteSpec[] = [];
-  private listed_: Listed[] = [];
-  /** The groups of the satellite list (kinds and series), with their checkboxes. */
-  private groups_: Array<{ box: HTMLInputElement; count: HTMLElement; members: Listed[] }> = [];
+  /** The satellites (catalog and pasted) as a checklist: kind → series → satellite. */
+  private readonly tree_: SatelliteTree;
   /** The point clicked on the map, when the target is one. */
   private clicked_: [number, number] | null = null;
   private worker_: Worker | null = null;
@@ -457,8 +448,7 @@ export class ImagingPlanPanel {
     this.form_ = this.dialog.querySelector('form')!;
     this.catalogs_ = this.dialog.querySelector('select[name=catalog]')!;
     this.target_ = this.form_.elements.namedItem('target') as HTMLSelectElement;
-    this.sats_ = this.dialog.querySelector('.plan-sats-list')!;
-    this.satsSummary_ = this.dialog.querySelector('.plan-sats-count')!;
+    this.tree_ = new SatelliteTree(this.dialog.querySelector('.plan-sats-list')!, this.dialog.querySelector('.plan-sats-count'));
     this.status_ = this.dialog.querySelector('.service-status')!;
     this.table_ = this.dialog.querySelector('table')!;
     this.firstOnly_ = this.dialog.querySelector('input[name=firstOnly]')!;
@@ -497,9 +487,8 @@ export class ImagingPlanPanel {
     });
     (this.form_.elements.namedItem('each') as HTMLInputElement).addEventListener('change', () => this.listPriorityFields());
     (this.form_.elements.namedItem('nameField') as HTMLSelectElement).addEventListener('change', () => this.relabel());
-    this.dialog.querySelector('.plan-sats button[value=all]')!.addEventListener('click', () => this.checkAll(true));
-    this.dialog.querySelector('.plan-sats button[value=none]')!.addEventListener('click', () => this.checkAll(false));
-    this.sats_.addEventListener('change', () => this.countSats());
+    this.dialog.querySelector('.plan-sats button[value=all]')!.addEventListener('click', () => this.tree_.checkAll(true));
+    this.dialog.querySelector('.plan-sats button[value=none]')!.addEventListener('click', () => this.tree_.checkAll(false));
     for (const name of ['tle', 'pasteMax', 'pasteSwath', 'pasteGap', 'pastePerDay', 'pasteLead', 'pasteSar']) (this.form_.elements.namedItem(name) as HTMLInputElement).addEventListener('change', () => this.listSats());
     this.firstOnly_.addEventListener('change', () => this.render());
     this.view_.addEventListener('change', () => this.showView());
@@ -547,7 +536,7 @@ export class ImagingPlanPanel {
     // The chosen pass comes back in the 3D view too.
     if (this.chosen_) this.options.onChosen?.();
     if (!this.catalog_) {
-      if (!this.listed_.length) this.listSats();
+      if (!this.tree_.items().length) this.listSats();
       if (!this.plan_) {
         this.status_.textContent =
           'config.json に衛星カタログ（satelliteCatalogs）がないので、サンプル衛星 2 機（光学・SAR。実在の衛星ではありません）で計算します。「詳細条件」で TLE を貼り付けて追加できます';
@@ -570,7 +559,7 @@ export class ImagingPlanPanel {
 
   /** The satellites listed (catalog and pasted), and whether each is checked. */
   satellites(): Array<{ sat: SatelliteSpec; checked: boolean }> {
-    return this.listed_.map((l) => ({ sat: l.sat, checked: l.box.checked }));
+    return this.tree_.items().map((l) => ({ sat: l.sat, checked: l.box.checked }));
   }
 
   /** The opportunities listed, in the list's order. */
@@ -616,122 +605,9 @@ export class ImagingPlanPanel {
     });
   }
 
-  /**
-   * Lists the satellites with checkboxes, keeping what was unchecked, in
-   * three levels: the kind (optical or SAR), the series, then each satellite.
-   * A group's checkbox checks or clears everything in it, and shows a dash
-   * when only some are checked.
-   */
+  /** Lists the satellites (catalog and pasted) in the tree, keeping what was unchecked; new ones start checked. */
   private listSats(): void {
-    const unchecked = new Set(this.listed_.filter((l) => !l.box.checked).map((l) => `${l.sat.source}\n${l.sat.id}`));
-    const open = new Set([...this.sats_.querySelectorAll<HTMLDetailsElement>('details[open]')].map((d) => d.dataset.group));
-    const first = !this.listed_.length;
-    const now = Date.now();
-    this.listed_ = [...this.catalogSats_, ...this.pasted()].map((sat) => {
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.checked = !unchecked.has(`${sat.source}\n${sat.id}`);
-      return { sat, box };
-    });
-    this.groups_ = [];
-    const satLabel = ({ sat, box }: Listed) => {
-      const label = document.createElement('label');
-      label.className = 'check';
-      const age = (now - tleEpoch(sat)) / 86400000;
-      const facts = [
-        `最大 ${round(sat.maxOffNadir)}°`,
-        sat.minOffNadir > 0 ? `最小 ${round(sat.minOffNadir)}°` : '',
-        `幅 ${round(sat.swath)} km`,
-        sat.scenesPerPass > 1 ? `連続 ${sat.scenesPerPass} シーン` : '',
-        sat.minInterval > 0 ? `間隔 ${round(sat.minInterval)} 分` : '',
-        sat.maxPerDay > 0 ? `1 日 ${sat.maxPerDay} 回` : '',
-        sat.leadTime > 0 ? `${round(sat.leadTime)} 時間前までに発注` : '',
-        sat.lookSide === 'both' ? '' : sat.lookSide === 'right' ? '右向き' : '左向き',
-      ]
-        .filter(Boolean)
-        .join('・');
-      const note = document.createElement('small');
-      note.textContent = facts;
-      label.title = sat.source === SAMPLE_SOURCE ? 'サンプル（決め打ちの軌道。実在の衛星ではありません）' : `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
-      label.append(box, document.createTextNode(sat.name), note);
-      if (sat.source !== SAMPLE_SOURCE && Math.abs(age) > OLD_TLE) {
-        const old = document.createElement('span');
-        old.className = 'plan-old';
-        old.textContent = 'TLE 古い';
-        old.title = `TLE の元期が ${round(age, 0)} 日前です。予測がずれることがあります`;
-        label.append(old);
-      }
-      return label;
-    };
-    // A folding group with a checkbox for everything in it.
-    const group = (key: string, name: string, members: Listed[], body: HTMLElement[], level: number) => {
-      const details = document.createElement('details');
-      details.className = `plan-group plan-group-${level}`;
-      details.dataset.group = key;
-      // Kinds start open; series open when there are few satellites, or as they were.
-      details.open = open.has(key) || (first && (level === 1 || this.listed_.length <= 8));
-      const summary = document.createElement('summary');
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.setAttribute('aria-label', `${name}をすべて選ぶ`);
-      box.addEventListener('click', (e) => e.stopPropagation());
-      box.addEventListener('change', () => {
-        for (const m of members) m.box.checked = box.checked;
-        this.countSats();
-      });
-      const count = document.createElement('span');
-      count.className = 'plan-group-count';
-      summary.append(box, document.createTextNode(name), count);
-      details.append(summary, ...body);
-      this.groups_.push({ box, count, members });
-      return details;
-    };
-    const byKey = <T,>(items: T[], key: (t: T) => string) => {
-      const map = new Map<string, T[]>();
-      for (const item of items) map.set(key(item), [...(map.get(key(item)) ?? []), item]);
-      return [...map].sort((a, b) => a[0].localeCompare(b[0], 'ja', { numeric: true }));
-    };
-    const kinds = [
-      { key: 'optical', name: '光学', members: this.listed_.filter((l) => !l.sat.sar) },
-      { key: 'sar', name: 'SAR', members: this.listed_.filter((l) => l.sat.sar) },
-    ].filter((k) => k.members.length);
-    this.sats_.replaceChildren(
-      ...kinds.map((kind) =>
-        group(
-          kind.key,
-          kind.name,
-          kind.members,
-          byKey(kind.members, (l) => l.sat.series).map(([series, members]) =>
-            group(
-              `${kind.key}/${series}`,
-              series,
-              members,
-              [...members].sort((a, b) => a.sat.name.localeCompare(b.sat.name, 'ja', { numeric: true })).map(satLabel),
-              2,
-            ),
-          ),
-          1,
-        ),
-      ),
-    );
-    this.countSats();
-  }
-
-  private checkAll(on: boolean): void {
-    for (const l of this.listed_) l.box.checked = on;
-    this.countSats();
-  }
-
-  /** Counts the checked satellites, overall and in each group (whose checkbox follows them). */
-  private countSats(): void {
-    const on = this.listed_.filter((l) => l.box.checked).length;
-    this.satsSummary_.textContent = `（${on} / ${this.listed_.length}）`;
-    for (const g of this.groups_) {
-      const n = g.members.filter((m) => m.box.checked).length;
-      g.box.checked = n === g.members.length;
-      g.box.indeterminate = n > 0 && n < g.members.length;
-      g.count.textContent = `${n} / ${g.members.length}`;
-    }
+    this.tree_.set([...this.catalogSats_, ...this.pasted()]);
   }
 
   /** The vector layers that can be targets. */
@@ -889,12 +765,12 @@ export class ImagingPlanPanel {
   /** Plans the checked satellites over the targets, in a worker. */
   async run(): Promise<void> {
     if (this.catalog_) await this.loadCatalog();
-    const sats = this.listed_.filter((l) => l.box.checked).map((l) => l.sat);
+    const sats = this.tree_.checked();
     const targets = this.targets();
     if (typeof targets === 'string') return void (this.status_.textContent = targets);
     if (!sats.length) {
       this.dialog.querySelector<HTMLDetailsElement>('.plan-more')!.open = true;
-      this.status_.textContent = this.listed_.length ? '衛星を選んでください（詳細条件）' : '衛星がありません。衛星カタログを確認するか、「詳細条件」に TLE を貼り付けてください';
+      this.status_.textContent = this.tree_.items().length ? '衛星を選んでください（詳細条件）' : '衛星がありません。衛星カタログを確認するか、「詳細条件」に TLE を貼り付けてください';
       return;
     }
     const options = this.planOptions();
