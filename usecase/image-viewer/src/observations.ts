@@ -36,7 +36,7 @@ export interface Observation {
   kind: string;
   /** 活動: what it was doing. */
   activity: string;
-  /** False for 「いない」: looked for and not there. */
+  /** False for 「不在」: looked for and not there. */
   present: boolean;
   note: string;
   lon: number;
