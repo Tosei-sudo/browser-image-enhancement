@@ -227,3 +227,37 @@ test('observations are kept in an Esri point layer when config.json names one', 
   await expect.poll(() => typeof rows[0].attributes.DELETED_AT).toBe('number');
   expect(rows).toHaveLength(1);
 });
+
+test('the panel opens in the bottom dock until it is put in a window, and comes back with the layout reset', async ({ page }) => {
+  await openImages(page);
+  const panel = await openPanel(page);
+  await expect(page.locator('.dock-bottom .obs-dialog')).toBeVisible();
+  // Recording at the left, the lists at the right.
+  const main = (await panel.locator('.obs-main').boundingBox())!;
+  const side = (await panel.locator('.obs-side').boundingBox())!;
+  expect(side.x).toBeGreaterThan(main.x + main.width - 1);
+
+  // Put in a window: it stays one, also after closing and opening again and a reload.
+  await panel.locator('.dock-button').click();
+  await page.getByRole('menuitem', { name: 'ウィンドウに戻す' }).click();
+  await expect(page.locator('.dock-bottom .obs-dialog')).toHaveCount(0);
+  await panel.locator('.catalog-close').click();
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#observe-open').click();
+  await expect(panel).toBeVisible();
+  await expect(page.locator('.dock-bottom .obs-dialog')).toHaveCount(0);
+  await page.reload();
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#observe-open').click();
+  await expect(page.locator('.obs-dialog')).toBeVisible();
+  await expect(page.locator('.dock-bottom .obs-dialog')).toHaveCount(0);
+
+  // 「レイアウトを元に戻す」: at home again.
+  await page.locator('.obs-dialog .catalog-close').click();
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#layout-reset').click();
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.locator('#observe-open').click();
+  await expect(page.locator('.dock-bottom .obs-dialog')).toBeVisible();
+});

@@ -34,6 +34,44 @@ interface Docked {
 
 const docked = new Map<HTMLDialogElement, Docked>();
 
+/**
+ * A dialog with `data-dock-home="bottom"` (left, right) opens docked there
+ * until it is put back in a window (「ウィンドウに戻す」); the ids of those
+ * put back are kept here, and forgotten by 「レイアウトを元に戻す」.
+ */
+const FLOATED = 'image-viewer.dock-floated';
+function floated(): Set<string> {
+  try {
+    const list: unknown = JSON.parse(localStorage.getItem(FLOATED) ?? '[]');
+    return new Set(Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+function setFloated(id: string, on: boolean): void {
+  const ids = floated();
+  if (ids.has(id) === on) return;
+  if (on) ids.add(id);
+  else ids.delete(id);
+  try {
+    localStorage.setItem(FLOATED, JSON.stringify([...ids]));
+  } catch {
+    // No storage: it docks at home again next time.
+  }
+}
+/** Dialogs with a home dock open there again (「レイアウトを元に戻す」). */
+export function forgetFloated(): void {
+  try {
+    localStorage.removeItem(FLOATED);
+  } catch {
+    // No storage.
+  }
+}
+const homeOf = (dialog: HTMLDialogElement): DockSide | null => {
+  const home = dialog.dataset.dockHome;
+  return home === 'left' || home === 'right' || home === 'bottom' ? home : null;
+};
+
 /** The layout id of a dialog: its own class (`plan-dialog`), else its title. */
 export function dockIdOf(dialog: HTMLDialogElement): string {
   if (dialog.dataset.dockId) return dialog.dataset.dockId;
@@ -124,6 +162,7 @@ export function dockDialog(dialog: HTMLDialogElement, layout: DockLayout, where?
     return;
   }
   const side = target?.side;
+  setFloated(id, false);
   const record: Docked = { id, place: document.createComment('dock'), modal: dialog.matches(':modal'), style: dialog.getAttribute('style'), undo: [] };
   docked.set(dialog, record);
   dialog.before(record.place);
@@ -154,7 +193,10 @@ export function dockDialog(dialog: HTMLDialogElement, layout: DockLayout, where?
       placeButton: () => undefined,
       close: () => dialog.close(),
       home: side ?? 'right',
-      onFloat: (rect) => undock(dialog, layout, true, rect),
+      onFloat: (rect) => {
+        if (homeOf(dialog)) setFloated(id, true);
+        undock(dialog, layout, true, rect);
+      },
       onEvict: () => undock(dialog, layout, true),
     },
     target,
@@ -195,7 +237,12 @@ export function enableDialogDocking(layout: DockLayout): void {
     for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) {
       if (dialog.matches('.dock-float') || 'noDock' in dialog.dataset) continue;
       addButton(dialog, layout);
-      if (!docked.has(dialog) && !isPoppedOut(dialog) && layout.remembers(dockIdOf(dialog))) dockDialog(dialog, layout);
+      if (docked.has(dialog) || isPoppedOut(dialog)) continue;
+      const id = dockIdOf(dialog);
+      const home = homeOf(dialog);
+      if (layout.remembers(id)) dockDialog(dialog, layout);
+      // A tab beside what is already there (the attribute table at the bottom), at the dock's full width.
+      else if (home && !floated().has(id)) dockDialog(dialog, layout, layout.getState()[home].length ? { kind: 'tab', side: home, group: 0 } : home);
     }
   };
   // A dialog gets its button when it opens; its content may be built only then.

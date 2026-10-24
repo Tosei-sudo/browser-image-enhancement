@@ -136,12 +136,15 @@ export class ObservationPanel {
     this.dialog = document.createElement('dialog');
     this.dialog.className = 'add-service obs-dialog';
     this.dialog.setAttribute('aria-labelledby', 'obs-title');
+    // Opens in the bottom dock, the map above it, until it is put in a window of its own.
+    this.dialog.dataset.dockHome = 'bottom';
     this.dialog.innerHTML = `
       <div class="catalog-head">
         <h2 id="obs-title">観測記録</h2>
         <select name="store" aria-label="保存先" title="記録の保存先"></select>
         <button type="button" class="catalog-close" aria-label="閉じる" title="閉じる（Esc）">×</button>
       </div>
+      <div class="obs-main">
       <div class="obs-image">
         <button type="button" value="prev" title="前の画像（撮像日時の順、PageUp）" aria-label="前の画像">◀</button>
         <select name="image" aria-label="画像"></select>
@@ -168,12 +171,6 @@ export class ObservationPanel {
         </div>
       </form>
       <p class="service-status" role="status"></p>
-      <div class="obs-tabs" role="tablist">
-        <button type="button" role="tab" value="image" aria-selected="true">この画像 <span></span></button>
-        <button type="button" role="tab" value="objects" aria-selected="false">モノ <span></span></button>
-      </div>
-      <div class="catalog-results obs-list"><table class="catalog-table"><thead></thead><tbody></tbody></table></div>
-      <section class="obs-flow" hidden></section>
       <details class="catalog-more">
         <summary>詳細</summary>
         <div class="catalog-more-body">
@@ -186,6 +183,15 @@ export class ObservationPanel {
           </div>
         </div>
       </details>
+      </div>
+      <div class="obs-side">
+      <div class="obs-tabs" role="tablist">
+        <button type="button" role="tab" value="image" aria-selected="true">この画像 <span></span></button>
+        <button type="button" role="tab" value="objects" aria-selected="false">モノ <span></span></button>
+      </div>
+      <div class="catalog-results obs-list"><table class="catalog-table"><thead></thead><tbody></tbody></table></div>
+      <section class="obs-flow" hidden></section>
+      </div>
       <datalist id="obs-objects"></datalist><datalist id="obs-kinds"></datalist><datalist id="obs-activity-list"></datalist>`;
     document.body.append(this.dialog);
     const $ = <T extends Element>(s: string) => this.dialog.querySelector<T>(s)!;

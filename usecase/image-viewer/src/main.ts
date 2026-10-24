@@ -69,7 +69,7 @@ import { enableWindowMoving } from './move-windows.js';
 import { enablePopOut } from './pop-out.js';
 import type { MenuItem } from './context-menu.js';
 import { DockLayout } from './dock.js';
-import { enableDialogDocking } from './dock-dialogs.js';
+import { enableDialogDocking, forgetFloated } from './dock-dialogs.js';
 import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shell.js';
 import { Hints } from './help.js';
 import { Theme } from './theme.js';
@@ -446,7 +446,10 @@ const dashboard: Dashboard = new Dashboard(map, images, {
 dock.sizeHandles({ left: document.getElementById('side-resize')!, right: document.getElementById('dashboard-resize')!, bottom: document.getElementById('bottom-resize')! });
 // Every dialog can be docked too (its ◧ button), and opens where it was docked.
 enableDialogDocking(dock);
-document.getElementById('layout-reset')!.addEventListener('click', () => dock.reset());
+document.getElementById('layout-reset')!.addEventListener('click', () => {
+  forgetFloated();
+  dock.reset();
+});
 /** The panels a project keeps the layout of. */
 const layoutParts: LayoutParts = {
   app: document.querySelector<HTMLElement>('.app')!,
