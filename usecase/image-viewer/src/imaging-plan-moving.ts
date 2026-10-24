@@ -23,7 +23,18 @@ export interface ShipState {
   course: number | null;
   /** Knots; null when unknown. */
   speed: number | null;
+  /** How the guess grows uncertain; {@link DEFAULT_UNCERTAINTY} when absent. */
+  model?: UncertaintyModel;
 }
+
+/** How far off a guessed place may be: `base` km at the report, growing by `share` of the distance run and `perHour` km an hour. */
+export interface UncertaintyModel {
+  base: number;
+  share: number;
+  perHour: number;
+}
+
+export const DEFAULT_UNCERTAINTY: UncertaintyModel = { base: 0.5, share: 0.1, perHour: 0.5 };
 
 /** How far ahead of a ship's last report it is guessed at most, hours. */
 export const MAX_HORIZON = 72;
@@ -62,13 +73,14 @@ export function shipAt(ship: ShipState, t: number): [number, number] {
 }
 
 /**
- * How far off the guess at `t` may be, km: half a kilometre at the report,
- * growing by a tenth of the distance run (speed and course drift) and half a
- * kilometre an hour (turns, slowing down).
+ * How far off the guess at `t` may be, km: by default half a kilometre at
+ * the report, growing by a tenth of the distance run (speed and course
+ * drift) and half a kilometre an hour (turns, slowing down).
  */
 export function uncertaintyAt(ship: ShipState, t: number): number {
+  const { base, share, perHour } = ship.model ?? DEFAULT_UNCERTAINTY;
   const hours = Math.max(0, (t - ship.t) / 3600000);
-  return 0.5 + hours * (0.1 * (ship.speed ?? 0) * KNOT_KMH + 0.5);
+  return base + hours * (share * (ship.speed ?? 0) * KNOT_KMH + perHour);
 }
 
 /** A circle target around where the ship is at `t`: its rim and points spread inside (for the coverage). */
