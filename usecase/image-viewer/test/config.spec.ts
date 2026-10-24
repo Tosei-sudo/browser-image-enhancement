@@ -78,3 +78,23 @@ test('layers in config.json open at start, bottom first, and a shared link does 
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(page.locator('#images .name')).toHaveCount(3);
 });
+
+test('a config.json layer opened with what it left out filled in is not added again on each reload', async ({ page }) => {
+  await page.request.get('/svc/reset');
+  // No matrix set or format: opening picks them, so the address lists the layer differently from config.json.
+  const config = { layers: [{ type: 'wmts', url: 'http://localhost:4175/svc/wmts/WMTSCapabilities.xml', layer: 'tokyo' }] };
+  await open(page, JSON.stringify(config));
+  await expect(page.locator('#images .name')).toHaveCount(1);
+  await expect.poll(() => new URL(page.url()).searchParams.getAll('service').length).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    await page.reload();
+    await page.waitForFunction(() => window.viewer !== undefined);
+    await expect(page.locator('#images .name')).toHaveCount(1);
+    await expect.poll(() => new URL(page.url()).searchParams.getAll('service').length).toBe(1);
+  }
+  // An address that already lists it several times (made before this was fixed) opens it once.
+  const service = new URL(page.url()).searchParams.get('service') as string;
+  await page.goto(`/index.html?${new URLSearchParams([['service', service], ['service', service]])}`);
+  await page.waitForFunction(() => window.viewer !== undefined);
+  await expect(page.locator('#images .name')).toHaveCount(1);
+});
