@@ -26,6 +26,13 @@ async function openPanel(page: Page) {
   await page.locator('#observe-open').click();
   const panel = page.locator('.obs-dialog');
   await expect(panel).toBeVisible();
+  // The images' middle at a quarter of the map's width, clear of the panel at the right.
+  await page.evaluate(() => {
+    const map = window.viewer.map;
+    const view = map.getView();
+    const size = map.getSize()!;
+    view.centerOn(view.getCenter()!, size, [size[0] / 4, size[1] / 2]);
+  });
   return panel;
 }
 
@@ -53,7 +60,7 @@ test('things are recorded image by image, carried over, and followed in time ord
   await form.locator('input[name=object]').press('Enter');
   await expect(panel.locator('.service-status')).toContainText('タンカーA（停泊）を記録しました');
   // A second with no name gets one by its kind; the kind and activity stay as last used.
-  await map.click({ position: { x: box.width / 4 + 80, y: box.height / 2 + 40 } });
+  await map.click({ position: { x: box.width / 4 + 30, y: box.height / 2 + 20 } });
   await expect(form).toBeVisible();
   await form.locator('input[name=object]').press('Enter');
   await expect(panel.locator('.obs-list tbody tr')).toHaveCount(2);
