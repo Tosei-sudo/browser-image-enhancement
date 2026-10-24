@@ -20,6 +20,7 @@ import { DEFAULT_GEOCODERS, type GeocoderConfig, type GeocoderType } from './geo
 import { defaultEmbed, embedConfigOf, type EmbedConfig } from './embed-protocol.js';
 import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type AuthRule } from './auth.js';
 import { DEFAULT_STAC_CATALOGS, stacCatalogOf, type StacCatalogConfig } from './stac.js';
+import { defaultVocabulary, observationStoreOf, vocabularyOf, type ObservationStoreConfig, type ObservationVocabulary } from './observations.js';
 
 /**
  * What a base map URL points to:
@@ -121,6 +122,10 @@ export interface ViewerConfig {
   groundStations: GroundStation[];
   /** Esri feature layers imaging plans are saved to and followed up in (imaging-plan-store.ts); none hides 「保存・追跡…」. */
   planStores: PlanStoreConfig[];
+  /** Esri point layers observations are recorded in (observations.ts), attributes mapped by role; none keeps them in the browser. */
+  observationStores: ObservationStoreConfig[];
+  /** The kinds and activities 「観測記録」 offers first (a store's own lists win). */
+  observationVocabulary: ObservationVocabulary;
   /** ONNX models for the AI tools (ai-tools.ts): object detection and click segmentation. Files can be chosen too. */
   aiModels: AiModelConfig[];
   /** Esri feature layers the AI tools' results are written to (ai-transfer.ts), attributes mapped by role; none hides 「DB へ転記」. */
@@ -220,6 +225,8 @@ export const defaultConfig: ViewerConfig = {
   cloudForecast: defaultCloudForecast,
   groundStations: [],
   planStores: [],
+  observationStores: [],
+  observationVocabulary: defaultVocabulary,
   aiModels: sampleModels(),
   detectionOutputs: [],
   serviceRules: [],
@@ -301,7 +308,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -404,6 +411,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.planStores)) config.planStores = json.planStores.map((v, i) => planStoreOf(v, problems, i)).filter((v): v is PlanStoreConfig => v !== null);
     else problems.push('planStores が配列ではありません');
   }
+  if ('observationStores' in json) {
+    if (Array.isArray(json.observationStores)) config.observationStores = json.observationStores.map((v, i) => observationStoreOf(v, problems, i)).filter((v): v is ObservationStoreConfig => v !== null);
+    else problems.push('observationStores が配列ではありません');
+  }
+  if ('observationVocabulary' in json) config.observationVocabulary = vocabularyOf(json.observationVocabulary, problems);
 
   if ('aiModels' in json) {
     if (Array.isArray(json.aiModels)) config.aiModels = json.aiModels.map((m, i) => aiModelOf(m, problems, i)).filter((m): m is AiModelConfig => m !== null);

@@ -30,7 +30,7 @@ import type Feature from 'ol/Feature.js';
 import type Point from 'ol/geom/Point.js';
 import DragBox from 'ol/interaction/DragBox.js';
 import { platformModifierKeyOnly } from 'ol/events/condition.js';
-import { ImageList, type ViewerImage, type ViewerLayer, type ViewerService } from './images.js';
+import { ImageList, shortName, type ViewerImage, type ViewerLayer, type ViewerService } from './images.js';
 import { PointTool } from './points.js';
 import { MeasureTool } from './measure.js';
 import { ShadowHeightTool } from './shadow-height.js';
@@ -131,6 +131,8 @@ import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { startReminders } from './imaging-plan-remind.js';
 import { SavedPlansPanel } from './imaging-plan-saved.js';
+import { ObservationPanel } from './observation-panel.js';
+import { EsriObservationStore, LocalObservationStore, type ObservationStore } from './observations.js';
 import { MovingTargetDialog } from './moving-target-dialog.js';
 import { SatelliteTrackPanel } from './satellite-track-panel.js';
 import { ScriptDialog } from './script-dialog.js';
@@ -354,6 +356,8 @@ function tableDataOf(layer: ViewerLayer | null): [data: TableData | null, messag
   return [null, layer?.type === 'service' ? 'このレイヤーには属性がありません' : 'WFS・Esri・ファイルのベクターレイヤーを選ぶと属性を表示します'];
 }
 
+/** Called when the open layers change (set by the panels made later). */
+let imagesChanged = (): void => {};
 const images = new ImageList(document.getElementById('images') as HTMLOListElement, map, {
   onSelect: (layer) => {
     // Each image (and picture service) keeps its own correction: show it in the panel.
@@ -388,6 +392,7 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     timeline?.refresh();
     split?.refresh();
     dashboard?.refresh();
+    imagesChanged();
     empty.hidden = list.length > 0;
     if (list.length && guide.isShown()) guide.close();
     updateLink();
@@ -514,7 +519,7 @@ const spectral = new SpectralPanel(map, {
     const layer = images.selectedLayer();
     return layer?.type === 'image' ? layer : null;
   },
-  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive(),
+  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive() && !observations.isActive(),
 });
 metadataButton.addEventListener('click', () => {
   const layer = images.selectedLayer();
@@ -539,6 +544,7 @@ const measure = new MeasureTool(map, images, {
     aiSegment.setActive(false);
     annotations.setActive(false);
     shadowHeight.setActive(false);
+    observations.setActive(false);
   },
 });
 // Height from a shadow: the foot and the tip of the shadow, with the Sun's elevation from the image or its time.
@@ -550,6 +556,7 @@ const shadowHeight: ShadowHeightTool = new ShadowHeightTool(map, images, {
     measure.setMode(null);
     aiSegment.setActive(false);
     annotations.setActive(false);
+    observations.setActive(false);
   },
 });
 document.getElementById('add-point')!.addEventListener('click', () => {
@@ -557,6 +564,7 @@ document.getElementById('add-point')!.addEventListener('click', () => {
   if (points.isAdding()) measure.setMode(null);
   if (points.isAdding()) aiSegment.setActive(false);
   if (points.isAdding()) annotations.setActive(false);
+  if (points.isAdding()) observations.setActive(false);
 });
 // Notes drawn on the map (arrows, lines, boxes, text): kept in the browser and in projects, and printed.
 const annotations: Annotations = new Annotations(map, {
@@ -567,6 +575,7 @@ const annotations: Annotations = new Annotations(map, {
     measure.setMode(null);
     aiSegment.setActive(false);
     shadowHeight.setActive(false);
+    observations.setActive(false);
   },
 });
 
@@ -607,7 +616,7 @@ const bookmarks: Bookmarks = new Bookmarks(map, document.getElementById('bookmar
 // or asks a WMS layer what is there.
 map.on('singleclick', (e) => {
   const layer = images.selectedLayer();
-  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || annotations.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
+  if (points.isAdding() || measure.isActive() || aiSegment.isActive() || annotations.isActive() || observations.isActive() || editor.isDrawing() || layer?.type !== 'service') return;
   const service = layer.service;
   if (service.vector) {
     const hit = service.style?.onGpu()
@@ -878,6 +887,7 @@ const aiSegment = new SegmentTool(document.getElementById('ai-segment') as HTMLB
     points.setAdding(false);
     measure.setMode(null);
     shadowHeight.setActive(false);
+    observations.setActive(false);
   },
 });
 // The AI layers into a database (config.json's detectionOutputs): new and corrected features, attributes mapped by role.
@@ -898,7 +908,7 @@ const moving = new MovingDialog(document.getElementById('moving-open') as HTMLBu
   feeds: config.movingFeeds,
   timeline,
   say,
-  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive() && !editor.isDrawing(),
+  idle: () => !measure.isActive() && !points.isAdding() && !annotations.isActive() && !aiSegment.isActive() && !observations.isActive() && !editor.isDrawing(),
 });
 const movingMatch = new MatchDialog(document.getElementById('moving-match') as HTMLButtonElement, {
   layers: () => images.layers(),
@@ -1344,6 +1354,48 @@ const savedPlans = new SavedPlansPanel(map, {
   },
   say,
 });
+
+// Observations (観測記録): when, where, what thing and what it is doing, image by image, and each thing's flow over time.
+// Kept in Esri point layers (config.json's observationStores), else in the browser.
+const observationStores: ObservationStore[] = [
+  ...config.observationStores.map((c) => new EsriObservationStore(c, (url, params, token) => esriJson(url, params, token, true))),
+  new LocalObservationStore(),
+];
+const observations = new ObservationPanel(map, document.getElementById('observe-open') as HTMLButtonElement, {
+  stores: observationStores,
+  vocabulary: (store) => {
+    const own = config.observationStores.find((c) => c.label === store.label);
+    return { kinds: own?.kinds ?? config.observationVocabulary.kinds, activities: own?.activities ?? config.observationVocabulary.activities };
+  },
+  images: () => images.list(),
+  selected: () => images.selected(),
+  select: (image) => images.select(image),
+  isVisible: (image) => images.isVisible(image),
+  setVisible: (image, visible) => images.setVisible(image, visible),
+  imageInfo: async (image) => {
+    const view = await image.source.getView().catch(() => null);
+    const box = view?.extent ? (transformExtent(view.extent, view.projection ?? 'EPSG:4326', 'EPSG:4326') as [number, number, number, number]) : null;
+    const name = shortName(image.name);
+    return { id: catalogIds.get(image) ?? name, name, time: (await imageTime(image))?.time ?? null, box: image.kind === 'geotiff' ? box : null };
+  },
+  onStart: () => {
+    points.setAdding(false);
+    measure.setMode(null);
+    aiSegment.setActive(false);
+    annotations.setActive(false);
+    shadowHeight.setActive(false);
+  },
+  onLayer: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+    say(`${made} をレイヤーとして追加しました`);
+  },
+  say,
+});
+imagesChanged = () => {
+  if (observations.dialog.open) void observations.refreshImages();
+};
 
 // Reminders of planned shots become notices of the notification centre a set time before them.
 startReminders((n) => say(`撮像予定の通知が ${n} 件あります（「通知」）`));
@@ -1824,6 +1876,7 @@ declare global {
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
       savedPlans: SavedPlansPanel;
+      observations: ObservationPanel;
       movingTargets: MovingTargetDialog;
       satelliteTracks: SatelliteTrackPanel;
       scripts: ScriptDialog;
@@ -1837,4 +1890,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
