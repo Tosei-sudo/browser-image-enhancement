@@ -78,7 +78,7 @@ export class PointTool {
       const point = this.points_.find((p) => p.feature === feature);
       if (point && from && !this.inside_(point.image, feature.getGeometry()!.getCoordinates())) {
         feature.getGeometry()!.setCoordinates(from);
-        options.say('ポイントは元の画像の範囲内にしか動かせません');
+        options.say('ポイントは元の画像の範囲内のみ移動可能');
       }
       from = null;
     });
@@ -106,18 +106,18 @@ export class PointTool {
     this.adding_ = adding;
     this.options.add.setAttribute('aria-pressed', String(adding));
     this.map.getViewport().classList.toggle('adding-points', adding);
-    if (adding) this.options.say(this.images.selected() ? '選択中の画像をクリックするとポイントを追加します' : '先に画像を開いてください');
+    if (adding) this.options.say(this.images.selected() ? '選択中の画像をクリックするとポイントを追加' : '画像なし（先に画像を開く）');
   }
 
   /** Adds a point on the selected image at `coordinate` (view projection); null when it is not on that image. */
   async addAt(coordinate: Coordinate, name?: string): Promise<ViewerPoint | null> {
     const image = this.images.selected();
     if (!image) {
-      this.options.say('先に画像を開いてください');
+      this.options.say('画像なし（先に画像を開く）');
       return null;
     }
     if (!(await this.insideAsync_(image, coordinate))) {
-      this.options.say(`ポイントは選択中の画像（${baseName(image.name)}）の上に置いてください`);
+      this.options.say(`ポイントは選択中の画像（${baseName(image.name)}）の上に配置`);
       return null;
     }
     const feature = new Feature({ geometry: new Point(coordinate), name: name ?? `ポイント${++this.count_}` });
@@ -169,7 +169,7 @@ export class PointTool {
   /** Saves the points as `points.geojson`. */
   async download(): Promise<void> {
     if (this.points_.length === 0) {
-      this.options.say('保存するポイントがありません');
+      this.options.say('保存するポイントなし');
       return;
     }
     const json = JSON.stringify(await this.toGeoJSON(), null, 2);
@@ -178,7 +178,7 @@ export class PointTool {
     a.download = 'points.geojson';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${this.points_.length} 件のポイントを points.geojson に保存しました`);
+    this.options.say(`${this.points_.length} 件のポイントを points.geojson に保存`);
   }
 
   private inside_(image: ViewerImage, coordinate: Coordinate): boolean {

@@ -31,7 +31,7 @@ describe('embedConfigOf', () => {
     const { config, problems } = parseConfig({ embed: { allowedOrigins: ['https://app.example.com'] } });
     expect(problems).toEqual([]);
     expect(config.embed).toEqual({ allowedOrigins: ['https://app.example.com'], readOnly: false });
-    expect(parseConfig({ embed: ['https://app.example.com'] }).problems).toEqual(['embed がオブジェクトではありません']);
+    expect(parseConfig({ embed: ['https://app.example.com'] }).problems).toEqual(['embed はオブジェクトで指定']);
   });
 
   it('allows only listed origins, never the opaque one', () => {

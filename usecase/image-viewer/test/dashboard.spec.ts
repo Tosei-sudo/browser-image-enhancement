@@ -36,7 +36,7 @@ async function open(page: Page, query = '') {
     await writable.close();
   }, JSON.stringify(survey));
   await page.locator('#open .ol-load-image button').first().click();
-  await expect(page.locator('#status')).toContainText('survey を開きました');
+  await expect(page.locator('#status')).toContainText('survey を表示');
 }
 
 const rows = (page: Page) => page.locator('.attributes tbody tr[data-index]');
@@ -124,7 +124,7 @@ test('a project keeps the layout: panels, the timeline and the dashboard', async
     dashboard.setHeatmap(true);
   });
   await page.keyboard.press('Control+s');
-  await expect(page.locator('#status')).toHaveText('layout.ivproj に保存しました');
+  await expect(page.locator('#status')).toHaveText('layout.ivproj に保存');
   const saved = JSON.parse(await page.evaluate(async () => (await (await (await navigator.storage.getDirectory()).getFileHandle('layout.ivproj')).getFile()).text()));
   expect(saved.layout).toMatchObject({ sideWidth: 300, tableCollapsed: true, timeline: { open: true, width: 'month', cumulative: true }, dashboard: { open: true, values: ['公園'], heatmap: true, groupBy: 'kind' } });
   expect(saved.layers[0].time).toEqual({ on: true, start: 'observed', end: null });
@@ -134,7 +134,7 @@ test('a project keeps the layout: panels, the timeline and the dashboard', async
   await expect(page.locator('#timeline')).toBeHidden();
   await page.getByRole('button', { name: 'プロジェクト' }).click();
   await page.getByRole('button', { name: '開く…', exact: true }).click();
-  await expect(page.locator('#status')).toHaveText('プロジェクト「layout」を開きました');
+  await expect(page.locator('#status')).toHaveText('プロジェクト「layout」を表示');
   await expect(page.locator('#timeline')).toBeVisible();
   await expect(dashboard(page)).toBeVisible();
   await expect(bar(page, '公園')).toHaveClass(/chosen/);

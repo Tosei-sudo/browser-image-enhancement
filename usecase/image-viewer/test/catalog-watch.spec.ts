@@ -31,7 +31,7 @@ test('a watch made in the catalog panel notifies a new image, which opens from �
   await expect(create).toBeVisible();
   await expect(create.locator('.watch-conditions')).toContainText('センサー S1');
   await create.locator('input[name=name]').fill('東京湾 S1');
-  await create.getByLabel('指定しない').check();
+  await create.getByLabel('指定なし').check();
   await create.locator('button[value=ok]').click();
   await expect(create).toBeHidden();
   // The first check only notes what is there.
@@ -51,7 +51,7 @@ test('a watch made in the catalog panel notifies a new image, which opens from �
 
   // Checking again finds nothing more.
   await center.locator('button[value=check]').click();
-  await expect(center.locator('.service-status')).toHaveText('新着はありません');
+  await expect(center.locator('.service-status')).toHaveText('新着なし');
   await expect(center.locator('.watch-notice')).toHaveCount(1);
 
   // Opening it loads the COG and reads the notice.

@@ -56,7 +56,7 @@ test('each category gets an outline of its own, and the categories\' colors can 
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
   await page.locator('#images li').first().getByRole('button', { name: 'スタイル・ラベル' }).click();
   const dialog = page.getByRole('dialog', { name: 'スタイル: landuse' });
   await dialog.getByLabel('表示方法').selectOption('categorized');
@@ -98,7 +98,7 @@ test('a vector layer is colored by an attribute and labelled, and keeps its styl
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
 
   await page.locator('#images li').first().getByRole('button', { name: 'スタイル・ラベル' }).click();
   const dialog = page.getByRole('dialog', { name: 'スタイル: landuse' });
@@ -135,15 +135,15 @@ test('a vector layer is colored by an attribute and labelled, and keeps its styl
   // The same file, opened again after a reload, looks the same.
   await open(page);
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
   now = await drawn(page);
   expect(now.spec.mode).toBe('categorized');
   expect(now.fill).toEqual([255, 136, 0, 0.25]);
   expect(now.label).toBe('駅前');
 
-  // 初期設定に戻す: one symbol again, no labels.
+  // 初期設定に復元: one symbol again, no labels.
   await page.locator('#images li').first().getByRole('button', { name: 'スタイル・ラベル' }).click();
-  await dialog.getByRole('button', { name: '初期設定に戻す' }).click();
+  await dialog.getByRole('button', { name: '初期設定に復元' }).click();
   await dialog.getByRole('button', { name: 'OK' }).click();
   now = await drawn(page);
   expect(now.spec.mode).toBe('single');
@@ -201,7 +201,7 @@ test('a layer is colored in ranges of a number, shown only at some scales, and k
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'towns.geojson', towns);
-  await expect(page.locator('#status')).toContainText('towns を開きました');
+  await expect(page.locator('#status')).toContainText('towns を表示');
 
   const row = page.locator('#images li').first();
   await row.getByRole('button', { name: 'スタイル・ラベル' }).click();
@@ -221,11 +221,11 @@ test('a layer is colored in ranges of a number, shown only at some scales, and k
   await dialog.getByLabel('1 段目の上限').dispatchEvent('change');
   await expect(ranges.nth(0).locator('.style-count')).toHaveText('2');
   // Scales are folded away until wanted.
-  await expect(dialog.getByLabel('縮小したら隠す縮尺')).toBeHidden();
-  await dialog.getByText('縮尺で表示を切り替える').scrollIntoViewIfNeeded();
-  await dialog.getByText('縮尺で表示を切り替える').click();
-  await expect(dialog.locator('.style-now')).toContainText('いまの縮尺はおよそ 1 :');
-  await dialog.getByLabel('縮小したら隠す縮尺').fill('200000');
+  await expect(dialog.getByLabel('縮小時に非表示にする縮尺')).toBeHidden();
+  await dialog.getByText('縮尺による表示切り替え').scrollIntoViewIfNeeded();
+  await dialog.getByText('縮尺による表示切り替え').click();
+  await expect(dialog.locator('.style-now')).toContainText('現在の縮尺: 約 1 :');
+  await dialog.getByLabel('縮小時に非表示にする縮尺').fill('200000');
   await dialog.getByRole('button', { name: 'OK' }).click();
 
   let now = await graduated(page);
@@ -249,21 +249,21 @@ test('a layer is colored in ranges of a number, shown only at some scales, and k
   await row.getByRole('button', { name: '書き出し' }).click();
   const exportDialog = page.getByRole('dialog', { name: '書き出し' });
   await exportDialog.getByLabel('形式').selectOption('geopackage');
-  await expect(exportDialog.getByText('スタイルも保存する')).toBeVisible();
+  await expect(exportDialog.getByText('スタイルも保存')).toBeVisible();
   let downloading = page.waitForEvent('download');
-  await exportDialog.getByRole('button', { name: '書き出す' }).click();
+  await exportDialog.getByRole('button', { name: '書き出し' }).click();
   const gpkg = await downloaded(await downloading);
 
   await row.getByRole('button', { name: '書き出し' }).click();
   await exportDialog.getByLabel('形式').selectOption('shapefile');
   downloading = page.waitForEvent('download');
-  await exportDialog.getByRole('button', { name: '書き出す' }).click();
+  await exportDialog.getByRole('button', { name: '書き出し' }).click();
   const zip = await downloaded(await downloading);
 
   await page.evaluate(() => localStorage.clear());
   await open(page);
   await chooseFiles(page, [{ name: 'copy.gpkg', bytes: gpkg }]);
-  await expect(page.locator('#status')).toContainText('copy を開きました');
+  await expect(page.locator('#status')).toContainText('copy を表示');
   now = await graduated(page);
   expect(now.spec.mode).toBe('graduated');
   expect(now.spec.field).toBe('pop');
@@ -296,7 +296,7 @@ test('a layer is colored in ranges of a number, shown only at some scales, and k
   await page.evaluate(() => localStorage.clear());
   await open(page);
   await chooseFiles(page, [...files.filter((f) => !f.name.endsWith('.qml')), { name: 'towns.qml', bytes: new TextEncoder().encode(qgis) }]);
-  await expect(page.locator('#status')).toContainText('towns を開きました');
+  await expect(page.locator('#status')).toContainText('towns を表示');
   now = await graduated(page);
   expect(now.spec.mode).toBe('categorized');
   expect(now.spec.field).toBe('name');

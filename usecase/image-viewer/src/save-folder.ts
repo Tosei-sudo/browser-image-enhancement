@@ -66,7 +66,7 @@ export async function freeName(dir: FileSystemDirectoryHandle, name: string): Pr
       throw error;
     }
   }
-  throw new Error(`${name} と同じ名前のファイルが多すぎます`);
+  throw new Error(`${name} と同じ名前のファイルが多すぎ`);
 }
 
 /** Writes `blob` as a new file `name` in `dir`; the name it was written as. */
@@ -97,11 +97,11 @@ export interface Saved {
   problem?: string;
 }
 
-/** `「name」を保存しました` with where it went. */
+/** `「name」を保存` with where it went. */
 export function savedMessage(saved: Saved, detail = ''): string {
   const where = saved.folder ? `フォルダ「${saved.folder}」に ` : '';
   const problem = saved.problem ? `（フォルダに書けなかったためダウンロード: ${saved.problem}）` : '';
-  return `${where}${saved.name} を保存しました${detail}${problem}`;
+  return `${where}${saved.name} を保存${detail}${problem}`;
 }
 
 /** The save folder: chosen, forgotten, and written into. */
@@ -162,7 +162,7 @@ export class SaveFolder {
       state = await request();
     } catch {
       // Long after it (the file took a while to make), it wants a click of its own.
-      state = await this.ask(`保存先のフォルダ「${folder.name}」に書き込む許可が必要です`, '許可する', request);
+      state = await this.ask(`保存先のフォルダ「${folder.name}」に書き込む許可が必要`, '許可', request);
     }
     return state === 'granted';
   }
@@ -177,7 +177,7 @@ export class SaveFolder {
     const folder = (await this.current()) as WritableFolder | null;
     if (!folder || !canSaveToFolder()) return { sink: null };
     try {
-      if (!(await this.allowed_(folder))) return { sink: null, problem: '書き込みが許可されませんでした' };
+      if (!(await this.allowed_(folder))) return { sink: null, problem: '書き込みが拒否' };
       const free = await freeName(folder, name);
       return { sink: new FileSink(Promise.resolve(folder), free), saved: { name: free, folder: folder.name } };
     } catch (error) {
@@ -198,7 +198,7 @@ export class SaveFolder {
     let problem: string;
     try {
       if (await this.allowed_(folder)) return { name: await writeToFolder(folder, name, blob), folder: folder.name };
-      problem = '書き込みが許可されませんでした';
+      problem = '書き込みが拒否';
     } catch (error) {
       problem = error instanceof Error ? error.message : String(error);
     }
@@ -219,7 +219,7 @@ export async function saveFile(name: string, blob: Blob, say: (message: string) 
 
 /**
  * The 「保存先…」 dialog: where files go now, 「フォルダを選ぶ…」 and
- * 「ダウンロードに戻す」.
+ * 「ダウンロードに復帰」.
  */
 export class SaveFolderDialog {
   readonly dialog: HTMLDialogElement;
@@ -236,16 +236,16 @@ export class SaveFolderDialog {
     this.dialog.innerHTML = `
       <h2 id="save-folder-title">保存先</h2>
       <p class="save-folder-where"></p>
-      <p class="hint">フォルダを選ぶと、処理結果の GeoTIFF・表示範囲の画像などをダウンロードせずにそのフォルダへ直接書きます。同じ名前のファイルがあると「(1)」を付けます。</p>
+      <p class="hint">フォルダを選ぶと、処理結果の GeoTIFF・表示範囲の画像などをダウンロードせずにそのフォルダへ直接書き込み。同じ名前のファイルがあると「(1)」を付与。</p>
       <div class="service-actions">
-        <button type="button" value="download">ダウンロードに戻す</button>
-        <button type="button" value="choose" class="primary">フォルダを選ぶ…</button>
+        <button type="button" value="download">ダウンロードに復帰</button>
+        <button type="button" value="choose" class="primary">フォルダを選択…</button>
         <button type="button" value="close">閉じる</button>
       </div>`;
     this.where_ = this.dialog.querySelector('.save-folder-where')!;
     this.back_ = this.dialog.querySelector('button[value=download]')!;
     this.dialog.querySelector('button[value=choose]')!.addEventListener('click', () => void this.choose_());
-    this.back_.addEventListener('click', () => void this.folder.set(null).then(() => this.options.say('ファイルはダウンロードで保存します')));
+    this.back_.addEventListener('click', () => void this.folder.set(null).then(() => this.options.say('ファイルはダウンロードで保存')));
     this.dialog.querySelector('button[value=close]')!.addEventListener('click', () => this.dialog.close());
     this.folder.onChange(() => void this.update_());
     document.body.append(this.dialog);
@@ -258,9 +258,9 @@ export class SaveFolderDialog {
 
   private async choose_(): Promise<void> {
     try {
-      if (await this.folder.choose()) this.options.say(`ファイルはフォルダ「${(await this.folder.current())!.name}」に保存します`);
+      if (await this.folder.choose()) this.options.say(`ファイルはフォルダ「${(await this.folder.current())!.name}」に保存`);
     } catch (error) {
-      this.options.say(`フォルダを選べませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.options.say(`フォルダの選択に失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

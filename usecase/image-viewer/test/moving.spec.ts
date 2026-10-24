@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 /*
  * Moving objects: a polled feed and an SSE feed from config.json, a WebSocket
  * by URL (stubbed with page.routeWebSocket), a history CSV interpolated at a
- * time set like 「撮影時刻に合わせる」 does, the popup of a clicked ship, and
+ * time set like 「撮影時刻に同期」 does, the popup of a clicked ship, and
  * AI detections checked against the history.
  */
 
@@ -122,7 +122,7 @@ test('a history CSV follows the time set, and detections are checked against it'
   await expect(page.locator('.moving-note')).toContainText('2 件・5 点');
   await expect(page.locator('.moving-row')).toContainText('時刻=BaseDateTime');
 
-  // At 09:05 (as 「撮影時刻に合わせる」 sets an image's time): ship 1 halfway between its fixes, ship 2 long gone.
+  // At 09:05 (as 「撮影時刻に同期」 sets an image's time): ship 1 halfway between its fixes, ship 2 long gone.
   await page.evaluate((t) => window.viewer.moving.alignTo(t), T0 + 5 * 60_000);
   await expect(page.locator('#timeline')).toBeVisible();
   const at = await page.evaluate(() => window.viewer.moving.feeds()[0].source.getFeatures().map((f) => [f.get('id'), f.get('lon'), f.get('state')]));

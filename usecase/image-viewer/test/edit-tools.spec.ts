@@ -20,7 +20,7 @@ async function open(page: Page, features: unknown[] = []) {
     input.files = list.files;
     input.dispatchEvent(new Event('change'));
   }, text);
-  await expect(page.locator('#status')).toContainText('plan を開きました');
+  await expect(page.locator('#status')).toContainText('plan を表示');
   await page.locator('#images li').getByRole('button', { name: '編集' }).click();
   await expect(page.getByRole('toolbar', { name: '編集' })).toBeVisible();
 }
@@ -68,7 +68,7 @@ test('a line is drawn from a typed start, then lengths and bearings; undo and re
   await panel(page).getByRole('textbox', { name: '頂点（緯度経度・MGRS・UTM）' }).press('Enter');
   await panel(page).getByRole('textbox', { name: '長さ' }).fill('1000');
   await panel(page).getByRole('textbox', { name: '方位' }).fill('90');
-  await panel(page).getByRole('button', { name: 'つなぐ' }).click();
+  await panel(page).getByRole('button', { name: '延長' }).click();
   await expect(panel(page).locator('.edit-readout')).toContainText('2 点');
   await panel(page).getByRole('textbox', { name: '長さ' }).fill('500');
   await panel(page).getByRole('textbox', { name: '方位' }).fill('0');
@@ -179,7 +179,7 @@ test('selected features are duplicated, moved and turned by numbers, offset, spl
   await more(page, '移動…');
   await panel(page).getByRole('textbox', { name: '東へ' }).fill('100');
   await panel(page).getByRole('textbox', { name: '北へ' }).fill('50');
-  await panel(page).getByRole('button', { name: 'ずらす' }).click();
+  await panel(page).getByRole('button', { name: 'ずらし' }).click();
   all = await shapes(page);
   const from = (all[0].coordinates as LonLat[][])[0][0];
   const to = (all[1].coordinates as LonLat[][])[0][0];
@@ -229,7 +229,7 @@ test('selected features are duplicated, moved and turned by numbers, offset, spl
   const q = await pixelOf(page, 139.005, 35.02);
   await page.mouse.click(p.x, p.y);
   await page.mouse.dblclick(q.x, q.y);
-  await expect(page.locator('#status')).toContainText('2 つに分割しました');
+  await expect(page.locator('#status')).toContainText('2 つに分割');
   expect(await shapes(page)).toHaveLength(4);
   // The pieces are selected, both with the attributes.
   const pieces = await page.evaluate(() =>
@@ -244,7 +244,7 @@ test('selected features are duplicated, moved and turned by numbers, offset, spl
   expect(area(pieces[0].ring)).toBeCloseTo(area(square) / 2, -3);
   // The pieces are still selected: merged back into one polygon.
   await more(page, '結合');
-  await expect(page.locator('#status')).toContainText('2 件を 1 つに結合しました');
+  await expect(page.locator('#status')).toContainText('2 件を 1 つに結合');
   expect(await shapes(page)).toHaveLength(3);
   const merged = await page.evaluate(() => {
     const [f] = window.viewer.selection.list();

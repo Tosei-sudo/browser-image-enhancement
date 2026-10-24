@@ -5,7 +5,7 @@
  * - 物体検出: a YOLO model (detect, oriented boxes or instance segmentation)
  *   runs over the view in overlapping tiles; the objects found become a
  *   temporary layer of boxes or outlines with their class and score.
- * - クリックで抽出: a Segment Anything model; a click on the image outlines
+ * - クリック抽出: a Segment Anything model; a click on the image outlines
  *   the object there (Shift + click takes in more of it, Alt + click leaves a
  *   part out), and the outlines become a temporary layer.
  *
@@ -176,8 +176,8 @@ class ModelChoice<T extends AiModelConfig> {
       ...this.configs.map((c, i) => new Option(c.label, `config:${i}`)),
       ...this.files_.map((f, i) => new Option(`📄 ${f.label}`, `file:${i}`)),
     ];
-    if (!options.length) options.push(new Option('（モデルを選んでください）', ''));
-    options.push(new Option('ファイルから選ぶ…', 'pick'));
+    if (!options.length) options.push(new Option('（モデルを選択）', ''));
+    options.push(new Option('ファイルから選択…', 'pick'));
     this.select.replaceChildren(...options);
   }
 }
@@ -209,7 +209,7 @@ export class DetectDialog {
         <h2 id="ai-detect-title">物体検出（AI）</h2>
         <label class="wide ai-model">モデル（ONNX）</label>
         <label class="wide">対象の画像<select name="target" aria-label="対象の画像"></select></label>
-        <p class="wide processing-hint">表示範囲を画面の細かさで解析します。小さな物体は拡大して表示するか、詳細設定の「解析の細かさ」を上げてください。</p>
+        <p class="wide processing-hint">表示範囲を画面の細かさで解析。小さな物体は拡大して表示するか、詳細設定の「解析の細かさ」の引き上げが必要。</p>
         <details class="wide pansharpen-more">
           <summary>詳細設定</summary>
           <div class="service-form">
@@ -250,7 +250,7 @@ export class DetectDialog {
     this.target_.replaceChildren(...this.layers_.map((l, i) => new Option(l.name, String(i))));
     const target = targetLayer(this.options);
     if (target) this.target_.value = String(this.layers_.indexOf(target));
-    this.note_.textContent = this.layers_.length ? '' : '先に画像を開いてください';
+    this.note_.textContent = this.layers_.length ? '' : '画像なし（先に画像を開く）';
     void this.describe_();
     this.dialog.showModal();
   }
@@ -274,15 +274,15 @@ export class DetectDialog {
     const score = this.form_.elements.namedItem('score') as HTMLInputElement;
     const iou = this.form_.elements.namedItem('iou') as HTMLInputElement;
     if (!this.models_.chosen()) {
-      this.info_.textContent = 'YOLO（Ultralytics など）の ONNX を選んでください。config.json の aiModels に登録したモデルはここに並びます。';
+      this.info_.textContent = 'YOLO（Ultralytics など）の ONNX を選択。config.json の aiModels に登録したモデルはここに表示。';
       return;
     }
     // Another model chosen while this one loads: its own description wins.
     const key = this.models_.select.value;
     const stale = () => this.models_.select.value !== key;
     try {
-      this.info_.textContent = 'モデルを読み込んでいます…';
-      const loaded = await this.model_((done) => stale() || (this.info_.textContent = `モデルを読み込んでいます… ${Math.round(done * 100)}%`));
+      this.info_.textContent = 'モデルを読み込み中…';
+      const loaded = await this.model_((done) => stale() || (this.info_.textContent = `モデルを読み込み中… ${Math.round(done * 100)}%`));
       if (!loaded || stale()) return;
       const { spec } = loaded;
       // The workers run on the GPU when there is one.
@@ -294,10 +294,10 @@ export class DetectDialog {
       const kind = spec.format === 'detectron2' ? '（Detectron2 形式）' : '';
       const classes = spec.classes.length
         ? `${spec.classes.length} クラス（${spec.classes.slice(0, 8).join('・')}${spec.classes.length > 8 ? '…' : ''}）`
-        : 'クラス名なし（番号で出します）';
+        : 'クラス名なし（番号で表示）';
       this.info_.textContent = `${task}${kind}・入力 ${spec.inputSize[0]}×${spec.inputSize[1]}・${classes}・${backendLabel(backend)}${backend === 'wasm' ? cpuLabel() : ''}で実行`;
     } catch (error) {
-      if (!stale()) this.info_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
+      if (!stale()) this.info_.textContent = `モデルの読み込みに失敗: ${message(error)}`;
     }
   }
 
@@ -310,9 +310,9 @@ export class DetectDialog {
    */
   async run(): Promise<void> {
     const layer = this.layers_[Number(this.target_.value)];
-    if (!layer) return void (this.note_.textContent = '先に画像を開いてください');
-    if (!this.models_.chosen()) return void (this.note_.textContent = 'モデルを選んでください');
-    if (this.running_) return void (this.note_.textContent = '物体検出を実行中です。終わってからもう一度実行してください');
+    if (!layer) return void (this.note_.textContent = '画像なし（先に画像を開く）');
+    if (!this.models_.chosen()) return void (this.note_.textContent = 'モデルを選択');
+    if (this.running_) return void (this.note_.textContent = '物体検出を実行中。終わってからもう一度実行');
     const running = { cancelled: false };
     this.running_ = running;
     this.run_.disabled = true;
@@ -322,7 +322,7 @@ export class DetectDialog {
     progress.start(() => (running.cancelled = true));
     let offscreen: OffscreenMap | null = null;
     try {
-      this.note_.textContent = 'モデルを読み込んでいます…';
+      this.note_.textContent = 'モデルを読み込み中…';
       const loaded = (await this.model_())!;
       const { label } = loaded;
       const spec = { ...loaded.spec };
@@ -339,9 +339,9 @@ export class DetectDialog {
       this.dialog.close();
       this.note_.textContent = '';
 
-      progress.say('モデルを準備しています…');
+      progress.say('モデルを準備中…');
       const pool = await this.pool_(loaded.bytes);
-      if (running.cancelled) throw new Error('中止しました');
+      if (running.cancelled) throw new Error('中止');
 
       // The view as it is now, on a hidden copy of the map (the map itself when the layer cannot be copied).
       offscreen = await offscreenMap(this.map, layer.layer);
@@ -358,9 +358,9 @@ export class DetectDialog {
       let tileCount = 0;
       let drawing = draw(0);
       for (let b = 0; b < blocks.length; b++) {
-        if (running.cancelled) throw new Error('中止しました');
+        if (running.cancelled) throw new Error('中止');
         const where = blocks.length > 1 ? `ブロック ${b + 1} / ${blocks.length}・` : '';
-        progress.say(`${where}画像を描いています…`);
+        progress.say(`${where}画像を描画中…`);
         const drawn = await drawing;
         // The next block is drawn (on the hidden map) while this one is analysed.
         if (offscreen && b + 1 < blocks.length) drawing = draw(b + 1);
@@ -381,12 +381,12 @@ export class DetectDialog {
         // A few tiles more than workers are cut out at a time: each worker has the next one waiting.
         const inFlight = new Set<Promise<void>>();
         for (const [x0, y0] of tiles) {
-          if (running.cancelled) throw new Error('中止しました');
+          if (running.cancelled) throw new Error('中止');
           const job = pool
             .run(cropOf(rgba, width, height, x0, y0, tw, th), tw, th, spec)
             .then((objects) => {
               found.push(...objects.map((d) => offset(d, bx + x0, by + y0)));
-              progress.say(`${where}解析しています… ${++done} / ${tiles.length} タイル（${backendLabel(pool.backend)}${pool.size > 1 ? ` × ${pool.size}` : ''}）`, done / tiles.length);
+              progress.say(`${where}解析中… ${++done} / ${tiles.length} タイル（${backendLabel(pool.backend)}${pool.size > 1 ? ` × ${pool.size}` : ''}）`, done / tiles.length);
             });
           inFlight.add(job);
           void job.finally(() => inFlight.delete(job)).catch(() => {});
@@ -410,7 +410,7 @@ export class DetectDialog {
         return feature;
       });
       if (!features.length) {
-        this.options.say(`物体検出（${label}）: 見つかりませんでした（${tileCount} タイル、スコア ${spec.score} 以上）。拡大するか、しきい値を下げてみてください`);
+        this.options.say(`物体検出（${label}）: 検出なし（${tileCount} タイル、スコア ${spec.score} 以上）。拡大、またはしきい値の引き下げを推奨`);
         return;
       }
       const fields = [field('class', 'string', 'クラス'), field('class_id', 'integer', 'クラス番号'), field('score', 'double', 'スコア')];
@@ -428,10 +428,10 @@ export class DetectDialog {
         notes: [`${summary}（${tileCount} タイル、${backendLabel(pool.backend)}${pool.size > 1 ? ` × ${pool.size}` : ''}、${seconds} 秒）`],
       };
       await this.options.onResult(result, `物体検出 ${label}・スコア ${spec.score} 以上（${layer.name}）`);
-      this.options.say(`${result.title} を作成しました（${features.length.toLocaleString()} 件、一時レイヤー）。${result.notes![0]}`);
+      this.options.say(`${result.title} を作成（${features.length.toLocaleString()} 件、一時レイヤー）。${result.notes![0]}`);
     } catch (error) {
-      if (running.cancelled) this.options.say('物体検出を中止しました');
-      else this.options.say(`物体検出できませんでした: ${message(error)}`);
+      if (running.cancelled) this.options.say('物体検出を中止');
+      else this.options.say(`物体検出失敗: ${message(error)}`);
       // A worker stopped half-way through a tile is made again next time.
       if (running.cancelled) this.dropPool_();
     } finally {
@@ -491,7 +491,7 @@ class Progress {
     this.stop_.textContent = '中止';
     this.stop_.addEventListener('click', () => {
       this.onStop_?.();
-      this.say('中止しています…');
+      this.say('中止中…');
     });
     this.bar_.max = 1;
     this.panel_.append(this.text_, this.bar_, this.stop_);
@@ -501,7 +501,7 @@ class Progress {
   start(onStop: () => void): void {
     this.onStop_ = onStop;
     this.bar_.removeAttribute('value');
-    this.text_.textContent = '物体検出を始めています…';
+    this.text_.textContent = '物体検出を開始中…';
     this.panel_.hidden = false;
   }
 
@@ -554,7 +554,7 @@ const pointStyles = {
   false: new Style({ image: new Circle({ radius: 5, fill: new Fill({ color: '#e74c3c' }), stroke: new Stroke({ color: '#fff', width: 1.5 }) }) }),
 };
 
-/** 「クリックで抽出」: Segment Anything on the image under the click. */
+/** 「クリック抽出」: Segment Anything on the image under the click. */
 export class SegmentTool {
   readonly panel: HTMLElement;
   private readonly models_: ModelChoice<SamModelConfig>;
@@ -582,14 +582,14 @@ export class SegmentTool {
     this.panel.className = 'ai-segment-panel';
     this.panel.hidden = true;
     this.panel.setAttribute('role', 'group');
-    this.panel.setAttribute('aria-label', 'クリックで抽出');
+    this.panel.setAttribute('aria-label', 'クリック抽出');
     this.panel.innerHTML = `
-      <div class="ai-segment-row"><strong>クリックで抽出（AI）</strong><label class="ai-model">モデル</label></div>
-      <p class="ai-segment-hint">画像の物体をクリックすると輪郭を取ります。Shift+クリックで範囲を広げ、Alt+クリックで除きます。</p>
+      <div class="ai-segment-row"><strong>クリック抽出（AI）</strong><label class="ai-model">モデル</label></div>
+      <p class="ai-segment-hint">画像の物体のクリックで輪郭を抽出。Shift+クリックで範囲を拡張、Alt+クリックで除外。</p>
       <p class="ai-segment-note" role="status"></p>
       <div class="ai-segment-row">
-        <button type="button" value="undo">1 つ戻す</button>
-        <button type="button" value="keep" class="primary">レイヤーにする</button>
+        <button type="button" value="undo">1 つ取り消し</button>
+        <button type="button" value="keep" class="primary">レイヤー化</button>
         <button type="button" value="close">終了</button>
       </div>`;
     this.models_ = new ModelChoice(
@@ -654,7 +654,7 @@ export class SegmentTool {
       const [encoder, decoder] = await Promise.all([modelFrom(chosen.config.encoder), modelFrom(chosen.config.decoder)]);
       return { encoder, decoder, config: chosen.config };
     }
-    if (chosen.files.length !== 2) throw new Error('エンコーダーとデコーダーの 2 つの .onnx を一緒に選んでください');
+    if (chosen.files.length !== 2) throw new Error('エンコーダーとデコーダーの 2 つの .onnx を一緒に選択');
     // By name (…encoder… / …decoder…), else the larger file is the encoder.
     const [a, b] = chosen.files;
     const encoderFirst = /encoder/i.test(a.name) || /decoder/i.test(b.name) || (!/encoder|decoder/i.test(a.name + b.name) && a.size >= b.size);
@@ -665,17 +665,17 @@ export class SegmentTool {
   /** Loads the model when the tool starts, so the first click is quicker. */
   private async prepare_(): Promise<void> {
     if (!this.models_.chosen()) {
-      this.note_.textContent = 'Segment Anything（SAM・MobileSAM など）のエンコーダーとデコーダーの ONNX を選んでください';
+      this.note_.textContent = 'Segment Anything（SAM・MobileSAM など）のエンコーダーとデコーダーの ONNX を選択';
       return;
     }
     const key = this.models_.select.value;
     const stale = () => this.models_.select.value !== key;
     try {
-      this.note_.textContent = 'モデルを読み込んでいます…';
+      this.note_.textContent = 'モデルを読み込み中…';
       const m = await this.models();
-      if (m && this.active_ && !stale()) this.note_.textContent = `準備ができました（${backendLabel(m.encoder.backend)}）。画像をクリックしてください`;
+      if (m && this.active_ && !stale()) this.note_.textContent = `準備完了（${backendLabel(m.encoder.backend)}）。画像をクリック`;
     } catch (error) {
-      if (!stale()) this.note_.textContent = `モデルを読み込めませんでした: ${message(error)}`;
+      if (!stale()) this.note_.textContent = `モデルの読み込みに失敗: ${message(error)}`;
     }
   }
 
@@ -685,7 +685,7 @@ export class SegmentTool {
     const source = (layer.layer as unknown as { getSource?: () => { getRevision(): number } | null }).getSource?.();
     const key = JSON.stringify([getUid(layer.layer), source?.getRevision(), view.getCenter(), view.getResolution(), view.getRotation(), this.map.getSize(), getUid(encoder.session)]);
     if (this.image_?.key === key) return this.image_;
-    this.note_.textContent = '画像を解析しています（エンコーダー）…';
+    this.note_.textContent = '画像を解析中（エンコーダー）…';
     await breathe();
     const drawn = await drawView(this.map, 1, layer.layer);
     const side = config.inputSize ?? 1024;
@@ -718,11 +718,11 @@ export class SegmentTool {
 
   private async click_(e: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>): Promise<void> {
     const layer = targetLayer(this.options);
-    if (!layer) return void (this.note_.textContent = '先に画像を開いてください');
+    if (!layer) return void (this.note_.textContent = '画像なし（先に画像を開く）');
     const event = e.originalEvent as MouseEvent;
     try {
       const models = await this.models();
-      if (!models) return void (this.note_.textContent = '先にモデルを選んでください');
+      if (!models) return void (this.note_.textContent = '先にモデルを選択');
       const started = performance.now();
       const image = await this.image(layer, models.encoder, models.config);
       const [px, py] = placementOf(image.drawn).toPixel(e.coordinate);
@@ -732,13 +732,13 @@ export class SegmentTool {
       if (!adding) this.objects_.push(object);
       object.points.push({ x: px, y: py, positive: !event.altKey });
       this.source_.addFeature(new Feature({ geometry: new Point(e.coordinate), positive: !event.altKey }));
-      this.note_.textContent = '輪郭を取っています…';
+      this.note_.textContent = '輪郭を抽出中…';
       await this.outline_(object, models.decoder, image);
       this.note_.textContent = object.feature
-        ? `${this.count_()} 個を抽出しました（${((performance.now() - started) / 1000).toFixed(1)} 秒）。「レイヤーにする」で一時レイヤーにします`
-        : 'この点からは輪郭を取れませんでした';
+        ? `${this.count_()} 個を抽出（${((performance.now() - started) / 1000).toFixed(1)} 秒）。「レイヤー化」で一時レイヤーに変換`
+        : 'この点からの輪郭取得に失敗';
     } catch (error) {
-      this.note_.textContent = `抽出できませんでした: ${message(error)}`;
+      this.note_.textContent = `抽出失敗: ${message(error)}`;
     }
     this.update_();
   }
@@ -806,7 +806,7 @@ export class SegmentTool {
         })
         .catch(() => {});
     }
-    this.note_.textContent = `${this.count_()} 個を抽出しています`;
+    this.note_.textContent = `${this.count_()} 個を抽出中`;
     this.update_();
   }
 
@@ -818,8 +818,8 @@ export class SegmentTool {
     const layer = targetLayer(this.options);
     if (layer) await stamp(features, layer, label, this.options);
     const fields = [field('id', 'integer', '番号'), field('class', 'string', 'クラス'), ...sourceFields()];
-    await this.options.onResult({ title: 'AI 抽出', features, fields }, `クリックで抽出（${label}）`);
-    this.options.say(`AI 抽出 を作成しました（${features.length} 件、一時レイヤー）`);
+    await this.options.onResult({ title: 'AI 抽出', features, fields }, `クリック抽出（${label}）`);
+    this.options.say(`AI 抽出 を作成（${features.length} 件、一時レイヤー）`);
     this.objects_ = [];
     this.source_.clear();
     this.update_();

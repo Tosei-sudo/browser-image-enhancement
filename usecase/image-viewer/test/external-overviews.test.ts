@@ -86,7 +86,7 @@ describe('external .ovr overviews', () => {
     const [file] = pair('rgb.tif');
     await expect(withExternalOverviews(file, ovr, { name: 'gray16.tif.ovr' })).rejects.toThrow(/バンド数/);
     const [, other] = pair('rgb.tif');
-    await expect(withExternalOverviews(new Blob([plainGeoTiff(1100, 300)]), other, { name: 'x.ovr' })).rejects.toThrow(/合いません/);
+    await expect(withExternalOverviews(new Blob([plainGeoTiff(1100, 300)]), other, { name: 'x.ovr' })).rejects.toThrow(/不一致/);
   });
 
   it('is not used for an image with overviews of its own', async () => {

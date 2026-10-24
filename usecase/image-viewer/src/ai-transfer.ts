@@ -208,9 +208,9 @@ export class TransferDialog {
     this.selectedOnly_.nextElementSibling!.textContent = `選択中の地物だけ（${count.toLocaleString()} 件）`;
     this.run_.disabled = true;
     this.mapping_.replaceChildren();
-    if (!output) return void (this.plan_.textContent = '転記先がありません。config.json の detectionOutputs に Esri フィーチャーレイヤーと属性の対応を書いてください');
-    if (!layer) return void (this.plan_.textContent = '転記できるレイヤーがありません。先に「物体検出」か「クリックで抽出」で結果を作ってください');
-    this.plan_.textContent = '転記先を確認しています…';
+    if (!output) return void (this.plan_.textContent = '転記先なし。config.json の detectionOutputs に Esri フィーチャーレイヤーと属性の対応を記述');
+    if (!layer) return void (this.plan_.textContent = '転記できるレイヤーなし（先に「物体検出」か「クリック抽出」で結果を作成）');
+    this.plan_.textContent = '転記先を確認中…';
     try {
       const target = await this.target(output);
       const rows = (Object.entries(output.fields) as Array<[TransferRole, string]>).map(([role, name]) => [transferRoles[role], name]);
@@ -227,9 +227,9 @@ export class TransferDialog {
         list.append(dt, dd);
       }
       this.mapping_.append(list);
-      if (!target.info.canCreate) return void (this.plan_.textContent = `${target.info.name} は追加できないレイヤーです（サービスで作成を許可してください）`);
+      if (!target.info.canCreate) return void (this.plan_.textContent = `${target.info.name} は追加不可のレイヤー（サービスで作成を許可）`);
       if (!['esriGeometryPolygon', 'esriGeometryPoint'].includes(target.info.geometryType)) {
-        return void (this.plan_.textContent = `${target.info.name} はポリゴンかポイントのレイヤーにしてください`);
+        return void (this.plan_.textContent = `${target.info.name} はポリゴンかポイントのレイヤーで指定`);
       }
       const plan = this.plan(this.features_(), output, target);
       const statuses = (Object.entries(plan.statuses) as Array<[DetectionStatus, number]>)
@@ -240,12 +240,12 @@ export class TransferDialog {
         `${target.info.name}（${target.info.geometryType === 'esriGeometryPoint' ? 'ポイント：中心点を転記' : 'ポリゴン'}）へ`,
         `新規 ${plan.adds.length} 件・更新 ${plan.updates.length} 件・転記済みで変更なし ${plan.same} 件`,
         statuses && `（${statuses}）`,
-        plan.skipped ? `。形が合わない ${plan.skipped} 件は送りません` : '',
-        missing.size ? `。転記先にない属性 ${missing.size} 個は書きません` : '',
+        plan.skipped ? `。形が合わない ${plan.skipped} 件は送信対象外` : '',
+        missing.size ? `。転記先にない属性 ${missing.size} 個は書き込み対象外` : '',
       ].join('');
       this.run_.disabled = plan.adds.length + plan.updates.length === 0 || (plan.updates.length > 0 && !target.info.canUpdate && plan.adds.length === 0);
     } catch (error) {
-      this.plan_.textContent = `転記先を読めませんでした: ${message(error)}`;
+      this.plan_.textContent = `転記先の読み込みに失敗: ${message(error)}`;
     }
   }
 
@@ -262,9 +262,9 @@ export class TransferDialog {
       const target = await this.target(output);
       const plan = this.plan(this.features_(), output, target);
       const updates = target.info.canUpdate ? plan.updates : [];
-      if (plan.updates.length && !target.info.canUpdate) failures.push(`更新できないレイヤーなので、変更した ${plan.updates.length} 件は送りません`);
+      if (plan.updates.length && !target.info.canUpdate) failures.push(`更新不可のレイヤーのため、変更した ${plan.updates.length} 件は送信対象外`);
       for (let i = 0; i < Math.max(plan.adds.length, updates.length); i += BATCH) {
-        this.note_.textContent = `転記しています… ${Math.min(i + BATCH, Math.max(plan.adds.length, updates.length))} / ${Math.max(plan.adds.length, updates.length)}`;
+        this.note_.textContent = `転記中… ${Math.min(i + BATCH, Math.max(plan.adds.length, updates.length))} / ${Math.max(plan.adds.length, updates.length)}`;
         const adds = plan.adds.slice(i, i + BATCH);
         const ups = updates.slice(i, i + BATCH);
         const result = await applyEdits(target.info, {
@@ -276,13 +276,13 @@ export class TransferDialog {
           if (r.success && r.objectId !== undefined) {
             markSent(adds[k].feature, output.url, r.objectId, adds[k].signature);
             added++;
-          } else failures.push(r.error?.description ?? '追加できませんでした');
+          } else failures.push(r.error?.description ?? '追加失敗');
         });
         result.updateResults.forEach((r, k) => {
           if (r.success) {
             markSent(ups[k].feature, output.url, ups[k].id, ups[k].signature);
             updated++;
-          } else failures.push(r.error?.description ?? '更新できませんでした');
+          } else failures.push(r.error?.description ?? '更新失敗');
         });
       }
     } catch (error) {
@@ -291,7 +291,7 @@ export class TransferDialog {
       // What was sent is kept with a temporary layer (in the browser), so the next transfer carries on.
       if (layer.service.temp && (added || updated)) await layer.service.editTarget?.save({ adds: [], updates: [], deletes: [] }).catch(() => {});
     }
-    const done = `${output.label} へ ${added} 件を追加、${updated} 件を更新しました`;
+    const done = `${output.label} へ ${added} 件を追加、${updated} 件を更新`;
     const failed = failures.length ? `（失敗 ${failures.length} 件: ${[...new Set(failures)].slice(0, 3).join('、')}）` : '';
     this.options.say(done + failed);
     this.note_.textContent = done + failed;

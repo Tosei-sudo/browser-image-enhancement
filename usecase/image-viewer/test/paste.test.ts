@@ -32,7 +32,7 @@ describe('pasted text', () => {
   });
 
   it('says what is wrong with JSON that is not GeoJSON', () => {
-    expect(readPastedText('{"a":1}')).toMatchObject({ kind: 'none', message: expect.stringContaining('GeoJSON ではない') });
+    expect(readPastedText('{"a":1}')).toMatchObject({ kind: 'none', message: expect.stringContaining('GeoJSON 以外') });
     expect(readPastedText('{oops')).toMatchObject({ kind: 'none', message: expect.stringContaining('JSON') });
   });
 
@@ -61,7 +61,7 @@ describe('pasted text', () => {
     expect(s.features).toHaveLength(2);
     expect(s.features[1].get('名前')).toBe('大阪駅');
     expect(lonLat((s.features[0].getGeometry() as Point).getCoordinates())).toEqual([139.7671, 35.6812]);
-    expect(s.errors.join()).toContain('1 件を飛ばしました');
+    expect(s.errors.join()).toContain('1 件をスキップ');
     // English names, CSV.
     const csv = table(readPastedText('id,lon,lat\n1,139,35\n'));
     expect([csv.x, csv.y, csv.geographic]).toEqual(['lon', 'lat', true]);
@@ -97,7 +97,7 @@ describe('pasted text', () => {
   });
 
   it('keeps to the limits of shapes in a link', () => {
-    expect(readPastedText('x'.repeat(MAX_VALUE + 1))).toMatchObject({ kind: 'none', message: expect.stringContaining('長すぎます') });
+    expect(readPastedText('x'.repeat(MAX_VALUE + 1))).toMatchObject({ kind: 'none', message: expect.stringContaining('長すぎ') });
     const many = Array.from({ length: 1500 }, (_, i) => `POINT(${(i % 360) - 180} 0)`).join('\n');
     const s = shapes(readPastedText(many));
     expect(s.features).toHaveLength(1000);

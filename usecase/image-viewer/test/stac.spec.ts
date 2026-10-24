@@ -172,7 +172,7 @@ test('reads a static catalog by URL', async ({ page }) => {
   const dialog = await openPanel(page);
   await dialog.locator('summary').click();
   await dialog.locator('input[name=staticUrl]').fill('http://localhost:4175/static/catalog.json');
-  await dialog.getByRole('button', { name: '読み込む', exact: true }).click();
+  await dialog.getByRole('button', { name: '読み込み', exact: true }).click();
   const rows = dialog.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   await expect(rows.locator('td:nth-child(5)')).toHaveText(['STATIC_A', 'STATIC_B']);

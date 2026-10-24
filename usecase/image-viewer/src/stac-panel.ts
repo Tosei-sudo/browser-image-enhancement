@@ -124,7 +124,7 @@ export class StacPanel {
       <form class="service-form catalog-form stac-form">
         <label class="catalog-days">撮像日<span><input name="from" type="date" aria-label="撮像日（から）" /> 〜 <input name="to" type="date" aria-label="撮像日（まで）" /></span></label>
         <label class="stac-cloud">雲量（以下）<span><input name="maxCloud" type="number" min="0" max="100" step="any" placeholder="制限なし" /> %</span></label>
-        <label class="stac-area">範囲<span><select name="area"><option value="view">表示範囲</option><option value="drawn">描いた四角</option><option value="any">指定なし</option></select><button type="button" class="stac-draw" title="地図をドラッグして範囲の四角を描きます">描く</button></span></label>
+        <label class="stac-area">範囲<span><select name="area"><option value="view">表示範囲</option><option value="drawn">作図した四角</option><option value="any">指定なし</option></select><button type="button" class="stac-draw" title="地図をドラッグして範囲の四角を描画">作図</button></span></label>
         <button type="submit" class="primary catalog-search">検索</button>
         <fieldset class="wide stac-collections" hidden><legend>コレクション</legend><div class="stac-collection-list"></div></fieldset>
         <details class="catalog-more wide">
@@ -132,7 +132,7 @@ export class StacPanel {
           <div class="catalog-more-body">
             <label>1 ページの件数<select name="limit"><option>20</option><option selected>${PAGE}</option><option>100</option></select></label>
             <span></span>
-            <label class="wide">静的カタログ・コレクション・アイテムの URL<span class="stac-static"><input name="staticUrl" type="url" placeholder="https://…/catalog.json" autocomplete="off" /><button type="button" class="stac-load">読み込む</button></span></label>
+            <label class="wide">静的カタログ・コレクション・アイテムの URL<span class="stac-static"><input name="staticUrl" type="url" placeholder="https://…/catalog.json" autocomplete="off" /><button type="button" class="stac-load">読み込み</button></span></label>
           </div>
         </details>
       </form>
@@ -141,7 +141,7 @@ export class StacPanel {
         <thead><tr><th>画像</th><th>撮像日時</th><th>雲量</th><th>コレクション</th><th>ID</th></tr></thead>
         <tbody></tbody>
       </table></div>
-      <button type="button" class="stac-more" hidden>さらに読み込む</button>
+      <button type="button" class="stac-more" hidden>続きを読み込み</button>
       <div class="stac-assets" hidden>
         <label>開くもの<select name="asset" aria-label="開くアセット"></select></label>
         <span class="stac-bands" hidden>${['赤', '緑', '青'].map((c) => `<select aria-label="${c}" name="band-${c}"></select>`).join('')}</span>
@@ -320,7 +320,7 @@ export class StacPanel {
     const draw = new Draw({ source, type: 'Circle', geometryFunction: createBox(), style: areaStyle });
     this.draw_ = draw;
     this.map.addInteraction(draw);
-    this.status_.textContent = '地図をドラッグして範囲の四角を描いてください（Esc でやめます）';
+    this.status_.textContent = '地図をドラッグして範囲の四角を作図（Esc で取消）';
     const esc = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && this.draw_ === draw) {
         e.stopPropagation();
@@ -358,7 +358,7 @@ export class StacPanel {
     if (!catalog) return;
     const turn = ++this.turn_;
     this.busy_ = true;
-    this.status_.textContent = '検索しています…';
+    this.status_.textContent = '検索中…';
     this.more_.hidden = true;
     try {
       const { page, request } = await searchStac(catalog, this.searchOf(), document.baseURI);
@@ -369,7 +369,7 @@ export class StacPanel {
       this.sayCount();
     } catch (error) {
       if (turn !== this.turn_) return;
-      this.status_.textContent = `検索できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `検索失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       if (turn === this.turn_) this.busy_ = false;
     }
@@ -383,7 +383,7 @@ export class StacPanel {
     const turn = ++this.turn_;
     this.busy_ = true;
     this.more_.disabled = true;
-    this.status_.textContent = '読み込んでいます…';
+    this.status_.textContent = '読み込み中…';
     try {
       const { page, request } = await nextPage(catalog, next.link, next.request, document.baseURI);
       if (turn !== this.turn_) return;
@@ -393,7 +393,7 @@ export class StacPanel {
       this.sayCount();
     } catch (error) {
       if (turn !== this.turn_) return;
-      this.status_.textContent = `読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.more_.disabled = false;
       if (turn === this.turn_) this.busy_ = false;
@@ -405,7 +405,7 @@ export class StacPanel {
     if (this.rows_.length >= MAX_LISTED) this.next_ = null;
     this.more_.hidden = !this.next_;
     const total = this.matched_ !== null && this.matched_ > shown ? `${this.matched_.toLocaleString()} 件中 ${shown.toLocaleString()} 件` : `${shown.toLocaleString()} 件`;
-    this.status_.textContent = shown === 0 ? '条件に合うシーンはありません' : `${total}。行を選んで「開く」（ダブルクリックでも開きます）`;
+    this.status_.textContent = shown === 0 ? '条件に合うシーンなし' : `${total}。行を選んで「開く」（ダブルクリックでも可）`;
   }
 
   /** Reads a static catalog, collection or item by URL and lists its items that match the dates, cloud cover and collections. */
@@ -416,13 +416,13 @@ export class StacPanel {
       absolute = new URL(url, document.baseURI).href;
       if (!/^https?:$/.test(new URL(absolute).protocol)) throw new Error();
     } catch {
-      this.status_.textContent = 'http(s) の URL を入力してください';
+      this.status_.textContent = 'http(s) の URL を入力';
       return;
     }
     const turn = ++this.turn_;
     this.busy_ = true;
     this.more_.hidden = true;
-    this.status_.textContent = '読み込んでいます…';
+    this.status_.textContent = '読み込み中…';
     // The configured catalog's headers go only to its own origin (fetchStac checks).
     const catalog = this.catalog_;
     try {
@@ -445,7 +445,7 @@ export class StacPanel {
       if (!isEmpty(extent)) this.map.getView().fit(extent, { padding: [40, 40, 40, 40], maxZoom: 14, duration: 250 });
     } catch (error) {
       if (turn !== this.turn_) return;
-      this.status_.textContent = `読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       if (turn === this.turn_) this.busy_ = false;
     }
@@ -505,7 +505,7 @@ export class StacPanel {
     );
     if (!defaultChoice(item)) {
       tr.classList.add('stac-none');
-      tr.title = '開ける GeoTIFF（COG）のアセットがありません';
+      tr.title = '開ける GeoTIFF（COG）のアセットなし';
     }
     tr.addEventListener('click', (e) => {
       this.choose(row, e.shiftKey ? 'range' : e.ctrlKey || e.metaKey ? 'toggle' : 'only');
@@ -610,17 +610,17 @@ export class StacPanel {
       const choice = this.choiceOf(item, chosen.length === 1);
       if (!choice) continue;
       const assets = choice.kind === 'single' ? [choice.asset] : choice.assets;
-      this.options.say(`${item.id} を開いています…`);
+      this.options.say(`${item.id} を読み込み中…`);
       try {
         // Unsigned: Planetary Computer's tokens go only on the requests (signingFetch in stac.ts).
         await this.options.open(assets.map((asset) => ({ asset, url: asset.href })), item, catalog, choice.kind === 'rgb');
         opened++;
       } catch (error) {
-        failed = `${item.id} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`;
+        failed = `${item.id} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
         this.options.say(failed);
       }
     }
-    if (failed && chosen.length > 1) this.options.say(`${opened} / ${chosen.length} 件を開きました。${failed}`);
+    if (failed && chosen.length > 1) this.options.say(`${opened} / ${chosen.length} 件を表示。${failed}`);
   }
 
   /** Fits the view to the chosen footprints. */

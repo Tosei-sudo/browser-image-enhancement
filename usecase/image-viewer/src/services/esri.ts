@@ -100,12 +100,12 @@ async function esriJsonWith<T>(url: string, params: Record<string, string>, toke
     ? await request(url, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
     : await request(`${url}?${all}`);
   const json = (await response.json().catch(() => null)) as (T & { error?: { code: number; message: string; details?: string[] } }) | null;
-  if (!json) throw new ServiceError('応答が JSON ではありません');
+  if (!json) throw new ServiceError('応答が JSON 以外');
   if (json.error) {
     const { code, message, details } = json.error;
-    if (token && (code === 498 || code === 499)) throw new InvalidTokenError(`トークンが無効か、期限切れです（${message}）`);
-    if (code === 499 || code === 498 || code === 403) throw new ServiceError(token ? `トークンが無効か、権限がありません（${message}）` : 'このサービスにはトークンが必要です');
-    throw new ServiceError(`サービスがエラーを返しました: ${[message, ...(details ?? [])].join(' ')}`);
+    if (token && (code === 498 || code === 499)) throw new InvalidTokenError(`トークンが無効か、期限切れ（${message}）`);
+    if (code === 499 || code === 498 || code === 403) throw new ServiceError(token ? `トークンが無効か、権限なし（${message}）` : 'このサービスにはトークンが必要');
+    throw new ServiceError(`サービスからエラー応答: ${[message, ...(details ?? [])].join(' ')}`);
   }
   return json;
 }
@@ -123,7 +123,7 @@ export async function readEsri(input: string, token?: string): Promise<ServiceCa
     return { kind: 'esri', url: clean, title, choices: [choice], open: (_choice, context, pick) => openImageServer(clean, context, pick?.settings) };
   }
   const m = /^(.*\/(?:FeatureServer|MapServer))(?:\/(\d+))?$/i.exec(clean);
-  if (!m) throw new ServiceError('FeatureServer・MapServer・ImageServer の URL を入力してください');
+  if (!m) throw new ServiceError('FeatureServer・MapServer・ImageServer の URL を入力');
   const [, serviceUrl, layerId] = m;
   const mapServer = /MapServer$/i.test(serviceUrl);
   const service = await esriJson<{ layers?: Array<{ id: number; name: string; geometryType?: string; type?: string }>; serviceDescription?: string; documentInfo?: { Title?: string }; mapName?: string }>(
@@ -136,7 +136,7 @@ export async function readEsri(input: string, token?: string): Promise<ServiceCa
   const choices: LayerChoice[] = layers.map((l) => ({ name: String(l.id), title: l.name, abstract: geometryNames[l.geometryType ?? ''] }));
   // A map service's own map first: what most people want from it.
   if (mapServer && layerId === undefined) choices.unshift(mapChoice(title));
-  if (choices.length === 0) throw new ServiceError('フィーチャーレイヤーがありません');
+  if (choices.length === 0) throw new ServiceError('フィーチャーレイヤーなし');
   return {
     kind: 'esri',
     url: serviceUrl,
@@ -207,7 +207,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string, where?
       ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
       ...(where?.trim() ? [['条件', where.trim()] as [string, string]] : []),
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
-      ...(raised !== null ? [['3D', raised ? `${raised.toLocaleString()} 件を高さの範囲で立ち上げ（3D 表示）` : '高さを取得できません（ArcGIS Enterprise 10.9 以降の extent が必要）'] as [string, string]] : []),
+      ...(raised !== null ? [['3D', raised ? `${raised.toLocaleString()} 件を高さの範囲で立ち上げ（3D 表示）` : '高さの取得不可（ArcGIS Enterprise 10.9 以降の extent が必要）'] as [string, string]] : []),
     ],
   };
 }

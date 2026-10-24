@@ -117,7 +117,7 @@ export class HistogramPanel {
     this.log_.type = 'checkbox';
     this.log_.addEventListener('change', () => this.draw_());
     logLabel.append(this.log_, '対数');
-    logLabel.title = '縦軸を対数にして、少ない値も見えるようにします';
+    logLabel.title = '縦軸を対数にして、少ない値も表示';
     controls.append(this.which_, logLabel);
     this.canvas_ = document.createElement('canvas');
     this.canvas_.width = 256;
@@ -153,8 +153,8 @@ export class HistogramPanel {
     this.colorMode_ = colorMode;
     this.shown_ = null;
     this.attach_();
-    if (!layer) this.message_('レイヤーを選ぶと、表示範囲のヒストグラムを表示します');
-    else if (!this.layer_) this.message_('このレイヤーにはヒストグラムがありません（画像・WMS・WMTS のみ）');
+    if (!layer) this.message_('レイヤーを選ぶと、表示範囲のヒストグラムを表示');
+    else if (!this.layer_) this.message_('このレイヤーにはヒストグラムなし（画像・WMS・WMTS のみ）');
   }
 
   /** The histogram shown (for tests and the console); null before the first count. */
@@ -211,7 +211,7 @@ export class HistogramPanel {
     const h = this.shown_;
     if (!h) return;
     if (h.count === 0) {
-      this.message_('表示範囲に画素がありません');
+      this.message_('表示範囲に画素なし');
       return;
     }
     const ctx = this.canvas_.getContext('2d')!;

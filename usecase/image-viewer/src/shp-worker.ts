@@ -150,7 +150,7 @@ self.onmessage = async (event: MessageEvent<ShpRequest>) => {
     post({
       type: 'error',
       id: request.type === 'load' ? request.id : undefined,
-      message: /quota/i.test(message) || (error as DOMException)?.name === 'QuotaExceededError' ? 'ブラウザの保存領域が足りません' : message,
+      message: /quota/i.test(message) || (error as DOMException)?.name === 'QuotaExceededError' ? 'ブラウザの保存領域が不足' : message,
     });
   }
 };
@@ -165,7 +165,7 @@ async function headOf(source: StreamSource): Promise<Uint8Array> {
   const chunks = await chunksOf(source);
   const head = await new ByteReader(chunks).read(100);
   await chunks.return?.();
-  if (!head) throw new Error('.shp が空です');
+  if (!head) throw new Error('.shp が空');
   return head;
 }
 
@@ -191,7 +191,7 @@ function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB に書き込めませんでした'));
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB への書き込みに失敗'));
   });
 }
 
@@ -237,7 +237,7 @@ function projector(prj: string | undefined): (coords: Float64Array) => void {
   try {
     forward = proj4(prj, 'EPSG:4326').forward;
   } catch {
-    throw new Error('.prj の座標系を読めませんでした');
+    throw new Error('.prj の座標系の読み込みに失敗');
   }
   const xy = [0, 0];
   return (coords) => {
@@ -324,11 +324,11 @@ async function importShapefile(request: ImportRequest): Promise<ImportedShapefil
 
   // Where the shapes are: the header's box, in Web Mercator.
   const header = readShpHeader(await headOf(request.shp));
-  if (header.shapeType === 31) throw new Error('マルチパッチは大容量読み込みに対応していません');
+  if (header.shapeType === 31) throw new Error('マルチパッチは大容量読み込みに非対応');
   const kind = kindOfShapeType(header.shapeType);
   if (!request.prj) {
     const [x0, y0, x1, y1] = header.box;
-    if (!(x0 >= -180 && x1 <= 180 && y0 >= -90 && y1 <= 90)) throw new Error('.prj（座標系）がありません。.shp と一緒に .prj も選んでください');
+    if (!(x0 >= -180 && x1 <= 180 && y0 >= -90 && y1 <= 90)) throw new Error('.prj（座標系）なし。.shp と一緒に .prj も選択');
   }
   const corners = new Float64Array(2 * 25);
   for (let i = 0; i < 5; i++) {
@@ -360,7 +360,7 @@ async function importShapefile(request: ImportRequest): Promise<ImportedShapefil
         if (Number.isFinite(hx) && Number.isFinite(hy)) h = hilbert(hx, hy);
       }
       keys.push(h * 2 ** 27 + fid);
-      progress('並べ替えています', firstPass.position / 4);
+      progress('並べ替え中', firstPass.position / 4);
     },
     true,
   );
@@ -447,7 +447,7 @@ async function importShapefile(request: ImportRequest): Promise<ImportedShapefil
     }
     drawn[r] = flags;
     own[r] = owned;
-    progress('図形を読み込んでいます', shpSize / 4 + shp.position);
+    progress('図形を読み込み中', shpSize / 4 + shp.position);
   });
 
   // 3. The attributes, in the same order.
@@ -478,7 +478,7 @@ async function importShapefile(request: ImportRequest): Promise<ImportedShapefil
       const record = await dbf.read(rough.recordLength);
       if (!record) break;
       await put(fid, record);
-      if ((fid & 1023) === 0) progress('属性を読み込んでいます', shpSize * 1.25 + dbf.position);
+      if ((fid & 1023) === 0) progress('属性を読み込み中', shpSize * 1.25 + dbf.position);
     }
   }
   await writer.flush();
@@ -560,7 +560,7 @@ async function readRanks(db: IDBDatabase, store: string, level: number | null, r
 }
 
 async function load({ extent, resolution }: LoadRequest): Promise<LoadedFeatures> {
-  if (!state) throw new Error('まだ読み込んでいません');
+  if (!state) throw new Error('未読み込み');
   const s = state;
   const { tolerances } = s.info;
   const levels = tolerances.length;

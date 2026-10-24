@@ -26,7 +26,7 @@ test('a link with a point, an MGRS point and a WKT polygon opens them as a label
   ]);
   await page.goto(`/index.html?${query}`);
   await page.waitForFunction(() => window.viewer !== undefined);
-  await expect(page.locator('#status')).toContainText('リンクの図形 3 個を一時レイヤー「現場」に追加しました');
+  await expect(page.locator('#status')).toContainText('リンクの図形 3 個を一時レイヤー「現場」に追加');
   await expect(page.locator('#images li')).toContainText('現場');
   // The shapes left the address; the rest stays.
   await expect.poll(() => new URL(page.url()).search).not.toContain('geom');
@@ -50,7 +50,7 @@ test('a link with a point, an MGRS point and a WKT polygon opens them as a label
   // The row menu copies a link showing the feature again.
   await rows(page).first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: '図形のリンクをコピー' }).click();
-  await expect(page.locator('#status')).toContainText('リンクをコピーしました');
+  await expect(page.locator('#status')).toContainText('リンクをコピー');
   const link = await page.evaluate(() => navigator.clipboard.readText());
   expect(new URL(link).searchParams.get('geom')).toMatch(/^POINT\(139\.7671 35\.6812\)$/);
   expect(new URL(link).searchParams.get('label')).toBe('東京駅');
@@ -58,7 +58,7 @@ test('a link with a point, an MGRS point and a WKT polygon opens them as a label
   // A reload restores the layer once (the address has no shapes any more).
   await page.reload();
   await page.waitForFunction(() => window.viewer !== undefined);
-  await expect(page.locator('#status')).toContainText('復元しました');
+  await expect(page.locator('#status')).toContainText('復元');
   await expect(page.locator('#images li', { hasText: '現場' })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
@@ -66,8 +66,8 @@ test('a link with a point, an MGRS point and a WKT polygon opens them as a label
 test('a link of shapes that cannot be read says why and adds nothing', async ({ page }) => {
   await page.goto(`/index.html?${new URLSearchParams([['geom', 'POINT(1 2);alert(1)'], ['polygon', '35,139']])}`);
   await page.waitForFunction(() => window.viewer !== undefined);
-  await expect(page.locator('#status')).toContainText('リンクの図形を表示できませんでした');
-  await expect(page.locator('#status')).toContainText('WKT として読めません');
+  await expect(page.locator('#status')).toContainText('リンクの図形の表示に失敗');
+  await expect(page.locator('#status')).toContainText('WKT として読み込み不可');
   await expect(page.locator('#status')).toContainText('3 点以上');
   await expect(page.locator('#images li', { hasText: 'リンクの図形' })).toHaveCount(0);
 });

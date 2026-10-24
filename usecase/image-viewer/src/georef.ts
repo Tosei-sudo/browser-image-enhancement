@@ -73,9 +73,9 @@ export function parseWorldFile(text: string): number[] {
     .filter((l) => l !== '')
     .slice(0, 6)
     .map((l) => Number(l.replace(/,/g, '.')));
-  if (values.length < 6 || !values.every(Number.isFinite)) throw new Error('ワールドファイルには数字が 6 行必要です');
+  if (values.length < 6 || !values.every(Number.isFinite)) throw new Error('ワールドファイルには数字が 6 行必要');
   const [a, d, b, e, c, f] = values;
-  if (a * e - b * d === 0) throw new Error('ワールドファイルの画素の大きさが 0 です');
+  if (a * e - b * d === 0) throw new Error('ワールドファイルの画素の大きさが 0');
   // C and F are the centre of the top-left pixel; the GeoTransform starts at its corner.
   return [c - a / 2 - b / 2, a, b, f - d / 2 - e / 2, d, e];
 }
@@ -100,7 +100,7 @@ export function parseAuxXml(text: string): { crs: string | null; transform: numb
 
 /** The GeoTransform that puts a `width` × `height` image over `extent` (west, south, east, north), north up. */
 export function extentTransform([west, south, east, north]: readonly number[], width: number, height: number): number[] {
-  if (!(east > west && north > south)) throw new Error('範囲は 左 < 右、下 < 上 にしてください');
+  if (!(east > west && north > south)) throw new Error('範囲は 左 < 右、下 < 上 で指定');
   return [west, (east - west) / width, 0, north, 0, -(north - south) / height];
 }
 
@@ -121,10 +121,10 @@ export function cornersTransform(points: ReadonlyArray<readonly [number, number]
     xs.push(p[0]);
     ys.push(p[1]);
   });
-  if (rows.length < 3) throw new Error('四隅のうち 3 点以上の座標を入れてください');
+  if (rows.length < 3) throw new Error('四隅のうち 3 点以上の座標を入力');
   const cx = solve3(rows, xs);
   const cy = solve3(rows, ys);
-  if (!cx || !cy || cx[1] * cy[2] - cx[2] * cy[1] === 0) throw new Error('四隅の座標が一直線に並んでいます');
+  if (!cx || !cy || cx[1] * cy[2] - cx[2] * cy[1] === 0) throw new Error('四隅の座標が一直線上');
   return [cx[0], cx[1], cx[2], cy[0], cy[1], cy[2]];
 }
 
@@ -222,9 +222,9 @@ function geoKeys(crs: string, projection: Projection): number[] {
  */
 export async function georefPlacement(georef: Georef, width: number, height: number): Promise<{ geo: NonNullable<GeoTIFFRaster['geo']>; projection: Projection }> {
   const projection = await crsProjection(georef.crs);
-  if (!projection) throw new Error(`座標系 ${crsLabel(georef.crs)} の定義が見つかりません`);
+  if (!projection) throw new Error(`座標系 ${crsLabel(georef.crs)} の定義なし`);
   const t = georef.transform;
-  if (t.length !== 6 || !t.every(Number.isFinite)) throw new Error('配置の値が正しくありません');
+  if (t.length !== 6 || !t.every(Number.isFinite)) throw new Error('配置の値が不正');
   const northUp = t[2] === 0 && t[4] === 0 && t[1] > 0 && t[5] < 0;
   if (northUp) {
     return {

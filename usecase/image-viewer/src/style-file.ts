@@ -198,7 +198,7 @@ function readSymbol(symbol: XmlElement | undefined, base: SymbolSpec, notes?: St
   if (layers.length > 1) notes?.add('重ねたシンボル（2 層目以降）');
   const p = propsOf(layer);
   const kind = attr(layer, 'class') ?? '';
-  if (kind !== 'SimpleLine' && kind !== 'SimpleMarker' && kind !== 'SimpleFill') notes?.add(`シンボルの種類「${kind}」（単純な点・線・塗りとして読みます）`);
+  if (kind !== 'SimpleLine' && kind !== 'SimpleMarker' && kind !== 'SimpleFill') notes?.add(`シンボルの種類「${kind}」（単純な点・線・塗りとして読み込み）`);
   for (const [k, v] of p) if (/_unit$/.test(k) && (v === 'MapUnit' || v === 'RenderMetersInMapUnits')) notes?.add('マップ単位の大きさ');
   const defined = kid(layer, 'data_defined_properties');
   if ((defined && descendants(defined, 'Option').some((o) => attr(o, 'name') === 'active' && attr(o, 'value') === 'true')) || [...p].some(([k, v]) => k.endsWith('_dd_active') && v === '1')) notes?.add('データ定義の値');
@@ -336,7 +336,7 @@ export function readQgisLayerStyle(root: XmlElement, base: VectorStyleSpec, note
     spec.classCount = Math.max(1, spec.classes.length);
     const method = (attr(kid(renderer, 'classificationMethod'), 'id') ?? attr(kid(renderer, 'mode'), 'name') ?? '').toLowerCase();
     spec.method = method.includes('quantile') ? 'quantile' : method.includes('equal') ? 'equal' : 'jenks';
-    if (attr(renderer, 'graduatedMethod') === 'GraduatedSize') notes.add('大きさによる段階（色の段階として読みます）');
+    if (attr(renderer, 'graduatedMethod') === 'GraduatedSize') notes.add('大きさによる段階（色の段階として読み込み）');
   } else if (type === 'singleSymbol') {
     spec.mode = 'single';
     spec.symbol = readSymbol(symbols.get('0') ?? [...symbols.values()][0], spec.symbol, notes).symbol;

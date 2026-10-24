@@ -52,7 +52,7 @@ export class GlobeToggle {
     }
     if (this.isOpen()) return;
     button.disabled = true;
-    if (!this.globe_) context.say('3D 表示を読み込んでいます…');
+    if (!this.globe_) context.say('3D 表示を読み込み中…');
     try {
       const globe = await this.load_();
       this.show_(true);
@@ -61,9 +61,9 @@ export class GlobeToggle {
       this.pending_ = null;
       if (pending) await globe.setState(pending, this.pendingCamera_);
       onToggle(true);
-      context.say('3D 表示にしました（2D の全レイヤーを地表に重ねています）');
+      context.say('3D 表示に切り替え（2D の全レイヤーを地表に重ねて表示）');
     } catch (error) {
-      context.say(`3D 表示を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      context.say(`3D 表示の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       this.show_(false);
     } finally {
       button.disabled = false;

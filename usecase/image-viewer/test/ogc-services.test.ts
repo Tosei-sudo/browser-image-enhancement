@@ -176,8 +176,8 @@ describe('WCS', () => {
     expect(plan.subsets).toEqual([]);
     expect(plan.scale).toBeCloseTo(MAX_SIDE / 100_000);
     expect(new URL(getCoverageUrl('https://x.test/ows', '2.0.1', 'dem', 'image/tiff', plan)).searchParams.get('SCALEFACTOR')).toBe(String(Math.floor(plan.scale * 1e6) / 1e6));
-    expect(() => coveragePlan(big, null, false)).toThrow('範囲が大きすぎます');
-    expect(() => coveragePlan(grid, [0, 0, 1, 1], true)).toThrow('重なりません');
+    expect(() => coveragePlan(big, null, false)).toThrow('範囲が大きすぎ');
+    expect(() => coveragePlan(grid, [0, 0, 1, 1], true)).toThrow('重なりなし');
   });
 
   it('caps a side and the pixel count', () => {
@@ -294,6 +294,6 @@ describe('config layers of the OGC kinds', () => {
       { type: 'wcs', url: 'https://x.test/ows', layer: 'dem' },
       { type: 'ogc-coverage', url: 'https://x.test/ogc', layer: 'dem' },
     ]);
-    expect(problems).toEqual(['layers[2].bbox は [西, 南, 東, 北]（度）の 4 つの数にしてください']);
+    expect(problems).toEqual(['layers[2].bbox は [西, 南, 東, 北]（度）の 4 つの数で指定']);
   });
 });

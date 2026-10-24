@@ -82,7 +82,7 @@ test('a mosaic is kept in the browser, saved from its row as a COG or as made, a
   await page.locator('.processing-dialog').first().getByLabel('処理').selectOption('mosaic');
   const mosaic = page.locator('.mosaic-dialog');
   await mosaic.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText(`${RESULT} を作りました（2 枚、600 × 300 px）`);
+  await expect(page.locator('#status')).toContainText(`${RESULT} を作成（2 枚、600 × 300 px）`);
   const row = page.locator('#images .image', { hasText: RESULT });
   const save = row.locator('button[data-action=save]');
   await expect(save).toBeVisible();
@@ -99,7 +99,7 @@ test('a mosaic is kept in the browser, saved from its row as a COG or as made, a
   const cog = await downloaded(page, () => dialog.getByRole('button', { name: '保存', exact: true }).click());
   expect(cog.name).toBe(RESULT);
   await expect(dialog).toBeHidden();
-  await expect(page.locator('#status')).toContainText(`${RESULT} を保存しました`);
+  await expect(page.locator('#status')).toContainText(`${RESULT} を保存`);
   expect(new TextDecoder('latin1').decode(new Uint8Array(cog.bytes, 8, 60))).toContain('LAYOUT=COG');
   const tiff = await fromArrayBuffer(cog.bytes);
   expect(await tiff.getImageCount()).toBe(3);
@@ -146,7 +146,7 @@ test('a mosaic is kept in the browser, saved from its row as a COG or as made, a
   await page.locator('#results-open').click();
   page.once('dialog', (d) => void d.accept());
   await list.getByRole('button', { name: `${RESULT} を削除` }).click();
-  await expect(list.locator('.results-none')).toHaveText('ブラウザに保存された処理結果はありません');
+  await expect(list.locator('.results-none')).toHaveText('ブラウザに保存された処理結果なし');
   await expect(page.locator('#images .image')).toHaveCount(0);
   await expect(page.locator('#results-open')).toHaveText('処理結果…');
   expect(errors).toEqual([]);

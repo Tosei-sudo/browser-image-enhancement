@@ -276,7 +276,7 @@ export class MovingLayer {
         this.skipped += rows.length;
         if (++this.tries_ === DETECT_TRIES || this.history) {
           const missing = (['id', 'lat', 'lon'] as const).filter((r) => !this.mapping[r]).map((r) => ({ id: 'ID', lat: '緯度', lon: '経度' })[r]);
-          this.statusDetail = `${missing.join('・')}の属性が見つかりません（「詳細」で指定してください）`;
+          this.statusDetail = `${missing.join('・')}の属性なし（「詳細」で指定）`;
           this.options.say?.(`${this.feed.label}: ${this.statusDetail}`);
         }
         this.options.onChange?.();

@@ -51,7 +51,7 @@ export async function createDetectPool(bytes: Uint8Array, name: string, useGpu =
     workers.push(worker);
     const backend = await new Promise<Backend>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<Reply>) => (e.data.type === 'loaded' ? resolve(e.data.backend) : e.data.type === 'error' ? reject(new Error(e.data.message)) : undefined);
-      worker.onerror = (e) => reject(new Error(e.message || 'ワーカーを起動できませんでした'));
+      worker.onerror = (e) => reject(new Error(e.message || 'ワーカーの起動に失敗'));
       worker.postMessage({ type: 'load', bytes: bytes.slice(), name, useGpu: gpu, threads: cpuPlan().threads } satisfies DetectRequest);
     });
     return { worker, backend };
@@ -99,7 +99,7 @@ function pool(workers: Worker[], backend: Backend): DetectPool {
     worker.onerror = (e) => {
       // One stopped worker fails the pool: what was sent to the others is let go too, and the pool is made again next time.
       for (const w of workers) w.terminate();
-      fail(new Error(e.message || 'ワーカーが止まりました'));
+      fail(new Error(e.message || 'ワーカーが停止'));
     };
   }
   return {
@@ -123,7 +123,7 @@ function pool(workers: Worker[], backend: Backend): DetectPool {
     },
     terminate() {
       for (const w of workers) w.terminate();
-      fail(new Error('中止しました'));
+      fail(new Error('中止'));
     },
   };
 }

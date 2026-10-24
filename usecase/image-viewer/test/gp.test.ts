@@ -176,7 +176,7 @@ describe('input serialisation', () => {
 
   it('refuses missing required values and bad URLs', () => {
     expect(() => esriParams(esriTask, { In: null, Dist: null, Flag: false })).toThrow(/「In」/);
-    expect(checkValues(esriTask, { In: { features: [square()], fields: [] }, Dist: { distance: 1, units: 'esriMeters' }, Flag: true, Img: 'javascript:alert(1)' })).toEqual(['「Img」は http(s) の URL にしてください']);
+    expect(checkValues(esriTask, { In: { features: [square()], fields: [] }, Dist: { distance: 1, units: 'esriMeters' }, Flag: true, Img: 'javascript:alert(1)' })).toEqual(['「Img」は http(s) の URL で指定']);
   });
 
   it('writes OGC inputs', () => {

@@ -1,5 +1,5 @@
 /**
- * 格子を敷き詰める (QGIS "Create grid"): squares, hexagons or triangles of a
+ * 格子の敷き詰め (QGIS "Create grid"): squares, hexagons or triangles of a
  * chosen size laid over an area, as a polygon layer.
  *
  * The cells are laid out on a plane, either
@@ -383,16 +383,16 @@ function areaOf(polygons: LonLat[][][]): number {
  */
 export function tessellate(area: Geometry[], options: TessellateOptions): ProcessingResult {
   const { shape, size, crs = null, rotation = 0, orientation = 'flat', origin = 'corner', clip = 'intersects', maxCells = 200_000 } = options;
-  if (!(size > 0) || !Number.isFinite(size)) throw new Error('セルの大きさを正の数で入れてください');
+  if (!(size > 0) || !Number.isFinite(size)) throw new Error('セルの大きさを正の数で入力');
   const polygons = area.flatMap((g) => {
     const own = polygonsOf(g);
     if (own.length) return own;
     const e = g.getExtent();
     return Number.isFinite(e[0]) && e[2] > e[0] && e[3] > e[1] ? [new Polygon([[[e[0], e[1]], [e[2], e[1]], [e[2], e[3]], [e[0], e[3]], [e[0], e[1]]]])] : [];
   });
-  if (!polygons.length) throw new Error('範囲がありません（広がりのある範囲を選んでください）');
-  if (origin === 'point' && !options.point) throw new Error('基準点（経度,緯度）を入れてください');
-  if (origin === 'crs' && !crs) throw new Error('「座標系の原点」は投影法で敷き詰めるときに使えます');
+  if (!polygons.length) throw new Error('範囲なし（広がりのある範囲を選択）');
+  if (origin === 'point' && !options.point) throw new Error('基準点（経度,緯度）を入力');
+  if (origin === 'crs' && !crs) throw new Error('「座標系の原点」は投影法での敷き詰め時のみ使用可能');
 
   // The plane: geodesic grids are centred on the area (or the given point).
   const extent = polygons.reduce((e, p) => {
@@ -406,9 +406,9 @@ export function tessellate(area: Geometry[], options: TessellateOptions): Proces
   const mapStep = Math.max(extent[2] - extent[0], extent[3] - extent[1]) / 256;
   const toPlaneRing = (ring: number[][]) => densify(ring as Ring, mapStep).map((xy) => plane.toPlane(xy));
   const planePolygons = polygons.map((p) => new Polygon(p.getCoordinates().map(toPlaneRing)));
-  if (planePolygons.some((p) => !p.getFlatCoordinates().every(Number.isFinite))) throw new Error('範囲をこの座標系で表せません（座標系の範囲外です）');
+  if (planePolygons.some((p) => !p.getFlatCoordinates().every(Number.isFinite))) throw new Error('範囲をこの座標系で表現不可（座標系の範囲外）');
   const rangeGeometry: JstsGeometry = union(planePolygons.map(toJsts));
-  if (rangeGeometry.isEmpty() || !(rangeGeometry.getArea() > 0)) throw new Error('範囲に面積がありません');
+  if (rangeGeometry.isEmpty() || !(rangeGeometry.getArea() > 0)) throw new Error('範囲に面積なし');
   const range = new RangeIndex(polygonsOf(fromJsts(rangeGeometry)!).flatMap((p) => p.getCoordinates() as Ring[]));
 
   // The grid's own frame: turned by `rotation` (clockwise) about the lattice origin.
@@ -442,7 +442,7 @@ export function tessellate(area: Geometry[], options: TessellateOptions): Proces
       o = [middle[0] - dx, middle[1] - dy];
     }
   }
-  if (!o.every(Number.isFinite)) throw new Error('基準点をこの座標系で表せません');
+  if (!o.every(Number.isFinite)) throw new Error('基準点をこの座標系で表現不可');
   const box = frameBox(o);
 
   // Refuse grids the page cannot hold, before making any cell.
@@ -450,7 +450,7 @@ export function tessellate(area: Geometry[], options: TessellateOptions): Proces
   const expected = rangeGeometry.getArea() / one;
   const spanned = ((box[2] - box[0] + 2 * size) * (box[3] - box[1] + 2 * size)) / one;
   if (expected > maxCells || spanned > maxCells * 50) {
-    throw new Error(`セルが多すぎます（約 ${Math.round(Math.max(expected, 1)).toLocaleString()} 個、上限 ${maxCells.toLocaleString()} 個）。大きさを大きくするか範囲を狭めてください`);
+    throw new Error(`セルが多すぎ（約 ${Math.round(Math.max(expected, 1)).toLocaleString()} 個、上限 ${maxCells.toLocaleString()} 個）。大きさを大きくするか範囲の縮小が必要`);
   }
 
   // Edges long on the ground are split so they curve as they should on the map.
@@ -492,7 +492,7 @@ export function tessellate(area: Geometry[], options: TessellateOptions): Proces
     }
     kept.push({ cell, geometry, area });
   }
-  if (kept.length > maxCells) throw new Error(`セルが多すぎます（${kept.length.toLocaleString()} 個、上限 ${maxCells.toLocaleString()} 個）`);
+  if (kept.length > maxCells) throw new Error(`セルが多すぎ（${kept.length.toLocaleString()} 個、上限 ${maxCells.toLocaleString()} 個）`);
 
   // Numbered from the top left, row by row.
   const topRow = Math.max(...kept.map((k) => k.cell.row));
@@ -507,13 +507,13 @@ export function tessellate(area: Geometry[], options: TessellateOptions): Proces
   });
 
   const names: Record<CellShape, string> = { square: '正方形', hexagon: '六角形', triangle: '三角形' };
-  const notes = [`${names[shape]}のセル ${features.length.toLocaleString()} 個を作成しました`];
+  const notes = [`${names[shape]}のセル ${features.length.toLocaleString()} 個を作成`];
   if (!crs && features.length) {
     // The equidistant plane is true along lines from its centre; across them it stretches by (s/R)/sin(s/R).
     const reach = Math.max(...coords.map(([x, y]) => Math.hypot(x, y)));
     const angle = reach / EARTH_RADIUS;
     const stretch = angle > 1e-9 ? angle / Math.sin(angle) - 1 : 0;
-    if (stretch > 0.001) notes.push(`範囲の端ではセルが中心より約 ${(stretch * 100).toFixed(stretch < 0.01 ? 2 : 1)}% 大きくなります（中心からの距離が正しい正距方位図法で敷き詰めています）`);
+    if (stretch > 0.001) notes.push(`範囲の端ではセルが中心より約 ${(stretch * 100).toFixed(stretch < 0.01 ? 2 : 1)}% 拡大（中心からの距離が正しい正距方位図法で敷き詰め）`);
   }
   return {
     title: options.title || `格子_${names[shape]}`,

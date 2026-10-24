@@ -32,7 +32,7 @@ export interface Rpc {
 
 /** The model from the 92 values of GeoTIFF tag 50844. */
 export function rpcFromTag(values: ArrayLike<number>): Rpc {
-  if (values.length < 92) throw new Error('RPC タグの値が足りません');
+  if (values.length < 92) throw new Error('RPC タグの値が不足');
   const v = Array.from(values, Number);
   return check({
     errBias: v[0],
@@ -129,9 +129,9 @@ function check(rpc: Rpc): Rpc {
   const scalars = [rpc.lineOff, rpc.sampOff, rpc.latOff, rpc.lonOff, rpc.heightOff, rpc.lineScale, rpc.sampScale, rpc.latScale, rpc.lonScale, rpc.heightScale];
   const lists = [rpc.lineNum, rpc.lineDen, rpc.sampNum, rpc.sampDen];
   if (!scalars.every(Number.isFinite) || !lists.every((l) => l.length === 20 && l.every(Number.isFinite))) {
-    throw new Error('RPC の係数が揃っていません');
+    throw new Error('RPC の係数が不足');
   }
-  if (!rpc.lineScale || !rpc.sampScale || !rpc.latScale || !rpc.lonScale || !rpc.heightScale) throw new Error('RPC の係数が揃っていません');
+  if (!rpc.lineScale || !rpc.sampScale || !rpc.latScale || !rpc.lonScale || !rpc.heightScale) throw new Error('RPC の係数が不足');
   if (!Number.isFinite(rpc.errBias)) delete rpc.errBias;
   if (!Number.isFinite(rpc.errRand)) delete rpc.errRand;
   return rpc;

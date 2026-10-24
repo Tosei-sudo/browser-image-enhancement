@@ -31,11 +31,11 @@ test('files chosen with the File System Access picker open again from 「最近�
 
   const recent = page.locator('#open .recent-button');
   await recent.click();
-  await expect(page.getByRole('menu', { name: '最近開いたファイル' })).toContainText('最近開いたファイルはありません');
+  await expect(page.getByRole('menu', { name: '最近開いたファイル' })).toContainText('最近開いたファイルなし');
   await page.keyboard.press('Escape');
 
   await page.locator('#open .ol-load-image button').first().click();
-  await expect(page.locator('#status')).toContainText('stripes.tif を開きました');
+  await expect(page.locator('#status')).toContainText('stripes.tif を表示');
   await expect(page.locator('#images .name')).toHaveText(['stripes.tif']);
 
   await page.reload();
@@ -43,13 +43,13 @@ test('files chosen with the File System Access picker open again from 「最近�
   await expect(page.locator('#images .name')).toHaveCount(0);
   await recent.click();
   await page.getByRole('menuitem', { name: 'stripes.tif' }).click();
-  await expect(page.locator('#status')).toContainText('stripes.tif を開きました');
+  await expect(page.locator('#status')).toContainText('stripes.tif を表示');
   await expect(page.locator('#info')).toContainText('600 × 520 px');
   // Opened again it stays one entry.
   await recent.click();
   await expect(page.getByRole('menuitem', { name: 'stripes.tif' })).toHaveCount(1);
   await page.getByRole('menuitem', { name: '履歴を消去' }).click();
   await recent.click();
-  await expect(page.getByRole('menu', { name: '最近開いたファイル' })).toContainText('最近開いたファイルはありません');
+  await expect(page.getByRole('menu', { name: '最近開いたファイル' })).toContainText('最近開いたファイルなし');
   expect(errors).toEqual([]);
 });

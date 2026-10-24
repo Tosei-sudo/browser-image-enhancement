@@ -95,21 +95,21 @@ const nameKey = (name: string) => name.trim().toLowerCase().replace(/[\s_-]+/g, 
 /** Reads pasted (or shared) text. */
 export function readPastedText(raw: string): Pasted {
   const text = raw.replace(/^\uFEFF/, '').trim();
-  if (!text) return { kind: 'none', message: 'クリップボードが空です' };
-  if (text.length > MAX_VALUE) return { kind: 'none', message: `貼り付けた文字が長すぎます（${MAX_VALUE.toLocaleString()} 文字まで。大きなデータはファイルとして開いてください）` };
+  if (!text) return { kind: 'none', message: 'クリップボードが空' };
+  if (text.length > MAX_VALUE) return { kind: 'none', message: `貼り付けた文字が長すぎ（${MAX_VALUE.toLocaleString()} 文字まで。大きなデータはファイルとして開く）` };
 
   // A link: the viewer's own with shapes, the installed app's, or any other URL (asked first).
   if (/^\S+$/.test(text)) {
     if (text.toLowerCase().startsWith(`${LINK_SCHEME}:`)) {
       const params = paramsOfLink(text);
-      return hasShapes(params) ? shapesOf(params, 'リンクの図形') : { kind: 'none', message: 'リンクに図形がありません' };
+      return hasShapes(params) ? shapesOf(params, 'リンクの図形') : { kind: 'none', message: 'リンクに図形なし' };
     }
     if (/^https?:\/\//i.test(text)) {
       let url: URL;
       try {
         url = new URL(text);
       } catch {
-        return { kind: 'none', message: 'URL として読めません' };
+        return { kind: 'none', message: 'URL として読み込み不可' };
       }
       const params = shapeParamsOf(url.search);
       if (hasShapes(params)) return shapesOf(params, 'リンクの図形');
@@ -122,9 +122,9 @@ export function readPastedText(raw: string): Pasted {
     try {
       type = (JSON.parse(text) as { type?: unknown })?.type;
     } catch {
-      return { kind: 'none', message: 'JSON として読めません' };
+      return { kind: 'none', message: 'JSON として読み込み不可' };
     }
-    if (typeof type !== 'string' || !GEOJSON_TYPES.includes(type)) return { kind: 'none', message: 'GeoJSON ではない JSON です' };
+    if (typeof type !== 'string' || !GEOJSON_TYPES.includes(type)) return { kind: 'none', message: 'GeoJSON 以外の JSON' };
     return shapesOf(new URLSearchParams([['geojson', text]]), 'GeoJSON');
   }
 
@@ -148,7 +148,7 @@ export function readPastedText(raw: string): Pasted {
 /** Shapes from link parameters, read with the link's limits and checks. */
 function shapesOf(params: URLSearchParams, what: string): Pasted {
   const read = readLinkShapes(params);
-  if (!read.features.length) return { kind: 'none', message: `${what}として読めませんでした${read.errors.length ? `（${read.errors.slice(0, 3).join(' / ')}）` : ''}` };
+  if (!read.features.length) return { kind: 'none', message: `${what}として読み込み失敗${read.errors.length ? `（${read.errors.slice(0, 3).join(' / ')}）` : ''}` };
   return { kind: 'shapes', what, features: read.features, fields: read.fields, labeled: read.labeled, color: read.color, zoom: read.zoom, errors: read.errors };
 }
 
@@ -160,16 +160,16 @@ function kmlOf(text: string): Pasted {
   try {
     ({ features, fields } = readKml(whole, PASTE_TITLE));
   } catch {
-    return { kind: 'none', message: 'KML として読めませんでした' };
+    return { kind: 'none', message: 'KML として読み込み失敗' };
   }
   features = features.filter((f) => f.getGeometry());
-  if (!features.length) return { kind: 'none', message: 'KML に図形がありません' };
+  if (!features.length) return { kind: 'none', message: 'KML に図形なし' };
   const errors: string[] = [];
   if (features.length > MAX_SHAPES) {
     features = features.slice(0, MAX_SHAPES);
-    errors.push(`図形が多すぎます（${MAX_SHAPES.toLocaleString()} 個まで表示しました）`);
+    errors.push(`図形が多すぎ（${MAX_SHAPES.toLocaleString()} 個まで表示）`);
   }
-  if (features.reduce((n, f) => n + countVertices(f.getGeometry()!), 0) > MAX_VERTICES) return { kind: 'none', message: `頂点が多すぎます（全体で ${MAX_VERTICES.toLocaleString()} 点まで）` };
+  if (features.reduce((n, f) => n + countVertices(f.getGeometry()!), 0) > MAX_VERTICES) return { kind: 'none', message: `頂点が多すぎ（全体で ${MAX_VERTICES.toLocaleString()} 点まで）` };
   const labeled = features.some((f) => typeof f.get('name') === 'string');
   for (const f of features) if (typeof f.get('name') === 'string') f.set('label', f.get('name'));
   return { kind: 'shapes', what: 'KML', features, fields: labeled ? [{ name: 'label', alias: 'ラベル', type: 'string', editable: true, nullable: true }, ...fields] : fields, labeled, color: null, zoom: null, errors };
@@ -177,7 +177,7 @@ function kmlOf(text: string): Pasted {
 
 /** A table with a header line and coordinate (or WKT) columns. */
 function tableOf(text: string): Pasted {
-  const nothing: PastedNothing = { kind: 'none', message: '図形として読める内容がありません（GeoJSON・WKT・KML・座標・緯度経度の列がある表に対応しています）' };
+  const nothing: PastedNothing = { kind: 'none', message: '図形として読める内容なし（GeoJSON・WKT・KML・座標・緯度経度の列がある表に対応）' };
   if (!/[\t,;]/.test(text.split(/\r?\n/, 1)[0])) return nothing;
   const rows = parseCsv(text, delimiterOf(text));
   if (rows.length < 2 || rows[0].length < 2) return nothing;
@@ -209,7 +209,7 @@ function wktTable(table: CsvTable, column: string): Pasted {
   let bad = 0;
   for (const row of table.features) {
     if (features.length >= MAX_SHAPES) {
-      errors.push(`行が多すぎます（先頭 ${MAX_SHAPES.toLocaleString()} 行を表示しました）`);
+      errors.push(`行が多すぎ（先頭 ${MAX_SHAPES.toLocaleString()} 行を表示）`);
       break;
     }
     const value = row.get(column);
@@ -220,13 +220,13 @@ function wktTable(table: CsvTable, column: string): Pasted {
       continue;
     }
     vertices += countVertices(geometry);
-    if (vertices > MAX_VERTICES) return { kind: 'none', message: `頂点が多すぎます（全体で ${MAX_VERTICES.toLocaleString()} 点まで）` };
+    if (vertices > MAX_VERTICES) return { kind: 'none', message: `頂点が多すぎ（全体で ${MAX_VERTICES.toLocaleString()} 点まで）` };
     const attributes = attributesOf(row);
     delete attributes[column];
     features.push(new Feature({ ...attributes, geometry }));
   }
-  if (bad) errors.push(`WKT として読めない行 ${bad.toLocaleString()} 件を飛ばしました`);
-  if (!features.length) return { kind: 'none', message: `表の「${column}」列を WKT として読めませんでした` };
+  if (bad) errors.push(`WKT として読めない行 ${bad.toLocaleString()} 件をスキップ`);
+  if (!features.length) return { kind: 'none', message: `表の「${column}」列を WKT として読み込み失敗` };
   const fields = copyFields(table.fields.filter((f) => f.name !== column));
   return { kind: 'shapes', what: `表（WKT 列「${column}」）`, features, fields, labeled: false, color: null, zoom: null, errors };
 }
@@ -236,10 +236,10 @@ export function tableShapes(pasted: PastedTable, crs: TargetCrs = wgs84, x = pas
   const rows = pasted.table.features;
   const errors: string[] = [];
   const kept = rows.slice(0, MAX_SHAPES);
-  if (rows.length > MAX_SHAPES) errors.push(`行が多すぎます（先頭 ${MAX_SHAPES.toLocaleString()} 行を表示しました）`);
+  if (rows.length > MAX_SHAPES) errors.push(`行が多すぎ（先頭 ${MAX_SHAPES.toLocaleString()} 行を表示）`);
   const result = xyToPoints({ title: PASTE_TITLE, features: kept, fields: pasted.table.fields }, { xField: x, yField: y, crs });
   errors.push(...(result.notes ?? []).slice(1));
-  if (!result.features.length) return { kind: 'none', message: `表の「${x}」「${y}」列から点を作れませんでした${errors.length ? `（${errors.join(' / ')}）` : ''}` };
+  if (!result.features.length) return { kind: 'none', message: `表の「${x}」「${y}」列から点の作成に失敗${errors.length ? `（${errors.join(' / ')}）` : ''}` };
   const what = pasted.geographic ? `表（緯度「${y}」・経度「${x}」）` : `表（X「${x}」・Y「${y}」、${crs.name}）`;
   return { kind: 'shapes', what, features: result.features, fields: result.fields, labeled: false, color: null, zoom: null, errors };
 }
@@ -275,7 +275,7 @@ function plain(value: unknown): unknown {
  * given); an error message when there are too many.
  */
 export function featuresToGeoJson(features: Feature[], fields?: readonly Field[]): { text: string } | { error: string } {
-  if (features.length > MAX_COPY_FEATURES) return { error: `地物が多すぎます（${MAX_COPY_FEATURES.toLocaleString()} 件まで。ファイルに書き出してください）` };
+  if (features.length > MAX_COPY_FEATURES) return { error: `地物が多すぎ（${MAX_COPY_FEATURES.toLocaleString()} 件まで。ファイルへの書き出しが必要）` };
   const out = {
     type: 'FeatureCollection',
     features: features.map((f) => {
@@ -291,12 +291,12 @@ export function featuresToGeoJson(features: Feature[], fields?: readonly Field[]
     }),
   };
   const text = JSON.stringify(out);
-  return text.length > MAX_COPY_CHARS ? { error: '図形が大きすぎてコピーできません（ファイルに書き出してください）' } : { text };
+  return text.length > MAX_COPY_CHARS ? { error: '図形が大きすぎてコピー不可（ファイルへの書き出しが必要）' } : { text };
 }
 
 /** The features' geometries as WKT in WGS 84 (7 decimals), one per line; an error message when too many or none. */
 export function featuresToWkt(features: Feature[]): { text: string; count: number } | { error: string } {
-  if (features.length > MAX_COPY_FEATURES) return { error: `地物が多すぎます（${MAX_COPY_FEATURES.toLocaleString()} 件まで。ファイルに書き出してください）` };
+  if (features.length > MAX_COPY_FEATURES) return { error: `地物が多すぎ（${MAX_COPY_FEATURES.toLocaleString()} 件まで。ファイルへの書き出しが必要）` };
   const lines: string[] = [];
   let length = 0;
   for (const f of features) {
@@ -304,9 +304,9 @@ export function featuresToWkt(features: Feature[]): { text: string; count: numbe
     if (!g) continue;
     const line = wkt.writeGeometry(g, toWgs84);
     length += line.length + 1;
-    if (length > MAX_COPY_CHARS) return { error: '図形が大きすぎてコピーできません（ファイルに書き出してください）' };
+    if (length > MAX_COPY_CHARS) return { error: '図形が大きすぎてコピー不可（ファイルへの書き出しが必要）' };
     lines.push(line);
   }
-  if (!lines.length) return { error: '図形のある地物がありません' };
+  if (!lines.length) return { error: '図形のある地物なし' };
   return { text: lines.join('\n'), count: lines.length };
 }

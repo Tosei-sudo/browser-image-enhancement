@@ -54,7 +54,7 @@ export function tileArea(siz: J2kSize, index: number): [number, number, number, 
 /** Reads the SIZ marker of a main header. */
 export function readSiz(header: Uint8Array): J2kSize {
   const v = new DataView(header.buffer, header.byteOffset, header.byteLength);
-  if (v.getUint16(0) !== 0xff4f || v.getUint16(2) !== 0xff51) throw new Error('JPEG 2000 のコードストリームではありません');
+  if (v.getUint16(0) !== 0xff4f || v.getUint16(2) !== 0xff51) throw new Error('JPEG 2000 のコードストリーム以外');
   const at = 2;
   const count = v.getUint16(at + 38);
   const components = Array.from({ length: count }, (_, i) => {
@@ -95,7 +95,7 @@ export async function readJ2kLayout(file: Blob, start: number, end: number): Pro
   const kept: Uint8Array[] = [bytes.subarray(0, 2)];
   for (;;) {
     while (at + 4 > bytes.length) {
-      if (start + bytes.length >= end) throw new Error('JPEG 2000 のヘッダーが途中で切れています');
+      if (start + bytes.length >= end) throw new Error('JPEG 2000 のヘッダーが途中で途切れ');
       const more = await read(start + bytes.length, 1 << 20);
       const joined = new Uint8Array(bytes.length + more.length);
       joined.set(bytes);
@@ -105,11 +105,11 @@ export async function readJ2kLayout(file: Blob, start: number, end: number): Pro
     const marker = (bytes[at] << 8) | bytes[at + 1];
     if (marker === 0xff90) break; // SOT: the first tile-part
     const length = (bytes[at + 2] << 8) | bytes[at + 3];
-    if ((marker & 0xff00) !== 0xff00 || length < 2) throw new Error('JPEG 2000 のヘッダーが読めません');
-    if (marker === 0xff60) throw new Error('パケットヘッダーをメインヘッダーにまとめた（PPM）JPEG 2000 には対応していません');
+    if ((marker & 0xff00) !== 0xff00 || length < 2) throw new Error('JPEG 2000 のヘッダーが読み込み不可');
+    if (marker === 0xff60) throw new Error('パケットヘッダーをメインヘッダーにまとめた（PPM）JPEG 2000 には非対応');
     while (at + 2 + length > bytes.length) {
       const more = await read(start + bytes.length, 1 << 20);
-      if (!more.length) throw new Error('JPEG 2000 のヘッダーが途中で切れています');
+      if (!more.length) throw new Error('JPEG 2000 のヘッダーが途中で途切れ');
       const joined = new Uint8Array(bytes.length + more.length);
       joined.set(bytes);
       joined.set(more, bytes.length);
@@ -154,7 +154,7 @@ export async function readJ2kLayout(file: Blob, start: number, end: number): Pro
 export function tileCodestream(header: Uint8Array, bytes: Uint8Array): { codestream: Uint8Array; index: number } {
   const siz = readSiz(header);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint16(0) !== 0xff90) throw new Error('JPEG 2000 のタイルが読めません');
+  if (view.getUint16(0) !== 0xff90) throw new Error('JPEG 2000 のタイルが読み込み不可');
   const index = view.getUint16(4);
   const own: Uint8Array[] = [];
   for (let p = 0; p + 12 <= bytes.length && view.getUint16(p) === 0xff90; ) {

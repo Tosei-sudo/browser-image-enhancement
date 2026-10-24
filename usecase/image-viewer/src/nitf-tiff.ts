@@ -80,7 +80,7 @@ export function copyFileInfo(from: object, to: object): void {
 /** Reads `file`'s NITF headers and makes the TIFF that shows its image. Throws, with a message for the user, when it cannot. */
 export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
   const nitf = await readNitf(file);
-  if (!nitf.images.length) throw new Error('画像セグメントがありません');
+  if (!nitf.images.length) throw new Error('画像セグメントなし');
   const sicdXml = await findSicdXml(file, nitf);
   const sicd = sicdXml ? parseSicd(sicdXml) : null;
   const notes: string[] = [];
@@ -94,22 +94,22 @@ export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
     const candidates = shown.length ? shown : nitf.images;
     const largest = candidates.reduce((a, b) => (b.rows * b.cols > a.rows * a.cols ? b : a));
     segments = [largest];
-    if (nitf.images.length > 1) notes.push(`画像セグメントが ${nitf.images.length} 個あります。いちばん大きい ${largest.index + 1} 番目を表示します`);
+    if (nitf.images.length > 1) notes.push(`画像セグメント ${nitf.images.length} 個。いちばん大きい ${largest.index + 1} 番目を表示`);
   }
   const image = segments[0];
   const ic = image.compression;
   const jpeg = ic === 'C3' || ic === 'M3';
   const j2k = ic === 'C8' || ic === 'M8';
-  if (ic !== 'NC' && ic !== 'NM' && !jpeg && !j2k) throw new Error(`${COMPRESSIONS[ic] ?? ic} で圧縮された NITF には対応していません（非圧縮・JPEG・JPEG 2000 のみ）`);
-  if (![8, 16, 32, 64].includes(image.nbpp)) throw new Error(`${image.nbpp} ビットの画素には対応していません`);
-  if (jpeg && image.nbpp !== 8) throw new Error(`${image.nbpp} ビットの JPEG 圧縮には対応していません（8 ビットのみ）`);
-  if ((jpeg || j2k) && segments.length > 1) throw new Error('複数の画像セグメントに分かれた圧縮画像には対応していません');
+  if (ic !== 'NC' && ic !== 'NM' && !jpeg && !j2k) throw new Error(`${COMPRESSIONS[ic] ?? ic} で圧縮された NITF には非対応（非圧縮・JPEG・JPEG 2000 のみ）`);
+  if (![8, 16, 32, 64].includes(image.nbpp)) throw new Error(`${image.nbpp} ビットの画素には非対応`);
+  if (jpeg && image.nbpp !== 8) throw new Error(`${image.nbpp} ビットの JPEG 圧縮には非対応（8 ビットのみ）`);
+  if ((jpeg || j2k) && segments.length > 1) throw new Error('複数の画像セグメントに分かれた圧縮画像には非対応');
 
   const complex = complexKindOf(image, sicd);
-  if (complex !== null && (jpeg || j2k)) throw new Error('圧縮された複素数の画像には対応していません');
+  if (complex !== null && (jpeg || j2k)) throw new Error('圧縮された複素数の画像には非対応');
   const codestream = j2k ? await j2kLayoutOf(file, image) : null;
   const layout = codestream ?? (jpeg ? await jpegLayout(file, image) : await blockLayout(file, segments, complex !== null));
-  if (codestream?.interleaved) notes.push('JPEG 2000 のタイルが分かれて並んでいるため、表示に時間がかかることがあります');
+  if (codestream?.interleaved) notes.push('JPEG 2000 のタイルが分かれて並んでいるため、表示に時間がかかる場合あり');
   const rows = segments.reduce((n, s) => n + s.rows, 0);
   const entries: Entry[] = [
     { tag: 256, type: LONG, values: [image.cols] },
@@ -123,7 +123,7 @@ export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
     bits = 32;
     format = 3;
   } else if (!format || (format === 3 && bits < 32)) {
-    throw new Error(`画素の型 ${image.pixelType}（${image.nbpp} ビット）には対応していません`);
+    throw new Error(`画素の型 ${image.pixelType}（${image.nbpp} ビット）には非対応`);
   }
   const rgb = complex === null && samples === 3 && image.bands.map((b) => b.represent).join('') === 'RGB';
   entries.push(
@@ -161,7 +161,7 @@ export async function nitfAsTiff(file: File): Promise<NitfAsTiff> {
     const placed = placeByCorners(corners, image.cols, rows);
     entries.push(...placed);
   }
-  if (!rpc && !corners) notes.push('位置情報（RPC・四隅の座標）がないため、地図上の位置は正しくありません');
+  if (!rpc && !corners) notes.push('位置情報（RPC・四隅の座標）がないため、地図上の位置は不正確');
 
   const metadata = gdalMetadata(nitf, image, sicd, complex !== null);
   entries.push({ tag: 42112, type: ASCII, values: ascii(metadata) });
@@ -262,10 +262,10 @@ async function blockLayout(file: Blob, segments: NitfImage[], complex: boolean):
   const single = blocks === 1 && width === image.cols;
   // Bands in separate planes: by block and band sequential, and by row (as one-row strips).
   const planar = !complex && bands > 1 && image.mode !== 'P';
-  if (complex && image.mode !== 'P' && bands > 1) throw new Error(`複素数の画像のバンドの並び（IMODE ${image.mode}）には対応していません`);
-  if (image.mode === 'R' && bands > 1 && !single) throw new Error('行ごとにバンドが並ぶ（IMODE R）ブロック分割の画像には対応していません');
+  if (complex && image.mode !== 'P' && bands > 1) throw new Error(`複素数の画像のバンドの並び（IMODE ${image.mode}）には非対応`);
+  if (image.mode === 'R' && bands > 1 && !single) throw new Error('行ごとにバンドが並ぶ（IMODE R）ブロック分割の画像には非対応');
   if (segments.length > 1 && (!single || segments.some((s) => s.blocksPerRow * s.blocksPerCol !== 1 || s.compression !== 'NC' || s.mode !== image.mode || s.nbpp !== image.nbpp))) {
-    throw new Error('複数の画像セグメントに分かれたブロック分割の画像には対応していません');
+    throw new Error('複数の画像セグメントに分かれたブロック分割の画像には非対応');
   }
   const offsets: number[] = [];
   const counts: number[] = [];
@@ -334,11 +334,11 @@ async function j2kLayoutOf(file: Blob, image: NitfImage): Promise<BlockLayout & 
   const end = image.dataOffset + image.dataLength;
   const j2k = await readJ2kLayout(file, start, end);
   const { siz } = j2k;
-  if (siz.width - siz.x0 !== image.cols || siz.height - siz.y0 !== image.rows) throw new Error('JPEG 2000 の画像の大きさが NITF のヘッダーと合いません');
-  if (siz.x0 !== siz.tileX0 || siz.y0 !== siz.tileY0) throw new Error('タイルの原点が画像とずれた JPEG 2000 には対応していません');
-  if (siz.components.some((c) => c.dx !== 1 || c.dy !== 1)) throw new Error('間引いた成分のある JPEG 2000 には対応していません');
+  if (siz.width - siz.x0 !== image.cols || siz.height - siz.y0 !== image.rows) throw new Error('JPEG 2000 の画像の大きさが NITF のヘッダーと不一致');
+  if (siz.x0 !== siz.tileX0 || siz.y0 !== siz.tileY0) throw new Error('タイルの原点が画像とずれた JPEG 2000 には非対応');
+  if (siz.components.some((c) => c.dx !== 1 || c.dy !== 1)) throw new Error('間引いた成分のある JPEG 2000 には非対応');
   if (siz.tileWidth * siz.tileHeight > MAX_J2K_TILE && siz.tileWidth * siz.tileHeight > image.cols * image.rows / 2) {
-    throw new Error(`タイル分割されていない大きな JPEG 2000（${image.cols.toLocaleString()} × ${image.rows.toLocaleString()} px を一度に展開）には対応していません`);
+    throw new Error(`タイル分割なしの大きな JPEG 2000（${image.cols.toLocaleString()} × ${image.rows.toLocaleString()} px を一度に展開）には非対応`);
   }
   return {
     tiled: true,
@@ -387,8 +387,8 @@ async function scanJpegStreams(file: Blob, start: number, end: number, count: nu
     const offset = p;
     p += 2;
     for (;;) {
-      if (p + 2 > end) throw new Error('JPEG のブロックが途中で切れています');
-      if ((await r.at(p)) !== 0xff) throw new Error('JPEG のブロックが読めません');
+      if (p + 2 > end) throw new Error('JPEG のブロックが途中で途切れ');
+      if ((await r.at(p)) !== 0xff) throw new Error('JPEG のブロックが読み込み不可');
       const marker = await r.at(p + 1);
       if (marker === 0xff) {
         p++; // fill byte
@@ -403,7 +403,7 @@ async function scanJpegStreams(file: Blob, start: number, end: number, count: nu
       if (marker !== 0xda) continue;
       // Entropy-coded data: up to the next marker that is not a stuffed zero or a restart.
       for (;;) {
-        if (p + 1 >= end) throw new Error('JPEG のブロックが途中で切れています');
+        if (p + 1 >= end) throw new Error('JPEG のブロックが途中で途切れ');
         if ((await r.at(p)) === 0xff) {
           const next = await r.at(p + 1);
           if (next !== 0 && !(next >= 0xd0 && next <= 0xd7) && next !== 0xff) break;
@@ -413,7 +413,7 @@ async function scanJpegStreams(file: Blob, start: number, end: number, count: nu
     }
     streams.push({ offset, length: p - offset });
   }
-  if (streams.length < count) throw new Error(`JPEG のブロックが足りません（${streams.length} / ${count}）`);
+  if (streams.length < count) throw new Error(`JPEG のブロックが不足（${streams.length} / ${count}）`);
   return streams;
 }
 
@@ -435,7 +435,7 @@ async function jpegLayout(file: Blob, image: NitfImage): Promise<BlockLayout> {
     const starts = [...new Set(mask.blockOffsets.filter((o) => o !== 0xffffffff).map((o) => mask.dataStart + o)), end].sort((a, b) => a - b);
     const lengthOf = (o: number) => starts[starts.indexOf(o) + 1] - o;
     const per = mask.blockOffsets.length === count ? mask.blockOffsets : null;
-    if (!per) throw new Error('JPEG のブロックマスクが読めません');
+    if (!per) throw new Error('JPEG のブロックマスクが読み込み不可');
     streams = per.map((o) => (o === 0xffffffff ? { offset: 0, length: 0 } : { offset: mask.dataStart + o, length: lengthOf(mask.dataStart + o) }));
   } else {
     streams = await scanJpegStreams(file, mask?.dataStart ?? image.dataOffset, end, count);

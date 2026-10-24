@@ -95,7 +95,7 @@ export class MatchDialog {
         <label data-for="manual">日時（UTC）<input name="manual" type="datetime-local" step="1" aria-label="照合する日時" /></label>
         <label>時間の幅（± 分）<input name="window" type="number" min="0" step="1" value="10" /></label>
         <label>距離（m）<input name="distance" type="number" min="1" step="1" value="500" /></label>
-        <p class="wide processing-hint">検出の時刻に各移動体がいた位置（前後の報告から補間）が距離内にあれば、近いものと一致とします。結果は検出の写しに ais_status（一致・なし）・ais_id・ais_name・ais_dist_m・ais_dt_s を足した一時レイヤーで、一致しない検出は赤で表示します。</p>
+        <p class="wide processing-hint">検出の時刻に各移動体がいた位置（前後の報告から補間）が距離内にあれば、近いものと一致と判定。結果は検出の写しに ais_status（一致・なし）・ais_id・ais_name・ais_dist_m・ais_dt_s を加えた一時レイヤー。不一致の検出は赤で表示。</p>
       </form>
       <p class="service-status processing-note" role="status"></p>
       <div class="service-actions">
@@ -149,13 +149,13 @@ export class MatchDialog {
     if (choose) this.timeFrom_.value = hasField ? 'field' : this.images_.length ? 'image' : 'manual';
     for (const label of this.dialog.querySelectorAll<HTMLElement>('label[data-for]')) label.hidden = label.dataset.for !== this.timeFrom_.value;
     const missing = !entry
-      ? 'ポイントかポリゴンのレイヤー（AI の検出結果など）を開いてください'
+      ? 'ポイントかポリゴンのレイヤー（AI の検出結果など）を開く必要あり'
       : !this.feeds_.length
-        ? '移動体のフィードか履歴ファイルを開いてください（ツール →「移動体（AIS・ADS-B）…」）'
+        ? '移動体のフィードか履歴ファイルを開く必要あり（ツール →「移動体（AIS・ADS-B）…」）'
         : this.timeFrom_.value === 'image' && !this.images_.length
-          ? '画像を開いてください'
+          ? '画像なし（先に画像を開く）'
           : this.timeFrom_.value === 'manual' && !this.manual_.value
-            ? '日時を入れてください'
+            ? '日時を入力'
             : '';
     this.note_.textContent = missing;
     this.run_.disabled = !!missing;
@@ -173,13 +173,13 @@ export class MatchDialog {
       const image = this.images_[Number(this.image_.value)];
       fixed = image ? ((await imageTime(image).catch(() => null))?.time ?? null) : null;
       if (fixed === null) {
-        this.note_.textContent = 'この画像の撮影時刻が分かりません（タイムラインの「設定」で入れられます）';
+        this.note_.textContent = 'この画像の撮影時刻が不明（タイムラインの「設定」で入力可能）';
         return null;
       }
     } else if (this.timeFrom_.value === 'manual') {
       fixed = parseTime(`${this.manual_.value}Z`);
       if (fixed === null) {
-        this.note_.textContent = '日時を読めません';
+        this.note_.textContent = '日時の読み込み不可';
         return null;
       }
     }
@@ -245,7 +245,7 @@ export class MatchDialog {
       });
     }
     this.dialog.close();
-    this.options.say(`${result.title} を作成しました。${notes.join('。')}`);
+    this.options.say(`${result.title} を作成。${notes.join('。')}`);
     return opened;
   }
 }

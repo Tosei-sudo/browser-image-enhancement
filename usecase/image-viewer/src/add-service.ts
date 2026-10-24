@@ -40,7 +40,7 @@ export class AddServiceDialog {
           ${(Object.entries(serviceNames) as Array<[ServiceKind, string]>).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}
         </select></label>
         <label>トークン（Esri、任意）<input name="token" type="password" autocomplete="off" aria-label="トークン" /></label>
-        <button type="submit" value="read" class="read">読み込む</button>
+        <button type="submit" value="read" class="read">読み込み</button>
       </form>
       <p class="service-status" role="status"></p>
       <div class="service-layers"></div>
@@ -76,7 +76,7 @@ export class AddServiceDialog {
     this.catalog_ = null;
     this.list_.replaceChildren();
     this.add_.disabled = true;
-    this.status_.textContent = '読み込んでいます…';
+    this.status_.textContent = '読み込み中…';
     try {
       const catalog = await readService(this.url_.value.trim(), this.kind_.value as ServiceKind | 'auto', this.token_.value.trim() || undefined);
       this.catalog_ = catalog;
@@ -84,7 +84,7 @@ export class AddServiceDialog {
       this.list_.replaceChildren(...catalog.choices.map((c) => this.row_(c, catalog.choices.length === 1)));
       this.updateAdd_();
     } catch (error) {
-      this.status_.textContent = `読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -94,7 +94,7 @@ export class AddServiceDialog {
     if (!catalog) return;
     const rows = [...this.list_.querySelectorAll<HTMLElement>('.service-layer')].filter((r) => r.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked);
     this.add_.disabled = true;
-    this.status_.textContent = `${rows.length} レイヤーを読み込んでいます…`;
+    this.status_.textContent = `${rows.length} レイヤーを読み込み中…`;
     const context = { ...this.options.context(), token: this.token_.value.trim() || undefined };
     const failures: string[] = [];
     // Bottom row first, so the list keeps the order shown here.
@@ -114,7 +114,7 @@ export class AddServiceDialog {
       }
     }
     if (failures.length) {
-      this.status_.textContent = `追加できなかったレイヤーがあります。${failures.join(' / ')}`;
+      this.status_.textContent = `追加失敗のレイヤーあり。${failures.join(' / ')}`;
       this.updateAdd_();
     } else {
       this.dialog.close();
@@ -190,7 +190,7 @@ export class AddServiceDialog {
 export async function openRef(ref: ServiceRef, context: OpenContext): Promise<ServiceLayer | null> {
   const catalog = await readService(ref.url, ref.kind);
   const choice = catalog.choices.find((c) => c.name === ref.layer);
-  if (!choice) throw new Error(`レイヤー ${ref.layer} が見つかりません`);
+  if (!choice) throw new Error(`レイヤー ${ref.layer} なし`);
   return catalog.open(choice, context, { matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings, bbox: ref.bbox, filter: ref.filter, area: 'all' });
 }
 

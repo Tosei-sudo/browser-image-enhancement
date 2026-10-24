@@ -152,7 +152,7 @@ const MAX_JSON_BYTES = 200 * 1024 * 1024;
 export async function fetchJson(url: string, accept = 'application/json'): Promise<unknown> {
   const read = async (u: string) => {
     const response = await request(u, { headers: { Accept: accept } });
-    if (Number(response.headers.get('content-length') ?? 0) > MAX_JSON_BYTES) throw new ServiceError('応答が大きすぎます');
+    if (Number(response.headers.get('content-length') ?? 0) > MAX_JSON_BYTES) throw new ServiceError('応答が大きすぎ');
     return response.text();
   };
   let text = await read(url);
@@ -161,11 +161,11 @@ export async function fetchJson(url: string, accept = 'application/json'): Promi
     u.searchParams.set('f', 'json');
     text = await read(u.href);
   }
-  if (text.length > MAX_JSON_BYTES) throw new ServiceError('応答が大きすぎます');
+  if (text.length > MAX_JSON_BYTES) throw new ServiceError('応答が大きすぎ');
   try {
     return JSON.parse(text);
   } catch {
-    throw new ServiceError('応答が JSON ではありません');
+    throw new ServiceError('応答が JSON 以外');
   }
 }
 
@@ -198,7 +198,7 @@ export async function readOgcService(url: string): Promise<OgcService> {
   } else {
     collections = parseCollections(await fetchJson(collectionsUrl), collectionsUrl);
   }
-  if (!root && collections.length === 0) throw new ServiceError('OGC API のランディングページでもコレクションでもありません');
+  if (!root && collections.length === 0) throw new ServiceError('OGC API のランディングページでもコレクションでもなし');
   return {
     landing,
     query,

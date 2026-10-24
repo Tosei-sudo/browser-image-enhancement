@@ -133,11 +133,11 @@ export class EmbedApi {
     }
     const { request } = read;
     if (request.method !== 'hello' && this.peer_ !== e.origin) {
-      reply(failure(request.id, new EmbedError('hello-first', '最初に hello を送ってください')));
+      reply(failure(request.id, new EmbedError('hello-first', '最初に hello の送信が必要')));
       return;
     }
     if (this.pending_ >= MAX_PENDING) {
-      reply(failure(request.id, new EmbedError('busy', `同時に送れる要求は ${MAX_PENDING} 個までです`)));
+      reply(failure(request.id, new EmbedError('busy', `同時に送れる要求は ${MAX_PENDING} 個まで`)));
       return;
     }
     this.pending_++;
@@ -160,7 +160,7 @@ export class EmbedApi {
       });
     }
     const f = this.handlers_.get(name);
-    if (!f) throw new EmbedError('failed', `${name} は使えません`);
+    if (!f) throw new EmbedError('failed', `${name} は使用不可`);
     return f(...args);
   }
 
@@ -205,14 +205,14 @@ export class EmbedApi {
         return this.call_('setBaseMap', p.id);
       case 'addShapes': {
         const added = await this.ctx.addShapes(shapeParams(p), p.zoom !== false);
-        if (!added.layer) throw new EmbedError('failed', `図形を表示できませんでした${added.errors.length ? `: ${added.errors.join(' / ')}` : ''}`);
+        if (!added.layer) throw new EmbedError('failed', `図形の表示に失敗${added.errors.length ? `: ${added.errors.join(' / ')}` : ''}`);
         return { layer: this.ctx.layerId(added.layer), count: added.count, ...(added.errors.length ? { errors: added.errors } : {}) };
       }
       case 'runTool':
-        if (!toolAllowed(p.id as string)) throw new EmbedError('failed', `ツール「${String(p.id)}」は埋め込みからは使えません`);
+        if (!toolAllowed(p.id as string)) throw new EmbedError('failed', `ツール「${String(p.id)}」は埋め込みからは使用不可`);
         return this.call_('tool', p.id, p.params ?? {});
     }
-    throw new EmbedError('unknown-method', `メソッド「${method}」はありません`);
+    throw new EmbedError('unknown-method', `メソッド「${method}」なし`);
   }
 
   /**
@@ -231,7 +231,7 @@ export class EmbedApi {
     this.call_('layers'); // makes the handlers, so the known servers are at hand
     if (server === location.origin || this.hosts_.has(server) || this.knownHosts_().includes(server)) return;
     if (!confirm(`埋め込み元のページ（${origin}）が次のサーバーからデータを読み込もうとしています。\n\n${server}\n\n許可しますか？`)) {
-      throw new EmbedError('failed', `${server} への接続は許可されませんでした`);
+      throw new EmbedError('failed', `${server} への接続は拒否`);
     }
     this.hosts_.add(server);
   }
@@ -258,7 +258,7 @@ export class EmbedApi {
     try {
       window.parent.postMessage(eventMessage(event, data), this.peer_);
     } catch (error) {
-      console.warn(`埋め込み: ${event} を送れませんでした`, error);
+      console.warn(`埋め込み: ${event} の送信に失敗`, error);
     }
   }
 }

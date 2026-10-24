@@ -239,7 +239,7 @@ test('the panel opens in the bottom dock until it is put in a window, and comes 
 
   // Put in a window: it stays one, also after closing and opening again and a reload.
   await panel.locator('.dock-button').click();
-  await page.getByRole('menuitem', { name: 'ウィンドウに戻す' }).click();
+  await page.getByRole('menuitem', { name: 'ウィンドウに復帰' }).click();
   await expect(page.locator('.dock-bottom .obs-dialog')).toHaveCount(0);
   await panel.locator('.catalog-close').click();
   await page.getByRole('button', { name: 'ツール' }).click();
@@ -253,7 +253,7 @@ test('the panel opens in the bottom dock until it is put in a window, and comes 
   await expect(page.locator('.obs-dialog')).toBeVisible();
   await expect(page.locator('.dock-bottom .obs-dialog')).toHaveCount(0);
 
-  // 「レイアウトを元に戻す」: at home again.
+  // 「レイアウトの初期化」: at home again.
   await page.locator('.obs-dialog .catalog-close').click();
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#layout-reset').click();

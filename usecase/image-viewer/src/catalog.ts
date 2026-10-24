@@ -81,23 +81,23 @@ const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(htt
 /** The catalog of one `imageCatalogs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function catalogOf(value: unknown, problems: string[], index: number): CatalogConfig | null {
   const at = `imageCatalogs[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, token, fields, labels, columns, where, maxResults, angleKind, orbitHeight } = value;
   if (!isUrl(url) || !/\/(FeatureServer|MapServer)\/\d+\/?$/i.test(url.split('?', 1)[0])) {
-    return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤーの URL にしてください`), null);
+    return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤーの URL で指定`), null);
   }
-  if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）がありません`), null);
+  if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）なし`), null);
 
   const mapped: CatalogFields = { source: [] };
   for (const role of ['id', 'acquired', 'registered', 'systemRegistered', 'sensor', 'angle', 'azimuth'] as const) {
     const name = fields[role];
     if (name === undefined || name === '') continue;
     if (isName(name)) mapped[role] = name;
-    else problems.push(`${at} の fields.${role} は属性名（英数字と _）にしてください`);
+    else problems.push(`${at} の fields.${role} は属性名（英数字と _）で指定`);
   }
   const sources = Array.isArray(fields.source) ? fields.source : [fields.source];
   mapped.source = sources.filter(isName);
-  if (mapped.source.length === 0) return (problems.push(`${at} に fields.source（COG の URL かローカルパスの入った属性名）がありません`), null);
+  if (mapped.source.length === 0) return (problems.push(`${at} に fields.source（COG の URL かローカルパスの入った属性名）なし`), null);
 
   const headings: CatalogConfig['labels'] = {};
   if (isRecord(labels)) {
@@ -110,13 +110,13 @@ export function catalogOf(value: unknown, problems: string[], index: number): Ca
   if (Array.isArray(columns)) {
     columns.forEach((c, i) => {
       const field = typeof c === 'string' ? c : isRecord(c) ? c.field : undefined;
-      if (!isName(field)) return void problems.push(`${at} の columns[${i}] は属性名か { "field", "label" } にしてください`);
+      if (!isName(field)) return void problems.push(`${at} の columns[${i}] は属性名か { "field", "label" } で指定`);
       const heading = isRecord(c) && typeof c.label === 'string' && c.label ? c.label : field;
       extra.push({ field, label: heading });
     });
-  } else if (columns !== undefined) problems.push(`${at} の columns が配列ではありません`);
-  if (angleKind !== undefined && !angleKinds.includes(angleKind as AngleKind)) problems.push(`${at} の angleKind は ${angleKinds.join(' / ')} のどれかにしてください`);
-  if (orbitHeight !== undefined && !(typeof orbitHeight === 'number' && orbitHeight > 0)) problems.push(`${at} の orbitHeight は衛星の高度（km）にしてください`);
+  } else if (columns !== undefined) problems.push(`${at} の columns は配列で指定`);
+  if (angleKind !== undefined && !angleKinds.includes(angleKind as AngleKind)) problems.push(`${at} の angleKind は ${angleKinds.join(' / ')} のいずれかで指定`);
+  if (orbitHeight !== undefined && !(typeof orbitHeight === 'number' && orbitHeight > 0)) problems.push(`${at} の orbitHeight は衛星の高度（km）で指定`);
 
   return {
     label: typeof label === 'string' && label ? label : `カタログ ${index + 1}`,

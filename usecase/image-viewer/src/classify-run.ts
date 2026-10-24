@@ -77,7 +77,7 @@ export interface ClassifyOutput {
 
 /** The plan (the image's own grid); throws when the image cannot be classified. */
 export function planClassify(image: ViewerImage, bands: readonly number[]): CompositePlan {
-  if (!bands.length) throw new Error('バンドを 1 つ以上選んでください');
+  if (!bands.length) throw new Error('バンドを 1 つ以上選択');
   return planCalc(
     bands.map((band) => ({ image, band })),
     image,
@@ -124,13 +124,13 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
         )
       : [];
   if (method.kind === 'supervised') {
-    if (method.training.length < 2) throw new Error('学習用のクラスが 2 つ以上必要です');
-    if (method.training.length > MAX_CLASSES) throw new Error(`クラスは ${MAX_CLASSES} までです（${method.training.length} あります）`);
+    if (method.training.length < 2) throw new Error('学習用のクラスが 2 つ以上必要');
+    if (method.training.length > MAX_CLASSES) throw new Error(`クラスは ${MAX_CLASSES} まで（指定 ${method.training.length}）`);
     if (!training.some((t) => t.box[2] > 0 && t.box[3] > 0 && t.box[0] < grid.width && t.box[1] < grid.height)) {
-      throw new Error('学習用のポリゴンが画像の範囲にありません');
+      throw new Error('学習用のポリゴンが画像の範囲になし');
     }
   } else if (!(method.classes >= 2 && method.classes <= MAX_CLASSES)) {
-    throw new Error(`クラス数は 2 から ${MAX_CLASSES} までです`);
+    throw new Error(`クラス数は 2 から ${MAX_CLASSES} まで`);
   }
 
   // Pass 1: samples for k-means, or the training statistics.
@@ -185,7 +185,7 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
       all.set(s, at);
       at += s.length;
     }
-    if (!all.length) throw new Error('値のある画素がありませんでした');
+    if (!all.length) throw new Error('値のある画素なし');
     model = { kind: 'distance', dims, means: kMeans(all, dims, method.classes, method.iterations ?? 30, method.seed ?? 1) };
     names = Array.from({ length: method.classes }, (_, c) => `クラス ${c + 1}`);
   } else {
@@ -213,7 +213,7 @@ export async function runClassify(request: ClassifyRequest): Promise<ClassifyOut
       areas[c] += n * area;
     });
   });
-  if (!pixels.some((n) => n > 0)) throw new Error('値のある画素がありませんでした');
+  if (!pixels.some((n) => n > 0)) throw new Error('値のある画素なし');
 
   const plan8: CompositePlan = { ...plan, type: UINT8 };
   const classBlob = await classWriter.finish(await tagsOf(plan8, [1], [names.length]), out?.classes.name);
@@ -310,8 +310,8 @@ async function runBlocks(
   let done = 0;
   let failed = false;
   const stop = () => {
-    if (control.cancelled) throw new Error('中止しました');
-    if (failed) throw new Error('ほかのブロックで失敗しました');
+    if (control.cancelled) throw new Error('中止');
+    if (failed) throw new Error('ほかのブロックで失敗');
   };
   const workers: Worker[] = [];
   const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
@@ -343,7 +343,7 @@ async function runBlocks(
 function call(worker: Worker, task: SampleTask | ClassifyTask, transfer: Transferable[]): Promise<SampleResult | ClassifyResult> {
   return new Promise((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<ClassifyReply>) => (e.data.ok ? resolve(e.data.result) : reject(new Error(e.data.message)));
-    worker.onerror = (e) => reject(new Error(e.message || '分類が止まりました'));
+    worker.onerror = (e) => reject(new Error(e.message || '分類が停止'));
     worker.postMessage(task, transfer);
   });
 }

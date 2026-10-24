@@ -137,7 +137,7 @@ export class Dashboard extends Observable {
     this.element.innerHTML = `
       <div class="dashboard-head">
         <h2>ダッシュボード</h2>
-        <button type="button" data-action="close" class="dashboard-close" title="ダッシュボードを閉じる（B）。絞り込みも解除します" aria-label="ダッシュボードを閉じる">×</button>
+        <button type="button" data-action="close" class="dashboard-close" title="ダッシュボードを閉じる（B）。絞り込みも解除" aria-label="ダッシュボードを閉じる">×</button>
       </div>
       <div class="dashboard-body">
         <section class="dashboard-overview" aria-label="レイヤーの概要"></section>
@@ -149,7 +149,7 @@ export class Dashboard extends Observable {
             <label><input type="checkbox" name="heatmap" /> ヒートマップ</label>
             <label class="dashboard-radius" hidden>半径 <input type="range" name="radius" min="4" max="60" step="1" value="16" aria-label="ヒートマップの半径" /></label>
             <button type="button" data-action="clear" hidden>絞り込みを解除</button>
-            <button type="button" data-action="select" title="絞り込んだ地物を選択します（属性テーブル・書き出し・プロセッシングで使えます）">地物を選択</button>
+            <button type="button" data-action="select" title="絞り込んだ地物を選択（属性テーブル・書き出し・プロセッシングで利用可能）">地物を選択</button>
           </div>
           <section aria-labelledby="dashboard-category-title">
             <h3 id="dashboard-category-title">属性別</h3>
@@ -169,7 +169,7 @@ export class Dashboard extends Observable {
             <div class="dashboard-time"></div>
           </section>
         </div>
-        <p class="dashboard-empty">ベクターレイヤーを開くと、件数・属性別の集計・時間の推移・ヒートマップを表示します。</p>
+        <p class="dashboard-empty">ベクターレイヤーを開くと、件数・属性別の集計・時間の推移・ヒートマップを表示。</p>
       </div>`;
     const q = <T extends HTMLElement>(s: string) => this.element.querySelector<T>(s)!;
     this.body_ = q('.dashboard-detail');
@@ -452,7 +452,7 @@ export class Dashboard extends Observable {
     const style = layer.service.style!;
     const features = layer.service.vector!.source.getFeatures().filter((f) => style.shows(f));
     this.options.selection.set(features);
-    this.options.say(`${features.length.toLocaleString()} 件を選択しました`);
+    this.options.say(`${features.length.toLocaleString()} 件を選択`);
   }
 
   // ---- drawing ----
@@ -533,7 +533,7 @@ export class Dashboard extends Observable {
       }
       row.append(name, what, count);
       if (layer.type === 'service' && layer.service.vector && layer.service.style) {
-        row.title = 'このレイヤーを集計します';
+        row.title = 'このレイヤーを集計';
         row.addEventListener('click', () => {
           this.pinned_ = layer;
           this.setLayer_(layer);
@@ -590,7 +590,7 @@ export class Dashboard extends Observable {
     const group = this.groupBy_;
     if (!group) {
       this.listed_ = new Set();
-      this.categories_.replaceChildren(this.note_('属性を選ぶと、値ごとに集計します'));
+      this.categories_.replaceChildren(this.note_('属性を選ぶと、値ごとに集計'));
       return;
     }
     const measure = this.statistic_ === 'count' ? null : this.measure_;
@@ -658,13 +658,13 @@ export class Dashboard extends Observable {
       });
       return row;
     });
-    this.categories_.replaceChildren(...(rows.length ? rows : [this.note_('地物がありません')]));
+    this.categories_.replaceChildren(...(rows.length ? rows : [this.note_('地物なし')]));
   }
 
   private renderHistogram_(features: FeatureLike[]): void {
     const measure = this.measure_;
     if (!measure) {
-      this.histogram_.replaceChildren(this.note_('数値の属性がありません'));
+      this.histogram_.replaceChildren(this.note_('数値の属性なし'));
       return;
     }
     const values: number[] = [];
@@ -673,7 +673,7 @@ export class Dashboard extends Observable {
       if (n !== null) values.push(n);
     }
     if (!values.length) {
-      this.histogram_.replaceChildren(this.note_('値がありません'));
+      this.histogram_.replaceChildren(this.note_('値なし'));
       return;
     }
     let min = Infinity;
@@ -701,7 +701,7 @@ export class Dashboard extends Observable {
       col.classList.toggle('chosen', on);
       col.classList.toggle('dimmed', !!this.range_ && !on);
       col.style.setProperty('--h', `${(c / most) * 100}%`);
-      col.title = `${short(from)} 〜 ${short(to)}: ${c.toLocaleString()} 件 — クリックで絞り込み、Shift で範囲を広げる`;
+      col.title = `${short(from)} 〜 ${short(to)}: ${c.toLocaleString()} 件 — クリックで絞り込み、Shift で範囲を拡張`;
       col.setAttribute('aria-label', col.title);
       col.addEventListener('click', (e) => {
         if (e.shiftKey && this.range_) this.range_ = [Math.min(this.range_[0], from), Math.max(this.range_[1], to)];
@@ -724,7 +724,7 @@ export class Dashboard extends Observable {
     const layer = this.layer_!;
     const span = this.options.timeline.spanOf(layer);
     if (!span) {
-      this.timeChart_.replaceChildren(this.note_('時間の属性がありません'));
+      this.timeChart_.replaceChildren(this.note_('時間の属性なし'));
       return;
     }
     const starts: number[] = [];
@@ -733,7 +733,7 @@ export class Dashboard extends Observable {
       if (s) starts.push(s[0]);
     }
     if (!starts.length) {
-      this.timeChart_.replaceChildren(this.note_('時間のある地物がありません'));
+      this.timeChart_.replaceChildren(this.note_('時間のある地物なし'));
       return;
     }
     starts.sort((a, b) => a - b);

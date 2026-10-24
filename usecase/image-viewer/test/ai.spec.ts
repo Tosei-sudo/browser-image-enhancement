@@ -9,7 +9,7 @@ import { toBase64 } from './fixtures.js';
  * no WebGPU adapter):
  * - 物体検出 finds the bright cells of a white square on a black image and
  *   makes them a temporary layer where the square is;
- * - クリックで抽出 outlines a disc round the click (the stand-in decoder's
+ * - クリック抽出 outlines a disc round the click (the stand-in decoder's
  *   mask, at low resolution over the padded input), which is checked for its
  *   size on the map.
  */
@@ -79,7 +79,7 @@ test('detects objects over the view and adds them as a temporary layer', async (
   await dialog.getByRole('button', { name: '実行' }).click();
   // It runs in the background: the dialog closes at once, a panel shows how far it got.
   await expect(dialog).toBeHidden();
-  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成しました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成', { timeout: 30_000 });
   await expect(page.locator('.ai-progress')).toBeHidden();
   await expect(page.locator('#images .name').first()).toContainText('物体検出（detect.onnx）');
 
@@ -127,7 +127,7 @@ test("runs a Detectron2 export (one image in; boxes, classes and scores out) as 
   await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）（Detectron2 形式）・入力 64×64・クラス名なし');
   await expect(dialog.getByLabel('スコアのしきい値')).toHaveValue('0.5');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('物体検出（detectron2.onnx） を作成しました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('物体検出（detectron2.onnx） を作成', { timeout: 30_000 });
 
   const found = await page.evaluate(() => {
     const layer = window.viewer.images.layers()[0];
@@ -169,7 +169,7 @@ test('draws and analyses an 8 times larger view block by block', async ({ page }
   await dialog.getByLabel('解析の細かさ').selectOption('8');
   await dialog.getByLabel('スコアのしきい値').fill('0.5');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('を作成しました', { timeout: 60_000 });
+  await expect(page.locator('#status')).toContainText('を作成', { timeout: 60_000 });
 
   const found = await page.evaluate(() => {
     const layer = window.viewer.images.layers()[0];
@@ -207,11 +207,11 @@ test('outlines the object under a click with Segment Anything', async ({ page })
     },
     [model('sam-encoder.onnx'), model('sam-decoder.onnx')],
   );
-  await expect(panel.locator('.ai-segment-note')).toContainText('準備ができました（CPU（WebAssembly））');
+  await expect(panel.locator('.ai-segment-note')).toContainText('準備完了（CPU（WebAssembly））');
 
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出しました', { timeout: 30_000 });
+  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出', { timeout: 30_000 });
 
   // The stand-in mask is a disc of 64 encoder pixels round the click: 64 / scale on the screen.
   const outline = await page.evaluate(() => {
@@ -226,8 +226,8 @@ test('outlines the object under a click with Segment Anything', async ({ page })
   expect(outline.area / (Math.PI * radius * radius)).toBeLessThan(1.1);
   expect(Math.abs((outline.extent[0] + outline.extent[2]) / 2 - outline.center[0])).toBeLessThan(2 * outline.resolution);
 
-  await panel.getByRole('button', { name: 'レイヤーにする' }).click();
-  await expect(page.locator('#status')).toContainText('AI 抽出 を作成しました（1 件、一時レイヤー）');
+  await panel.getByRole('button', { name: 'レイヤー化' }).click();
+  await expect(page.locator('#status')).toContainText('AI 抽出 を作成（1 件、一時レイヤー）');
   await expect(page.locator('#images .name').first()).toContainText('AI 抽出');
   // Esc ends the tool and clears its preview.
   await page.keyboard.press('Escape');
@@ -263,7 +263,7 @@ test('writes detections, corrected and added ones, to an Esri feature layer by m
   await dialog.locator('summary').click();
   await dialog.getByLabel('スコアのしきい値').fill('0.5');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('を作成しました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('を作成', { timeout: 30_000 });
 
   // A person checks the result: one class corrected, one false detection deleted.
   const count = await page.evaluate(() => {
@@ -281,9 +281,9 @@ test('writes detections, corrected and added ones, to an Esri feature layer by m
   const transfer = page.locator('.ai-transfer-dialog');
   await expect(transfer.locator('.ai-transfer-plan')).toContainText(`検出結果（ポリゴン）へ新規 ${count} 件・更新 0 件・転記済みで変更なし 0 件（AI ${count - 1}・修正 1）`);
   // NOTE is mapped but the layer has no such attribute: shown, and left out.
-  await expect(transfer.locator('.ai-transfer-plan')).toContainText('転記先にない属性 1 個は書きません');
+  await expect(transfer.locator('.ai-transfer-plan')).toContainText('転記先にない属性 1 個は書き込み対象外');
   await transfer.getByRole('button', { name: '転記' }).click();
-  await expect(page.locator('#status')).toContainText(`検出DB へ ${count} 件を追加、0 件を更新しました`);
+  await expect(page.locator('#status')).toContainText(`検出DB へ ${count} 件を追加、0 件を更新`);
 
   const rows = async () =>
     ((await (await page.request.get('/svc/detections')).json()) as Array<{ attributes: Record<string, unknown>; geometry: { rings: number[][][] } }>).filter(
@@ -315,7 +315,7 @@ test('writes detections, corrected and added ones, to an Esri feature layer by m
   await page.locator('#ai-transfer').click();
   await expect(transfer.locator('.ai-transfer-plan')).toContainText(`新規 0 件・更新 1 件・転記済みで変更なし ${count - 1} 件（AI ${count - 2}・修正 2）`);
   await transfer.getByRole('button', { name: '転記' }).click();
-  await expect(page.locator('#status')).toContainText('検出DB へ 0 件を追加、1 件を更新しました');
+  await expect(page.locator('#status')).toContainText('検出DB へ 0 件を追加、1 件を更新');
   sent = await rows();
   expect(sent).toHaveLength(count);
   expect(sent.filter((r) => r.attributes.STATUS === 2)).toHaveLength(2);
@@ -340,16 +340,16 @@ test('the sample models ship with the viewer: YOLO11-OBB and YOLOX-Tiny load, Mo
   await expect(dialog.locator('.ai-model-info')).toContainText('物体検出（矩形）・入力 416×416・80 クラス（person・bicycle・car', { timeout: 60_000 });
   await dialog.getByRole('button', { name: '実行' }).click();
   // Nothing of COCO's on a white square.
-  await expect(page.locator('#status')).toContainText('見つかりませんでした', { timeout: 60_000 });
+  await expect(page.locator('#status')).toContainText('検出なし', { timeout: 60_000 });
 
-  // クリックで抽出: MobileSAM takes the white square in.
+  // クリック抽出: MobileSAM takes the white square in.
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#ai-segment').click();
   const panel = page.locator('.ai-segment-panel');
-  await expect(panel.locator('.ai-segment-note')).toContainText('準備ができました', { timeout: 60_000 });
+  await expect(panel.locator('.ai-segment-note')).toContainText('準備完了', { timeout: 60_000 });
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出しました', { timeout: 60_000 });
+  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出', { timeout: 60_000 });
   const area = await page.evaluate(() => (window.viewer.aiSegment.outlines()[0].getGeometry() as import('ol/geom/Polygon.js').default).getArea());
   expect(area / (squareOnMap * squareOnMap)).toBeGreaterThan(0.9);
   expect(area / (squareOnMap * squareOnMap)).toBeLessThan(1.1);
@@ -379,7 +379,7 @@ test('on a cross-origin isolated page (as the service worker serves it) both too
   await dialog.locator('summary').click();
   await dialog.getByLabel('スコアのしきい値').fill('0.5');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成しました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('物体検出（detect.onnx） を作成', { timeout: 30_000 });
 
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#ai-segment').click();
@@ -391,9 +391,9 @@ test('on a cross-origin isolated page (as the service worker serves it) both too
     },
     [model('sam-encoder.onnx'), model('sam-decoder.onnx')],
   );
-  await expect(panel.locator('.ai-segment-note')).toContainText('準備ができました');
+  await expect(panel.locator('.ai-segment-note')).toContainText('準備完了');
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出しました', { timeout: 30_000 });
+  await expect(panel.locator('.ai-segment-note')).toContainText('1 個を抽出', { timeout: 30_000 });
   expect(errors).toEqual([]);
 });

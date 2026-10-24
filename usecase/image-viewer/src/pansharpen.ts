@@ -76,17 +76,17 @@ export function planPanSharpen(
   const cx = (m.origin[0] - pan.origin[0]) / pan.resolution[0];
   const ay = m.resolution[1] / pan.resolution[1];
   const cy = (m.origin[1] - pan.origin[1]) / pan.resolution[1];
-  if (!(ax > 0 && ay > 0) || ![cx, cy].every(Number.isFinite)) throw new Error('2 つの画像の向きが合いません');
+  if (!(ax > 0 && ay > 0) || ![cx, cy].every(Number.isFinite)) throw new Error('2 つの画像の向きが不一致');
   // The overlap, in panchromatic pixels.
   let px0 = Math.max(0, Math.floor(cx + 1e-6));
   let py0 = Math.max(0, Math.floor(cy + 1e-6));
   let px1 = Math.min(pan.width, Math.ceil(cx + ax * m.width - 1e-6));
   let py1 = Math.min(pan.height, Math.ceil(cy + ay * m.height - 1e-6));
-  if (px1 <= px0 || py1 <= py0) throw new Error('2 つの画像が重なっていません');
+  if (px1 <= px0 || py1 <= py0) throw new Error('2 つの画像の重なりなし');
   if (options.window) {
     const [wx0, wy0, wx1, wy1] = options.window;
     [px0, py0, px1, py1] = [Math.max(px0, wx0), Math.max(py0, wy0), Math.min(px1, wx1), Math.min(py1, wy1)];
-    if (px1 <= px0 || py1 <= py0) throw new Error('窓が重なりの外です');
+    if (px1 <= px0 || py1 <= py0) throw new Error('窓が重なりの外');
   }
 
   let reduction = 1;

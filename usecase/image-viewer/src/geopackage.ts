@@ -37,20 +37,20 @@ export async function readGeoPackage(bytes: Uint8Array, title: string, projectio
   try {
     db = await openGeoPackageDb(bytes);
   } catch {
-    throw new Error(`${title} は GeoPackage として読めませんでした`);
+    throw new Error(`${title} は GeoPackage として読み込み失敗`);
   }
   try {
     db.query('SELECT 1 FROM gpkg_contents LIMIT 1');
   } catch {
     db.close();
-    throw new Error(`${title} は GeoPackage として読めませんでした`);
+    throw new Error(`${title} は GeoPackage として読み込み失敗`);
   }
   const tables = rows(db, `SELECT c.table_name, c.identifier, g.column_name, g.geometry_type_name, g.srs_id
     FROM gpkg_contents c JOIN gpkg_geometry_columns g ON g.table_name = c.table_name
     WHERE c.data_type = 'features' ORDER BY c.table_name`);
   if (!tables.length) {
     db.close();
-    throw new Error(`${title} には地物のテーブルがありません（タイルや属性だけの GeoPackage は開けません）`);
+    throw new Error(`${title} には地物のテーブルなし（タイルや属性だけの GeoPackage は表示不可）`);
   }
   const out: VectorFile[] = [];
   for (const t of tables) {
@@ -58,7 +58,7 @@ export async function readGeoPackage(bytes: Uint8Array, title: string, projectio
     const name = tables.length === 1 ? title : `${String(t.identifier || table)}（${title}）`;
     const srsId = Number(t.srs_id);
     const projection = await srsProjection(db, srsId, projectionOf);
-    if (!projection) throw new Error(`${name} の座標系（srs_id ${srsId}）を読めませんでした`);
+    if (!projection) throw new Error(`${name} の座標系（srs_id ${srsId}）の読み込みに失敗`);
     const layer = readTable(db, { table, geometryColumn: String(t.column_name), srsId }, name, String(t.geometry_type_name), projection);
     const styleQml = defaultStyle(db, table);
     out.push({ ...layer, writeCrs: srsCrs(db, srsId, projection), ...(styleQml ? { styleQml } : {}) });
@@ -197,11 +197,11 @@ const envelopeBytes = [0, 32, 48, 48, 64];
 
 /** A geometry from a GeoPackage geometry blob (header + WKB); null when empty. */
 export function decodeGeometry(blob: Uint8Array): Geometry | null {
-  if (blob[0] !== 0x47 || blob[1] !== 0x50) throw new Error('GeoPackage のジオメトリではありません');
+  if (blob[0] !== 0x47 || blob[1] !== 0x50) throw new Error('GeoPackage のジオメトリ以外');
   const flags = blob[3];
   if (flags & 0x10) return null;
   const envelope = envelopeBytes[(flags >> 1) & 7];
-  if (envelope === undefined) throw new Error('GeoPackage のジオメトリの範囲が読めません');
+  if (envelope === undefined) throw new Error('GeoPackage のジオメトリの範囲が読み込み不可');
   return readWkb(blob, 8 + envelope);
 }
 

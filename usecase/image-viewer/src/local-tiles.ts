@@ -42,7 +42,7 @@ export async function serveFolder(chosen: readonly File[]): Promise<{ url: strin
       }
     }
   }
-  if (!main) throw new Error('フォルダに tileset.json がありません');
+  if (!main) throw new Error('フォルダに tileset.json なし');
   for (const [i, file] of chosen.entries()) files.set(`/${id}/${paths[i]}`, file);
   const folder = main.path.includes('/') ? main.path.slice(0, main.path.lastIndexOf('/')) : main.f.name;
   return { url: `${ORIGIN}/${id}/${main.path.split('/').map(encodeURIComponent).join('/')}`, name: folder.split('/').pop() || folder };
@@ -73,7 +73,7 @@ function hook(): void {
     if (!isLocalTiles(url)) return loadWithXhr(url, responseType, method, data, headers, deferred, ...rest);
     const file = fileAt(url);
     if (!file) {
-      deferred.reject(new Error(`${decodeURIComponent(url.slice(ORIGIN.length))} がフォルダにありません`));
+      deferred.reject(new Error(`${decodeURIComponent(url.slice(ORIGIN.length))} がフォルダになし`));
       return undefined;
     }
     const read = async () => {

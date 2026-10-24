@@ -97,17 +97,17 @@ const isFraction = (value: unknown): value is number => typeof value === 'number
 /** One `aiModels` entry; null (with the reason in `problems`) when it cannot be used. */
 export function aiModelOf(value: unknown, problems: string[], index: number): AiModelConfig | null {
   const at = `aiModels[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const label = typeof value.label === 'string' && value.label ? value.label : `モデル ${index + 1}`;
   const normalize: Partial<Pick<DetectModelConfig, 'mean' | 'std'>> = {};
   for (const key of ['mean', 'std'] as const) {
     if (value[key] === undefined) continue;
     if (isTriple(value[key]) && (key === 'mean' || (value[key] as number[]).every((v) => v !== 0))) normalize[key] = value[key] as [number, number, number];
-    else problems.push(`${at} の ${key} は R・G・B の 3 つの数にしてください`);
+    else problems.push(`${at} の ${key} は R・G・B の 3 つの数で指定`);
   }
 
   if (value.encoder !== undefined || value.decoder !== undefined || value.task === 'sam') {
-    if (!isUrl(value.encoder) || !isUrl(value.decoder)) return (problems.push(`${at} の encoder と decoder に ONNX の URL を書いてください`), null);
+    if (!isUrl(value.encoder) || !isUrl(value.decoder)) return (problems.push(`${at} の encoder と decoder に ONNX の URL を記述`), null);
     const size = value.inputSize;
     return {
       kind: 'sam',
@@ -119,42 +119,42 @@ export function aiModelOf(value: unknown, problems: string[], index: number): Ai
     };
   }
 
-  if (!isUrl(value.url)) return (problems.push(`${at} の url に ONNX の URL を書いてください`), null);
+  if (!isUrl(value.url)) return (problems.push(`${at} の url に ONNX の URL を記述`), null);
   const model: DetectModelConfig = { kind: 'detect', label, url: value.url, ...normalize };
   if (value.task !== undefined) {
     if (value.task === 'detect' || value.task === 'obb' || value.task === 'segment') model.task = value.task;
-    else problems.push(`${at} の task は detect・obb・segment・sam のどれかにしてください`);
+    else problems.push(`${at} の task は detect・obb・segment・sam のいずれかで指定`);
   }
   if (value.inputSize !== undefined) {
     const size = typeof value.inputSize === 'number' ? [value.inputSize, value.inputSize] : value.inputSize;
     if (Array.isArray(size) && size.length === 2 && size.every((s) => Number.isInteger(s) && s >= 16 && s <= 4096)) model.inputSize = [size[0], size[1]];
-    else problems.push(`${at} の inputSize は 640 か [幅, 高さ] にしてください`);
+    else problems.push(`${at} の inputSize は 640 か [幅, 高さ] で指定`);
   }
   if (value.classes !== undefined) {
     if (value.classes === 'coco') model.classes = [...COCO_CLASSES];
     else if (Array.isArray(value.classes) && value.classes.every((c) => typeof c === 'string')) model.classes = value.classes as string[];
-    else problems.push(`${at} の classes はクラス名の配列か "coco" にしてください`);
+    else problems.push(`${at} の classes はクラス名の配列か "coco" で指定`);
   }
   if (value.format !== undefined) {
     if (DETECT_FORMATS.includes(value.format as DetectFormat)) model.format = value.format as DetectFormat;
-    else problems.push(`${at} の format は ${DETECT_FORMATS.join('・')} のどれかにしてください`);
+    else problems.push(`${at} の format は ${DETECT_FORMATS.join('・')} のいずれかで指定`);
   }
   if (value.channels !== undefined) {
     if (value.channels === 'rgb' || value.channels === 'bgr') model.channels = value.channels;
-    else problems.push(`${at} の channels は rgb か bgr にしてください`);
+    else problems.push(`${at} の channels は rgb か bgr で指定`);
   }
   if (value.maxDetections !== undefined) {
     if (Number.isInteger(value.maxDetections) && (value.maxDetections as number) >= 0) model.maxDetections = value.maxDetections as number;
-    else problems.push(`${at} の maxDetections は 0 以上の整数にしてください（0: 上限なし）`);
+    else problems.push(`${at} の maxDetections は 0 以上の整数で指定（0: 上限なし）`);
   }
   if (value.strides !== undefined) {
     if (Array.isArray(value.strides) && value.strides.length > 0 && value.strides.every((n) => Number.isInteger(n) && n > 0)) model.strides = value.strides as number[];
-    else problems.push(`${at} の strides は [8, 16, 32] のような正の整数の配列にしてください`);
+    else problems.push(`${at} の strides は [8, 16, 32] のような正の整数の配列で指定`);
   }
   for (const key of ['score', 'iou'] as const) {
     if (value[key] === undefined) continue;
     if (isFraction(value[key])) model[key] = value[key];
-    else problems.push(`${at} の ${key} は 0 と 1 の間の数にしてください`);
+    else problems.push(`${at} の ${key} は 0 と 1 の間の数で指定`);
   }
   return model;
 }

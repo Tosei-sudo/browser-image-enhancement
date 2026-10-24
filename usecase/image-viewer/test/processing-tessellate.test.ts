@@ -58,12 +58,12 @@ describe('tessellate', () => {
   });
 
   it('refuses too many cells', () => {
-    expect(() => tessellate([tokyo], { shape: 'square', size: 1, maxCells: 1000 })).toThrow(/多すぎます/);
+    expect(() => tessellate([tokyo], { shape: 'square', size: 1, maxCells: 1000 })).toThrow(/多すぎ/);
   });
 
   it('notes the stretch of a wide geodesic grid', () => {
     const result = tessellate([box(125, 25, 150, 45)], { shape: 'hexagon', size: 100_000 });
-    expect(result.notes!.join()).toMatch(/大きくなります/);
+    expect(result.notes!.join()).toMatch(/拡大/);
   });
 
   it('converts sizes', () => {

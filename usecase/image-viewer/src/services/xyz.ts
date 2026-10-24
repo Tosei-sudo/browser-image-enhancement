@@ -68,12 +68,12 @@ export function xyzTileUrl(template: string, z: number, x: number, y: number): s
 
 export async function readXyz(url: string): Promise<ServiceCatalog> {
   const { template, name, zmin, zmax } = splitXyz(url);
-  if (!isXyzUrl(template)) throw new ServiceError('XYZ タイルの URL には {z}・{x}・{y} を含めてください');
+  if (!isXyzUrl(template)) throw new ServiceError('XYZ タイルの URL には {z}・{x}・{y} が必要');
   let host: string;
   try {
     host = new URL(template.replace(/\{[^}]*\}/g, '0'), location.href).host;
   } catch {
-    throw new ServiceError('XYZ タイルの URL を読めませんでした');
+    throw new ServiceError('XYZ タイルの URL の読み込みに失敗');
   }
   const title = name || `XYZ タイル（${host}）`;
   return {
@@ -102,7 +102,7 @@ export async function readXyz(url: string): Promise<ServiceCatalog> {
         tileGrid,
         projection: 'EPSG:3857',
         gpu: context.gpu,
-        onNoCors: () => context.say(`${service.title}: サーバーが CORS を許可していないため、補正せずに表示します`),
+        onNoCors: () => context.say(`${service.title}: サーバーが CORS 非許可のため、補正なしで表示`),
       });
       service.layer = tiles.layer;
       Object.defineProperty(service, 'correction', { get: tiles.correction });

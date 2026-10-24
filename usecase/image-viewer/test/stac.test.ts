@@ -71,7 +71,7 @@ describe('config', () => {
       { label: 'https://x.example.com', url: 'https://x.example.com', collections: [] },
     ]);
     expect(problems).toHaveLength(5);
-    expect(parseConfig({ stacCatalogs: 'x' }).problems).toEqual(['stacCatalogs が配列ではありません']);
+    expect(parseConfig({ stacCatalogs: 'x' }).problems).toEqual(['stacCatalogs は配列で指定']);
     expect(stacCatalogOf({ url: './stac/catalog.json' }, [], 0)?.url).toBe('./stac/catalog.json');
   });
 });

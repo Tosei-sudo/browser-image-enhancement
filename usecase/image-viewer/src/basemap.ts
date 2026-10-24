@@ -89,7 +89,7 @@ export class BaseMapSwitch {
         if (generation !== this.generation_) return;
         const message = error instanceof Error ? error.message : String(error);
         console.warn(`背景地図「${base.label}」`, error);
-        this.options.say?.(`背景地図「${base.label}」を読み込めませんでした: ${message}`);
+        this.options.say?.(`背景地図「${base.label}」の読み込みに失敗: ${message}`);
       });
     }
   }
@@ -141,13 +141,13 @@ async function fetchJson<T>(url: string, what: string): Promise<T> {
   try {
     response = await authFetch(url);
   } catch {
-    throw new Error(`${what}を取得できません（ネットワークか CORS の設定を確認してください）`);
+    throw new Error(`${what}の取得不可（ネットワークか CORS の設定を確認）`);
   }
-  if (!response.ok) throw new Error(`${what}を取得できません: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`${what}の取得不可: HTTP ${response.status}`);
   try {
     return (await response.json()) as T;
   } catch {
-    throw new Error(`${what}が JSON ではありません`);
+    throw new Error(`${what}が JSON 以外`);
   }
 }
 
@@ -165,12 +165,12 @@ async function serverInfo(root: string, token: string | undefined): Promise<Vect
   const info = await fetchJson<VectorTileServerInfo>(withToken(`${root}?f=json`, token), 'VectorTileServer の情報');
   if (info.error) {
     const code = info.error.code;
-    const hint = code === 498 || code === 499 ? '（トークンが必要か、期限切れです）' : '';
-    throw new Error(`VectorTileServer がエラーを返しました: ${info.error.message ?? code}${hint}`);
+    const hint = code === 498 || code === 499 ? '（トークンが必要か、期限切れ）' : '';
+    throw new Error(`VectorTileServer からエラー応答: ${info.error.message ?? code}${hint}`);
   }
   const sr = info.tileInfo?.spatialReference;
   const wkid = sr?.latestWkid ?? sr?.wkid;
-  if (wkid !== undefined && !webMercator.has(wkid)) throw new Error(`Web メルカトル以外（WKID ${wkid}）のベクタータイルには対応していません`);
+  if (wkid !== undefined && !webMercator.has(wkid)) throw new Error(`Web メルカトル以外（WKID ${wkid}）のベクタータイルには非対応`);
   return info;
 }
 
@@ -231,7 +231,7 @@ export async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[
   } else styleUrl = absolute(base.url).href;
 
   let style = await fetchJson<StyleJson>(withToken(styleUrl, token), 'スタイル');
-  if (!style || typeof style !== 'object' || !Array.isArray(style.layers)) throw new Error('スタイル JSON ではありません');
+  if (!style || typeof style !== 'object' || !Array.isArray(style.layers)) throw new Error('スタイル JSON 以外');
   style = await resolveEsriSources(style, styleUrl, token, infos);
 
   // The sprite (icons) from a secured server needs the token too: in its URL, which carries it to the .json and the .png.
@@ -243,7 +243,7 @@ export async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[
     const id = layer.source;
     if (id && style.sources?.[id]?.type === 'vector' && !sourceIds.includes(id)) sourceIds.push(id);
   }
-  if (!sourceIds.length) throw new Error('スタイルにベクタータイルのソースがありません');
+  if (!sourceIds.length) throw new Error('スタイルにベクタータイルのソースなし');
 
   // The style reader is loaded only when a styled base map is first shown.
   const { applyBackground, applyStyle } = await import('ol-mapbox-style');
@@ -264,7 +264,7 @@ export async function styledVectorTiles(base: BaseMapConfig): Promise<BaseLayer[
   } catch (error) {
     // A missing sprite should cost the icons, not the whole map.
     if (!(error instanceof Error && error.message.startsWith('Sprites cannot be loaded')) || !style.sprite) throw error;
-    console.warn('背景地図のアイコン（sprite）を読み込めなかったので、アイコンなしで表示します', error);
+    console.warn('背景地図のアイコン（sprite）を読み込めなかったので、アイコンなしで表示', error);
     layers = await build({ ...style, sprite: undefined });
   }
   if (base.attributions) for (const layer of layers) layer.getSource()?.setAttributions(base.attributions);

@@ -32,7 +32,7 @@ describe('sensor catalogs', () => {
       problems,
       0,
     )!;
-    expect(problems).toEqual(['sensorCatalogs[0].sensors[2] に sensor（センサー名）がありません']);
+    expect(problems).toEqual(['sensorCatalogs[0].sensors[2] に sensor（センサー名）なし']);
     expect(catalog.modes).toEqual([
       { sensor: 'ICEYE', mode: 'Strip', sar: true, swath: 30, length: 50, maxOffNadir: 30, minInterval: 5, lookSide: 'right' },
       { sensor: 'ICEYE', mode: 'Spot', sar: true, swath: 5, minInterval: 5, lookSide: 'both', primary: true },
@@ -49,7 +49,7 @@ describe('sensor catalogs', () => {
     expect(sensorModeOf({ MODE: 'Spot' }, table)).toBeNull();
     expect(sensorCatalogOf({ url: 'https://example.com/x' }, problems, 2)).toBeNull();
     expect(sensorCatalogOf({ url: 'https://example.com/arcgis/rest/services/S/FeatureServer/1', fields: { mode: 'MODE' } }, problems, 3)).toBeNull();
-    expect(problems).toEqual(['sensorCatalogs[2] は sensors（モードの一覧）か、…/FeatureServer/1 のようなテーブルの url を書いてください', 'sensorCatalogs[3] に fields.sensor（センサー名の属性）がありません']);
+    expect(problems).toEqual(['sensorCatalogs[2] は sensors（モードの一覧）か、…/FeatureServer/1 のようなテーブルの url を記述', 'sensorCatalogs[3] に fields.sensor（センサー名の属性）なし']);
     // In config.json, next to the satellite catalogs, which keep their old form.
     const config = parseConfig({
       satelliteCatalogs: [{ url: 'https://example.com/arcgis/rest/services/Sat/FeatureServer/0', fields: { tle: 'TLE', sensor: 'SENSOR' } }],

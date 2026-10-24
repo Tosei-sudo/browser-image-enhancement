@@ -119,10 +119,10 @@ async function readHeader(image: GeoTIFFImage): Promise<Header | null> {
 function cogVerdict(images: readonly GeoTIFFImage[], header: Header | null): string {
   if (header?.structural.LAYOUT === 'COG') return 'はい（GDAL の COG レイアウト）';
   const tiled = images[0].isTiled;
-  if (!tiled) return 'いいえ（ストリップ形式。拡大縮小のたびに広い範囲を読みます）';
+  if (!tiled) return 'いいえ（ストリップ形式。拡大縮小のたびに広い範囲を読み込み）';
   const small = Math.max(images[0].getWidth(), images[0].getHeight()) <= images[0].getTileWidth();
   if (images.length > 1 || small) return 'COG 相当（タイル＋RSET。バイト配置は未確認）';
-  return 'いいえ（RSET がありません）';
+  return 'いいえ（RSET なし）';
 }
 
 /** The tags of an image's directory, by tag number, in order, with their values (big arrays only counted). */
@@ -144,7 +144,7 @@ async function tagsOf(image: GeoTIFFImage): Promise<Array<[string, string]>> {
       try {
         text = formatValue(await dir.loadValue(tag));
       } catch (error) {
-        text = `（読めません: ${(error as Error).message}）`;
+        text = `（読み込み不可: ${(error as Error).message}）`;
       }
     }
     rows.push([`${name}（${tag}）`, text]);
@@ -174,7 +174,7 @@ export async function describeTiff(images: readonly GeoTIFFImage[], options: { n
   summary.push(['サイズ', `${image.getWidth().toLocaleString()} × ${image.getHeight().toLocaleString()} px`]);
   summary.push(['バンド数', String(samples)]);
   summary.push(['データ型', [...new Set(types)].join(' / ')]);
-  summary.push(['配置', image.isTiled ? `タイル ${image.getTileWidth()} × ${image.getTileHeight()} px` : `ストリップ（${fd.getValue('RowsPerStrip') ?? image.getHeight()} 行ずつ）`]);
+  summary.push(['配置', image.isTiled ? `タイル ${image.getTileWidth()} × ${image.getTileHeight()} px` : `ストリップ（${fd.getValue('RowsPerStrip') ?? image.getHeight()} 行単位）`]);
   summary.push(['圧縮', named(COMPRESSION, compression)]);
   const predictor = (await fd.loadValue('Predictor')) as number | undefined;
   if (predictor !== undefined) summary.push(['予測子', named(PREDICTOR, predictor)]);
@@ -221,7 +221,7 @@ export async function describeTiff(images: readonly GeoTIFFImage[], options: { n
     geo.push(['画素の大きさ', image.getResolution().map(formatNumber).join(', ')]);
     geo.push(['範囲', image.getBoundingBox().map(formatNumber).join(', ')]);
   } catch {
-    geo.push(['地理参照', 'なし（ModelTiepoint・ModelTransformation がありません）']);
+    geo.push(['地理参照', 'なし（ModelTiepoint・ModelTransformation なし）']);
   }
 
   const gdal: Array<[string, string]> = items
@@ -292,7 +292,7 @@ export class MetadataDialog {
     try {
       const sources = image.source.getTiffImages() as GeoTIFFImage[][];
       const masks = (image.source as unknown as { sourceMasks_?: unknown[][] }).sourceMasks_ ?? [];
-      if (!sources.length || !sources[0].length) throw new Error('GeoTIFF の情報がまだ読まれていません');
+      if (!sources.length || !sources[0].length) throw new Error('GeoTIFF の情報が未読み込み');
       const all = await Promise.all(sources.map((levels, i) => describeTiff(levels, { name: image.name, masks: masks[i]?.length ?? 0 })));
       sections = all.length === 1 ? all[0] : all.flatMap((list, i) => list.map((s) => ({ ...s, title: `ソース ${i + 1}: ${s.title}` })));
     } catch (error) {
@@ -306,9 +306,9 @@ export class MetadataDialog {
   private async copy_(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
-      this.options.say('メタデータをコピーしました');
+      this.options.say('メタデータをコピー');
     } catch {
-      this.options.say('クリップボードにコピーできませんでした');
+      this.options.say('クリップボードにコピー失敗');
     }
   }
 }

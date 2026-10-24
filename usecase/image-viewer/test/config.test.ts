@@ -46,7 +46,7 @@ describe('parseConfig', () => {
       { id: 'forced', label: 'forced', type: 'style', url: 'https://maps.example.com/styles/basic', attributions: '', maxZoom: 18 },
       { id: 'xyz-token', label: 'xyz-token', type: 'xyz', url: 'https://tiles.example.com/{z}/{x}/{y}.png', attributions: '', maxZoom: 18 },
     ]);
-    expect(problems).toEqual(['baseMaps[5] の type「wms」は xyz・mvt・style・esri のどれかにしてください']);
+    expect(problems).toEqual(['baseMaps[5] の type「wms」は xyz・mvt・style・esri のいずれかで指定']);
   });
 
   it('tells the kind of a base map URL', () => {
@@ -182,7 +182,7 @@ describe('elevationServices', () => {
       { url: 'https://example.com/arcgis/rest/services/Elevation/ImageServer/' },
     ]);
     expect(problems).toHaveLength(2);
-    expect(parseConfig({ elevationServices: {} }).problems).toEqual(['elevationServices が配列ではありません']);
+    expect(parseConfig({ elevationServices: {} }).problems).toEqual(['elevationServices は配列で指定']);
   });
 });
 
@@ -208,7 +208,7 @@ describe('gpServices', () => {
       { label: 'https://example.com/ogc/processes', url: 'https://example.com/ogc/processes' },
     ]);
     expect(problems).toHaveLength(2);
-    expect(parseConfig({ gpServices: {} }).problems).toEqual(['gpServices が配列ではありません']);
+    expect(parseConfig({ gpServices: {} }).problems).toEqual(['gpServices は配列で指定']);
     expect(parseConfig({}).config.gpServices).toEqual([]);
   });
 });

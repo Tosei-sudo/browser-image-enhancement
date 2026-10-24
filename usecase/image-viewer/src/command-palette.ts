@@ -232,8 +232,8 @@ export class CommandPalette {
       <input type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
         aria-label="機能を検索" placeholder="機能を検索（例: 距離、ndvi、保存）" autocomplete="off" spellcheck="false" />
       <ul id="palette-list" role="listbox" aria-label="機能"></ul>
-      <p class="palette-empty" hidden>一致する機能がありません</p>
-      <p class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> 選ぶ <kbd>Enter</kbd> 実行 <kbd>Esc</kbd> 閉じる</p>`;
+      <p class="palette-empty" hidden>一致する機能なし</p>
+      <p class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> 選択 <kbd>Enter</kbd> 実行 <kbd>Esc</kbd> 閉じる</p>`;
     this.input_ = dialog.querySelector('input')!;
     this.list_ = dialog.querySelector('ul')!;
     this.empty_ = dialog.querySelector('.palette-empty')!;

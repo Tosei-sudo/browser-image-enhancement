@@ -81,9 +81,9 @@ describe('model config', () => {
       { kind: 'detect', label: 'モデル 4', url: './a.onnx' },
     ]);
     expect(problems).toEqual([
-      'aiModels[2] の url に ONNX の URL を書いてください',
-      'aiModels[3] の task は detect・obb・segment・sam のどれかにしてください',
-      'aiModels[3] の score は 0 と 1 の間の数にしてください',
+      'aiModels[2] の url に ONNX の URL を記述',
+      'aiModels[3] の task は detect・obb・segment・sam のいずれかで指定',
+      'aiModels[3] の score は 0 と 1 の間の数で指定',
     ]);
     expect(aiModelOf({ url: './m.onnx', std: [0, 1, 1] }, [], 0)).toEqual({ kind: 'detect', label: 'モデル 1', url: './m.onnx' });
   });

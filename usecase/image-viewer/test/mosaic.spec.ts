@@ -93,7 +93,7 @@ test('joins neighbouring scenes into one, the first on top and the next through 
   await expect(dialog.locator('.mosaic-list li')).toHaveText(['west_20250105.tif2025-01-05', 'east_20240105.tif2024-01-05']);
 
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('west_20250105_east_20240105_mosaic.tif を作りました（2 枚、70 × 40 px）');
+  await expect(page.locator('#status')).toContainText('west_20250105_east_20240105_mosaic.tif を作成（2 枚、70 × 40 px）');
   await expect(page.locator('#images .name').first()).toHaveText('モザイクwest_20250105_east_20240105_mosaic.tif');
   await page.screenshot({ path: 'test-results/mosaic-result.png' });
 
@@ -115,7 +115,7 @@ test('joins neighbouring scenes into one, the first on top and the next through 
   await dialog.getByLabel('優先順').selectOption('layers');
   await dialog.locator('.mosaic-list li').first().getByRole('checkbox').uncheck();
   await expect(dialog.locator('.mosaic-list li').getByRole('checkbox', { checked: true })).toHaveCount(2);
-  await dialog.getByLabel('境界をぼかしてつなぐ').check();
+  await dialog.getByLabel('境界をぼかして接合').check();
   await dialog.locator('summary').click();
   await dialog.getByLabel('ぼかす幅').fill('4');
   await dialog.getByLabel('ぼかす幅').dispatchEvent('change');

@@ -632,7 +632,7 @@ export class Globe {
         this.geoid_ ??= await loadGeoid();
         scene.terrainProvider = demTerrain(cells, this.geoid_, sources);
       } catch (error) {
-        this.context.say(`起伏を表示できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+        this.context.say(`起伏の表示に失敗: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     this.updatePatches_(true);
@@ -773,7 +773,7 @@ export class Globe {
     const { say } = this.context;
     const scene = isSceneServer(url);
     const name = options.name ?? (scene ? /([^/]+)\/SceneServer/i.exec(url)?.[1] : null) ?? (url.replace(/\/tileset\.json(\?.*)?$/i, '').split('/').pop() || url);
-    say(`${name} を読み込んでいます…`);
+    say(`${name} を読み込み中…`);
     try {
       const tileset = scene ? await openSceneService(url, this.geoid_ ?? (this.geoid_ = await loadGeoid())) : await Cesium3DTileset.fromUrl(url);
       tileset.show = options.show ?? true;
@@ -796,10 +796,10 @@ export class Globe {
         },
       });
       if (options.fly !== false) zoom();
-      say(`${scene ? 'シーンサービス' : '3D タイル'}を追加しました: ${name}`);
+      say(`${scene ? 'シーンサービス' : '3D タイル'}を追加: ${name}`);
       return true;
     } catch (error) {
-      say(`3D タイルを開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`3D タイルの読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -810,7 +810,7 @@ export class Globe {
       const { url, name } = await serveFolder(files);
       return await this.addTileset(url, { name });
     } catch (error) {
-      this.context.say(`3D タイルを開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.context.say(`3D タイルの読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -850,7 +850,7 @@ export class Globe {
   async picture(): Promise<Blob> {
     const scene = this.widget.scene;
     scene.render();
-    return new Promise<Blob>((resolve, reject) => scene.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('画像を作れませんでした'))), 'image/png'));
+    return new Promise<Blob>((resolve, reject) => scene.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('画像の作成に失敗'))), 'image/png'));
   }
 
   /** Saves the view as a PNG file, where the viewer saves files. */
@@ -860,7 +860,7 @@ export class Globe {
       const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
       await saveFile(`3d-${stamp}.png`, blob, this.context.say);
     } catch (error) {
-      this.context.say(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.context.say(`保存失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -935,10 +935,10 @@ export class Globe {
     let open = cells();
     const sources = this.context.elevationSources?.() ?? [];
     if (!open.length && !sources.length) {
-      say('可視解析には標高データ（DTED か標高サービス）が必要です。先に用意してください');
+      say('可視解析には標高データ（DTED か標高サービス）が必要（先に用意）');
       return;
     }
-    say('可視解析: 標高を読み取っています…');
+    say('可視解析: 標高を読み取り中…');
     try {
       if (sources.length && this.context.cellsFor) {
         // The ground within the radius, from the services too.
@@ -958,7 +958,7 @@ export class Globe {
           '）',
       );
     } catch (error) {
-      say(`可視解析できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`可視解析失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1151,7 +1151,7 @@ class GlobePanel {
       <label class="globe-field">高さの基準
         <select name="height-mode">
           <option value="auto">自動（起伏があれば標高、なければ地表から）</option>
-          <option value="orthometric">標高（ジオイド高を足す）</option>
+          <option value="orthometric">標高（ジオイド高を加算）</option>
           <option value="ground">地表から（最も低い点を地表に）</option>
           <option value="ellipsoid">楕円体高（そのまま）</option>
         </select>
@@ -1162,7 +1162,7 @@ class GlobePanel {
         <button type="submit">追加</button>
       </form>
       <div class="globe-buttons">
-        <button type="button" name="tiles-folder" title="tileset.json のあるフォルダを、パソコンから開きます">フォルダから開く…</button>
+        <button type="button" name="tiles-folder" title="tileset.json のあるフォルダを、パソコンから読み込み">フォルダから開く…</button>
         <input type="file" name="tiles-files" webkitdirectory multiple hidden />
       </div>
       <ul class="globe-tilesets"></ul>
@@ -1181,11 +1181,11 @@ class GlobePanel {
         <label class="globe-field">観測者の高さ <span><input type="number" name="observer" value="1.6" min="0" step="0.1" /> m</span></label>
         <label class="globe-field">対象の高さ <span><input type="number" name="target" value="0" min="0" step="0.1" /> m</span></label>
         <label class="globe-field">半径 <span><input type="number" name="radius" value="5" min="0.1" max="100" step="0.1" /> km</span></label>
-        <label class="globe-check" title="マルチパッチの建物と、表示中の 3D タイルの高さを地形に加えて判定します"><input type="checkbox" name="obstacles" checked /> 建物（マルチパッチ・3D タイル）も遮る</label>
+        <label class="globe-check" title="マルチパッチの建物と、表示中の 3D タイルの高さを地形に加えて判定"><input type="checkbox" name="obstacles" checked /> 建物（マルチパッチ・3D タイル）も遮蔽物に</label>
         <details class="globe-more">
           <summary>詳細</summary>
           <label class="globe-field">大気差係数 <span><input type="number" name="refraction" value="0.13" min="0" max="1" step="0.01" /></span></label>
-          <p class="globe-note">標高データの全点について、観測点からの視線をそのまま辿って判定します（R3 法）。距離は WGS 84 楕円体上、地球の丸みと大気の屈折を考慮します。3D タイルの高さは、いま表示されている詳しさで最大 4 万点読み取ります。</p>
+          <p class="globe-note">標高データの全点について、観測点からの視線をそのまま辿って判定（R3 法）。距離は WGS 84 楕円体上、地球の丸みと大気の屈折を考慮。3D タイルの高さは、現在の表示の詳しさで最大 4 万点読み取り。</p>
         </details>
         <div class="globe-buttons">
           <button type="button" name="pick" aria-pressed="false">観測点をクリック</button>
@@ -1194,7 +1194,7 @@ class GlobePanel {
       </div>
       <h3>表示</h3>
       <label class="globe-check"><input type="checkbox" name="natural" checked /> 地球全体の背景画像（Natural Earth）</label>
-      <div class="globe-buttons"><button type="button" name="save-picture" title="いまの 3D 表示を PNG で保存します">画像として保存（PNG）</button></div>
+      <div class="globe-buttons"><button type="button" name="save-picture" title="いまの 3D 表示を PNG で保存">画像として保存（PNG）</button></div>
     `;
     const q = <T extends Element>(selector: string) => element.querySelector<T & Element>(selector)!;
     this.natural = q<HTMLInputElement>('[name=natural]');
@@ -1329,13 +1329,13 @@ class GlobePanel {
     const used = [...(cells.length ? [`${cells.map((c) => c.level).join('、')}（${cells.length} 枚）`] : []), ...(this.globe.context.elevationSources?.() ?? []).map((s) => `${s.title}（サービス）`)];
     this.terrainText_.textContent = used.length
       ? `標高データ: ${used.join('、')}`
-      : '標高データなし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を幾何補正の「標高データとして使う」か、幾何補正の「標高サービス」を追加すると起伏を表示します）';
+      : '標高データなし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を幾何補正の「標高データとして使用」、または幾何補正の「標高サービス」の追加で起伏を表示）';
     const patches = this.globe.patchLayers();
     this.patchText_.textContent = patches.length
       ? patches.map(({ layer, count }) => `${layer.name}: ${count.toLocaleString()} 件`).join('、')
-      : 'マルチパッチの Shapefile を開くと立体で表示します';
+      : 'マルチパッチの Shapefile を開くと立体で表示';
     this.pick_.setAttribute('aria-pressed', String(this.globe.isPicking()));
-    this.pick_.textContent = this.globe.isPicking() ? '地図をクリックしてください（もう一度で中止）' : '観測点をクリック';
+    this.pick_.textContent = this.globe.isPicking() ? '地図をクリック（もう一度で中止）' : '観測点をクリック';
     this.clear_.disabled = !this.globe.hasViewshed();
     const mode = this.globe.measureMode();
     this.distance_.setAttribute('aria-pressed', String(mode === 'distance'));

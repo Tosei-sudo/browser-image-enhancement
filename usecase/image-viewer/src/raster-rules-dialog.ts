@@ -104,9 +104,9 @@ export class RasterRulesDialog {
       </form>
       <p class="service-status raster-status" role="status"></p>
       <div class="service-actions">
-        <button type="button" value="export" class="raster-export" data-for="image" title="表示範囲を、保存されている画素値の GeoTIFF として開きます（補正・バンド割当・ストレッチがビューアでかけられます）">表示範囲を画像として開く</button>
+        <button type="button" value="export" class="raster-export" data-for="image" title="表示範囲を、保存されている画素値の GeoTIFF として表示（補正・バンド割当・ストレッチをビューアで適用可能）">表示範囲を画像として開く</button>
         <span class="spacer"></span>
-        <button type="button" value="reset">既定に戻す</button>
+        <button type="button" value="reset">既定に復元</button>
         <button type="button" value="cancel">キャンセル</button>
         <button type="button" value="apply">適用</button>
         <button type="button" value="ok" class="primary">OK</button>
@@ -205,7 +205,7 @@ export class RasterRulesDialog {
       this.status_.textContent = error instanceof Error ? error.message : String(error);
       return false;
     }
-    this.status_.textContent = isDefault(settings) ? 'サービスの既定で表示しています' : '適用しました';
+    this.status_.textContent = isDefault(settings) ? 'サービスの既定で表示中' : '適用';
     this.options.onChange(entry);
     return true;
   }
@@ -226,13 +226,13 @@ export class RasterRulesDialog {
     const raster = this.raster_;
     if (!raster?.exportView) return;
     if (!this.apply()) return;
-    this.status_.textContent = '表示範囲を読み込んでいます…';
+    this.status_.textContent = '表示範囲を読み込み中…';
     try {
       const { blob, name } = await raster.exportView(this.options.map);
       await this.options.openImage(blob, name);
       this.close_();
     } catch (error) {
-      this.status_.textContent = `読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -306,23 +306,23 @@ export class RasterRulesDialog {
       const numbers = (name: string, label: string, min: number) => {
         if (!text(name)) return undefined;
         const list = text(name).split(/[\s,、]+/).filter(Boolean).map(Number);
-        if (!list.every((n) => Number.isInteger(n) && n >= min)) throw new Error(`${label}は ${min} 以上の整数をカンマで区切って入力してください`);
+        if (!list.every((n) => Number.isInteger(n) && n >= min)) throw new Error(`${label}は ${min} 以上の整数をカンマで区切って入力`);
         return list;
       };
       const ids = numbers('lockRasterIds', '画像 ID ', 0);
       if (ids) s.lockRasterIds = ids;
-      if (s.method === 'esriMosaicLockRaster' && !ids?.length) throw new Error('「画像を指定（ID）」では画像 ID を入力してください');
+      if (s.method === 'esriMosaicLockRaster' && !ids?.length) throw new Error('「画像を指定（ID）」では画像 ID を入力');
       const bands = numbers('bandIds', 'バンド', 1);
       if (bands) {
-        if (raster.bandCount && bands.some((b) => b > raster.bandCount)) throw new Error(`バンドは 1〜${raster.bandCount} で指定してください`);
-        if (bands.length !== 1 && bands.length !== 3) throw new Error('バンドは 1 つ（グレー）か 3 つ（R, G, B）で指定してください');
+        if (raster.bandCount && bands.some((b) => b > raster.bandCount)) throw new Error(`バンドは 1〜${raster.bandCount} で指定`);
+        if (bands.length !== 1 && bands.length !== 3) throw new Error('バンドは 1 つ（グレー）か 3 つ（R, G, B）で指定');
         s.bandIds = bands.map((b) => b - 1);
       }
       if (text('renderingRule')) {
         try {
           s.renderingRule = JSON.stringify(JSON.parse(text('renderingRule')));
         } catch {
-          throw new Error('レンダリングルールが JSON として読めません');
+          throw new Error('レンダリングルールが JSON として読み込み不可');
         }
         renderingRuleOf(s);
       }
@@ -397,7 +397,7 @@ export class RasterRulesDialog {
     else if (op === 'like') condition = `${field.name} LIKE ${sqlValue(`%${value.trim()}%`, 'string')}`;
     else {
       if (!value.trim()) {
-        this.status_.textContent = '値を入力してください';
+        this.status_.textContent = '値を入力';
         return;
       }
       condition = `${field.name} ${op} ${sqlValue(value, field.type)}`;
@@ -432,10 +432,10 @@ export class RasterRulesDialog {
     this.countTimer_ = window.setTimeout(() => {
       const asked = ++this.countAsked_;
       const where = this.input_('where').value;
-      this.count_.textContent = '条件に合う画像を数えています…';
+      this.count_.textContent = '条件に合う画像を集計中…';
       void raster.count(where).then((n) => {
         if (asked !== this.countAsked_ || this.raster_ !== raster) return;
-        this.count_.textContent = n === null ? '条件に合う画像の数を取得できませんでした（条件を確認してください）' : `条件に合う画像: ${n.toLocaleString()} 件`;
+        this.count_.textContent = n === null ? '条件に合う画像の数の取得に失敗（条件を確認）' : `条件に合う画像: ${n.toLocaleString()} 件`;
       });
     }, delay);
   }

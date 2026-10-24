@@ -342,7 +342,7 @@ function readColumns(t: Table | null, index: number): FgbColumn[] {
 export function readFlatGeobuf(bytes: Uint8Array): FgbFile;
 export function readFlatGeobuf<G>(bytes: Uint8Array, geometryOf: (g: FlatGeometry) => G | null): FgbFile<G>;
 export function readFlatGeobuf<G>(bytes: Uint8Array, geometryOf: (g: FlatGeometry) => G | null = geoJsonOf as never): FgbFile<G> {
-  if (!isFlatGeobuf(bytes)) throw new Error('FlatGeobuf ではありません');
+  if (!isFlatGeobuf(bytes)) throw new Error('FlatGeobuf 以外');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const headerSize = view.getUint32(8, true);
   const header = rootAt(view, 8);

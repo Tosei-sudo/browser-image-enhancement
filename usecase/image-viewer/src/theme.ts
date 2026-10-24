@@ -60,7 +60,7 @@ export class Theme {
     const changed = root.dataset.theme !== theme;
     root.dataset.theme = theme;
     const auto = this.element.querySelector<HTMLElement>('[data-theme-choice="auto"]');
-    if (auto) auto.title = `システムの設定に合わせます（いまは${NAMES[theme]}）`;
+    if (auto) auto.title = `システムの設定に連動（現在: ${NAMES[theme]}）`;
     this.element.querySelectorAll<HTMLButtonElement>('[data-theme-choice]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeChoice === this.choice_)));
     if (changed) document.dispatchEvent(new Event('themechange'));
   }

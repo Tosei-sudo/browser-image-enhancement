@@ -17,7 +17,7 @@ test.describe('a first visit', () => {
     await open(page);
     const guide = page.getByRole('region', { name: 'はじめに' });
     await expect(guide).toBeVisible();
-    await guide.getByRole('button', { name: 'はじめる' }).click();
+    await guide.getByRole('button', { name: '開始' }).click();
     await expect(guide).toBeHidden();
     await page.reload();
     await page.waitForFunction(() => window.viewer !== undefined);
@@ -33,7 +33,7 @@ test.describe('a first visit', () => {
 
   test('the guide can turn the explanations of the controls on', async ({ page }) => {
     await open(page);
-    await page.getByRole('region', { name: 'はじめに' }).getByRole('button', { name: 'ボタンの説明を出す' }).click();
+    await page.getByRole('region', { name: 'はじめに' }).getByRole('button', { name: 'ボタンの説明を表示' }).click();
     await expect(page.getByRole('region', { name: 'はじめに' })).toBeHidden();
     await page.locator('#add-service').hover();
     await expect(page.getByRole('tooltip')).toContainText('インターネット上の地図サービス');
@@ -47,7 +47,7 @@ test('the click tools are in one menu, marked while one is on, with single-key s
   await expect(distance).toBeHidden();
   await menu.click();
   await expect(menu).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('button', { name: '距離を測る' }).click();
+  await page.getByRole('button', { name: '距離計測' }).click();
   // Choosing closes the menu; its button shows a tool is on.
   await expect(distance).toBeHidden();
   await expect(distance).toHaveAttribute('aria-pressed', 'true');
@@ -128,7 +128,7 @@ test('? lists the shortcuts', async ({ page }) => {
   const help = page.getByRole('dialog', { name: '使い方とショートカット' });
   await expect(help).toBeVisible();
   await help.getByRole('tab', { name: 'ショートカット' }).click();
-  await expect(help).toContainText('距離を測る');
+  await expect(help).toContainText('距離計測');
   await expect(help).toContainText('属性テーブル');
   // Keys do nothing while the dialog is open.
   await page.keyboard.press('d');
@@ -167,24 +167,24 @@ test('「?」 finds a task by plain words, with its steps, and points at its but
 
   // Kana finds the kanji, and the words of a task's steps count too.
   await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('きょり');
-  const topic = help.locator('.help-results .help-topic', { hasText: '距離や面積を測る' });
+  const topic = help.locator('.help-results .help-topic', { hasText: '距離・面積の計測' });
   await expect(topic).toBeVisible();
   await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('暗い');
-  await expect(help.locator('.help-results')).toContainText('画像を明るく・くっきりさせる');
+  await expect(help.locator('.help-results')).toContainText('画像の明るさ・鮮明さの調整');
   await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('ばんど');
   await expect(help.locator('.help-results .help-terms')).toContainText('バンド');
   await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('ぜんぜんない言葉');
-  await expect(help.locator('.help-results')).toContainText('見つかりませんでした');
+  await expect(help.locator('.help-results')).toContainText('該当なし');
 
-  // 「場所を見る」 opens the menu the button is in and rings it.
+  // 「場所を表示」 opens the menu the button is in and rings it.
   await help.getByRole('searchbox', { name: 'ヘルプを検索' }).fill('');
-  const measure = help.locator('#help-panel-topics .help-topic', { hasText: '距離や面積を測る' });
+  const measure = help.locator('#help-panel-topics .help-topic', { hasText: '距離・面積の計測' });
   await measure.locator('summary').click();
-  await expect(measure.locator('ol')).toContainText('ダブルクリックで終わります');
-  await measure.getByRole('button', { name: '場所を見る' }).click();
+  await expect(measure.locator('ol')).toContainText('ダブルクリックで終了');
+  await measure.getByRole('button', { name: '場所を表示' }).click();
   await expect(help).toBeHidden();
   await expect(page.locator('#measure-distance')).toBeVisible();
-  await expect(page.locator('.help-spot-caption')).toHaveText('ここです: 距離や面積を測る');
+  await expect(page.locator('.help-spot-caption')).toHaveText('ここ: 距離・面積の計測');
   const ring = (await page.locator('.help-spot').boundingBox())!;
   const button = (await page.locator('#measure-distance').boundingBox())!;
   expect(Math.abs(ring.x + ring.width / 2 - (button.x + button.width / 2))).toBeLessThan(2);
@@ -193,11 +193,11 @@ test('「?」 finds a task by plain words, with its steps, and points at its but
 
   // A button that is not there yet (no layer open): the dialog says why instead.
   await page.getByRole('button', { name: '?' }).click();
-  const colorize = help.locator('#help-panel-topics .help-topic', { hasText: '白黒の画像に色を付ける' });
+  const colorize = help.locator('#help-panel-topics .help-topic', { hasText: '白黒画像の着色' });
   await colorize.locator('summary').click();
-  await colorize.getByRole('button', { name: '場所を見る' }).click();
+  await colorize.getByRole('button', { name: '場所を表示' }).click();
   await expect(help).toBeVisible();
-  await expect(help.getByRole('status')).toContainText('先に画像を開いてください');
+  await expect(help.getByRole('status')).toContainText('画像なし（先に画像を開く）');
 
   // The tab used last is the one it opens on.
   await help.getByRole('tab', { name: '用語' }).click();

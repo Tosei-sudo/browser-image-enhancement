@@ -83,7 +83,7 @@ export class BandMathDialog {
           <div class="service-form">
             <label class="wide">式<input name="expression" type="text" autocomplete="off" spellcheck="false" aria-label="式" placeholder="例: (B4 - B3) / (B4 + B3)" /></label>
             <p class="wide processing-hint band-math-help"></p>
-            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値を変えない）</option></select></label>
+            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値の変化なし）</option></select></label>
           </div>
         </details>
         <p class="wide processing-hint composite-plan"></p>
@@ -134,7 +134,7 @@ export class BandMathDialog {
     const start = selected && this.images_.includes(selected) && !this.made_.has(selected) ? selected : (this.images_.find((i) => i.source.getValueBandCount() >= 2 && !this.images.isSource(i)) ?? this.images_[0]);
     if (start) this.image_.value = String(this.images_.indexOf(start));
     this.preset_.value = preset;
-    this.note_.textContent = this.images_.length ? '' : '画像を開いてください';
+    this.note_.textContent = this.images_.length ? '' : '画像なし（先に画像を開く）';
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     if (!this.dialog.open) this.dialog.showModal();
     await this.imageChanged_();
@@ -169,7 +169,7 @@ export class BandMathDialog {
     this.names_ = image ? (await image.source.getBandNames().catch(() => [])).map((n) => n ?? '') : [];
     const n = this.bandCount();
     this.dialog.querySelector('.band-math-help')!.textContent =
-      `バンドは B1〜B${n || 'n'}（${n} バンド）。演算子 + − × ÷（* /）・べき乗 ^・比較 < > など（1 か 0）、関数 ${Object.keys(FUNCTIONS).join('・')}。0 で割った所などは値なしになります。`;
+      `バンドは B1〜B${n || 'n'}（${n} バンド）。演算子 + − × ÷（* /）・べき乗 ^・比較 < > など（1 か 0）、関数 ${Object.keys(FUNCTIONS).join('・')}。0 で割った所などは値なし。`;
     this.presetChanged_();
   }
 
@@ -197,7 +197,7 @@ export class BandMathDialog {
         const select = document.createElement('select');
         select.name = `role-${role.name}`;
         select.setAttribute('aria-label', role.label);
-        select.append(new Option('（選んでください）', ''), ...Array.from({ length: n }, (_, b) => new Option(bandName(b), String(b))));
+        select.append(new Option('（選択）', ''), ...Array.from({ length: n }, (_, b) => new Option(bandName(b), String(b))));
         select.value = guessed[i] === null ? '' : String(guessed[i]);
         select.addEventListener('change', () => this.fillExpression_());
         label.append(select);
@@ -227,13 +227,13 @@ export class BandMathDialog {
   private describe_(): void {
     const preset = this.preset();
     this.dialog.querySelector('.band-math-hint')!.textContent = preset
-      ? `${preset.hint} 式: ${this.expression_.value || '（バンドを選んでください）'}`
+      ? `${preset.hint} 式: ${this.expression_.value || '（バンドを選択）'}`
       : `式: ${this.expression_.value}`;
     const out = this.dialog.querySelector<HTMLElement>('.composite-plan')!;
     const image = this.image();
     this.run_.disabled = true;
     if (!image) return void (out.textContent = '');
-    if (preset && this.roleBands_().some((b) => b === null)) return void (out.textContent = `${this.bandCount()} バンドの画像です。使うバンドを選んでください`);
+    if (preset && this.roleBands_().some((b) => b === null)) return void (out.textContent = `${this.bandCount()} バンドの画像。使うバンドを選択`);
     try {
       parseExpression(this.expression_.value, this.bandNames());
       const { grid } = planCalc([{ image, band: 0 }], image);
@@ -264,7 +264,7 @@ export class BandMathDialog {
     const name = `${baseName(image.name)}_${preset?.id ?? 'calc'}.tif`;
     const draft = results.begin(preset ? preset.id.toUpperCase() : 'バンド演算');
     try {
-      this.note_.textContent = '計算しています… 0%';
+      this.note_.textContent = '計算中… 0%';
       const form = new FormData(this.form_);
       const { blob, plan, min, max } = await runCalc({
         sink: draft.sink(name),
@@ -275,10 +275,10 @@ export class BandMathDialog {
         resample: form.get('resample') === 'nearest' ? 'nearest' : 'bilinear',
         control,
         onProgress: (done) => {
-          if (!control.cancelled) this.note_.textContent = `計算しています… ${Math.floor(done * 100)}%`;
+          if (!control.cancelled) this.note_.textContent = `計算中… ${Math.floor(done * 100)}%`;
         },
       });
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
@@ -289,12 +289,12 @@ export class BandMathDialog {
       made.layer.setColorScale(scaleOf(preset));
       markRow(made);
       this.dialog.close();
-      this.options.say(`${name} を作りました（${plan.grid.width.toLocaleString()} × ${plan.grid.height.toLocaleString()} px、値 ${round(min)}〜${round(max)}）`);
+      this.options.say(`${name} を作成（${plan.grid.width.toLocaleString()} × ${plan.grid.height.toLocaleString()} px、値 ${round(min)}〜${round(max)}）`);
       return made;
     } catch (error) {
       await draft.discard();
-      if (control.cancelled) this.options.say('バンド演算を中止しました');
-      else this.note_.textContent = `計算できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      if (control.cancelled) this.options.say('バンド演算を中止');
+      else this.note_.textContent = `計算失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     } finally {
       this.running_ = null;

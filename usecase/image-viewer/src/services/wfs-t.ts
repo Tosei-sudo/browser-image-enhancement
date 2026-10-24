@@ -106,7 +106,7 @@ export function gmlGeometry(geometry: Geometry, version: WfsVersion, srsName: st
         ? multi('MultiPolygon', 'polygonMember', (g.getCoordinates() as Coordinate[][][]).map((c) => polygon(c, false)))
         : multi('MultiSurface', 'surfaceMember', (g.getCoordinates() as Coordinate[][][]).map((c) => polygon(c, false)));
     default:
-      throw new Error(`${g.getType()} は書けません`);
+      throw new Error(`${g.getType()} は書き込み不可`);
   }
 }
 
@@ -198,11 +198,11 @@ export function parseTransactionResponse(text: string): TransactionResult {
   const failed = /<(?:[\w-]+:)?Status>\s*<(?:[\w-]+:)?FAILED\b/.test(text);
   if (exception || failed) {
     const message = /<(?:[\w-]+:)?(?:ExceptionText|ServiceException|Message)\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?(?:ExceptionText|ServiceException|Message)>/.exec(text)?.[1];
-    result.message = message ? unescape(message.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim().replace(/\s+/g, ' ').slice(0, 300) : 'サーバーが拒否しました';
+    result.message = message ? unescape(message.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim().replace(/\s+/g, ' ').slice(0, 300) : 'サーバーが拒否';
     return result;
   }
   if (!/TransactionResponse\b/.test(text)) {
-    result.message = '応答が TransactionResponse ではありません';
+    result.message = '応答が TransactionResponse 以外';
     return result;
   }
   const total = (name: string) => Number(new RegExp(`<(?:[\\w-]+:)?${name}>\\s*(\\d+)\\s*<`).exec(text)?.[1] ?? 0);
@@ -250,7 +250,7 @@ export function wfsTarget(options: WfsTargetOptions): EditTarget {
       const refused = new Map<Feature, string>();
       const missing = [...updates.map((u) => u.feature), ...deletes].filter((f) => f.getId() === undefined);
       if (missing.length) {
-        for (const f of missing) refused.set(f, 'ID がない地物は変更できません');
+        for (const f of missing) refused.set(f, 'ID がない地物は変更不可');
         return { refused };
       }
       const xml = transactionXml({
@@ -273,7 +273,7 @@ export function wfsTarget(options: WfsTargetOptions): EditTarget {
       }
       const result = parseTransactionResponse(text);
       if (!result.ok) {
-        for (const f of all) refused.set(f, result.message ?? 'サーバーが拒否しました');
+        for (const f of all) refused.set(f, result.message ?? 'サーバーが拒否');
         return { refused };
       }
       adds.forEach((f, i) => {

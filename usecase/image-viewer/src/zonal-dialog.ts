@@ -78,7 +78,7 @@ export class ZonalDialog {
         <fieldset class="wide zonal-choices"><legend>統計</legend>${ZONAL_STATS.map(
           (s) => `<label class="check"><input type="checkbox" name="stat" value="${s.id}"${s.id === 'mean' || s.id === 'count' ? ' checked' : ''} /><span>${s.label}</span></label>`,
         ).join('')}</fieldset>
-        <p class="wide processing-hint">ポリゴンごとに、中心が内側に入る画素で数えます（ノーデータは除きます）。結果はポリゴンの写しに列を足した一時レイヤーになります。</p>
+        <p class="wide processing-hint">ポリゴンごとに、中心が内側に入る画素で集計（ノーデータは除外）。結果はポリゴンの写しに列を加えた一時レイヤー。</p>
       </form>
       <p class="service-status processing-note" role="status"></p>
       <div class="service-actions">
@@ -159,7 +159,7 @@ export class ZonalDialog {
     if (selected === 0) this.selected_.checked = false;
     this.selected_.disabled = selected === 0;
     this.selected_.nextElementSibling!.textContent = `選択中の地物だけ（${selected.toLocaleString()} 件）`;
-    const missing = !entry ? 'ポリゴンのレイヤーを開いてください' : !this.image() ? '画像を開いてください' : !this.chosen_('band').length ? 'バンドを選んでください' : !this.chosen_('stat').length ? '統計を選んでください' : '';
+    const missing = !entry ? 'ポリゴンのレイヤーを開く必要あり' : !this.image() ? '画像なし（先に画像を開く）' : !this.chosen_('band').length ? 'バンドを選択' : !this.chosen_('stat').length ? '統計を選択' : '';
     if (!this.running_) this.note_.textContent = missing;
     this.run_.disabled = !!missing || !!this.running_;
   }
@@ -182,9 +182,9 @@ export class ZonalDialog {
       if (control.cancelled) return;
       await this.options.onResult(result, `ゾーン統計（${image.name}）`);
       this.dialog.close();
-      this.options.say([`${result.title} を作成しました（${result.features.length.toLocaleString()} 件、一時レイヤー）`, ...(result.notes ?? [])].join('。'));
+      this.options.say([`${result.title} を作成（${result.features.length.toLocaleString()} 件、一時レイヤー）`, ...(result.notes ?? [])].join('。'));
     } catch (error) {
-      this.note_.textContent = `ゾーン統計を出せませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `ゾーン統計の出力に失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.running_ = null;
       this.update_();
@@ -249,7 +249,7 @@ export class ZonalDialog {
       out.push(copy);
       // Let the page breathe and say how far it got.
       if (performance.now() - last > 100) {
-        this.note_.textContent = `${(k + 1).toLocaleString()} / ${features.length.toLocaleString()} 件を集計しています…`;
+        this.note_.textContent = `${(k + 1).toLocaleString()} / ${features.length.toLocaleString()} 件を集計中…`;
         await new Promise((resolve) => setTimeout(resolve));
         last = performance.now();
       }
@@ -259,8 +259,8 @@ export class ZonalDialog {
       ...bands.flatMap((b) => stats.map((s) => field(statField(b, s, total), s === 'count' ? 'integer' : 'double', `${total > 1 ? `B${b + 1} ` : ''}${ZONAL_STATS.find((z) => z.id === s)!.label}`))),
     ];
     const notes: string[] = [];
-    if (outside) notes.push(`${outside.toLocaleString()} 件は画像の外なので値がありません`);
-    if (thinned) notes.push(`${thinned.toLocaleString()} 件は大きいので間引いて数えました`);
+    if (outside) notes.push(`${outside.toLocaleString()} 件は画像の外なので値なし`);
+    if (thinned) notes.push(`${thinned.toLocaleString()} 件は大きいため間引いて集計`);
     return { title: `${entry.name}_統計`, features: out, fields, crs: entry.service.fileCrs, notes };
   }
 }

@@ -156,7 +156,7 @@ export function drawProfile(container: HTMLElement, profile: Profile): void {
   };
   key('ground', '地面（標高データ）');
   if (hasObjects || !ground.some((g) => !Number.isNaN(g.height))) key('surface', '表示中の地表・建物');
-  if (profile.sight) key(profile.blocked === null ? 'sight clear' : 'sight blocked', profile.blocked === null ? '視線（見える）' : '視線（遮られる）');
+  if (profile.sight) key(profile.blocked === null ? 'sight clear' : 'sight blocked', profile.blocked === null ? '視線（可視）' : '視線（遮蔽）');
 
   const wrap = document.createElement('div');
   wrap.className = 'profile-wrap';

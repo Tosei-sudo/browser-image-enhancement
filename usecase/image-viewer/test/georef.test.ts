@@ -46,7 +46,7 @@ describe('side files', () => {
     expect(t).toEqual([-12000.5, 0.5, 0, 35001, 0, -0.5]);
     expect(parseWorldFile(worldFileText(t))).toEqual(t);
     expect(() => parseWorldFile('1\n0\n0\n')).toThrow('6 行');
-    expect(() => parseWorldFile('0\n0\n0\n0\n1\n1')).toThrow('0 です');
+    expect(() => parseWorldFile('0\n0\n0\n0\n1\n1')).toThrow('大きさが 0');
   });
 
   it('reads the CRS and GeoTransform of a GDAL .aux.xml', () => {
@@ -131,7 +131,7 @@ describe('placements', () => {
   });
 
   it('says so when the CRS is not known', async () => {
-    await expect(georefPlacement({ crs: 'EPSG:999999', transform: [0, 1, 0, 0, 0, -1], method: 'extent' }, 10, 10)).rejects.toThrow('定義が見つかりません');
+    await expect(georefPlacement({ crs: 'EPSG:999999', transform: [0, 1, 0, 0, 0, -1], method: 'extent' }, 10, 10)).rejects.toThrow('定義なし');
   });
 });
 

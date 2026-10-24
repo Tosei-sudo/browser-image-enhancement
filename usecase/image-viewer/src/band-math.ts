@@ -78,7 +78,7 @@ function tokenize(text: string): Token[] {
       i += op[0].length;
       continue;
     }
-    throw new ExpressionError(`使えない文字「${c}」があります`, i);
+    throw new ExpressionError(`使用不可の文字「${c}」`, i);
   }
   tokens.push({ type: 'end', at: text.length });
   return tokens;
@@ -89,7 +89,7 @@ function tokenize(text: string): Token[] {
  * regard to case). Throws an {@link ExpressionError} saying what is wrong.
  */
 export function parseExpression(text: string, variables: readonly string[]): Expr {
-  if (!text.trim()) throw new ExpressionError('式を入力してください', 0);
+  if (!text.trim()) throw new ExpressionError('式を入力', 0);
   const tokens = tokenize(text);
   const lower = variables.map((v) => v.toLowerCase());
   let k = 0;
@@ -99,7 +99,7 @@ export function parseExpression(text: string, variables: readonly string[]): Exp
     return t.type === 'op' && t.value === value;
   };
   const expect = (value: string) => {
-    if (!isOp(value)) throw new ExpressionError(`「${value}」が必要です`, peek().at);
+    if (!isOp(value)) throw new ExpressionError(`「${value}」が必要`, peek().at);
     k++;
   };
 
@@ -166,7 +166,7 @@ export function parseExpression(text: string, variables: readonly string[]): Exp
       k++;
       const name = t.value.toLowerCase();
       if (isOp('(')) {
-        if (!Object.hasOwn(FUNCTIONS, name)) throw new ExpressionError(`関数「${t.value}」はありません（使える関数: ${Object.keys(FUNCTIONS).join(', ')}）`, t.at);
+        if (!Object.hasOwn(FUNCTIONS, name)) throw new ExpressionError(`関数「${t.value}」なし（使える関数: ${Object.keys(FUNCTIONS).join(', ')}）`, t.at);
         k++;
         const args: Expr[] = [];
         if (!isOp(')')) {
@@ -178,19 +178,19 @@ export function parseExpression(text: string, variables: readonly string[]): Exp
         }
         expect(')');
         const [min, max] = FUNCTIONS[name as FunctionName];
-        if (args.length < min || args.length > max) throw new ExpressionError(`${name} の引数は ${min === max ? min : `${min}〜${max}`} 個です`, t.at);
+        if (args.length < min || args.length > max) throw new ExpressionError(`${name} の引数は ${min === max ? min : `${min}〜${max}`} 個`, t.at);
         return { kind: 'call', name: name as FunctionName, args };
       }
       const index = lower.indexOf(name);
-      if (index < 0) throw new ExpressionError(`「${t.value}」は使えません（使える名前: ${variables.join(', ')}）`, t.at);
+      if (index < 0) throw new ExpressionError(`「${t.value}」は使用不可（使える名前: ${variables.join(', ')}）`, t.at);
       return { kind: 'variable', index };
     }
-    if (t.type === 'end') throw new ExpressionError('式が途中で終わっています', t.at);
-    throw new ExpressionError(`「${(t as { value: string }).value}」の位置がおかしいです`, t.at);
+    if (t.type === 'end') throw new ExpressionError('式が途中で途切れ', t.at);
+    throw new ExpressionError(`「${(t as { value: string }).value}」の位置が不正`, t.at);
   };
 
   const expr = comparison();
-  if (peek().type !== 'end') throw new ExpressionError(`「${(peek() as { value: string }).value}」の位置がおかしいです`, peek().at);
+  if (peek().type !== 'end') throw new ExpressionError(`「${(peek() as { value: string }).value}」の位置が不正`, peek().at);
   return expr;
 }
 
@@ -398,7 +398,7 @@ export const INDEX_PRESETS: readonly IndexPreset[] = [
       { name: 'Red', label: '赤（Red）' },
     ],
     expression: '(NIR - Red) / (NIR + Red)',
-    hint: '植物の多い所ほど大きく（〜1）、水・裸地は 0 付近か負になります。',
+    hint: '植物の多い所ほど大きく（〜1）、水・裸地は 0 付近か負。',
   },
   {
     id: 'ndwi',
@@ -408,7 +408,7 @@ export const INDEX_PRESETS: readonly IndexPreset[] = [
       { name: 'NIR', label: '近赤外（NIR）' },
     ],
     expression: '(Green - NIR) / (Green + NIR)',
-    hint: '水面が正（明るく）、陸は負になります（McFeeters）。',
+    hint: '水面が正（明るく）、陸は負（McFeeters）。',
   },
   {
     id: 'ndbi',
@@ -418,7 +418,7 @@ export const INDEX_PRESETS: readonly IndexPreset[] = [
       { name: 'NIR', label: '近赤外（NIR）' },
     ],
     expression: '(SWIR - NIR) / (SWIR + NIR)',
-    hint: '建物・舗装の多い所ほど大きくなります。',
+    hint: '建物・舗装の多い所ほど大きな値。',
   },
   {
     id: 'savi',
@@ -428,7 +428,7 @@ export const INDEX_PRESETS: readonly IndexPreset[] = [
       { name: 'Red', label: '赤（Red）' },
     ],
     expression: '1.5 * (NIR - Red) / (NIR + Red + 0.5)',
-    hint: '植生がまばらな所で土の影響を抑えた NDVI です（L = 0.5）。',
+    hint: '植生がまばらな所で土の影響を抑えた NDVI（L = 0.5）。',
   },
   {
     id: 'evi',
@@ -439,7 +439,7 @@ export const INDEX_PRESETS: readonly IndexPreset[] = [
       { name: 'Blue', label: '青（Blue）' },
     ],
     expression: '2.5 * (NIR - Red) / (NIR + 6 * Red - 7.5 * Blue + 1)',
-    hint: '植生の多い所でも飽和しにくい指標です。反射率（0〜1）の画像で使ってください。',
+    hint: '植生の多い所でも飽和しにくい指標。反射率（0〜1）の画像で使用。',
   },
 ];
 

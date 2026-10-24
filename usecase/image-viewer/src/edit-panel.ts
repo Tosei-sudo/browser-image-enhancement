@@ -137,20 +137,20 @@ export class CoordinateField {
     if (this.crs_.value === 'auto') {
       const lonLat = parseCoordinate(this.text_.value);
       if (!lonLat) {
-        say(this.text_.value.trim() ? `座標を読めませんでした: ${this.text_.value.trim()}` : '座標を入力してください');
+        say(this.text_.value.trim() ? `座標の読み込みに失敗: ${this.text_.value.trim()}` : '座標を入力');
         return null;
       }
       return getTransform('EPSG:4326', to)(lonLat);
     }
     const projection = await this.projection_();
     if (!projection) {
-      say('座標系が分かりません。EPSG コードを確かめてください');
+      say('座標系が不明。EPSG コードを確認');
       return null;
     }
     const a = Number(this.first_.value.trim());
     const b = Number(this.second_.value.trim());
     if (this.first_.value.trim() === '' || this.second_.value.trim() === '' || !Number.isFinite(a) || !Number.isFinite(b)) {
-      say('X と Y を数値で入力してください');
+      say('X と Y を数値で入力');
       return null;
     }
     // Plane rectangular zones: X is north, Y is east.
@@ -317,7 +317,7 @@ export class EditPanel {
     const a = this.actions;
     const say = (m: string) => a.say(m);
     const need = (value: number | null, what: string): value is number => {
-      if (value === null) say(`${what}を数値で入力してください`);
+      if (value === null) say(`${what}を数値で入力`);
       return value !== null;
     };
     switch (mode) {
@@ -329,7 +329,7 @@ export class EditPanel {
           const c = await at.read(say);
           if (c) a.place(c);
         };
-        const rows = [row(at.element, button(mode === 'point' ? '点を置く' : '頂点を置く', () => void place()))];
+        const rows = [row(at.element, button(mode === 'point' ? '点を配置' : '頂点を配置', () => void place()))];
         if (mode !== 'point') {
           const extend = () => {
             const l = length.read();
@@ -339,7 +339,7 @@ export class EditPanel {
           const length = numberField('長さ', 'm', extend);
           const bearing = numberField('方位', '°', extend);
           bearing.input.title = '北から時計回りの角度（東が 90°）';
-          rows.push(row(length.element, bearing.element, button('つなぐ', extend, '直前の頂点からこの長さと方位で次の頂点を置きます')));
+          rows.push(row(length.element, bearing.element, button('延長', extend, '直前の頂点からこの長さと方位で次の頂点を配置')));
           const readout = (this.readout_ = document.createElement('span'));
           readout.className = 'edit-readout';
           readout.setAttribute('aria-live', 'off');
@@ -364,7 +364,7 @@ export class EditPanel {
         const angle = numberField('角度', '°', () => void make(), '0');
         angle.input.title = '時計回りに回す角度';
         setTimeout(() => corner.focus());
-        return [row(corner.element), row(width.element, height.element, angle.element, button('作成', () => void make())), this.hint_('角は地図をクリックしても入ります')];
+        return [row(corner.element), row(width.element, height.element, angle.element, button('作成', () => void make())), this.hint_('角は地図のクリックでも入力可')];
       }
       case 'circle':
       case 'regular': {
@@ -372,11 +372,11 @@ export class EditPanel {
         const make = async () => {
           const r = radius.read();
           if (!need(r, '半径')) return;
-          if (r <= 0) return say('半径は正の値で入力してください');
+          if (r <= 0) return say('半径は正の値で入力');
           let n: number | null = null;
           if (sides) {
             n = sides.read();
-            if (n === null || !Number.isInteger(n) || n < 3 || n > 360) return say('辺の数は 3〜360 の整数で入力してください');
+            if (n === null || !Number.isInteger(n) || n < 3 || n > 360) return say('辺の数は 3〜360 の整数で入力');
             this.sides = n;
           }
           const c = await centre.read(say);
@@ -390,14 +390,14 @@ export class EditPanel {
         return [
           row(centre.element),
           row(radius.element, ...(sides && angle ? [sides.element, angle.element] : []), button('作成', () => void make())),
-          this.hint_('中心は地図をクリックしても入ります'),
+          this.hint_('中心は地図のクリックでも入力可'),
         ];
       }
       case 'move': {
         const by = () => {
           const e = east.read() ?? 0;
           const n = north.read() ?? 0;
-          if (e === 0 && n === 0) return say('動かす距離を入力してください');
+          if (e === 0 && n === 0) return say('動かす距離を入力');
           a.moveBy(e, n);
         };
         const east = numberField('東へ', 'm', by);
@@ -410,7 +410,7 @@ export class EditPanel {
           if (c) a.moveTo(c);
         };
         setTimeout(() => east.input.focus());
-        return [row(east.element, north.element, button('ずらす', by)), row(to.element, button('中心をここへ', () => void moveTo())), this.hint_('選んでいる地物を動かします')];
+        return [row(east.element, north.element, button('ずらし', by)), row(to.element, button('中心をここへ', () => void moveTo())), this.hint_('選択中の地物を移動')];
       }
       case 'rotate': {
         const turn = () => {
@@ -420,13 +420,13 @@ export class EditPanel {
         const degrees = numberField('角度', '°', turn);
         degrees.input.title = '時計回り。負の値は反時計回り';
         setTimeout(() => degrees.input.focus());
-        return [row(degrees.element, button('回転', turn)), this.hint_('選んでいる地物を、その中心のまわりに時計回りに回します')];
+        return [row(degrees.element, button('回転', turn)), this.hint_('選択中の地物を、その中心のまわりに時計回りに回転')];
       }
       case 'offset': {
         const make = () => {
           const d = distance.read();
           if (!need(d, '距離')) return;
-          if (d === 0) return say('距離は 0 以外で入力してください');
+          if (d === 0) return say('距離は 0 以外で入力');
           a.offset(d);
         };
         const distance = numberField('距離', 'm', make);

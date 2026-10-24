@@ -184,17 +184,17 @@ export class GeometricMode {
     const clean = url.trim().replace(/\?.*$/, '').replace(/\/+$/, '');
     const known = this.sources_.find((s) => s.url.toLowerCase() === clean.toLowerCase());
     if (known) return known;
-    if (!quiet) say(`${clean} を読み込んでいます…`);
+    if (!quiet) say(`${clean} を読み込み中…`);
     try {
       const source = Object.assign(await openElevationService(clean, token || undefined), token ? { token } : {});
       if (this.sources_.some((s) => s.url === source.url)) return source;
       this.sources_.push(source);
-      if (!quiet) say(`${source.title} を標高データとして使います（${source.kind === 'tiles' ? '標高タイル' : 'イメージサービス'}${source.postSize ? `、最も細かい間隔 約 ${formatMetres(source.postSize)}` : ''}）`);
+      if (!quiet) say(`${source.title} を標高データとして使用（${source.kind === 'tiles' ? '標高タイル' : 'イメージサービス'}${source.postSize ? `、最も細かい間隔 約 ${formatMetres(source.postSize)}` : ''}）`);
       this.options.onSources?.();
       this.render();
       return source;
     } catch (error) {
-      say(`標高サービスを使えませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`標高サービスの利用に失敗: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -224,7 +224,7 @@ export class GeometricMode {
     const read = await Promise.all(
       this.sources_.map((source) =>
         source.read(area, maxPosts).catch((error: unknown) => {
-          this.options.say(`${source.title} から標高を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+          this.options.say(`${source.title} から標高の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
           return null;
         }),
       ),
@@ -251,23 +251,23 @@ export class GeometricMode {
     this.busy_ = true;
     this.render();
     try {
-      say(`${source.title} から表示範囲の標高を読み込んでいます…`);
+      say(`${source.title} から表示範囲の標高を読み込み中…`);
       const posts = Math.min(SERVICE_POSTS, Math.round(size[0] * size[1] * devicePixelRatio * devicePixelRatio));
       const cell = await source.read(lonLat, posts);
       const range = cell && elevationRange(cell);
-      if (!cell || !range) throw new Error('この範囲に標高がありません');
+      if (!cell || !range) throw new Error('この範囲に標高なし');
       const name = `${source.title}_標高.tif`;
       const loaded = await this.loader.loadFile(dtedToGeoTIFF(cell), name).catch(() => null);
       const image = loaded && this.find_(loaded);
-      if (!image) throw new Error('レイヤーにできませんでした');
+      if (!image) throw new Error('レイヤー化に失敗');
       this.dems_.set(image, cell);
       this.images.setBadge(image, 'DEM');
       this.setPipeline_(image, pipeline().autoStretch());
-      say(`${name} を作りました（標高 ${Math.round(range[0])}〜${Math.round(range[1])} m、${cell.width}×${cell.height} 点）`);
+      say(`${name} を作成（標高 ${Math.round(range[0])}〜${Math.round(range[1])} m、${cell.width}×${cell.height} 点）`);
       this.changed_(image);
       return image;
     } catch (error) {
-      say(`標高を取り込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`標高の取り込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     } finally {
       this.busy_ = false;
@@ -295,12 +295,12 @@ export class GeometricMode {
   /** Opens a DTED file as elevation data. */
   async openDem(file: File): Promise<void> {
     const { say } = this.options;
-    say(`${file.name} を読み込んでいます…`);
+    say(`${file.name} を読み込み中…`);
     let cell: Dted;
     try {
       cell = readDted(new Uint8Array(await file.arrayBuffer()));
     } catch (error) {
-      say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     const source = await this.loader.loadFile(dtedToGeoTIFF(cell), file.name).catch(() => null);
@@ -311,7 +311,7 @@ export class GeometricMode {
     // Heights are 16-bit: stretch them to what the view shows, or the relief is a flat gray.
     this.setPipeline_(image, pipeline().autoStretch());
     const range = elevationRange(cell);
-    say(`${file.name} を標高データ（${cell.level}）として開きました${range ? `。標高 ${range[0]}〜${range[1]} m` : ''}`);
+    say(`${file.name} を標高データ（${cell.level}）として表示${range ? `。標高 ${range[0]}〜${range[1]} m` : ''}`);
     this.changed_(image);
   }
 
@@ -325,31 +325,31 @@ export class GeometricMode {
     const { say } = this.options;
     if (!image || !geo || this.busy_) return false;
     if (image.source.getValueBandCount() !== 1) {
-      say('標高データにできるのは 1 バンドの画像だけです');
+      say('標高データに使えるのは 1 バンドの画像のみ');
       return false;
     }
     this.busy_ = true;
     this.render();
     try {
-      say(`${baseName(image.name)} を標高データとして読み込んでいます…`);
+      say(`${baseName(image.name)} を標高データとして読み込み中…`);
       const view = await image.source.getView();
-      if (!view.extent || !view.projection) throw new Error('位置情報がありません');
+      if (!view.extent || !view.projection) throw new Error('位置情報なし');
       const { raster, first } = await readForOrtho(geo.from);
       const noData = first.getGDALNoData();
       const lonLat = transformExtent(view.extent, view.projection, 'EPSG:4326');
       const toRaster = getTransform('EPSG:4326', view.projection);
       const cell = resampleDem({ width: raster.width, height: raster.height, data: raster.data, noData: noData ?? null, extent: view.extent }, (p) => toRaster(p) as number[], lonLat);
       const range = elevationRange(cell);
-      if (!range) throw new Error('高さの値がありません');
+      if (!range) throw new Error('高さの値なし');
       this.geoImages_.delete(image);
       this.dems_.set(image, cell);
       this.images.setBadge(image, 'DEM');
       if (!image.source.getPipeline().ops.length) this.setPipeline_(image, pipeline().autoStretch());
-      say(`${baseName(image.name)} を標高データとして使います（標高 ${Math.round(range[0])}〜${Math.round(range[1])} m、${cell.width}×${cell.height} 点）`);
+      say(`${baseName(image.name)} を標高データとして使用（標高 ${Math.round(range[0])}〜${Math.round(range[1])} m、${cell.width}×${cell.height} 点）`);
       this.changed_(image);
       return true;
     } catch (error) {
-      say(`標高データにできませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`標高データ化に失敗: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     } finally {
       this.busy_ = false;
@@ -413,7 +413,7 @@ export class GeometricMode {
       const contours = new ContourLayer(this.map, image.layer, gridOfDted(dem), {
         interval: this.contourInterval(image),
         onTraced: (_, truncated) => {
-          const note = truncated ? '間隔が細かすぎるため、一部の等高線だけ表示しています。広い間隔にするか拡大してください。' : '';
+          const note = truncated ? '間隔が細かすぎるため、一部の等高線だけ表示中。広い間隔にするか拡大。' : '';
           if (note === this.contourNote_) return;
           this.contourNote_ = note;
           if (this.images.selected() === image) this.render();
@@ -491,11 +491,11 @@ export class GeometricMode {
     this.busy_ = true;
     this.render();
     try {
-      say(`${baseName(image.name)} を読み込んでいます…`);
+      say(`${baseName(image.name)} を読み込み中…`);
       const { raster, width, height } = await readForOrtho(satellite.from);
-      if (this.sources_.length) say(`${baseName(image.name)} の範囲の標高を読み込んでいます…`);
+      if (this.sources_.length) say(`${baseName(image.name)} の範囲の標高を読み込み中…`);
       const cells = await this.cellsFor(this.lonLatExtent_(satellite.rpc));
-      say(`${baseName(image.name)} をオルソ補正しています（${cells.length ? `標高データ ${cells.length} 枚` : '標高データなし'}、${resampleNames[resample]}）…`);
+      say(`${baseName(image.name)} をオルソ補正中（${cells.length ? `標高データ ${cells.length} 枚` : '標高データなし'}、${resampleNames[resample]}）…`);
       const geoid = await this.geoid_();
       const result = await runOrtho({ raster, scale: [width / raster.width, height / raster.height], rpc: satellite.rpc, cells, geoid, resample });
 
@@ -503,14 +503,14 @@ export class GeometricMode {
       if (!ortho) return null;
       const coverage = Math.round(result.demCoverage * 100);
       say(
-        `${baseName(image.name)}_ortho.tif を作りました` +
+        `${baseName(image.name)}_ortho.tif を作成` +
           (coverage >= 100 ? '' : coverage > 0 ? `（標高データがない部分 ${100 - coverage}% は RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m で補正）` : `（標高データがないため RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m で補正）`) +
           reducedNote(width / raster.width),
       );
       this.changed_(ortho);
       return ortho;
     } catch (error) {
-      say(`オルソ補正できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`オルソ補正失敗: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     } finally {
       this.busy_ = false;
@@ -530,15 +530,15 @@ export class GeometricMode {
     const { say } = this.options;
     const projection = image.source.getProjection();
     if (!projection) {
-      say('この画像の座標系が分からないため、簡易オルソ補正できません');
+      say('この画像の座標系が分からないため、簡易オルソ補正不可');
       return null;
     }
     this.busy_ = true;
     this.render();
     try {
-      say(`${baseName(image.name)} を読み込んでいます…`);
+      say(`${baseName(image.name)} を読み込み中…`);
       const { first, raster, width, height } = await readForOrtho(geo.from);
-      if (this.sources_.length && geo.lonLat) say(`${baseName(image.name)} の範囲の標高を読み込んでいます…`);
+      if (this.sources_.length && geo.lonLat) say(`${baseName(image.name)} の範囲の標高を読み込み中…`);
       // Beyond the image too: the terrain moves points from outside it in.
       const cells = geo.lonLat ? await this.cellsFor(padded(geo.lonLat, 0.1)) : this.cells();
       const { width: w, height: h } = raster;
@@ -565,20 +565,20 @@ export class GeometricMode {
         return [(px - ox) / sx, (py - oy) / sy];
       });
 
-      say(`${baseName(image.name)} を簡易オルソ補正しています（標高データ ${cells.length} 枚、方位角 ${view.azimuth}°・仰角 ${view.elevation}°、基準高 ${Math.round(reference)} m）…`);
+      say(`${baseName(image.name)} を簡易オルソ補正中（標高データ ${cells.length} 枚、方位角 ${view.azimuth}°・仰角 ${view.elevation}°、基準高 ${Math.round(reference)} m）…`);
       const result = await runOrtho({ raster, toMap, toRaster, extent, pixelSize, cells, view, referenceHeight: reference, resample });
       const ortho = await this.addOrtho_(image, result);
       if (!ortho) return null;
       const coverage = Math.round(result.demCoverage * 100);
       say(
-        `${baseName(image.name)}_ortho.tif を作りました` +
-          (coverage >= 100 ? '' : coverage > 0 ? `（標高データがない部分 ${100 - coverage}% はそのまま）` : '（この範囲に標高データがないため、位置は変わっていません）') +
+        `${baseName(image.name)}_ortho.tif を作成` +
+          (coverage >= 100 ? '' : coverage > 0 ? `（標高データがない部分 ${100 - coverage}% はそのまま）` : '（この範囲に標高データがないため、位置の変化なし）') +
           reducedNote(width / w),
       );
       this.changed_(ortho);
       return ortho;
     } catch (error) {
-      say(`簡易オルソ補正できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`簡易オルソ補正失敗: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     } finally {
       this.busy_ = false;
@@ -651,18 +651,18 @@ export class GeometricMode {
     const ortho = image && this.orthos_.get(image);
     const geo = image && this.geoImages_.get(image);
     if (image && dem) {
-      p(`標高データ（${dem.level}）。開いている間、オルソ補正・3D の起伏・可視解析の地形に使います。`);
+      p(`標高データ（${dem.level}）。開いている間、オルソ補正・3D の起伏・可視解析の地形に使用。`);
       this.renderContours_(image, row);
     } else if (image && ortho) {
-      p(`${baseName(ortho.sourceName)} のオルソ補正画像。位置がずれていれば、ずらして合わせられます。`);
+      p(`${baseName(ortho.sourceName)} のオルソ補正画像。位置ずれは手動のずらしで調整可能。`);
       row(
-        button('位置をずらす', () => this.setShifting(!this.shifting_), { pressed: this.shifting_, name: 'shift' }),
-        button('元に戻す', () => this.setShiftMetres(0, 0), { name: 'reset-shift' }),
+        button('位置ずらし', () => this.setShifting(!this.shifting_), { pressed: this.shifting_, name: 'shift' }),
+        button('ずらしの解除', () => this.setShiftMetres(0, 0), { name: 'reset-shift' }),
         button('GeoTIFF 保存', () => this.save(image), { name: 'save-ortho' }),
       );
       const readout = p('', 'geometry-shift');
       readout.dataset.shift = '';
-      if (this.shifting_) p('地図をドラッグするか矢印キー（Shift で 10 倍）で動かします。Esc で終了。');
+      if (this.shifting_) p('地図のドラッグか矢印キー（Shift で 10 倍）で移動。Esc で終了。');
       this.showShift_(image, readout);
     } else if (image && satellite) {
       const extent = this.lonLatExtent_(satellite.rpc);
@@ -670,8 +670,8 @@ export class GeometricMode {
       p(
         `RPC あり${satellite.rpc.errBias !== undefined ? `（誤差 ${satellite.rpc.errBias} m）` : ''}。` +
           (covered
-            ? `${[...(cells.length ? [`標高データ ${cells.length} 枚`] : []), ...(this.sources_.length ? ['標高サービス'] : [])].join('と')}の地形でオルソ補正します。`
-            : `この範囲の標高データ（DTED・標高サービス）がありません。そのまま補正すると、RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m の平面として補正します。`),
+            ? `${[...(cells.length ? [`標高データ ${cells.length} 枚`] : []), ...(this.sources_.length ? ['標高サービス'] : [])].join('と')}の地形でオルソ補正。`
+            : `この範囲の標高データ（DTED・標高サービス）なし。そのまま補正すると、RPC の基準高 ${Math.round(satellite.rpc.heightOff)} m の平面として補正。`),
       );
       const select = document.createElement('select');
       select.setAttribute('aria-label', '再サンプリング');
@@ -679,20 +679,20 @@ export class GeometricMode {
       row(select, button(this.busy_ ? '補正中…' : 'オルソ補正', () => void this.orthorectify(image, select.value as Resample), { disabled: this.busy_, name: 'ortho' }));
     } else if (image && geo) {
       if (image.source.getValueBandCount() === 1) {
-        const use = row(button(this.busy_ ? '読み込み中…' : '標高データとして使う', () => void this.useAsDem(image), { disabled: this.busy_, name: 'use-dem' }));
-        use.title = '値を標高（m、平均海面から）として、オルソ補正・等高線・3D の起伏・可視解析に使います';
+        const use = row(button(this.busy_ ? '読み込み中…' : '標高データとして使用', () => void this.useAsDem(image), { disabled: this.busy_, name: 'use-dem' }));
+        use.title = '値を標高（m、平均海面から）として、オルソ補正・等高線・3D の起伏・可視解析に使用';
       }
       this.renderSimple_(geo, image, cells, p, row, button);
     } else if (this.imageServiceSelected_()) {
       const raster = this.imageServiceSelected_()!;
       const used = this.sources_.some((s) => s.url.toLowerCase() === raster.url.toLowerCase());
-      const use = row(button(used ? '標高データとして使用中' : '標高データとして使う', () => void this.addElevationService(raster.url), { disabled: used, name: 'use-service-dem' }));
-      use.title = 'このイメージサービスの値を標高（m、平均海面から）として、オルソ補正・3D の起伏・可視解析に使います';
+      const use = row(button(used ? '標高データとして使用中' : '標高データとして使用', () => void this.addElevationService(raster.url), { disabled: used, name: 'use-service-dem' }));
+      use.title = 'このイメージサービスの値を標高（m、平均海面から）として、オルソ補正・3D の起伏・可視解析に使用';
     } else {
-      p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）か、位置情報のある GeoTIFF を選ぶと、オルソ補正できます。');
+      p('RPC 付きの衛星画像（GeoTIFF の RPC タグ、または .RPB・_RPC.TXT を一緒に開く）か、位置情報のある GeoTIFF の選択でオルソ補正可能。');
     }
     const used = [...(cells.length ? [`${cells.map((c) => c.level).join('、')}（${cells.length} 枚）`] : []), ...this.sources_.map((s) => `${s.title}（サービス）`)];
-    p(used.length ? `標高データ: ${used.join('、')}` : '標高データ: なし（DTED .dt0〜.dt2 を開くか、1 バンドの GeoTIFF を「標高データとして使う」か、標高サービスを追加すると使います）', 'geometry-dems');
+    p(used.length ? `標高データ: ${used.join('、')}` : '標高データ: なし（DTED .dt0〜.dt2 を開く、1 バンドの GeoTIFF を「標高データとして使用」、または標高サービスの追加で利用）', 'geometry-dems');
     this.renderSources_(button);
   }
 
@@ -704,7 +704,7 @@ export class GeometricMode {
     details.addEventListener('toggle', () => (this.sourcesOpen_ = details.open));
     const summary = document.createElement('summary');
     summary.textContent = this.sources_.length ? `標高サービス（${this.sources_.length}）` : '標高サービス';
-    summary.title = 'ArcGIS のイメージサービス（標高）や標高タイルサービス（Terrain3D など）を標高データに使います';
+    summary.title = 'ArcGIS のイメージサービス（標高）や標高タイルサービス（Terrain3D など）を標高データに使用';
     details.append(summary);
     const row = (...children: HTMLElement[]) => {
       const div = document.createElement('div');
@@ -718,11 +718,11 @@ export class GeometricMode {
       name.className = 'geometry-source';
       name.textContent = source.title;
       name.title = `${source.url}\n${source.kind === 'tiles' ? '標高タイル（LERC）' : 'イメージサービス（exportImage）'}${source.postSize ? `、最も細かい間隔 約 ${formatMetres(source.postSize)}` : ''}`;
-      const take = button(this.busy_ ? '読み込み中…' : '表示範囲を取り込む', () => void this.importView(source), { disabled: this.busy_, name: 'import-elevation' });
-      take.title = '表示範囲の標高を DEM レイヤーにします（等高線を描けます）';
+      const take = button(this.busy_ ? '読み込み中…' : '表示範囲の取り込み', () => void this.importView(source), { disabled: this.busy_, name: 'import-elevation' });
+      take.title = '表示範囲の標高を DEM レイヤー化（等高線の作図に対応）';
       const remove = button('×', () => this.removeElevationService(source.url), { name: 'remove-elevation' });
-      remove.title = '使うのをやめる';
-      remove.setAttribute('aria-label', `${source.title} を使うのをやめる`);
+      remove.title = '使用を解除';
+      remove.setAttribute('aria-label', `${source.title} の使用を解除`);
       row(name, take, remove);
     }
     const url = document.createElement('input');
@@ -758,9 +758,9 @@ export class GeometricMode {
   ): void {
     const covered = !!geo.lonLat && this.covers(geo.lonLat);
     p(
-      'RPC のない画像は、衛星の方向と標高データで簡易オルソ補正できます。' +
-        (covered ? '' : 'この範囲の標高データ（DTED か標高サービス）を用意してください。') +
-        (geo.view ? '' : '衛星の方位角と仰角を入れてください（.IMD を画像と一緒に開くと読み取ります）。'),
+      'RPC のない画像は、衛星の方向と標高データで簡易オルソ補正可能。' +
+        (covered ? '' : 'この範囲の標高データ（DTED か標高サービス）を用意。') +
+        (geo.view ? '' : '衛星の方位角と仰角を入力（.IMD を画像と一緒に開くと自動読み取り）。'),
     );
     const angles = { azimuth: geo.view?.azimuth ?? NaN, elevation: geo.view?.elevation ?? NaN };
     const run = button(this.busy_ ? '補正中…' : '簡易オルソ補正', () => void this.simpleOrthorectify(image, resample.value as Resample), { name: 'simple-ortho' });
@@ -812,7 +812,7 @@ export class GeometricMode {
     const on = this.contours_.has(image);
     const label = document.createElement('label');
     label.className = 'geometry-check';
-    label.title = 'DEM のすぐ上に描きます。DEM の不透明度を 0 にすると等高線だけになります';
+    label.title = 'DEM のすぐ上に描画。DEM の不透明度 0 で等高線のみ';
     const check = document.createElement('input');
     check.type = 'checkbox';
     check.checked = on;
@@ -929,7 +929,7 @@ function formatMetres(m: number): string {
 /** What the message adds when the image was corrected reduced. */
 function reducedNote(k: number): string {
   const n = Math.round(k);
-  return n > 1 ? `。大きい画像のため 1/${n} の解像度で補正しました` : '';
+  return n > 1 ? `。大きい画像のため 1/${n} の解像度で補正` : '';
 }
 
 /**
@@ -987,7 +987,7 @@ function runOrtho(input: OrthoInput | SimpleOrthoInput): Promise<OrthoResult> {
   const worker = new Worker(new URL('./ortho-worker.ts', import.meta.url), { type: 'module' });
   return new Promise<OrthoResult>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<OrthoReply>) => (e.data.ok ? resolve(e.data.result) : reject(new Error(e.data.message)));
-    worker.onerror = (e) => reject(new Error(e.message || 'オルソ補正の処理が止まりました'));
+    worker.onerror = (e) => reject(new Error(e.message || 'オルソ補正の処理が停止'));
     worker.postMessage(input, [input.raster.data.buffer as ArrayBuffer]);
   }).finally(() => worker.terminate());
 }

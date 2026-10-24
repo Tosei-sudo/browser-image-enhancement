@@ -54,7 +54,7 @@ test('measures geodesic distance and area on the map', async ({ page }) => {
   await expect(clear).toBeDisabled();
 
   // Distance: three clicks, the last a double click.
-  await tool(page, '距離を測る');
+  await tool(page, '距離計測');
   await expect(page.locator('#measure-distance')).toHaveAttribute('aria-pressed', 'true');
   const path = await draw(page, [[-200, 0], [100, -50], [200, 120]]);
   await expect(page.locator('#status')).toContainText(/距離: [\d.,]+ km/);
@@ -65,7 +65,7 @@ test('measures geodesic distance and area on the map', async ({ page }) => {
   await expect(clear).toBeEnabled();
 
   // Area: switching modes keeps the earlier measurement.
-  await tool(page, '面積を測る');
+  await tool(page, '面積計測');
   await expect(page.locator('#measure-distance')).toHaveAttribute('aria-pressed', 'false');
   const ring = await draw(page, [[-150, -100], [150, -100], [150, 100], [-150, 100]]);
   await expect(page.locator('#status')).toContainText(/面積: [\d.,]+ km²（周長 [\d.,]+ km）/);
@@ -78,7 +78,7 @@ test('measures geodesic distance and area on the map', async ({ page }) => {
   // A click while measuring does not add a point; points mode turns measuring off.
   await tool(page, 'ポイント追加');
   await expect(page.locator('#measure-area')).toHaveAttribute('aria-pressed', 'false');
-  await tool(page, '距離を測る');
+  await tool(page, '距離計測');
   await expect(page.locator('#add-point')).toHaveAttribute('aria-pressed', 'false');
 
   // Esc drops the measurement being drawn; clearing removes the rest.
@@ -107,10 +107,10 @@ test('measures in pixels on an ordinary picture', async ({ page }) => {
     input.files = files.files;
     input.dispatchEvent(new Event('change'));
   });
-  await expect(page.locator('#status')).toContainText('photo.png を開きました');
+  await expect(page.locator('#status')).toContainText('photo.png を表示');
   await page.waitForTimeout(500); // the view settles on the picture
 
-  await tool(page, '距離を測る');
+  await tool(page, '距離計測');
   await draw(page, [[-50, 0], [50, 0]]);
   await expect(page.locator('#status')).toContainText(/距離: [\d.,]+ px/);
   const resolution = await page.evaluate(() => window.viewer.map.getView().getResolution()!);

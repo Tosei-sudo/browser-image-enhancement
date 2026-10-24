@@ -37,7 +37,7 @@ export const rsetSettings = {
 /** Thrown by {@link RsetQueue.run} for a task no longer wanted (its image was closed while it waited). */
 export class RsetCancelled extends Error {
   constructor() {
-    super('RSET の生成をやめました');
+    super('RSET の生成を中止');
   }
 }
 
@@ -170,8 +170,8 @@ export function rsetOf(source: EnhancedGeoTIFF): RsetState {
 
 /** For the information panel: 生成済み（1/2〜1/32、5 レベル） and the like. */
 export function rsetText({ kind, factors, ovr }: RsetState): string {
-  if (kind === 'building') return `生成中（それまでは 1/${RAW_ZOOM_OUT} 以上に拡大したときだけ生画素で表示します）`;
-  if (kind === 'none') return 'なし（縮小表示でも生画素を読みます）';
+  if (kind === 'building') return `生成中（それまでは 1/${RAW_ZOOM_OUT} 以上に拡大したときだけ生画素で表示）`;
+  if (kind === 'none') return 'なし（縮小表示でも生画素を読み込み）';
   const range = factors.length > 1 ? `1/${factors[0]}〜1/${factors[factors.length - 1]}` : `1/${factors[0]}`;
   const from = { generated: '生成済み（このビューアーで作成）', external: `外部 OVR（${ovr}）`, file: 'ファイルに内蔵' }[kind];
   return `${from}・${range}、${factors.length} レベル`;
@@ -248,7 +248,7 @@ export class RsetIndicator {
     const waiting = building.has(layer.source) && resolution !== undefined && resolution >= layer.layer.getMaxResolution();
     el.classList.toggle('raw', raw && !waiting);
     el.classList.toggle('waiting', waiting);
-    el.textContent = waiting ? `RSET 生成中: 1/${RAW_ZOOM_OUT} 以上に拡大すると表示します` : raw ? '表示: 生画素' : `表示: RSET 1/${factor}`;
+    el.textContent = waiting ? `RSET 生成中: 1/${RAW_ZOOM_OUT} 以上に拡大すると表示` : raw ? '表示: 生画素' : `表示: RSET 1/${factor}`;
   }
 }
 
@@ -275,7 +275,7 @@ export class RsetProgress {
     target.append(this.element);
     queue.onChange((n) => {
       this.waiting_.hidden = !n;
-      this.waiting_.textContent = `ほか ${n.toLocaleString()} 件の RSET が順番待ち（表示範囲の画像から作ります）`;
+      this.waiting_.textContent = `ほか ${n.toLocaleString()} 件の RSET が順番待ち（表示範囲の画像から作成）`;
       this.element.hidden = !this.element.querySelector('.rset-job') && !n;
     });
   }
@@ -284,7 +284,7 @@ export class RsetProgress {
     const row = document.createElement('div');
     row.className = 'rset-job';
     const label = document.createElement('span');
-    label.textContent = `${name} の RSET を生成中…（拡大すると生画素で表示します）`;
+    label.textContent = `${name} の RSET を生成中…（拡大すると生画素で表示）`;
     const bar = document.createElement('progress');
     bar.max = 1;
     bar.value = 0;

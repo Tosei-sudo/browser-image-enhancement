@@ -10,7 +10,7 @@ test('a 16-bit GeoTIFF is stretched from its own values, band by band', async ({
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html?url=/fixture16.tif');
-  await expect(page.locator('#status')).toContainText('fixture16.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture16.tif を表示');
   await page.waitForFunction(() => window.viewer.images.list()[0]?.source.getDraInfo()?.rawStretch !== undefined);
   await page.evaluate(
     () =>
@@ -36,7 +36,7 @@ test('a 16-bit GeoTIFF is stretched from its own values, band by band', async ({
 /** Opens `url`, waits for its first raw stretch (deeper than 8 bits) and a drawn map, and reads pixels across the middle row. */
 async function openAndRead(page: Page, url: string, xs: number[]): Promise<number[][]> {
   await page.goto(`/index.html?url=${url}`);
-  await expect(page.locator('#status')).toContainText('を開きました');
+  await expect(page.locator('#status')).toContainText('を表示');
   await page.waitForFunction(() => {
     const source = window.viewer.images.list()[0]?.source;
     return source?.getState() === 'ready' && source.getTiffImages().length > 0;

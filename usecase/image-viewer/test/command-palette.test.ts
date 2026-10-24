@@ -13,14 +13,14 @@ describe('normalize', () => {
 
 describe('score', () => {
   it('matches every word, in the label or the detail', () => {
-    expect(score(command('a', '距離を測る', '計測'), 'めんせき')).toBe(-1);
-    expect(score(command('a', '距離を測る', '計測'), '距離')).toBeGreaterThan(0);
-    expect(score(command('a', '距離を測る', '計測'), '計測')).toBeGreaterThan(0);
-    expect(score(command('a', '距離を測る', '計測'), '距離 面積')).toBe(-1);
+    expect(score(command('a', '距離計測', '計測'), 'めんせき')).toBe(-1);
+    expect(score(command('a', '距離計測', '計測'), '距離')).toBeGreaterThan(0);
+    expect(score(command('a', '距離計測', '計測'), '計測')).toBeGreaterThan(0);
+    expect(score(command('a', '距離計測', '計測'), '距離 面積')).toBe(-1);
   });
 
   it('kana still being typed finds a kanji name by its reading', () => {
-    expect(score(command('a', '距離を測る', '計測'), 'きょり')).toBeGreaterThan(0);
+    expect(score(command('a', '距離計測', '計測'), 'きょり')).toBeGreaterThan(0);
     expect(score(command('a', '表示範囲を保存'), 'ほぞん')).toBeGreaterThan(0);
   });
 
@@ -31,7 +31,7 @@ describe('score', () => {
 
 describe('rank', () => {
   const commands = [
-    command('area', '面積を測る', '計測'),
+    command('area', '面積計測', '計測'),
     command('band', 'バンド演算・指標（NDVI など）', 'プロセッシング（画像）'),
     command('save', 'GeoJSON 保存', 'ポイント'),
     command('view', '表示範囲を保存', '注記・保存'),

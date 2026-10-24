@@ -44,7 +44,7 @@ export async function openDatabase(bytes?: Uint8Array): Promise<Database> {
     const rc = capi.sqlite3_deserialize(db.pointer!, 'main', pointer, bytes.length, bytes.length, capi.SQLITE_DESERIALIZE_FREEONCLOSE | capi.SQLITE_DESERIALIZE_RESIZEABLE);
     if (rc) {
       db.close();
-      throw new Error(`SQLite のファイルとして読めませんでした（${capi.sqlite3_js_rc_str(rc) ?? rc}）`);
+      throw new Error(`SQLite のファイルとして読み込み失敗（${capi.sqlite3_js_rc_str(rc) ?? rc}）`);
     }
   }
   return {

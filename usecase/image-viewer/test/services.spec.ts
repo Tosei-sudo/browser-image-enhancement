@@ -24,7 +24,7 @@ async function addService(page: Page, url: string, options: { kind?: string; tok
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(url);
   if (options.kind) await dialog.getByRole('combobox', { name: 'サービスの種類' }).selectOption(options.kind);
   if (options.token) await dialog.getByLabel('トークン').fill(options.token);
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-layer')).toHaveCount(options.expectLayers ?? 1);
   await dialog.locator('.service-layer input[type=checkbox]').first().check();
   await dialog.getByRole('button', { name: '追加', exact: true }).click();
@@ -97,7 +97,7 @@ test('WMS: added from its capabilities, corrected like an image, and asked what 
   await expect(page.locator('.table-empty')).toContainText('地図をクリックすると');
   const at = await pixelOf(page, 139.75, 35.675);
   await page.mouse.click(at.x, at.y);
-  await expect(page.locator('#status')).toContainText('1 件の地物があります');
+  await expect(page.locator('#status')).toContainText('地物 1 件');
   expect(await cellTexts(page, 1)).toEqual(['東京駅']);
   expect(errors).toEqual([]);
 });
@@ -107,7 +107,7 @@ test('WMTS: REST capabilities with the tile matrix set to choose', async ({ page
   await page.getByRole('button', { name: 'サービスを追加' }).click();
   const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(`${base}/svc/wmts/WMTSCapabilities.xml`);
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-status')).toContainText('WMTS「テスト WMTS」');
   await expect(dialog.locator('select[name=matrixSet]')).toHaveValue('GoogleMapsCompatible');
   await expect(dialog.locator('input[type=checkbox]')).toBeChecked(); // the only layer
@@ -226,7 +226,7 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
 
   await expect(page.getByRole('button', { name: '保存 (3)' })).toBeEnabled();
   await page.getByRole('button', { name: '保存 (3)' }).click();
-  await expect(page.locator('#status')).toContainText('3 件の変更を保存しました');
+  await expect(page.locator('#status')).toContainText('3 件の変更を保存');
 
   const state = (await (await page.request.get(`${base}/svc/state`)).json()) as Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }>;
   expect(state.map((f) => f.attributes.NAME)).toEqual(['日比谷', '上野恩賜公園', '新宿御苑', '代々木公園', '新しい公園']);
@@ -241,7 +241,7 @@ test('Esri: the service symbols and domains, edits in the table and on the map, 
   await rows(page).nth(1).getByRole('textbox', { name: '名称' }).fill('NG');
   await rows(page).nth(1).getByRole('textbox', { name: '名称' }).press('Enter');
   await page.getByRole('button', { name: '保存 (1)' }).click();
-  await expect(page.locator('#status')).toContainText('1 件は保存できませんでした（名前が不正です）');
+  await expect(page.locator('#status')).toContainText('1 件は保存失敗（名前が不正です）');
   await expect(rows(page).nth(1)).toHaveClass(/failed/);
   await expect(page.getByRole('button', { name: '保存 (1)' })).toBeEnabled();
 
@@ -386,12 +386,12 @@ test('Esri: the row menu deletes the selected features, starting editing; saved 
   await rows(page).nth(2).click({ button: 'right' });
   const menu = page.getByRole('menu', { name: '選択した地物' });
   await menu.getByRole('menuitem', { name: '選択中の 2 件を削除…' }).click();
-  expect(asked).toEqual(['2 件の地物を削除しますか？（「保存」を押すまでサーバーからは消えません）']);
+  expect(asked).toEqual(['2 件の地物を削除しますか？（「保存」までサーバーからは削除されず）']);
   await expect(page.getByRole('toolbar', { name: '編集' })).toBeVisible();
   await expect(rows(page)).toHaveCount(3);
   await expect(page.locator('.table-count')).toContainText('選択 0 件');
   await page.getByRole('button', { name: '保存 (2)' }).click();
-  await expect(page.locator('#status')).toContainText('2 件の変更を保存しました');
+  await expect(page.locator('#status')).toContainText('2 件の変更を保存');
   const state = (await (await page.request.get(`${base}/svc/state`)).json()) as Array<{ attributes: Record<string, unknown> }>;
   expect(state.map((f) => f.attributes.NAME)).toEqual(['日比谷公園', '駅前広場', '代々木公園']);
 
@@ -408,13 +408,13 @@ test('Esri: a secured service asks for a token', async ({ page }) => {
   await page.getByRole('button', { name: 'サービスを追加' }).click();
   const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(`${base}/svc/arcgis/rest/services/Secure/FeatureServer/0`);
-  await dialog.getByRole('button', { name: '読み込む' }).click();
-  await expect(dialog.locator('.service-status')).toContainText('トークンが必要です');
+  await dialog.getByRole('button', { name: '読み込み' }).click();
+  await expect(dialog.locator('.service-status')).toContainText('トークンが必要');
   await dialog.getByLabel('トークン').fill('wrong');
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-status')).toContainText('トークンが無効か');
   await dialog.getByLabel('トークン').fill('secret');
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-layer')).toHaveCount(1);
   await dialog.getByRole('button', { name: '追加', exact: true }).click();
   await expect(page.locator('.table-count')).toContainText('全 5 件');
@@ -455,7 +455,7 @@ test('Esri: a feature moved on the map is saved with its new geometry', async ({
   await page.mouse.up();
   await expect(page.getByRole('button', { name: '保存 (1)' })).toBeEnabled();
   await page.getByRole('button', { name: '保存 (1)' }).click();
-  await expect(page.locator('#status')).toContainText('1 件の変更を保存しました');
+  await expect(page.locator('#status')).toContainText('1 件の変更を保存');
   const state = (await (await page.request.get(`${base}/svc/state`)).json()) as Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }>;
   const moved = state.find((f) => f.attributes.NAME === '新宿御苑')!;
   expect(moved.geometry.x).toBeGreaterThan((139.7101 * 20037508.342789244) / 180 + 1);
@@ -470,13 +470,13 @@ async function exportLayer(page: Page, format: string, options: { crs?: string; 
   if (options.crs) await dialog.getByRole('combobox', { name: '座標系' }).selectOption({ label: options.crs });
   await dialog.getByRole('checkbox', { name: /選択中の地物だけ/ }).setChecked(!!options.selectedOnly);
   const download = page.waitForEvent('download');
-  await dialog.getByRole('button', { name: '書き出す' }).click();
+  await dialog.getByRole('button', { name: '書き出し' }).click();
   const file: Download = await download;
   const chunks: Buffer[] = [];
   for await (const chunk of await file.createReadStream()) chunks.push(chunk as Buffer);
   // Headless Chromium drops non-ASCII download names: the status line says the name.
-  await expect(page.locator('#status')).toContainText('に書き出しました');
-  const name = /を (.+) に書き出しました/.exec((await page.locator('#status').textContent()) ?? '')![1];
+  await expect(page.locator('#status')).toContainText('に書き出し');
+  const name = /を (.+) に書き出し/.exec((await page.locator('#status').textContent()) ?? '')![1];
   return { name, bytes: new Uint8Array(Buffer.concat(chunks)) };
 }
 

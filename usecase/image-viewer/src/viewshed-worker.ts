@@ -14,7 +14,7 @@ self.onmessage = (e: MessageEvent<ViewshedMessage>) => {
   }
   const { options, rowStart, rowEnd } = e.data;
   try {
-    if (!grid) throw new Error('標高データがありません');
+    if (!grid) throw new Error('標高データなし');
     const result = viewshed(grid, options, rowStart, rowEnd);
     const reply: ViewshedReply = { ok: true, rowStart, result };
     (self as unknown as Worker).postMessage(reply, [result.buffer as ArrayBuffer]);

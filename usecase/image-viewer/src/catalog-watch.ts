@@ -125,8 +125,8 @@ export const plainAsk: EsriAsk = async (url, params, token) => {
   const response = await fetch(url, { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const json = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-  if (!json) throw new Error('応答が JSON ではありません');
-  if (json.error) throw new Error(`サービスがエラーを返しました: ${json.error.message ?? ''}`);
+  if (!json) throw new Error('応答が JSON 以外');
+  if (json.error) throw new Error(`サービスからエラー応答: ${json.error.message ?? ''}`);
   return json;
 };
 
@@ -239,7 +239,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(NOTICES)) db.createObjectStore(NOTICES, { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB を開けません'));
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB のオープン不可'));
   });
 }
 
@@ -250,7 +250,7 @@ async function inStores<T>(stores: string[], mode: IDBTransactionMode, work: (tx
     const tx = db.transaction(stores, mode);
     const done = new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
-      tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('IndexedDB に書き込めません'));
+      tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('IndexedDB への書き込み不可'));
     });
     const result = await work(tx);
     await done;

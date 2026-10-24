@@ -1,5 +1,5 @@
 /**
- * 「似た画像を探す」: images of an image catalog taken like a given one, for
+ * 「類似画像の検索」: images of an image catalog taken like a given one, for
  * comparison: the same sensor, an angle and an azimuth within a tolerance,
  * and a footprint over the same ground. The catalog is asked for the
  * sensor and the angles (and the footprint's extent); how much of the

@@ -56,7 +56,7 @@ export interface ServiceRule {
 
 /** The mosaic methods of the REST API, with names for the dialog. */
 export const mosaicMethods: Record<string, string> = {
-  esriMosaicAttribute: '属性で並べる',
+  esriMosaicAttribute: '属性順',
   esriMosaicNorthwest: '北西を上に',
   esriMosaicCenter: '中心に近い順',
   esriMosaicNadir: '直下視に近い順',
@@ -143,7 +143,7 @@ function operationOf(name: string | undefined): string | undefined {
 export function renderingRuleOf(settings: EsriRasterSettings): Record<string, unknown> | undefined {
   if (settings.renderingRule?.trim()) {
     const rule = JSON.parse(settings.renderingRule) as unknown;
-    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error('レンダリングルールは JSON のオブジェクトにしてください');
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error('レンダリングルールは JSON のオブジェクトで指定');
     return rule as Record<string, unknown>;
   }
   if (settings.rasterFunction) return { rasterFunction: settings.rasterFunction };
@@ -196,11 +196,11 @@ const ids = (v: unknown): number[] | undefined => (Array.isArray(v) && v.every((
 export function settingsOf(value: unknown, problems?: string[], at = 'settings'): EsriRasterSettings | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isRecord(value)) {
-    problems?.push(`${at} がオブジェクトではありません`);
+    problems?.push(`${at} はオブジェクトで指定`);
     return undefined;
   }
   const s: EsriRasterSettings = {};
-  const drop = (key: string) => problems?.push(`${at} の ${key} は無視しました（型が違います）`);
+  const drop = (key: string) => problems?.push(`${at} の ${key} は無視（型の不一致）`);
   const text = (key: 'where' | 'sortField' | 'rasterFunction' | 'renderingRule' | 'rule') => {
     const v = value[key];
     if (key === 'renderingRule' && isRecord(v)) s.renderingRule = JSON.stringify(v);
@@ -246,24 +246,24 @@ export function settingsOf(value: unknown, problems?: string[], at = 'settings')
 /** config.json's `serviceRules`: named settings for the services whose URL matches. */
 export function serviceRulesOf(value: unknown, problems: string[]): ServiceRule[] {
   if (!Array.isArray(value)) {
-    problems.push('serviceRules が配列ではありません');
+    problems.push('serviceRules は配列で指定');
     return [];
   }
   const rules: ServiceRule[] = [];
   value.forEach((entry, i) => {
     const at = `serviceRules[${i}]`;
-    if (!isRecord(entry)) return void problems.push(`${at} がオブジェクトではありません`);
+    if (!isRecord(entry)) return void problems.push(`${at} はオブジェクトで指定`);
     const { match, label, default: isDefaultRule, ...rest } = entry;
     let pattern = /./;
     if (match !== undefined) {
-      if (typeof match !== 'string') return void problems.push(`${at} の match は文字列（正規表現）にしてください`);
+      if (typeof match !== 'string') return void problems.push(`${at} の match は文字列（正規表現）で指定`);
       try {
         pattern = new RegExp(match, 'i');
       } catch {
-        return void problems.push(`${at} の match「${match}」は正規表現として読めません`);
+        return void problems.push(`${at} の match「${match}」は正規表現として読み込み不可`);
       }
     }
-    if (typeof label !== 'string' || !label.trim()) return void problems.push(`${at} に label（ルールの名前）がありません`);
+    if (typeof label !== 'string' || !label.trim()) return void problems.push(`${at} に label（ルールの名前）なし`);
     const settings = settingsOf(rest, problems, at) ?? {};
     delete settings.rule;
     rules.push({ label: label.trim(), match: pattern, default: isDefaultRule === true, settings });

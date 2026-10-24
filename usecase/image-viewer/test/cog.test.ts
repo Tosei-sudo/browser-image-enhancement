@@ -200,7 +200,7 @@ describe("writeCog", () => {
     const control = { cancelled: true };
     await expect(
       cog(await source(data, 600, 600, 1, "0"), { control }),
-    ).rejects.toThrow("中止しました");
+    ).rejects.toThrow("中止");
   });
 });
 

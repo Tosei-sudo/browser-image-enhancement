@@ -36,7 +36,7 @@ describe('xyToPoints', () => {
     expect(lat).toBeCloseTo(35.681236, 9);
     expect(result.features[0].get('name')).toBe('東京');
     expect(result.notes!.join()).toContain('数値でない行 1 件');
-    expect(result.notes!.join()).toContain('X と Y が逆かもしれません');
+    expect(result.notes!.join()).toContain('X と Y が逆の可能性あり');
   });
 
   it('reads plane rectangular coordinates (zone IX) and keeps the CRS for export', async () => {

@@ -628,10 +628,10 @@ export function feedUrl(text: string, type: FeedType, base?: string): string {
   try {
     url = new URL(text.trim(), base);
   } catch {
-    throw new Error('URL として読めません');
+    throw new Error('URL として読み込み不可');
   }
-  if (!PROTOCOLS[type].includes(url.protocol)) throw new Error(`${feedTypes[type]} の URL は ${PROTOCOLS[type].map((p) => p.replace(':', '')).join('・')} にしてください`);
-  if (url.username || url.password) throw new Error('URL にユーザー名・パスワードは書けません');
+  if (!PROTOCOLS[type].includes(url.protocol)) throw new Error(`${feedTypes[type]} の URL は ${PROTOCOLS[type].map((p) => p.replace(':', '')).join('・')} で指定`);
+  if (url.username || url.password) throw new Error('URL にユーザー名・パスワードは書き込み不可');
   return url.href;
 }
 
@@ -643,34 +643,34 @@ export function displayUrl(url: string): string {
 /** One `movingFeeds` entry of config.json, or null (saying why) when it cannot be used. */
 export function movingFeedOf(value: unknown, problems: string[], index: number): FeedConfig | null {
   const at = `movingFeeds[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, type, url, interval, fields, kind } = value;
-  if (typeof type !== 'string' || !(type in feedTypes)) return (problems.push(`${at} の type は ${Object.keys(feedTypes).join('・')} のどれかにしてください`), null);
+  if (typeof type !== 'string' || !(type in feedTypes)) return (problems.push(`${at} の type は ${Object.keys(feedTypes).join('・')} のいずれかで指定`), null);
   const feedType = type as FeedType;
   const relative = typeof url === 'string' && /^\.{0,2}\//.test(url) && feedType !== 'websocket';
   if (typeof url !== 'string' || (!relative && !PROTOCOLS[feedType].some((p) => url.toLowerCase().startsWith(`${p}//`)))) {
-    return (problems.push(`${at} の url は ${PROTOCOLS[feedType].map((p) => `${p}//`).join('・')} で始まる URL にしてください`), null);
+    return (problems.push(`${at} の url は ${PROTOCOLS[feedType].map((p) => `${p}//`).join('・')} で始まる URL で指定`), null);
   }
   const feed: FeedConfig = { label: typeof label === 'string' && label.trim() ? label.trim() : `フィード ${index + 1}`, type: feedType, url };
   if (interval !== undefined) {
     if (typeof interval === 'number' && interval >= 1) feed.interval = interval;
-    else problems.push(`${at} の interval は 1 以上の秒数にしてください`);
+    else problems.push(`${at} の interval は 1 以上の秒数で指定`);
   }
   if (fields !== undefined) {
-    if (!isRecord(fields)) problems.push(`${at} の fields は役割ごとの属性名のオブジェクトにしてください`);
+    if (!isRecord(fields)) problems.push(`${at} の fields は役割ごとの属性名のオブジェクトで指定`);
     else {
       const map: FieldMap = {};
       for (const [role, name] of Object.entries(fields)) {
-        if (!(role in movingRoles)) problems.push(`${at} の fields.${role} は使えない役割です（${MOVING_ROLES.join('・')}）`);
+        if (!(role in movingRoles)) problems.push(`${at} の fields.${role} は使用不可の役割（${MOVING_ROLES.join('・')}）`);
         else if (typeof name === 'string' && name.trim()) map[role as MovingRole] = name.trim();
-        else problems.push(`${at} の fields.${role} は属性名にしてください`);
+        else problems.push(`${at} の fields.${role} は属性名で指定`);
       }
       if (Object.keys(map).length) feed.fields = map;
     }
   }
   if (kind !== undefined) {
     if (kind === 'ship' || kind === 'aircraft') feed.kind = kind;
-    else problems.push(`${at} の kind は ship か aircraft にしてください`);
+    else problems.push(`${at} の kind は ship か aircraft で指定`);
   }
   return feed;
 }
@@ -714,7 +714,7 @@ export function historyRows(bytes: Uint8Array, name: string): Array<Record<strin
   try {
     json = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    throw new Error('CSV か GeoJSON・JSON として読めません');
+    throw new Error('CSV か GeoJSON・JSON として読み込み不可');
   }
   return recordsOf(json, MAX_HISTORY_ROWS);
 }

@@ -214,9 +214,9 @@ export async function request(url: string, init?: RequestInit): Promise<Response
   try {
     response = await authFetch(url, init);
   } catch {
-    throw new ServiceError('接続できませんでした（URL、またはサーバーが CORS を許可しているかを確認してください）');
+    throw new ServiceError('接続失敗（URL、またはサーバーが CORS を許可しているかを確認）');
   }
-  if (!response.ok) throw new ServiceError(`サーバーがエラーを返しました（HTTP ${response.status}）`);
+  if (!response.ok) throw new ServiceError(`サーバーからエラー応答（HTTP ${response.status}）`);
   return response;
 }
 
@@ -224,11 +224,11 @@ export async function request(url: string, init?: RequestInit): Promise<Response
 export async function requestXml(url: string): Promise<Document> {
   const text = await (await request(url)).text();
   const doc = new DOMParser().parseFromString(text, 'application/xml');
-  if (doc.querySelector('parsererror')) throw new ServiceError('応答が XML ではありません');
+  if (doc.querySelector('parsererror')) throw new ServiceError('応答が XML 以外');
   const root = doc.documentElement.localName;
   if (root === 'ServiceExceptionReport' || root === 'ExceptionReport') {
     const message = doc.documentElement.textContent?.trim().replace(/\s+/g, ' ') ?? '';
-    throw new ServiceError(`サービスがエラーを返しました: ${message.slice(0, 200)}`);
+    throw new ServiceError(`サービスからエラー応答: ${message.slice(0, 200)}`);
   }
   return doc;
 }

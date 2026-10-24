@@ -28,9 +28,9 @@ export function nameList(names: readonly string[], shown = NAMES_SHOWN): string 
 /** The kind of a message given without one: progress when it ends in … (or a percentage after it), an error when a file could not be opened, done when one opened as expected. */
 export function kindOf(message: string): SayKind {
   if (/…\s*(\d+%)?$/.test(message)) return 'progress';
-  if (/を(開け|読め)ませんでした/.test(message)) return 'error';
+  if (/の読み込みに失敗/.test(message)) return 'error';
   // Opened as expected (a vector layer, editable).
-  return /を開きました(（✎ で編集できます）)?$/.test(message) ? 'done' : 'note';
+  return /を表示(（✎ で編集可能）)?$/.test(message) ? 'done' : 'note';
 }
 
 /** Files opening together, as the status line shows them. */
@@ -179,7 +179,7 @@ export class StatusLine {
 
 /** A batch's line: how far it has got (or how it ended), and what went wrong. */
 function batchText(batch: Batch): string {
-  const lead = batch.running && batch.label ? batch.label : batch.running ? `${batch.total.toLocaleString()} 件を読み込み中 ${batch.done.toLocaleString()}/${batch.total.toLocaleString()}` : (batch.summary ?? `${batch.total.toLocaleString()} 件を読み込みました`);
+  const lead = batch.running && batch.label ? batch.label : batch.running ? `${batch.total.toLocaleString()} 件を読み込み中 ${batch.done.toLocaleString()}/${batch.total.toLocaleString()}` : (batch.summary ?? `${batch.total.toLocaleString()} 件を読み込み`);
   const one = !batch.running && batch.errors.length + batch.notes.length === 1 ? [...batch.errors, ...batch.notes][0] : null;
   if (one) return `${lead}（${one}）`;
   const counts = [batch.errors.length ? `開けなかったもの ${batch.errors.length.toLocaleString()} 件` : '', batch.notes.length ? `確認 ${batch.notes.length.toLocaleString()} 件` : ''].filter(Boolean);

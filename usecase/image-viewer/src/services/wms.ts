@@ -52,9 +52,9 @@ export async function readWms(url: string): Promise<ServiceCatalog> {
   try {
     caps = new WMSCapabilities().read(text);
   } catch {
-    throw new ServiceError('WMS の GetCapabilities を読めませんでした');
+    throw new ServiceError('WMS の GetCapabilities の読み込みに失敗');
   }
-  if (!caps?.Capability?.Layer) throw new ServiceError('WMS の GetCapabilities を読めませんでした');
+  if (!caps?.Capability?.Layer) throw new ServiceError('WMS の GetCapabilities の読み込みに失敗');
   const version: string = caps.version ?? '1.3.0';
   const requests = caps.Capability.Request ?? {};
   const getMap: string = requests.GetMap?.DCPType?.[0]?.HTTP?.Get?.OnlineResource ?? url;
@@ -70,7 +70,7 @@ export async function readWms(url: string): Promise<ServiceCatalog> {
     layer.Layer?.forEach(walk);
   };
   walk(caps.Capability.Layer);
-  if (layers.size === 0) throw new ServiceError('表示できるレイヤーがありません');
+  if (layers.size === 0) throw new ServiceError('表示できるレイヤーなし');
 
   const choices: LayerChoice[] = [...layers.values()].map((l) => ({ name: l.Name!, title: l.Title || l.Name!, abstract: l.Abstract }));
   return {
@@ -100,7 +100,7 @@ async function openLayer(layer: WmsLayer, ep: Endpoint, context: OpenContext): P
   const flip = v13 && !/CRS:?84/i.test(crs) && projection.getAxisOrientation().startsWith('ne');
   const geo = geographicBox(layer);
   const gridExtent = projection.getExtent() ?? (geo ? transformExtent(geo, 'EPSG:4326', projection) : null);
-  if (!gridExtent) throw new ServiceError(`${crs} の範囲が分からないため表示できません`);
+  if (!gridExtent) throw new ServiceError(`${crs} の範囲が分からないため表示不可`);
   const tileGrid = createXYZ({ extent: gridExtent, maxZoom: 22, tileSize: 256 });
   // The time asked for (none: the server's default), set by the timeline.
   let time: string | null = null;
@@ -128,7 +128,7 @@ async function openLayer(layer: WmsLayer, ep: Endpoint, context: OpenContext): P
     tileGrid,
     projection,
     gpu: context.gpu,
-    onNoCors: () => context.say(`${service.title}: サーバーが CORS を許可していないため、補正せずに表示します`),
+    onNoCors: () => context.say(`${service.title}: サーバーが CORS 非許可のため、補正なしで表示`),
   });
   service.layer = tiles.layer;
   const dimension = layer.Dimension?.find((d) => d.name?.toLowerCase() === 'time');
@@ -204,7 +204,7 @@ async function pickCrs(list: string[]): Promise<{ crs: string; projection: Proje
     const projection = await projectionOf(crs);
     if (projection) return { crs, projection };
   }
-  throw new ServiceError('このレイヤーの座標系に対応していません');
+  throw new ServiceError('このレイヤーの座標系に非対応');
 }
 
 function geographicBox(layer: WmsLayer): Extent | null {

@@ -260,18 +260,18 @@ const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(htt
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function baseMapOf(value: unknown, problems: string[], index: number): BaseMapConfig | null {
-  if (!isRecord(value)) return (problems.push(`baseMaps[${index}] がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`baseMaps[${index}] はオブジェクトで指定`), null);
   const { id, label, type, url, attributions, maxZoom, style, token } = value;
   if (typeof id !== 'string' || !id || !isUrl(url)) {
-    problems.push(`baseMaps[${index}] に id か url（http(s) か相対パス）がありません`);
+    problems.push(`baseMaps[${index}] に id か url（http(s) か相対パス）なし`);
     return null;
   }
   if (type !== undefined && !baseMapTypes.includes(type as BaseMapType)) {
-    problems.push(`baseMaps[${index}] の type「${String(type)}」は xyz・mvt・style・esri のどれかにしてください`);
+    problems.push(`baseMaps[${index}] の type「${String(type)}」は xyz・mvt・style・esri のいずれかで指定`);
     return null;
   }
   const kind = (type as BaseMapType | undefined) ?? baseMapType(url);
-  if (style !== undefined && !isUrl(style)) problems.push(`baseMaps[${index}] の style は http(s) か相対パスの URL にしてください`);
+  if (style !== undefined && !isUrl(style)) problems.push(`baseMaps[${index}] の style は http(s) か相対パスの URL で指定`);
   return {
     id,
     label: typeof label === 'string' && label ? label : id,
@@ -288,11 +288,11 @@ function baseMapOf(value: unknown, problems: string[], index: number): BaseMapCo
 const geocoderTypes: readonly GeocoderType[] = ['gsi', 'nominatim', 'arcgis', 'features', 'csv'];
 
 function geocoderOf(value: unknown, problems: string[], index: number): GeocoderConfig | null {
-  if (!isRecord(value)) return (problems.push(`geocoders[${index}] がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`geocoders[${index}] はオブジェクトで指定`), null);
   const { type, url, label, token, field } = value;
-  if (!geocoderTypes.includes(type as GeocoderType)) return (problems.push(`geocoders[${index}] の type は ${geocoderTypes.join('・')} のどれかにしてください`), null);
-  if (!isUrl(url)) return (problems.push(`geocoders[${index}] に url（http(s) か相対パス）がありません`), null);
-  if (type === 'features' && (typeof field !== 'string' || !field)) return (problems.push(`geocoders[${index}] の features には名前の属性（field）が要ります`), null);
+  if (!geocoderTypes.includes(type as GeocoderType)) return (problems.push(`geocoders[${index}] の type は ${geocoderTypes.join('・')} のいずれかで指定`), null);
+  if (!isUrl(url)) return (problems.push(`geocoders[${index}] に url（http(s) か相対パス）なし`), null);
+  if (type === 'features' && (typeof field !== 'string' || !field)) return (problems.push(`geocoders[${index}] の features には名前の属性（field）が必要`), null);
   return {
     type: type as GeocoderType,
     url,
@@ -309,7 +309,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
   const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
-  if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
+  if (!isRecord(json)) return { config, problems: ['設定はオブジェクトで指定'] };
 
   if ('baseMaps' in json) {
     if (Array.isArray(json.baseMaps)) {
@@ -318,59 +318,59 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
         .map((b, i) => baseMapOf(b, problems, i))
         .filter((b): b is BaseMapConfig => {
           if (!b) return false;
-          if (seen.has(b.id)) return (problems.push(`baseMaps の id「${b.id}」が重複しています`), false);
+          if (seen.has(b.id)) return (problems.push(`baseMaps の id「${b.id}」が重複`), false);
           seen.add(b.id);
           return true;
         });
-    } else problems.push('baseMaps が配列ではありません');
+    } else problems.push('baseMaps は配列で指定');
   }
 
   if ('defaultBaseMap' in json) {
     const key = json.defaultBaseMap;
     if (key === '' || key === null) config.defaultBaseMap = '';
     else if (typeof key === 'string' && config.baseMaps.some((b) => b.id === key)) config.defaultBaseMap = key;
-    else problems.push(`defaultBaseMap「${String(key)}」は baseMaps にありません`);
+    else problems.push(`defaultBaseMap「${String(key)}」は baseMaps になし`);
   }
 
   if ('projectionLookup' in json) {
     const url = json.projectionLookup;
     if (url === '' || url === null) config.projectionLookup = '';
     else if (typeof url === 'string' && url.includes('{code}')) config.projectionLookup = url;
-    else problems.push('projectionLookup は {code} を含む URL にしてください');
+    else problems.push('projectionLookup は {code} を含む URL で指定');
   }
 
   if ('projections' in json) {
     if (isRecord(json.projections)) {
       for (const [code, def] of Object.entries(json.projections)) {
         if (/^[A-Za-z]+:\S+$/.test(code) && typeof def === 'string' && def.trim()) config.projections[code.toUpperCase()] = def;
-        else problems.push(`projections の「${code}」は無視しました`);
+        else problems.push(`projections の「${code}」は無視`);
       }
-    } else problems.push('projections がオブジェクトではありません');
+    } else problems.push('projections はオブジェクトで指定');
   }
 
   if ('layers' in json) {
     if (Array.isArray(json.layers)) config.layers = json.layers.map((l, i) => layerOf(l, problems, i)).filter((l): l is LayerConfig => l !== null);
-    else problems.push('layers が配列ではありません');
+    else problems.push('layers は配列で指定');
   }
 
   if ('imageRules' in json) {
     if (Array.isArray(json.imageRules)) config.imageRules = json.imageRules.map((r, i) => imageRuleOf(r, problems, i)).filter((r): r is ImageRule => r !== null);
-    else problems.push('imageRules が配列ではありません');
+    else problems.push('imageRules は配列で指定');
   }
 
   if ('imageCatalogs' in json) {
     if (Array.isArray(json.imageCatalogs)) config.imageCatalogs = json.imageCatalogs.map((c, i) => catalogOf(c, problems, i)).filter((c): c is CatalogConfig => c !== null);
-    else problems.push('imageCatalogs が配列ではありません');
+    else problems.push('imageCatalogs は配列で指定');
   }
   if ('watchInterval' in json) {
     const { watchInterval } = json;
     if (typeof watchInterval === 'number' && watchInterval >= 1 && watchInterval <= 24 * 60) config.watchInterval = watchInterval;
-    else problems.push('watchInterval は新着画像を確認する間隔（1〜1440 分）にしてください');
+    else problems.push('watchInterval は新着画像を確認する間隔（1〜1440 分）で指定');
   }
 
   if ('pathMappings' in json) {
     if (Array.isArray(json.pathMappings)) config.pathMappings = json.pathMappings.map((m, i) => pathMappingOf(m, problems, i)).filter((m): m is PathMapping => m !== null);
-    else problems.push('pathMappings が配列ではありません');
+    else problems.push('pathMappings は配列で指定');
   }
 
   if ('serviceRules' in json) config.serviceRules = serviceRulesOf(json.serviceRules, problems);
@@ -381,51 +381,51 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
         // A URL alone will do.
         const entry = typeof e === 'string' ? { url: e } : e;
         if (!isRecord(entry) || typeof entry.url !== 'string' || !/^https?:\/\/.+\/ImageServer\/?$/i.test(entry.url.trim())) {
-          problems.push(`elevationServices[${i}] の url は …/ImageServer の URL にしてください`);
+          problems.push(`elevationServices[${i}] の url は …/ImageServer の URL で指定`);
           return [];
         }
         return [{ url: entry.url.trim(), ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
       });
-    } else problems.push('elevationServices が配列ではありません');
+    } else problems.push('elevationServices は配列で指定');
   }
 
   if ('geocoders' in json) {
     if (Array.isArray(json.geocoders)) config.geocoders = json.geocoders.map((g, i) => geocoderOf(g, problems, i)).filter((g): g is GeocoderConfig => g !== null);
-    else problems.push('geocoders が配列ではありません');
+    else problems.push('geocoders は配列で指定');
   }
 
   if ('satelliteCatalogs' in json) {
     if (Array.isArray(json.satelliteCatalogs)) {
       config.satelliteCatalogs = json.satelliteCatalogs.map((c, i) => satelliteCatalogOf(c, problems, i)).filter((c): c is SatelliteCatalogConfig => c !== null);
-    } else problems.push('satelliteCatalogs が配列ではありません');
+    } else problems.push('satelliteCatalogs は配列で指定');
   }
   if ('sensorCatalogs' in json) {
     if (Array.isArray(json.sensorCatalogs)) {
       config.sensorCatalogs = json.sensorCatalogs.map((c, i) => sensorCatalogOf(c, problems, i)).filter((c): c is SensorCatalogConfig => c !== null);
-    } else problems.push('sensorCatalogs が配列ではありません');
+    } else problems.push('sensorCatalogs は配列で指定');
   }
 
   if ('cloudForecast' in json) config.cloudForecast = cloudForecastOf(json.cloudForecast, problems);
   if ('groundStations' in json) config.groundStations = groundStationsOf(json.groundStations, problems);
   if ('planStores' in json) {
     if (Array.isArray(json.planStores)) config.planStores = json.planStores.map((v, i) => planStoreOf(v, problems, i)).filter((v): v is PlanStoreConfig => v !== null);
-    else problems.push('planStores が配列ではありません');
+    else problems.push('planStores は配列で指定');
   }
   if ('observationStores' in json) {
     if (Array.isArray(json.observationStores)) config.observationStores = json.observationStores.map((v, i) => observationStoreOf(v, problems, i)).filter((v): v is ObservationStoreConfig => v !== null);
-    else problems.push('observationStores が配列ではありません');
+    else problems.push('observationStores は配列で指定');
   }
   if ('observationVocabulary' in json) config.observationVocabulary = vocabularyOf(json.observationVocabulary, problems);
 
   if ('aiModels' in json) {
     if (Array.isArray(json.aiModels)) config.aiModels = json.aiModels.map((m, i) => aiModelOf(m, problems, i)).filter((m): m is AiModelConfig => m !== null);
-    else problems.push('aiModels が配列ではありません');
+    else problems.push('aiModels は配列で指定');
   }
 
   if ('detectionOutputs' in json) {
     if (Array.isArray(json.detectionOutputs)) {
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
-    } else problems.push('detectionOutputs が配列ではありません');
+    } else problems.push('detectionOutputs は配列で指定');
   }
 
   if ('embed' in json) config.embed = embedConfigOf(json.embed, problems);
@@ -436,25 +436,25 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
         .map((p, i) => arcgisPortalOf(p, problems, i))
         .filter((p): p is ArcgisPortalConfig => {
           if (!p) return false;
-          if (seen.has(p.url)) return (problems.push(`arcgisPortals の url「${p.url}」が重複しています`), false);
+          if (seen.has(p.url)) return (problems.push(`arcgisPortals の url「${p.url}」が重複`), false);
           seen.add(p.url);
           return true;
         });
-    } else problems.push('arcgisPortals が配列ではありません');
+    } else problems.push('arcgisPortals は配列で指定');
   }
 
   if ('authRules' in json) {
     if (Array.isArray(json.authRules)) config.authRules = json.authRules.map((r, i) => authRuleOf(r, problems, i)).filter((r): r is AuthRule => r !== null);
-    else problems.push('authRules が配列ではありません');
+    else problems.push('authRules は配列で指定');
   }
 
   if ('movingFeeds' in json) {
     if (Array.isArray(json.movingFeeds)) config.movingFeeds = json.movingFeeds.map((f, i) => movingFeedOf(f, problems, i)).filter((f): f is FeedConfig => f !== null);
-    else problems.push('movingFeeds が配列ではありません');
+    else problems.push('movingFeeds は配列で指定');
   }
   if ('stacCatalogs' in json) {
     if (Array.isArray(json.stacCatalogs)) config.stacCatalogs = json.stacCatalogs.map((c, i) => stacCatalogOf(c, problems, i)).filter((c): c is StacCatalogConfig => c !== null);
-    else problems.push('stacCatalogs が配列ではありません');
+    else problems.push('stacCatalogs は配列で指定');
   }
   if ('gpServices' in json) {
     if (Array.isArray(json.gpServices)) {
@@ -462,14 +462,14 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
         // A URL alone will do.
         const entry = typeof e === 'string' ? { url: e } : e;
         if (!isRecord(entry) || typeof entry.url !== 'string' || !/^https?:\/\/./i.test(entry.url.trim())) {
-          problems.push(`gpServices[${i}] の url は http(s) の URL にしてください`);
+          problems.push(`gpServices[${i}] の url は http(s) の URL で指定`);
           return [];
         }
         const url = entry.url.trim();
         const label = typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : url;
         return [{ label, url, ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
       });
-    } else problems.push('gpServices が配列ではありません');
+    } else problems.push('gpServices は配列で指定');
   }
 
   return { config, problems };
@@ -479,21 +479,21 @@ const isPreset = (name: unknown): name is PresetName => typeof name === 'string'
 
 function imageRuleOf(value: unknown, problems: string[], index: number): ImageRule | null {
   const at = `imageRules[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { match, caseSensitive, label, preset, enhance, bands, noData } = value;
-  if (typeof match !== 'string' || !match) return (problems.push(`${at} に match（ファイル名の正規表現）がありません`), null);
+  if (typeof match !== 'string' || !match) return (problems.push(`${at} に match（ファイル名の正規表現）なし`), null);
   let pattern: RegExp;
   try {
     // File names on Windows and most servers ignore case, so the patterns do too unless told.
     pattern = new RegExp(match, caseSensitive === true ? '' : 'i');
   } catch (error) {
-    return (problems.push(`${at} の match は正規表現として読めません（${error instanceof Error ? error.message : String(error)}）`), null);
+    return (problems.push(`${at} の match は正規表現として読み込み不可（${error instanceof Error ? error.message : String(error)}）`), null);
   }
 
   let pipeline: Pipeline | null = null;
   if (preset !== undefined) {
     if (isPreset(preset)) pipeline = presets[preset];
-    else problems.push(`${at} の preset「${String(preset)}」は ${Object.keys(presets).join('・')} のどれかにしてください`);
+    else problems.push(`${at} の preset「${String(preset)}」は ${Object.keys(presets).join('・')} のいずれかで指定`);
   }
   if (enhance !== undefined) pipeline = enhanceOf(enhance, pipeline, problems, at);
 
@@ -502,7 +502,7 @@ function imageRuleOf(value: unknown, problems: string[], index: number): ImageRu
     const list = Array.isArray(bands) ? bands : [bands];
     const valid = (b: unknown) => (typeof b === 'number' && Number.isInteger(b) && b >= 1) || (typeof b === 'string' && b.trim() !== '');
     if ((list.length === 1 || list.length === 3) && list.every(valid)) shown = list as Array<number | string>;
-    else problems.push(`${at} の bands は [赤, 緑, 青] か 1 つのバンド（1 から数えた番号かバンド名）にしてください`);
+    else problems.push(`${at} の bands は [赤, 緑, 青] か 1 つのバンド（1 から数えた番号かバンド名）で指定`);
   }
 
   // `noData`: values ([0], or one number), or { "auto": false, "values": [0] } to leave the file's own value out.
@@ -511,10 +511,10 @@ function imageRuleOf(value: unknown, problems: string[], index: number): ImageRu
     const read = (v: unknown) => (Array.isArray(v) ? v : [v]).filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
     if (typeof noData === 'number' || Array.isArray(noData)) transparent = { values: read(noData) };
     else if (isRecord(noData) && (noData.auto === undefined || typeof noData.auto === 'boolean')) transparent = { ...(noData.auto === false ? { auto: false } : {}), values: noData.values === undefined ? [] : read(noData.values) };
-    else problems.push(`${at} の noData は値（数値か数値の配列）か { "auto": false, "values": [0] } の形にしてください`);
+    else problems.push(`${at} の noData は値（数値か数値の配列）か { "auto": false, "values": [0] } の形で指定`);
   }
 
-  if (!pipeline && !shown && !transparent) return (problems.push(`${at} は補正（preset・enhance）もバンド（bands）もノーデータ（noData）も指定していないので無視しました`), null);
+  if (!pipeline && !shown && !transparent) return (problems.push(`${at} は補正（preset・enhance）もバンド（bands）もノーデータ（noData）も未指定のため無視`), null);
   return { label: typeof label === 'string' && label ? label : match, match: pattern, pipeline, bands: shown, ...(transparent ? { noData: transparent } : {}) };
 }
 
@@ -528,21 +528,21 @@ function enhanceOf(enhance: unknown, base: Pipeline | null, problems: string[], 
     try {
       return Pipeline.fromJSON(Array.isArray(enhance) ? { version: 1, ops: enhance } : (enhance as never));
     } catch (error) {
-      problems.push(`${at} の enhance は補正として読めません（${error instanceof Error ? error.message : String(error)}）`);
+      problems.push(`${at} の enhance は補正として読み込み不可（${error instanceof Error ? error.message : String(error)}）`);
       return base;
     }
   }
-  if (!isRecord(enhance)) return (problems.push(`${at} の enhance がオブジェクトではありません`), base);
+  if (!isRecord(enhance)) return (problems.push(`${at} の enhance はオブジェクトで指定`), base);
   let pipeline = base ?? new Pipeline();
   for (const [op, params] of Object.entries(enhance)) {
     if (typeof params !== 'number' && !isRecord(params)) {
-      problems.push(`${at} の enhance の「${op}」は数値か、パラメーターのオブジェクトにしてください`);
+      problems.push(`${at} の enhance の「${op}」は数値か、パラメーターのオブジェクトで指定`);
       continue;
     }
     try {
       pipeline = pipeline.set(op as never, params as never);
     } catch (error) {
-      problems.push(`${at} の enhance の「${op}」は無視しました（${error instanceof Error ? error.message : String(error)}）`);
+      problems.push(`${at} の enhance の「${op}」は無視（${error instanceof Error ? error.message : String(error)}）`);
     }
   }
   return pipeline;
@@ -554,9 +554,9 @@ export function imageRuleFor(rules: readonly ImageRule[], name: string): ImageRu
 }
 
 function layerOf(value: unknown, problems: string[], index: number): LayerConfig | null {
-  if (!isRecord(value)) return (problems.push(`layers[${index}] がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`layers[${index}] はオブジェクトで指定`), null);
   const { type, url, layer, matrixSet, format, settings, bbox, filter } = value;
-  if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）がありません`), null);
+  if (!isUrl(url)) return (problems.push(`layers[${index}] に url（http(s) か相対パス）なし`), null);
   if (type === 'cog' || type === 'file') return { type, url };
   // XYZ tiles: a {z}/{x}/{y} template, one layer.
   if (type === 'xyz') return { type, url, layer: 'tiles' };
@@ -565,8 +565,8 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
       Array.isArray(bbox) && bbox.length === 4 && bbox.every((n) => typeof n === 'number' && Number.isFinite(n)) && bbox[0] <= bbox[2] && bbox[1] <= bbox[3]
         ? (bbox as [number, number, number, number])
         : undefined;
-    if (bbox !== undefined && !box) problems.push(`layers[${index}].bbox は [西, 南, 東, 北]（度）の 4 つの数にしてください`);
-    if (typeof layer !== 'string' || !layer) return (problems.push(`layers[${index}] に layer（レイヤー名）がありません`), null);
+    if (bbox !== undefined && !box) problems.push(`layers[${index}].bbox は [西, 南, 東, 北]（度）の 4 つの数で指定`);
+    if (typeof layer !== 'string' || !layer) return (problems.push(`layers[${index}] に layer（レイヤー名）なし`), null);
     return {
       type: type as ServiceLayerType,
       url,
@@ -578,7 +578,7 @@ function layerOf(value: unknown, problems: string[], index: number): LayerConfig
       ...(type === 'esri' && settings !== undefined ? { settings: settingsOf(settings, problems, `layers[${index}].settings`) } : {}),
     };
   }
-  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・ogc-features・ogc-tiles・wcs・ogc-coverage・xyz のどれかにしてください`);
+  problems.push(`layers[${index}] の type「${String(type)}」は cog・file・wms・wmts・wfs・esri・ogc-features・ogc-tiles・wcs・ogc-coverage・xyz のいずれかで指定`);
   return null;
 }
 
@@ -600,7 +600,7 @@ export async function loadConfig(url = new URL('config.json', document.baseURI).
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     json = await response.json();
   } catch (error) {
-    console.warn(`config.json を読めなかったので既定の設定を使います: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`config.json を読めなかったので既定の設定を使用: ${error instanceof Error ? error.message : String(error)}`);
     return defaultConfig;
   }
   const { config, problems } = parseConfig(json);

@@ -19,7 +19,7 @@ export async function readOgcCoverage(url: string): Promise<ServiceCatalog> {
   const linked = service.collections.filter((c) => findLink(c.links, COVERAGE_RELS));
   // A server that conforms to Coverages but links no coverage: every collection that is not features.
   const collections = linked.length ? linked : conformsTo(service.classes, conformance.coverages) ? service.collections.filter((c) => c.itemType !== 'feature') : [];
-  if (collections.length === 0) throw new ServiceError('カバレッジのコレクションがありません');
+  if (collections.length === 0) throw new ServiceError('カバレッジのコレクションなし');
   const choices: LayerChoice[] = collections.map((c) => ({ name: c.id, title: c.title, abstract: c.description, area: 'raster' }));
   return {
     kind: 'ogc-coverage',
@@ -57,16 +57,16 @@ export function cellsOf(collection: OgcCollection, bbox: Extent | null): [number
 }
 
 async function openCoverage(service: OgcService, collection: OgcCollection, context: OpenContext, pick: OpenPick): Promise<void> {
-  if (!context.openRaster) throw new ServiceError('画像として開けません');
+  if (!context.openRaster) throw new ServiceError('画像として表示不可');
   const bbox = areaInDegrees(context, pick);
   if (bbox && collection.bbox) {
     const overlap = getIntersection(collection.bbox, bbox);
-    if (!(overlap[2] > overlap[0] && overlap[3] > overlap[1])) throw new ServiceError('範囲がカバレッジと重なりません');
+    if (!(overlap[2] > overlap[0] && overlap[3] > overlap[1])) throw new ServiceError('範囲とカバレッジの重なりなし');
   }
   const cells = cellsOf(collection, bbox);
-  if (cells && fitScale(cells[0], cells[1]) < 1) throw new ServiceError(`範囲が大きすぎます（${cells[0].toLocaleString()} × ${cells[1].toLocaleString()} 画素）。表示範囲を狭めてください`);
+  if (cells && fitScale(cells[0], cells[1]) < 1) throw new ServiceError(`範囲が大きすぎ（${cells[0].toLocaleString()} × ${cells[1].toLocaleString()} 画素）。表示範囲の縮小が必要`);
   const url = coverageUrl(service, collection, bbox);
-  context.say(`${collection.title} の画素値を読み込んでいます…`);
+  context.say(`${collection.title} の画素値を読み込み中…`);
   const file = await fetchGeoTiff(url, collection.id, { headers: { Accept: 'image/tiff; application=geotiff, image/tiff;q=0.9' } });
   await context.openRaster(file, withFileName(url, file.name));
 }

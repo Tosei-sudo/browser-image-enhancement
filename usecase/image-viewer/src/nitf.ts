@@ -119,7 +119,7 @@ class Fields {
   }
   /** The next `n` characters, without trailing spaces. */
   s(n: number): string {
-    if (this.at + n > this.bytes.length) throw new RangeError('NITF のヘッダーが途中で切れています');
+    if (this.at + n > this.bytes.length) throw new RangeError('NITF のヘッダーが途中で途切れ');
     const v = this.text.slice(this.at, this.at + n);
     this.at += n;
     return v.replace(/[\s\0]+$/, '');
@@ -128,7 +128,7 @@ class Fields {
   n(n: number): number {
     const t = this.s(n).trim();
     const v = t === '' ? 0 : Number(t);
-    if (!Number.isFinite(v)) throw new Error(`NITF のヘッダーの数値が読めません（${t}）`);
+    if (!Number.isFinite(v)) throw new Error(`NITF のヘッダーの数値が読み込み不可（${t}）`);
     return v;
   }
   skip(n: number): void {
@@ -188,7 +188,7 @@ export async function readNitf(file: Blob): Promise<NitfFile> {
   const fhdr = first.s(4);
   const fver = first.s(5);
   const version = fhdr + fver;
-  if (!/^(NITF02\.10|NITF02\.00|NSIF01\.00)$/.test(version)) throw new Error(`NITF ではないか、対応していない版です（${version || '不明'}）`);
+  if (!/^(NITF02\.10|NITF02\.00|NSIF01\.00)$/.test(version)) throw new Error(`NITF 以外、または非対応の版（${version || '不明'}）`);
   const v20 = version === 'NITF02.00';
   // Where HL is depends on the version; find it, then read the whole header.
   first.skip(2 + 4 + 10 + 14 + 80);
@@ -235,7 +235,7 @@ export async function readNitf(file: Blob): Promise<NitfFile> {
 
 function readImageSubheader(bytes: Uint8Array, index: number, dataOffset: number, dataLength: number, v20: boolean): NitfImage {
   const f = new Fields(bytes);
-  if (f.s(2) !== 'IM') throw new Error('NITF の画像セグメントが読めません');
+  if (f.s(2) !== 'IM') throw new Error('NITF の画像セグメントが読み込み不可');
   const iid1 = f.s(10);
   const datetime = f.s(14);
   const targetId = f.s(17);

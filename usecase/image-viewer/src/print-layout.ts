@@ -123,7 +123,7 @@ export async function drawSheet(map: OlMap, request: PrintRequest): Promise<HTML
   const view = map.getView();
   const resolution = view.getResolution();
   const center = view.getCenter();
-  if (!size || !resolution || !center) throw new Error('地図が表示されていません');
+  if (!size || !resolution || !center) throw new Error('地図が非表示');
 
   // The frame holds at least the area shown now: the larger of the two scales.
   const ratio = pixelRatioOf(map);
@@ -305,7 +305,7 @@ function drawLegend(ctx: CanvasRenderingContext2D, right: number, bottom: number
 /** The sheet as a PDF (a JPEG of it on one page) or a PNG. */
 export async function sheetFile(canvas: HTMLCanvasElement, request: Pick<PrintRequest, 'paper' | 'orientation'>, format: 'pdf' | 'png'): Promise<Blob> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, format === 'pdf' ? 'image/jpeg' : 'image/png', 0.92));
-  if (!blob) throw new Error('画像にできませんでした（大きすぎます）');
+  if (!blob) throw new Error('画像化に失敗（大きすぎ）');
   if (format === 'png') return blob;
   const [wmm, hmm] = paperSize(request.paper, request.orientation);
   const points = (v: number) => (v / MM_PER_INCH) * 72;

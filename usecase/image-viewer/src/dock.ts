@@ -8,7 +8,7 @@
  * it), onto an edge of the map (that dock) or onto the map (floating over
  * it, in a window that moves by its title and sizes by its corner); the ◧
  * button and the right-click menu of a tab do the same by name. The layout
- * is kept for the next visit and in project files, and 「レイアウトを元に戻す」
+ * is kept for the next visit and in project files, and 「レイアウトの初期化」
  * puts it back as it first was.
  *
  * By default nothing looks different: the layers on the left, the table
@@ -295,9 +295,9 @@ export class DockLayout {
       disabled: at === side && this.state_[side].length === 1 && this.state_[side][0].panels.length === 1,
       run: () => this.dockTo(id, side),
     }));
-    items.push({ label: panel.onFloat ? 'ウィンドウに戻す' : '浮かせる', disabled: at === 'float', run: () => this.float(id) });
+    items.push({ label: panel.onFloat ? 'ウィンドウに復帰' : 'フローティング', disabled: at === 'float', run: () => this.float(id) });
     if (panel.close) items.push({ label: '閉じる', run: () => panel.close!() });
-    items.push({ label: 'レイアウトを元に戻す', run: () => this.reset() });
+    items.push({ label: 'レイアウトの初期化', run: () => this.reset() });
     this.menu_.open(items, x, y);
   }
 
@@ -508,7 +508,7 @@ export class DockLayout {
     button.type = 'button';
     button.className = 'dock-button';
     button.textContent = '◧';
-    button.title = '配置（左・右・下に置く、浮かせる）。タブや見出しをドラッグしても動かせます';
+    button.title = '配置（左・右・下に配置、フローティング）。タブや見出しのドラッグでも移動可能';
     button.setAttribute('aria-label', `${panel.title()}の配置`);
     button.setAttribute('aria-haspopup', 'menu');
     button.addEventListener('click', () => {
@@ -679,7 +679,7 @@ export class DockLayout {
       close.type = 'button';
       close.className = 'catalog-close';
       close.textContent = '×';
-      const back = panel.close ? '閉じる' : '元の場所に戻す';
+      const back = panel.close ? '閉じる' : '元の場所に復帰';
       close.title = back;
       close.setAttribute('aria-label', back);
       close.addEventListener('click', () => {

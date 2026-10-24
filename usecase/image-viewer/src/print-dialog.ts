@@ -81,7 +81,7 @@ export class PrintDialog {
             <label>解像度<select name="dpi" aria-label="解像度"><option value="150">150 dpi</option><option value="200">200 dpi</option><option value="300">300 dpi（大きなファイル）</option></select></label>
           </div>
         </details>
-        <p class="wide processing-hint">今の表示範囲が入るように、用紙いっぱいに地図を描き直します。地図に描いた注記も入ります。</p>
+        <p class="wide processing-hint">現在の表示範囲が収まるよう、用紙いっぱいに地図を再描画。地図に描いた注記も含む。</p>
       </form>
       <p class="service-status processing-note" role="status"></p>
       <div class="service-actions">
@@ -124,7 +124,7 @@ export class PrintDialog {
   async run(): Promise<Blob | null> {
     const request = this.request();
     this.run_.disabled = true;
-    this.note_.textContent = '地図を描いています…';
+    this.note_.textContent = '地図を描画中…';
     try {
       const canvas = await drawSheet(this.map, request);
       const blob = await sheetFile(canvas, request, request.format);
@@ -135,7 +135,7 @@ export class PrintDialog {
       await saveFile(name, blob, this.options.say, `（${request.paper} ${request.orientation === 'portrait' ? '縦' : '横'}、${request.dpi} dpi）`);
       return blob;
     } catch (error) {
-      this.note_.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `保存失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     } finally {
       this.run_.disabled = false;

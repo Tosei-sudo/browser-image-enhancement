@@ -40,7 +40,7 @@ describe('project files', () => {
 
   it('are told apart from other files', () => {
     expect(() => readProject('not json')).toThrow('JSON');
-    expect(() => readProject('{"type":"FeatureCollection"}')).toThrow('プロジェクトファイルではありません');
+    expect(() => readProject('{"type":"FeatureCollection"}')).toThrow('プロジェクトファイル以外');
     expect(() => readProject(JSON.stringify({ ...project, version: 2 }))).toThrow('バージョン');
   });
 

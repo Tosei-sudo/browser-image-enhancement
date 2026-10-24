@@ -89,7 +89,7 @@ export async function findAlignment(reference: Channel, target: Channel, how: Al
   // 1. The whole overlap (its middle square), coarsely.
   const side = Math.min(grid.width, grid.height);
   const n = Math.min(COARSE, largestPowerOfTwo(side));
-  if (n < 16) throw new Error('重なる範囲が小さすぎます');
+  if (n < 16) throw new Error('重なる範囲が小さすぎ');
   const f = side / n;
   const coarse: Grid = {
     width: n,
@@ -129,7 +129,7 @@ export async function findAlignment(reference: Channel, target: Channel, how: Al
   }
   const fit = ties.length ? robustFit(ties, how === 'affine' && ties.length >= 6 ? 'affine' : 'shift', pixel / 2) : null;
   if (!fit) {
-    if (!first || first.strength < MIN_STRENGTH) throw new Error('一致する模様が見つかりませんでした（重なりが少ないか、模様の少ない画像です）');
+    if (!first || first.strength < MIN_STRENGTH) throw new Error('一致する模様なし（重なりが少ないか、模様の少ない画像）');
     return { transform: [shift[0], 1, 0, shift[1], 0, 1], projection, tiePoints: [], tried: centers.length, rmsPixels: NaN, pixel };
   }
   return { transform: fit.transform, projection, tiePoints: fit.kept, tried: centers.length, rmsPixels: fit.rms / pixel, pixel };
@@ -141,10 +141,10 @@ export function alignedPlan(target: ViewerImage, reference: ViewerImage, alignme
   const channels = Array.from({ length: bands }, (_, band) => ({ image: target, band }));
   const plan = planComposite(channels, reference, 'intersection');
   const back = invertAffine(alignment.transform);
-  if (!back) throw new Error('求めた変換が正しくありません');
+  if (!back) throw new Error('算出した変換が不正');
   const placed: Placed = place(target);
   const box = footprint(placed, plan.projection);
-  if (!box) throw new Error(`${target.name} の位置を求められません`);
+  if (!box) throw new Error(`${target.name} の位置の算出不可`);
   // Where the image's footprint goes once corrected.
   const corners = [
     [box[0], box[1]],
@@ -188,16 +188,16 @@ export class AlignDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="align-title">自動位置合わせ</h2>
-        <p class="wide processing-hint">画像の模様を照合して、基準の画像とのずれを自動で求め、ずれを直した画像を新しいレイヤーとして作ります。</p>
+        <p class="wide processing-hint">画像の模様を照合して基準の画像とのずれを自動で算出し、ずれを補正した画像を新しいレイヤーとして作成。</p>
         <label class="wide">基準の画像<select name="reference" aria-label="基準の画像"></select></label>
         <label class="wide">合わせる画像<select name="target" aria-label="合わせる画像"></select></label>
-        <label class="wide">直し方<select name="how" aria-label="直し方"><option value="shift">平行移動（ずらすだけ）</option><option value="affine">アフィン（回転・伸縮も）</option></select></label>
+        <label class="wide">直し方<select name="how" aria-label="直し方"><option value="shift">平行移動のみ</option><option value="affine">アフィン（回転・伸縮も）</option></select></label>
         <details class="wide composite-more">
           <summary>詳細設定</summary>
           <div class="service-form">
             <label>照合する所（縦横）<select name="patches" aria-label="照合する所"><option value="3">3 × 3</option><option value="4" selected>4 × 4</option><option value="6">6 × 6</option></select></label>
-            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値を変えない）</option></select></label>
-            <p class="wide processing-hint">照合には各画像の選んだバンドを使い、結果にはすべてのバンドを残します。アフィンは照合できた所が 6 か所以上のときだけで、少なければ平行移動にします。</p>
+            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値の変化なし）</option></select></label>
+            <p class="wide processing-hint">照合には各画像の選択バンドを使用、結果にはすべてのバンドを保持。アフィンは照合できた所が 6 か所以上のときのみ、少なければ平行移動。</p>
           </div>
         </details>
         <p class="wide processing-hint composite-plan"></p>
@@ -235,7 +235,7 @@ export class AlignDialog {
       return Array.from({ length: bands }, (_, b) => new Option(label(`${image.name} ・ バンド ${b + 1}`), `${i}:${b}`));
     });
     for (const s of [this.reference_, this.target_]) s.replaceChildren(...options.map((o) => new Option(o.text, o.value)));
-    this.note_.textContent = this.images_.length >= 2 ? '' : '画像を 2 枚開いてください';
+    this.note_.textContent = this.images_.length >= 2 ? '' : '画像が不足（2 枚を開く）';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     const target = selected && this.images_.includes(selected) && !this.made_.has(selected) ? selected : this.images_[0];
@@ -271,10 +271,10 @@ export class AlignDialog {
     const target = this.channel_(this.target_);
     this.run_.disabled = true;
     if (!reference || !target) return void (out.textContent = '');
-    if (reference.image === target.image) return void (out.textContent = '基準と違う画像を選んでください');
+    if (reference.image === target.image) return void (out.textContent = '基準と違う画像を選択');
     try {
       const { grid } = planComposite([reference, target], reference.image, 'intersection');
-      out.textContent = `重なる範囲 ${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px で照合します。`;
+      out.textContent = `重なる範囲 ${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px で照合。`;
       this.run_.disabled = false;
     } catch (error) {
       out.textContent = error instanceof Error ? error.message : String(error);
@@ -294,11 +294,11 @@ export class AlignDialog {
     const name = `${baseName(target.image.name)}_aligned.tif`;
     const draft = results.begin('位置合わせ');
     try {
-      this.note_.textContent = 'ずれを調べています…';
+      this.note_.textContent = 'ずれを調査中…';
       const alignment = await findAlignment(reference, target, how, Number(form.get('patches')) || 4, (done) => {
-        if (!control.cancelled) this.note_.textContent = `ずれを調べています… ${Math.floor(done * 100)}%`;
+        if (!control.cancelled) this.note_.textContent = `ずれを調査中… ${Math.floor(done * 100)}%`;
       });
-      if (control.cancelled) throw new Error('中止しました');
+      if (control.cancelled) throw new Error('中止');
       const { plan, channels } = alignedPlan(target.image, reference.image, alignment);
       const blob = await runResample(plan, channels, colorOf(plan, [target.image], channels.length), {
         sink: draft.sink(name),
@@ -306,10 +306,10 @@ export class AlignDialog {
         resample: form.get('resample') === 'nearest' ? 'nearest' : 'bilinear',
         control,
         onProgress: (done) => {
-          if (!control.cancelled) this.note_.textContent = `位置を合わせた画像を作っています… ${Math.floor(done * 100)}%`;
+          if (!control.cancelled) this.note_.textContent = `位置を合わせた画像を作成中… ${Math.floor(done * 100)}%`;
         },
       });
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
@@ -318,12 +318,12 @@ export class AlignDialog {
       this.made_.set(made, blob);
       this.images.setBadge(made, '位置合わせ');
       this.dialog.close();
-      this.options.say(`${name} を作りました（${describeAlignment(alignment, plan.projection)}）`);
+      this.options.say(`${name} を作成（${describeAlignment(alignment, plan.projection)}）`);
       return made;
     } catch (error) {
       await draft.discard();
-      if (control.cancelled) this.options.say('自動位置合わせを中止しました');
-      else this.note_.textContent = `位置を合わせられませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      if (control.cancelled) this.options.say('自動位置合わせを中止');
+      else this.note_.textContent = `位置合わせに失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     } finally {
       this.running_ = null;

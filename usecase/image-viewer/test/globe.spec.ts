@@ -53,7 +53,7 @@ test('the 3D view drapes the 2D layers over the DEM relief', async ({ page }) =>
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await open(page);
   await choose(page, [{ name: 'hill.dt0', bytes: hill() }]);
-  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として開きました');
+  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として表示');
   await page.evaluate(() => window.viewer.images.zoomTo(window.viewer.images.list()[0]));
   await page.waitForTimeout(500);
   await page.locator('#globe-toggle').click();
@@ -73,7 +73,7 @@ test('the 3D view drapes the 2D layers over the DEM relief', async ({ page }) =>
 async function openGlobe(page: Page) {
   await open(page);
   await choose(page, [{ name: 'hill.dt0', bytes: hill() }]);
-  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として開きました');
+  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として表示');
   await page.locator('#globe-toggle').click();
   await expect(page.locator('#globe-section')).toBeVisible();
 }
@@ -194,7 +194,7 @@ test('3D Tiles open by URL, and the 2D-only tools wait in 3D', async ({ page }) 
   await expect(page.locator('#measure-distance')).toBeEnabled();
   await page.locator('#globe [name=url]').fill('http://localhost:4175/tiles/tileset.json');
   await page.locator('#globe .globe-tileset button').click();
-  await expect(page.locator('#status')).toContainText('3D タイルを追加しました');
+  await expect(page.locator('#status')).toContainText('3D タイルを追加');
   await expect(page.locator('.globe-tilesets li')).toHaveCount(1);
   await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.75, lat: 35.678, height: 150, heading: 0, pitch: -30 }));
   await settled(page);

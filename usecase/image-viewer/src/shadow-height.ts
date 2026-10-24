@@ -173,13 +173,13 @@ export class ShadowHeightTool {
     this.panel.className = 'shadow-panel';
     this.panel.hidden = true;
     this.panel.setAttribute('role', 'group');
-    this.panel.setAttribute('aria-label', '影から高さを測る');
+    this.panel.setAttribute('aria-label', '影から高さを計測');
     this.panel.innerHTML = `
-      <div class="shadow-row"><strong>影から高さを測る</strong><span class="shadow-hint">根元、影の先端の順にクリック</span></div>
+      <div class="shadow-row"><strong>影から高さを計測</strong><span class="shadow-hint">根元、影の先端の順にクリック</span></div>
       <div class="shadow-row">
         <label>太陽高度 <input type="number" name="elevation" min="0.1" max="90" step="0.1" inputmode="decimal" aria-label="太陽高度（度）">°</label>
         <label>方位 <input type="number" name="azimuth" min="0" max="360" step="0.1" inputmode="decimal" aria-label="太陽の方位（度、北から時計回り）">°</label>
-        <label class="shadow-snap"><input type="checkbox" name="snap" checked> 影の向きに合わせる</label>
+        <label class="shadow-snap"><input type="checkbox" name="snap" checked> 影の向きに吸着</label>
       </div>
       <p class="shadow-origin" role="status"></p>
       <details class="shadow-more">
@@ -247,7 +247,7 @@ export class ShadowHeightTool {
       this.options.onStart?.();
       this.map.addLayer(this.layer_);
       void this.prepare_();
-      this.options.say('建物などの根元をクリックし、次に影の先端をクリックします（Esc で取り消し）');
+      this.options.say('建物などの根元をクリックし、次に影の先端をクリック（Esc で取り消し）');
     } else {
       this.map.removeLayer(this.layer_);
     }
@@ -332,7 +332,7 @@ export class ShadowHeightTool {
     this.sun_ = elevation > 0 ? { elevation, azimuth } : null;
     this.sunOrigin_ = { kind: 'time', ...this.when_ };
     this.showSun_();
-    if (elevation <= 0) this.options.say(`その日時は太陽が地平線の下です（太陽高度 ${elevation.toFixed(1)}°）`);
+    if (elevation <= 0) this.options.say(`その日時は太陽が地平線の下（太陽高度 ${elevation.toFixed(1)}°）`);
   }
 
   private showSun_(): void {
@@ -341,7 +341,7 @@ export class ShadowHeightTool {
     this.azimuth_.value = sun?.azimuth != null ? sun.azimuth.toFixed(2) : '';
     const o = this.sunOrigin_;
     this.originText_.textContent = !sun
-      ? '太陽高度が分かりません。入力するか、撮影日時を入れてください'
+      ? '太陽高度が不明。入力するか、撮影日時を入力'
       : o?.kind === 'metadata'
         ? `画像のメタデータ（${o.item}）から`
         : o?.kind === 'time'
@@ -357,7 +357,7 @@ export class ShadowHeightTool {
       // The Sun computed from the time at the foot itself.
       if (this.sunOrigin_?.kind === 'time' || (!this.sun_ && this.when_)) this.fromTime_(at);
       if (!this.sun_) {
-        this.options.say('太陽高度が分かりません。パネルに太陽高度か撮影日時を入れてください');
+        this.options.say('太陽高度が不明。パネルに太陽高度か撮影日時を入力');
         return;
       }
       this.foot_ = at;
@@ -365,15 +365,15 @@ export class ShadowHeightTool {
       this.source_.addFeature(this.cursor_);
       this.cursor_.setGeometry(new LineString([at, at]));
       this.updateGuide_();
-      this.options.say('影の先端をクリックしてください（Esc で取り消し）');
+      this.options.say('影の先端をクリック（Esc で取り消し）');
       return;
     }
     const tip = this.tipFor_(at);
     const foot = this.foot_;
     const resolution = this.map.getView().getResolution() ?? 1;
     if (Math.hypot(tip[0] - foot[0], tip[1] - foot[1]) < resolution) {
-      const toward = this.sun_?.azimuth != null && this.snap_.checked ? `（影は方位 ${shadowAzimuth(this.sun_.azimuth).toFixed(0)}° の向きに落ちます）` : '';
-      this.options.say(`根元と同じ所です。影の先端をクリックしてください${toward}`);
+      const toward = this.sun_?.azimuth != null && this.snap_.checked ? `（影は方位 ${shadowAzimuth(this.sun_.azimuth).toFixed(0)}° の向き）` : '';
+      this.options.say(`根元と同じ地点。影の先端をクリック${toward}`);
       return;
     }
     const m = this.measure(foot, tip);

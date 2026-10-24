@@ -46,32 +46,32 @@ export function stacCatalogOf(value: unknown, problems: string[], index: number)
   const at = `stacCatalogs[${index}]`;
   // A URL alone will do.
   const entry = typeof value === 'string' ? { url: value } : value;
-  if (!isRecord(entry)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(entry)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, collections, token, headers, sign, cloudFilter } = entry;
-  if (!isUrl(url)) return (problems.push(`${at} に url（http(s) か相対パス）がありません`), null);
+  if (!isUrl(url)) return (problems.push(`${at} に url（http(s) か相対パス）なし`), null);
   const out: StacCatalogConfig = { label: typeof label === 'string' && label ? label : url, url, collections: [] };
   if (collections !== undefined) {
     if (Array.isArray(collections) && collections.every((c) => typeof c === 'string' && c)) out.collections = [...new Set(collections as string[])];
-    else problems.push(`${at} の collections はコレクション ID（文字列）の配列にしてください`);
+    else problems.push(`${at} の collections はコレクション ID（文字列）の配列で指定`);
   }
   const sent: Record<string, string> = {};
   if (headers !== undefined) {
     if (isRecord(headers)) {
       for (const [name, v] of Object.entries(headers)) {
         if (HEADER_NAME.test(name) && typeof v === 'string' && !/[\r\n]/.test(v)) sent[name] = v;
-        else problems.push(`${at} の headers の「${name}」は無視しました`);
+        else problems.push(`${at} の headers の「${name}」は無視`);
       }
-    } else problems.push(`${at} の headers はオブジェクトにしてください`);
+    } else problems.push(`${at} の headers はオブジェクトで指定`);
   }
   if (typeof token === 'string' && token && !/[\r\n]/.test(token) && !Object.keys(sent).some((k) => k.toLowerCase() === 'authorization')) sent.Authorization = `Bearer ${token}`;
   if (Object.keys(sent).length) out.headers = sent;
   if (sign !== undefined) {
     if (sign === 'planetary-computer') out.sign = sign;
-    else problems.push(`${at} の sign は "planetary-computer" だけが使えます`);
+    else problems.push(`${at} の sign は "planetary-computer" のみ使用可能`);
   }
   if (cloudFilter !== undefined) {
     if (cloudFilter === 'query' || cloudFilter === 'filter') out.cloudFilter = cloudFilter;
-    else problems.push(`${at} の cloudFilter は query か filter にしてください`);
+    else problems.push(`${at} の cloudFilter は query か filter で指定`);
   }
   return out;
 }
@@ -330,12 +330,12 @@ function nextOf(links: unknown, base?: string): NextLink | null {
 
 /** A page of `/search` results (an ItemCollection). */
 export function parseItemCollection(json: unknown, base?: string): StacPage {
-  if (!isRecord(json)) throw new Error('STAC の検索結果ではありません');
+  if (!isRecord(json)) throw new Error('STAC の検索結果以外');
   if (json.type === 'Feature') {
     const item = parseItem(json, base);
     return { items: item ? [item] : [], next: null, matched: item ? 1 : 0 };
   }
-  if (!Array.isArray(json.features)) throw new Error(typeof json.description === 'string' ? json.description.slice(0, 300) : 'STAC の検索結果ではありません');
+  if (!Array.isArray(json.features)) throw new Error(typeof json.description === 'string' ? json.description.slice(0, 300) : 'STAC の検索結果以外');
   const items = json.features.slice(0, MAX_ITEMS).flatMap((f) => parseItem(f, base) ?? []);
   const context = isRecord(json.context) ? json.context : {};
   return { items, next: nextOf(json.links, base), matched: num(json.numberMatched) ?? num(context.matched) };
@@ -429,9 +429,9 @@ export async function fetchStac(request: StacRequest, catalog: Pick<StacCatalogC
   if (request.method === 'POST') headers['Content-Type'] = 'application/json';
   const response = await fetch(request.url, { method: request.method, headers, body: request.method === 'POST' ? JSON.stringify(request.body ?? {}) : undefined, signal, credentials: 'omit' });
   const length = Number(response.headers.get('content-length'));
-  if (length > MAX_BYTES) throw new Error('応答が大きすぎます');
+  if (length > MAX_BYTES) throw new Error('応答が大きすぎ');
   const text = await response.text();
-  if (text.length > MAX_BYTES) throw new Error('応答が大きすぎます');
+  if (text.length > MAX_BYTES) throw new Error('応答が大きすぎ');
   if (!response.ok) {
     let detail = '';
     try {
@@ -445,7 +445,7 @@ export async function fetchStac(request: StacRequest, catalog: Pick<StacCatalogC
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error('JSON ではありません');
+    throw new Error('JSON 以外');
   }
 }
 
@@ -542,7 +542,7 @@ export async function walkStatic(url: string, fetchJson: (url: string) => Promis
     }
     const json = await fetchJson(at);
     if (!isRecord(json)) {
-      if (at === url) throw new Error('STAC の JSON ではありません');
+      if (at === url) throw new Error('STAC の JSON 以外');
       continue;
     }
     if (json.type === 'Feature') {
@@ -554,7 +554,7 @@ export async function walkStatic(url: string, fetchJson: (url: string) => Promis
       continue;
     }
     if (!Array.isArray(json.links)) {
-      if (at === url) throw new Error('STAC のカタログ・コレクション・アイテムではありません');
+      if (at === url) throw new Error('STAC のカタログ・コレクション・アイテム以外');
       continue;
     }
     // Its items first (in their order), its children after what is already waiting.

@@ -71,7 +71,7 @@ export function voronoi(input: ProcessingInput, options: VoronoiOptions): Proces
     const g = feature.getGeometry();
     if (g instanceof Point || g instanceof MultiPoint) extend(extent, g.getExtent());
   }
-  if (isEmpty(extent)) throw new Error('ポイントがありません（ボロノイ分割にはポイントレイヤーが必要です）');
+  if (isEmpty(extent)) throw new Error('ポイントなし（ボロノイ分割にはポイントレイヤーが必要）');
   const local = aeqd(centerOf(extent));
 
   // The points in metres, each with the feature it came from; exact duplicates are left out.
@@ -92,7 +92,7 @@ export function voronoi(input: ProcessingInput, options: VoronoiOptions): Proces
       points.push({ xy: [xy[0], xy[1]], feature });
     }
   }
-  if (points.length < 2) throw new Error('位置の異なるポイントが 2 つ以上必要です');
+  if (points.length < 2) throw new Error('位置の異なるポイントが 2 つ以上必要');
 
   let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const { xy: [x, y] } of points) {
@@ -113,7 +113,7 @@ export function voronoi(input: ProcessingInput, options: VoronoiOptions): Proces
       .map((f) => f.getGeometry())
       .filter((g): g is Polygon | MultiPolygon => g instanceof Polygon || g instanceof MultiPolygon)
       .map((g) => toJsts(toLocal(g, local)));
-    if (parts.length === 0) throw new Error('切り抜きに使うポリゴンがありません');
+    if (parts.length === 0) throw new Error('切り抜きに使うポリゴンなし');
     clip = union(parts);
   }
 
@@ -138,9 +138,9 @@ export function voronoi(input: ProcessingInput, options: VoronoiOptions): Proces
     features.push(feature);
   });
 
-  const notes = [`${features.length} 個のセルを作りました`];
-  if (duplicates > 0) notes.push(`同じ位置のポイント ${duplicates} 個を除きました（最初のものを使用）`);
-  if (clippedAway > 0) notes.push(`切り抜き範囲の外のセル ${clippedAway} 個を除きました`);
+  const notes = [`${features.length} 個のセルを作成`];
+  if (duplicates > 0) notes.push(`同じ位置のポイント ${duplicates} 個を除外（最初のものを使用）`);
+  if (clippedAway > 0) notes.push(`切り抜き範囲の外のセル ${clippedAway} 個を除外`);
   return {
     title: options.keepAttributes ? `${input.title}_ティーセン` : `${input.title}_ボロノイ`,
     features,

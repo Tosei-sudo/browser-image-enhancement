@@ -233,7 +233,7 @@ export async function openImageServer(serviceUrl: string, context: OpenContext, 
     tileGrid,
     projection: 'EPSG:3857',
     gpu: context.gpu,
-    onNoCors: () => context.say(`${title}: サーバーが CORS を許可していないため、補正せずに表示します`),
+    onNoCors: () => context.say(`${title}: サーバーが CORS 非許可のため、補正なしで表示`),
   });
   service.layer = tiles.layer;
   if (extent) tiles.layer.setExtent(extent);
@@ -286,7 +286,7 @@ export async function openImageServer(serviceUrl: string, context: OpenContext, 
     },
     exportView: async (map) => {
       const size = map.getSize();
-      if (!size) throw new ServiceError('地図の大きさが分かりません');
+      if (!size) throw new ServiceError('地図の大きさが不明');
       const view = map.getView().calculateExtent(size);
       const bbox = transformExtent(view, map.getView().getProjection(), 'EPSG:3857');
       const ratio = Math.min(1, maxSize[0] / (size[0] * devicePixelRatio), maxSize[1] / (size[1] * devicePixelRatio));
@@ -337,7 +337,7 @@ export async function openImageServer(serviceUrl: string, context: OpenContext, 
     const visible = result.catalogItemVisibilities ?? [];
     const features = items.map((item, i) => {
       const f = format.readFeature({ ...item, attributes: item.attributes ?? {} }, { dataProjection: projection, featureProjection: view.getProjection() }) as Feature;
-      f.set('表示', visible[i] === 0 ? '下に隠れている' : '表示中');
+      f.set('表示', visible[i] === 0 ? '下に隠れて非表示' : '表示中');
       if (visible[i] !== 0) f.set('画素値', value);
       return f;
     });
@@ -354,7 +354,7 @@ export async function openImageServer(serviceUrl: string, context: OpenContext, 
 
 /** The map service's choice of its whole map, drawn by the server. */
 export function mapChoice(title: string): LayerChoice {
-  return { name: MAP_CHOICE, title: `${title}（地図画像）`, abstract: 'サーバーが描いた地図をそのまま重ねます（レイヤーの表示と条件は「表示ルール」で変えられます）' };
+  return { name: MAP_CHOICE, title: `${title}（地図画像）`, abstract: 'サーバーが描いた地図をそのまま重ねて表示（レイヤーの表示と条件は「表示ルール」で変更可能）' };
 }
 
 /** Opens the map of a map service as a picture layer. */
@@ -419,7 +419,7 @@ export async function openMapServer(serviceUrl: string, context: OpenContext, se
     tileGrid,
     projection: 'EPSG:3857',
     gpu: context.gpu,
-    onNoCors: () => context.say(`${title}: サーバーが CORS を許可していないため、補正せずに表示します`),
+    onNoCors: () => context.say(`${title}: サーバーが CORS 非許可のため、補正なしで表示`),
   });
   service.layer = tiles.layer;
   if (extent) tiles.layer.setExtent(extent);
@@ -519,7 +519,7 @@ async function esriBinary(url: string, params: Record<string, string>, token?: s
   const type = response.headers.get('content-type') ?? '';
   if (/json|text/i.test(type)) {
     const json = (await response.json().catch(() => null)) as { error?: { message?: string; details?: string[] } } | null;
-    throw new ServiceError(`サービスがエラーを返しました: ${[json?.error?.message ?? '画像ではない応答', ...(json?.error?.details ?? [])].join(' ')}`);
+    throw new ServiceError(`サービスからエラー応答: ${[json?.error?.message ?? '画像ではない応答', ...(json?.error?.details ?? [])].join(' ')}`);
   }
   return response.blob();
 }

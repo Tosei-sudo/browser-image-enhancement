@@ -22,7 +22,7 @@ async function addService(page: Page, url: string) {
   await page.getByRole('button', { name: 'サービスを追加' }).click();
   const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(url);
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-layer')).toHaveCount(1);
   await dialog.getByRole('button', { name: '追加', exact: true }).click();
   await expect(dialog).toBeHidden();
@@ -39,7 +39,7 @@ test('signing in to an ArcGIS portal in a popup gives its token to the federated
   await menu.getByRole('button', { name: 'テストポータル にサインイン' }).click();
   await popup;
   await expect(menu.locator('.menu-button')).toHaveText('taro');
-  await expect(page.locator('#status')).toContainText('テストポータル に 山田 太郎（taro） でサインインしました');
+  await expect(page.locator('#status')).toContainText('テストポータル に 山田 太郎（taro） でサインイン');
   expect((await log(page)).tokenRequests).toEqual(['authorization_code']);
 
   // The secured layer of the federated server opens with no token typed.

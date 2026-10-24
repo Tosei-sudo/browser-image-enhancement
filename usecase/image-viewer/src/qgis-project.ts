@@ -34,16 +34,16 @@ export const MAX_QGIS = 50_000_000;
 
 /** The `.qgs` text of a QGIS project file (unzipped from a `.qgz`). */
 export async function qgisText(file: File): Promise<string> {
-  if (file.size > MAX_QGIS) throw new Error(`${file.name} は大きすぎます（50 MB まで）`);
+  if (file.size > MAX_QGIS) throw new Error(`${file.name} は大きすぎ（50 MB まで）`);
   if (!file.name.toLowerCase().endsWith('.qgz')) return file.text();
   const bytes = new Uint8Array(await file.arrayBuffer());
   for (const item of iter(bytes)) {
     if (!/\.qgs$/i.test(item.filename) || item.filename.includes('/')) continue;
     const data = await item.read();
-    if (data.length > MAX_QGIS) throw new Error(`${file.name} の中の ${item.filename} が大きすぎます`);
+    if (data.length > MAX_QGIS) throw new Error(`${file.name} の中の ${item.filename} が大きすぎ`);
     return new TextDecoder().decode(data);
   }
-  throw new Error(`${file.name} に .qgs がありません`);
+  throw new Error(`${file.name} に .qgs なし`);
 }
 
 /** A QGIS project read for the viewer. */
@@ -112,7 +112,7 @@ export function originOf(provider: string, source: string, type: string): Origin
   if (p === 'wms') {
     const q = sourceParams(source);
     const url = q.get('url')?.[0] ?? '';
-    if (!isHttp(url)) return { kind: 'none', why: 'URL がありません' };
+    if (!isHttp(url)) return { kind: 'none', why: 'URL なし' };
     if (q.get('type')?.[0] === 'xyz') {
       const zmin = Number(q.get('zmin')?.[0] ?? 0);
       const zmax = Number(q.get('zmax')?.[0] ?? 19);
@@ -120,8 +120,8 @@ export function originOf(provider: string, source: string, type: string): Origin
     }
     if (q.get('type')?.[0] === 'mbtiles') return { kind: 'none', why: 'MBTiles' };
     const layers = (q.get('layers') ?? []).filter(Boolean);
-    if (!layers.length) return { kind: 'none', why: 'レイヤー名がありません' };
-    const note = layers.length > 1 ? `重ねた ${layers.length} レイヤーのうち最初の「${layers[0]}」だけを開きます` : undefined;
+    if (!layers.length) return { kind: 'none', why: 'レイヤー名なし' };
+    const note = layers.length > 1 ? `重ねた ${layers.length} レイヤーのうち最初の「${layers[0]}」のみ表示` : undefined;
     const matrixSet = q.get('tileMatrixSet')?.[0];
     if (matrixSet) {
       const format = q.get('format')?.[0];
@@ -148,22 +148,22 @@ export function originOf(provider: string, source: string, type: string): Origin
       url = q.get('url');
       typename = q.get('typename');
     }
-    if (!url || !isHttp(url) || !typename) return { kind: 'none', why: 'WFS の URL かレイヤー名がありません' };
+    if (!url || !isHttp(url) || !typename) return { kind: 'none', why: 'WFS の URL かレイヤー名なし' };
     return { kind: 'service', ref: { kind: 'wfs', url, layer: typename } };
   }
   if (p === 'arcgisfeatureserver') {
     const url = quotedParams(source).get('url') ?? '';
     const m = /^(https?:\/\/.*\/(?:FeatureServer|MapServer))\/(\d+)\/?$/i.exec(url);
-    if (!m) return { kind: 'none', why: 'ArcGIS のレイヤーの URL がありません' };
+    if (!m) return { kind: 'none', why: 'ArcGIS のレイヤーの URL なし' };
     return { kind: 'service', ref: { kind: 'esri', url: m[1], layer: m[2] } };
   }
   if (p === 'arcgismapserver') {
     const q = quotedParams(source);
     const url = (q.get('url') ?? '').replace(/\/+$/, '');
     if (/\/ImageServer$/i.test(url)) return { kind: 'service', ref: { kind: 'esri', url, layer: 'image' } };
-    if (!/^https?:\/\/.*\/MapServer$/i.test(url)) return { kind: 'none', why: 'ArcGIS マップサービスの URL がありません' };
+    if (!/^https?:\/\/.*\/MapServer$/i.test(url)) return { kind: 'none', why: 'ArcGIS マップサービスの URL なし' };
     const layer = q.get('layer');
-    return { kind: 'service', ref: { kind: 'esri', url, layer: 'map' }, ...(layer ? { note: `マップサービスの地図全体を開きます（レイヤー ${layer} だけではありません）` } : {}) };
+    return { kind: 'service', ref: { kind: 'esri', url, layer: 'map' }, ...(layer ? { note: `マップサービスの地図全体を表示（レイヤー ${layer} 以外も含む）` } : {}) };
   }
   if (p === 'ogr' || p === 'gdal' || p === 'delimitedtext') {
     let file = source.split('|')[0].trim();
@@ -188,11 +188,11 @@ export function originOf(provider: string, source: string, type: string): Origin
       const zip = /^\/vsizip\/(.+?\.zip)(?:\/|$)/i.exec(file);
       if (!zip) return { kind: 'none', why: `${file.split('/')[1]} の仮想ファイル` };
       file = zip[1];
-      note = 'zip の中のファイルは zip ごと開きます';
+      note = 'zip の中のファイルは zip ごと表示';
     }
     if (/^(PG|MSSQL|OCI|MySQL|ODBC|WFS|MongoDB):/i.test(file)) return { kind: 'none', why: 'データベース' };
-    if (!file) return { kind: 'none', why: 'ファイルがありません' };
-    if (options.some((o) => /^subset=/i.test(o))) note = '絞り込み（サブセット）は使わず、すべての地物を開きます';
+    if (!file) return { kind: 'none', why: 'ファイルなし' };
+    if (options.some((o) => /^subset=/i.test(o))) note = '絞り込み（サブセット）は使わず、すべての地物を表示';
     const layername = options.map((o) => /^layername=(.*)$/i.exec(o)?.[1]).find((x) => x !== undefined) ?? '';
     return { kind: 'files', key: file.replace(/\\/g, '/').toLowerCase(), files: localFiles(file), pick: layername, ...(note ? { note } : {}) };
   }
@@ -237,7 +237,7 @@ function authid(el: XmlElement | undefined): string | null {
 /** Reads a `.qgs` document as the viewer's project. Throws with a message for the status line when it is not one. */
 export function readQgs(text: string, id: string = crypto.randomUUID()): QgisImport {
   const root = parseXml(text, MAX_QGIS);
-  if (root.name !== 'qgis') throw new Error('QGIS のプロジェクトファイルではありません');
+  if (root.name !== 'qgis') throw new Error('QGIS のプロジェクトファイル以外');
   const maplayers = new Map<string, XmlElement>();
   for (const m of kids(kid(root, 'projectlayers'), 'maplayer')) maplayers.set(textOf(kid(m, 'id')), m);
   let order = treeOrder(root);
@@ -302,7 +302,7 @@ export function readQgs(text: string, id: string = crypto.randomUUID()): QgisImp
     for (const note of styleNotes.list()) notes.push(`${name}: ${note}`);
     layers.push(layer);
   }
-  for (const [key, m] of maplayers) if (!order.some((o) => o.id === key)) unsupported.push(`${textOf(kid(m, 'layername')) || key}（レイヤーツリーにありません）`);
+  for (const [key, m] of maplayers) if (!order.some((o) => o.id === key)) unsupported.push(`${textOf(kid(m, 'layername')) || key}（レイヤーツリーになし）`);
 
   // The map canvas's extent (the first canvas: the main one).
   const canvas = kids(root, 'mapcanvas').find((c) => attr(c, 'name') === 'theMapCanvas') ?? kid(root, 'mapcanvas');
@@ -312,7 +312,7 @@ export function readQgs(text: string, id: string = crypto.randomUUID()): QgisImp
   let extent: QgisImport['extent'] = null;
   if (values.every((v): v is number => v !== null) && values[2] > values[0] && values[3] > values[1]) {
     if (crs && /^(EPSG|ESRI|IGNF):\d+$/i.test(crs)) extent = { crs: crs.toUpperCase(), extent: values as [number, number, number, number] };
-    else notes.push(`表示範囲: 座標系「${crs ?? '不明'}」が分からないため使いません`);
+    else notes.push(`表示範囲: 座標系「${crs ?? '不明'}」が不明のため未使用`);
   }
   if (numberOf(textOf(kid(canvas, 'rotation')))) notes.push('表示範囲: 地図の回転');
 

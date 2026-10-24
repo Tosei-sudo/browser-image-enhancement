@@ -52,7 +52,7 @@ test('GeoJSON pasted with Ctrl+V on the map becomes the temporary layer 「貼�
   };
   await write(page, JSON.stringify(fc, null, 2));
   await pasteOnMap(page);
-  await expect(status(page)).toContainText('GeoJSONとして読み、図形 2 個を一時レイヤー「貼り付け」に追加しました');
+  await expect(status(page)).toContainText('GeoJSONとして読み、図形 2 個を一時レイヤー「貼り付け」に追加');
   await expect(page.locator('.clip-toast')).toBeVisible();
   await expect(page.locator('#images li', { hasText: '貼り付け' })).toHaveCount(1);
   expect(await pastedLayers(page)).toEqual([2]);
@@ -92,7 +92,7 @@ test('WKT and a table from Excel paste from the menu; rows copy as GeoJSON and W
   await expect(rows(page).first()).toContainText('東京駅');
   await rows(page).first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'GeoJSON でコピー' }).click();
-  await expect(status(page)).toContainText('地物 1 件を GeoJSON でコピーしました');
+  await expect(status(page)).toContainText('地物 1 件を GeoJSON でコピー');
   const copied = JSON.parse(await read(page));
   expect(copied.type).toBe('FeatureCollection');
   expect(copied.features[0].geometry).toEqual({ type: 'Point', coordinates: [139.7671, 35.6812] });
@@ -110,7 +110,7 @@ test('WKT and a table from Excel paste from the menu; rows copy as GeoJSON and W
   await write(page, '');
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('ControlOrMeta+C');
-  await expect(status(page)).toContainText('選択した地物 2 件を GeoJSON でコピーしました');
+  await expect(status(page)).toContainText('選択した地物 2 件を GeoJSON でコピー');
   expect(JSON.parse(await read(page)).features).toHaveLength(2);
 });
 
@@ -140,12 +140,12 @@ test('X / Y columns ask their CRS; a URL is opened only when asked; nonsense say
   const ask = page.locator('dialog.folder-ask');
   await expect(ask).toContainText('http://localhost:4175/pasted-cog.tif');
   await ask.getByRole('button', { name: 'キャンセル' }).click();
-  await expect(status(page)).toContainText('URL は開きませんでした');
+  await expect(status(page)).toContainText('URL の表示を取消');
   expect(fetched).toEqual([]);
 
-  await write(page, 'これは図形ではありません');
+  await write(page, 'これは図形以外');
   await pasteOnMap(page);
-  await expect(page.locator('.clip-toast')).toContainText('図形として読める内容がありません');
+  await expect(page.locator('.clip-toast')).toContainText('図形として読める内容なし');
 });
 
 test('the view copies as a PNG, and a pasted picture opens without a projection', async ({ page }) => {
@@ -155,7 +155,7 @@ test('the view copies as a PNG, and a pasted picture opens without a projection'
   await expect(status(page)).toContainText('図形 1 個');
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: '表示範囲の画像をコピー' }).click();
-  await expect(status(page)).toContainText('表示範囲の画像をコピーしました');
+  await expect(status(page)).toContainText('表示範囲の画像をコピー');
   const types = await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((i) => i.types));
   expect(types).toContain('image/png');
 

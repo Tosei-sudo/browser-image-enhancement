@@ -74,9 +74,9 @@ export class SavedPlansPanel {
       <div class="catalog-results plan-saved-list"><table class="catalog-table"><thead><tr><th>計画</th><th>撮像</th><th>期間</th><th>状況</th></tr></thead><tbody></tbody></table></div>
       <div class="catalog-results plan-saved-shots" hidden><table class="catalog-table"><thead><tr><th>日時</th><th>衛星</th><th>対象</th><th>オフナディア角</th><th>状態</th><th>画像</th></tr></thead><tbody></tbody></table></div>
       <div class="service-actions catalog-actions">
-        <button type="button" value="reload" title="保存先から計画を読み直します">再読み込み</button>
-        <button type="button" value="delete" disabled title="選んだ計画の撮像をすべて保存先から削除します">計画を削除</button>
-        <button type="button" value="track" disabled title="撮像時刻を過ぎた予定の撮像について、画像カタログに画像が入ったかを確かめます">撮像を確認</button>
+        <button type="button" value="reload" title="保存先から計画を再読み込み">再読み込み</button>
+        <button type="button" value="delete" disabled title="選んだ計画の撮像をすべて保存先から削除">計画を削除</button>
+        <button type="button" value="track" disabled title="撮像時刻を過ぎた予定の撮像について、画像カタログへの画像の登録を確認">撮像を確認</button>
         <button type="button" value="zoom" class="primary" disabled>範囲へ移動</button>
       </div>`;
     document.body.append(this.dialog);
@@ -134,19 +134,19 @@ export class SavedPlansPanel {
   /** Reads the plans of the store again. */
   async reload(): Promise<void> {
     const store = this.store_;
-    if (!store) return void (this.status_.textContent = 'config.json に計画の保存先（planStores）がありません');
-    this.status_.textContent = `${store.label} を読んでいます…`;
+    if (!store) return void (this.status_.textContent = 'config.json に計画の保存先（planStores）なし');
+    this.status_.textContent = `${store.label} を読み込み中…`;
     try {
       this.list_ = await listPlans(store, this.options.ask);
     } catch (error) {
-      this.status_.textContent = `読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
     if (store !== this.store_) return;
     const chosen = this.plan_?.id;
     this.plan_ = this.list_.find((p) => p.id === chosen) ?? null;
     this.renderPlans();
-    this.status_.textContent = this.list_.length ? `${store.label}: ${this.list_.length} 件の計画。行を選ぶと撮像を地図に表示し、撮像を確認します` : `${store.label} に保存した計画はまだありません（撮像計画の「保存・追跡…」で保存します）`;
+    this.status_.textContent = this.list_.length ? `${store.label}: ${this.list_.length} 件の計画。行の選択で撮像を地図に表示し、撮像を確認` : `${store.label} に保存した計画なし（撮像計画の「保存・追跡…」で保存）`;
     if (this.plan_) await this.choose(this.plan_, false);
   }
 
@@ -179,7 +179,7 @@ export class SavedPlansPanel {
     try {
       this.shotList_ = await loadShots(store, this.options.ask, plan.id);
     } catch (error) {
-      this.status_.textContent = `撮像を読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `撮像の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
     this.renderShots();
@@ -229,7 +229,7 @@ export class SavedPlansPanel {
             const open = document.createElement('button');
             open.type = 'button';
             open.textContent = shot.imageId;
-            open.title = '画像を開きます';
+            open.title = '画像を開く';
             open.addEventListener('click', (e) => {
               e.stopPropagation();
               void this.openImage(shot, catalog);
@@ -280,8 +280,8 @@ export class SavedPlansPanel {
     const catalog = this.catalog();
     const plan = this.plan_;
     if (!store || !plan) return;
-    if (!catalog) return void (this.status_.textContent = '撮像を確認する画像カタログ（config.json の imageCatalogs）がありません');
-    this.status_.textContent = `${catalog.label} で撮像を確認しています…`;
+    if (!catalog) return void (this.status_.textContent = '撮像を確認する画像カタログ（config.json の imageCatalogs）なし');
+    this.status_.textContent = `${catalog.label} で撮像を確認中…`;
     try {
       const { types } = await readCatalogLayer(catalog);
       const changes = await trackShots(store, catalog, types, this.options.ask, this.shotList_);
@@ -295,11 +295,11 @@ export class SavedPlansPanel {
       this.renderShots();
       const taken = changes.filter((c) => c.status === '撮像済み').length;
       const missed = changes.length - taken;
-      const text = changes.length ? `新たに撮像済み ${taken} 回${missed ? `・未撮像 ${missed} 回` : ''}` : '変わった撮像はありません';
+      const text = changes.length ? `新たに撮像済み ${taken} 回${missed ? `・未撮像 ${missed} 回` : ''}` : '変わった撮像なし';
       this.status_.textContent = `${plan.name}: ${text}。${progressText(plan.statuses)}`;
       if (say && changes.length) this.options.say(`${plan.name}: ${text}`);
     } catch (error) {
-      this.status_.textContent = `撮像を確認できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `撮像の確認に失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -313,7 +313,7 @@ export class SavedPlansPanel {
       this.renderPlans();
       this.renderShots();
     } catch (error) {
-      this.status_.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `保存失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -321,10 +321,10 @@ export class SavedPlansPanel {
     try {
       const json = await this.options.ask(`${catalog.url}/query`, { where: `${catalog.fields.id} = ${quote(shot.imageId)}`, outFields: '*', returnGeometry: 'true', outSR: '4326' }, catalog.token);
       const [feature] = format.readFeatures(json, { dataProjection: 'EPSG:4326', featureProjection: this.map.getView().getProjection() }) as Feature[];
-      if (!feature) return void this.options.say(`${shot.imageId} が画像カタログにありません`);
+      if (!feature) return void this.options.say(`${shot.imageId} が画像カタログになし`);
       await this.options.open(recordOf(feature, catalog.fields), catalog);
     } catch (error) {
-      this.options.say(`画像を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.options.say(`画像の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -337,11 +337,11 @@ export class SavedPlansPanel {
       this.plan_ = null;
       this.shotList_ = [];
       this.overlay.getSource()!.clear();
-      this.options.say(`計画「${plan.name}」を削除しました`);
+      this.options.say(`計画「${plan.name}」を削除`);
       await this.reload();
       this.renderShots();
     } catch (error) {
-      this.status_.textContent = `削除できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `削除失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 }

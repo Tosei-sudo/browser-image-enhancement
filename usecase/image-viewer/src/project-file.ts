@@ -192,10 +192,10 @@ export function readProject(text: string): { project: Project; skipped: number }
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error('プロジェクトファイルではありません（JSON として読めません）');
+    throw new Error('プロジェクトファイル以外（JSON として読み込み不可）');
   }
-  if (!isObject(json) || json.format !== PROJECT_FORMAT) throw new Error('画像ビューアのプロジェクトファイルではありません');
-  if (json.version !== 1) throw new Error(`このバージョンのプロジェクトファイル（${String(json.version)}）は読めません。ビューアを更新してください`);
+  if (!isObject(json) || json.format !== PROJECT_FORMAT) throw new Error('画像ビューアのプロジェクトファイル以外');
+  if (json.version !== 1) throw new Error(`このバージョンのプロジェクトファイル（${String(json.version)}）は読み込み不可。ビューアを更新`);
 
   const fileSets: FileSetRef[] = Array.isArray(json.fileSets)
     ? json.fileSets.map((s) => ({

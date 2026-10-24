@@ -147,13 +147,13 @@ export function parseCodes(text: string, type: DesignType): Array<{ code: string
     const eq = item.indexOf('=');
     const raw = (eq >= 0 ? item.slice(0, eq) : item).trim();
     const name = (eq >= 0 ? item.slice(eq + 1) : item).trim() || raw;
-    if (!raw) return { error: `候補値「${item}」の値が空です` };
+    if (!raw) return { error: `候補値「${item}」の値が空` };
     let code: string | number = raw;
     if (type === 'integer' || type === 'double') {
       code = Number(raw);
-      if (!Number.isFinite(code) || (type === 'integer' && !Number.isInteger(code))) return { error: `候補値「${raw}」は${type === 'integer' ? '整数' : '数値'}にしてください` };
+      if (!Number.isFinite(code) || (type === 'integer' && !Number.isInteger(code))) return { error: `候補値「${raw}」は${type === 'integer' ? '整数' : '数値'}で指定` };
     }
-    if (codes.some((c) => c.code === code)) return { error: `候補値「${raw}」が重複しています` };
+    if (codes.some((c) => c.code === code)) return { error: `候補値「${raw}」が重複` };
     codes.push({ code, name });
   }
   return codes;
@@ -165,27 +165,27 @@ export function designFields(design: LayerDesign): { fields: Field[]; defaults: 
   const fields: Field[] = [];
   const defaults: Record<string, unknown> = {};
   const seen = new Set<string>();
-  if (!design.title.trim()) errors.push('レイヤーの名前を入れてください');
+  if (!design.title.trim()) errors.push('レイヤーの名前を入力');
   for (const [i, d] of design.fields.entries()) {
     const name = d.name.trim();
     const label = name ? `属性「${name}」` : `${i + 1} 番目の属性`;
     if (!name) {
-      errors.push(`${label}の名前を入れてください`);
+      errors.push(`${label}の名前を入力`);
       continue;
     }
-    if ([...name].some((c) => c.charCodeAt(0) < 0x20 || c === '"')) errors.push(`${label}の名前に使えない文字があります`);
-    if (reserved.has(name.toLowerCase())) errors.push(`${label}は書き出しで使う名前なので、別の名前にしてください`);
-    if (seen.has(name.toLowerCase())) errors.push(`${label}が重複しています（大文字・小文字は区別しません）`);
+    if ([...name].some((c) => c.charCodeAt(0) < 0x20 || c === '"')) errors.push(`${label}の名前に使用不可の文字あり`);
+    if (reserved.has(name.toLowerCase())) errors.push(`${label}は書き出しで使う名前なので、別の名前で指定`);
+    if (seen.has(name.toLowerCase())) errors.push(`${label}が重複（大文字・小文字の区別なし）`);
     seen.add(name.toLowerCase());
     const field: Field = { name, alias: d.alias?.trim() || name, type: d.type, editable: true, nullable: !d.required };
     if (d.type === 'string' && d.length != null) {
-      if (!Number.isInteger(d.length) || d.length < 1) errors.push(`${label}の文字数の上限は 1 以上の整数にしてください`);
+      if (!Number.isInteger(d.length) || d.length < 1) errors.push(`${label}の文字数の上限は 1 以上の整数で指定`);
       else field.length = d.length;
     }
     if ((d.type === 'integer' || d.type === 'double') && (d.min != null || d.max != null)) {
       const min = d.min ?? -Infinity;
       const max = d.max ?? Infinity;
-      if (Number.isNaN(min) || Number.isNaN(max) || min > max) errors.push(`${label}の範囲は 最小 ≦ 最大 にしてください`);
+      if (Number.isNaN(min) || Number.isNaN(max) || min > max) errors.push(`${label}の範囲は 最小 ≦ 最大 で指定`);
       else field.range = [min, max];
     }
     if (d.codes?.trim() && d.type !== 'date') {
@@ -196,7 +196,7 @@ export function designFields(design: LayerDesign): { fields: Field[]; defaults: 
     if (d.defaultValue?.trim()) {
       const value = parseValue(field, d.defaultValue);
       if (value !== null && typeof value === 'object') errors.push(`既定値: ${value.error}`);
-      else if (field.codes && !field.codes.some((c) => c.code === value)) errors.push(`${label}の既定値は候補値から選んでください`);
+      else if (field.codes && !field.codes.some((c) => c.code === value)) errors.push(`${label}の既定値は候補値から選択`);
       else defaults[name] = value;
     }
     fields.push(field);
@@ -261,7 +261,7 @@ export function tempLayer(record: TempRecord, store: TempStore): ServiceLayer {
     savedTo: 'ブラウザ',
     async save() {
       await save();
-      return { note: 'ブラウザに保存しました' };
+      return { note: 'ブラウザに保存' };
     },
   };
   return {
@@ -277,7 +277,7 @@ export function tempLayer(record: TempRecord, store: TempStore): ServiceLayer {
     editTarget,
     fileCrs: record.crs,
     exportCrs: record.crs,
-    closeWarning: `一時レイヤー「${record.title}」を閉じると、ブラウザに保存した内容も消えます。閉じますか？`,
+    closeWarning: `一時レイヤー「${record.title}」を閉じると、ブラウザに保存した内容も削除。閉じますか？`,
     extent: extent && !isEmpty(extent) ? extent : null,
     info: [
       ['種類', '一時レイヤー（ブラウザに保存）'],

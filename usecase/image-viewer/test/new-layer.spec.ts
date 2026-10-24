@@ -38,7 +38,7 @@ test('a designed layer opens empty, is drawn on at once with its defaults, and i
   await second.getByLabel('型').selectOption({ label: '整数' });
   await d.getByRole('button', { name: '作成' }).click();
   // A duplicate name keeps the dialog open and says why.
-  await expect(d.locator('.new-layer-note')).toContainText('属性「name」が重複しています');
+  await expect(d.locator('.new-layer-note')).toContainText('属性「name」が重複');
   await second.getByLabel('属性名').fill('kind');
   await second.getByRole('button', { name: '詳細' }).click();
   await second.getByLabel('候補値').fill('1=住宅, 2=店舗');
@@ -58,10 +58,10 @@ test('a designed layer opens empty, is drawn on at once with its defaults, and i
   await rows(page).first().getByRole('textbox', { name: 'name' }).fill('A 地点');
   await rows(page).first().getByRole('textbox', { name: 'name' }).press('Enter');
   await page.locator('button[data-tool=save]').click();
-  await expect(page.locator('#status')).toContainText('ブラウザに保存しました');
+  await expect(page.locator('#status')).toContainText('ブラウザに保存');
 
   await open(page);
-  await expect(page.locator('#status')).toContainText('復元しました');
+  await expect(page.locator('#status')).toContainText('復元');
   await page.locator('#images li').first().click();
   await expect(page.locator('#info')).toContainText('ポイント');
   await expect(rows(page)).toHaveCount(1);
@@ -94,8 +94,8 @@ test('attributes and geometry type are copied from an open layer; "any" lets the
   await expect(d.getByLabel('属性名').nth(0)).toHaveValue('road');
   await expect(d.getByLabel('型').nth(1)).toHaveValue('double');
   await expect(d.getByLabel('ジオメトリ')).toHaveValue('LineString');
-  await d.getByLabel('ジオメトリ').selectOption({ label: '指定しない（描くたびに選ぶ）' });
-  await d.getByText('作成したらすぐ地図に描き始める').click();
+  await d.getByLabel('ジオメトリ').selectOption({ label: '指定なし（作図ごとに選択）' });
+  await d.getByText('作成後すぐ地図に作図開始').click();
   await d.getByRole('button', { name: '作成' }).click();
   await expect(d).toBeHidden();
   await expect(page.getByRole('toolbar', { name: '編集' })).toBeVisible();

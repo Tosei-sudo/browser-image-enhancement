@@ -41,7 +41,7 @@ export async function withExternalOverviews(
   const le = main.le;
   if (main.ifds.slice(1).some((ifd) => !((numberOf(ifd, 254, le) ?? 0) & 4))) return null;
   const over = await readTiff(ovr, Infinity);
-  if (over.le !== le) throw new Error('バイト順が画像と違います');
+  if (over.le !== le) throw new Error('バイト順が画像と不一致');
   const image = main.ifds[0];
   const width = numberOf(image, 256, le)!;
   const height = numberOf(image, 257, le)!;
@@ -49,16 +49,16 @@ export async function withExternalOverviews(
   const bits = numberOf(image, 258, le);
   // Masks (of a mask band) are left out; GDAL keeps those in a .msk file anyway.
   const levels = over.ifds.filter((ifd) => !((numberOf(ifd, 254, le) ?? 0) & 4));
-  if (!levels.length) throw new Error('縮小画像がありません');
+  if (!levels.length) throw new Error('縮小画像なし');
   let previous = width;
   for (const level of levels) {
     const w = numberOf(level, 256, le)!;
     const h = numberOf(level, 257, le)!;
-    if ((numberOf(level, 277, le) ?? 1) !== bands) throw new Error(`バンド数が画像（${bands}）と違います`);
-    if (numberOf(level, 258, le) !== bits) throw new Error(`ビット深度が画像（${bits}）と違います`);
+    if ((numberOf(level, 277, le) ?? 1) !== bands) throw new Error(`バンド数が画像（${bands}）と不一致`);
+    if (numberOf(level, 258, le) !== bits) throw new Error(`ビット深度が画像（${bits}）と不一致`);
     // Each level is smaller, with the image's shape (to a pixel or two of rounding, or 2 %).
     if (!(w < previous) || Math.abs((w * height) / width - h) > Math.max(2, h * 0.02)) {
-      throw new Error(`${w}×${h} の縮小画像が ${width}×${height} の画像に合いません`);
+      throw new Error(`${w}×${h} の縮小画像が ${width}×${height} の画像と不一致`);
     }
     previous = w;
   }
@@ -67,7 +67,7 @@ export async function withExternalOverviews(
   const big = main.big || over.big || file.size + ovr.size + 64 * 1024 * 1024 > 0xffffffff;
   const headerLength = big ? 16 : 8;
   // A BigTIFF header is longer than a TIFF's: what it covers must not be pixels.
-  if (!main.big && big && dataOffsets(image, le).some((o) => o < headerLength)) throw new Error('画像の先頭に画素があり、BigTIFF にできません');
+  if (!main.big && big && dataOffsets(image, le).some((o) => o < headerLength)) throw new Error('画像の先頭に画素があり、BigTIFF 化不可');
 
   const ovrAt = file.size + (file.size & 1);
   const replaced = new Set(replace.map((e) => e.tag));
@@ -127,7 +127,7 @@ async function readTiff(file: Blob, max: number): Promise<{ le: boolean; big: bo
   const read = async (from: number, length: number) => new Uint8Array(await file.slice(from, from + length).arrayBuffer());
   const head = new DataView((await read(0, 16)).buffer);
   const order = head.byteLength >= 4 ? head.getUint16(0) : 0;
-  if (order !== 0x4949 && order !== 0x4d4d) throw new Error('TIFF ではありません');
+  if (order !== 0x4949 && order !== 0x4d4d) throw new Error('TIFF 以外');
   const le = order === 0x4949;
   const big = head.getUint16(2, le) === 43;
   const pointerSize = big ? 8 : 4;
@@ -159,7 +159,7 @@ async function readTiff(file: Blob, max: number): Promise<{ le: boolean; big: bo
     const p = count * entrySize;
     next = big ? Number(view.getBigUint64(p, le)) : view.getUint32(p, le);
   }
-  if (!ifds.length) throw new Error('画像がありません');
+  if (!ifds.length) throw new Error('画像なし');
   return { le, big, ifds };
 }
 
@@ -230,7 +230,7 @@ function writeDirectories(directories: TiffEntry[][], at: number, le: boolean, b
     end += countSize + d.length * entrySize + pointerSize + outOfLine(d);
     end += end & 1;
   }
-  if (!big && end > 0xffffffff) throw new RangeError('4 GB を超えるため TIFF にできません');
+  if (!big && end > 0xffffffff) throw new RangeError('4 GB を超えるため TIFF 化不可');
   const bytes = new Uint8Array(end - at);
   const view = new DataView(bytes.buffer);
   const pointer = (p: number, value: number) => (big ? view.setBigUint64(p - at, BigInt(value), le) : view.setUint32(p - at, value, le));

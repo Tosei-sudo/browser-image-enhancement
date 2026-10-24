@@ -34,33 +34,33 @@
           <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="project-panel">プロジェクト</button>
           <div id="project-panel" class="menu-panel" role="group" aria-label="プロジェクト" hidden>
             <div class="point-tools project-tools">
-              <button type="button" id="project-open" title="保存したプロジェクト（.ivproj）を開きます">開く…</button>
-              <button type="button" id="project-save" aria-keyshortcuts="Control+S" title="開いているレイヤー・スタイル・補正・表示範囲を保存します（Ctrl+S）">保存</button>
-              <button type="button" id="project-save-as" aria-keyshortcuts="Control+Shift+S" title="別のファイルに保存します（Ctrl+Shift+S）">名前を付けて保存…</button>
+              <button type="button" id="project-open" title="保存済みプロジェクト（.ivproj）を開く">開く…</button>
+              <button type="button" id="project-save" aria-keyshortcuts="Control+S" title="開いているレイヤー・スタイル・補正・表示範囲の保存（Ctrl+S）">保存</button>
+              <button type="button" id="project-save-as" aria-keyshortcuts="Control+Shift+S" title="別ファイルへの保存（Ctrl+Shift+S）">名前を付けて保存…</button>
               <!-- ArcGIS Web Maps: src/webmap-dialog.ts. -->
-              <button type="button" id="webmap-open" title="ArcGIS Online・Enterprise の Web マップ（アイテム URL・ID・JSON ファイル）のレイヤーを開きます">ArcGIS Web マップを開く…</button>
-              <button type="button" id="webmap-save" title="開いているサービスのレイヤー・表示範囲・背景地図・スタイルを Web マップ（JSON・ポータル）に保存します">ArcGIS Web マップとして保存…</button>
+              <button type="button" id="webmap-open" title="ArcGIS Online・Enterprise の Web マップ（アイテム URL・ID・JSON ファイル）のレイヤーを開く">ArcGIS Web マップを開く…</button>
+              <button type="button" id="webmap-save" title="開いているサービスのレイヤー・表示範囲・背景地図・スタイルを Web マップ（JSON・ポータル）に保存">ArcGIS Web マップとして保存…</button>
               <!-- QGIS projects (.qgs, .qgz) in and out: src/qgis-project.ts. -->
-              <button type="button" id="project-qgis-open" title="QGIS のプロジェクト（.qgs・.qgz）のレイヤー・スタイル・表示範囲を開きます">QGIS プロジェクトを読み込む…</button>
-              <button type="button" id="project-qgis-export" title="開いているレイヤーとスタイル・表示範囲を QGIS のプロジェクト（.qgs）に書き出します">QGIS 形式で書き出す</button>
+              <button type="button" id="project-qgis-open" title="QGIS のプロジェクト（.qgs・.qgz）のレイヤー・スタイル・表示範囲の読み込み">QGIS プロジェクト読み込み…</button>
+              <button type="button" id="project-qgis-export" title="開いているレイヤーとスタイル・表示範囲を QGIS のプロジェクト（.qgs）に書き出し">QGIS 形式で書き出し</button>
             </div>
           </div>
         </div>
         <button type="button" id="add-service" class="bar-button">サービスを追加</button>
         <!-- Shown when config.json lists image catalogs: src/catalog-panel.ts. -->
-        <button type="button" id="catalog-open" class="bar-button" title="画像カタログから撮像日・センサー・角度で画像を探して開きます" hidden>画像カタログ</button>
+        <button type="button" id="catalog-open" class="bar-button" title="画像カタログから撮像日・センサー・角度で画像を検索して表示" hidden>画像カタログ</button>
         <!-- New images matching saved conditions (badge + notification centre): src/watch-panel.ts, src/catalog-watch.ts. -->
         <button type="button" id="watch-open" class="bar-button watch-button" hidden>通知</button>
         <div id="basemap"></div>
         <!-- The 3D view (CesiumJS, loaded on first use): src/globe-panel.ts, src/globe.ts. -->
-        <button type="button" id="globe-toggle" class="bar-button" aria-pressed="false" data-key="3" aria-keyshortcuts="3" title="立体（3D）表示に切り替えます（3）">3D</button>
+        <button type="button" id="globe-toggle" class="bar-button" aria-pressed="false" data-key="3" aria-keyshortcuts="3" title="立体（3D）表示への切り替え（3）">3D</button>
         <form id="jump" class="jump" role="search">
           <input type="text" name="coordinate" placeholder="緯度経度・MGRS・UTM" aria-label="座標へ移動" autocomplete="off" />
           <button type="submit" class="bar-button">移動</button>
         </form>
         <!-- Named views and the link of the view: src/bookmarks.ts. -->
         <div class="menu bookmark-menu" id="bookmark-menu">
-          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="bookmark-panel" title="表示範囲に名前を付けて残す・リンクで共有">ブックマーク</button>
+          <button type="button" class="bar-button menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="bookmark-panel" title="表示範囲に名前を付けて保存・リンクで共有">ブックマーク</button>
           <div id="bookmark-panel" class="menu-panel" role="group" aria-label="ブックマーク" hidden></div>
         </div>
         <!-- ArcGIS sign-in, when config.json lists portals: src/auth-menu.ts. -->
@@ -76,9 +76,9 @@
               <section class="menu-group">
                 <p class="menu-heading">計測</p>
                 <div class="measure-tools" role="group" aria-label="計測">
-                  <button type="button" id="measure-distance" aria-pressed="false" data-key="D" aria-keyshortcuts="D" title="測地線（WGS 84 楕円体）で距離を測ります">距離を測る</button>
-                  <button type="button" id="measure-area" aria-pressed="false" data-key="A" aria-keyshortcuts="A" title="WGS 84 楕円体上の面積を測ります">面積を測る</button>
-                  <button type="button" id="shadow-height" aria-pressed="false" data-key="H" aria-keyshortcuts="H" title="根元と影の先端をクリックすると、影の長さと太陽高度から高さを求めます">影から高さ</button>
+                  <button type="button" id="measure-distance" aria-pressed="false" data-key="D" aria-keyshortcuts="D" title="測地線（WGS 84 楕円体）による距離計測">距離計測</button>
+                  <button type="button" id="measure-area" aria-pressed="false" data-key="A" aria-keyshortcuts="A" title="WGS 84 楕円体上の面積計測">面積計測</button>
+                  <button type="button" id="shadow-height" aria-pressed="false" data-key="H" aria-keyshortcuts="H" title="根元と影の先端のクリックで、影の長さと太陽高度から高さを算出">影から高さ</button>
                   <button type="button" id="measure-clear">計測を消去</button>
                 </div>
               </section>
@@ -93,10 +93,10 @@
                 <p class="menu-heading">作図</p>
                 <div class="point-tools">
                   <!-- Arrows, lines, boxes and text on the map: src/annotations.ts. -->
-                  <button type="button" id="annotate" aria-pressed="false" data-key="N" aria-keyshortcuts="N" title="地図に矢印・線・四角・文字を描きます（N）">注記を描く</button>
-                  <button type="button" id="new-layer" title="ジオメトリ（ポイント・ライン・ポリゴン）と属性（名前と型）を決めて、空の一時レイヤーを作ります。作るとすぐ描けます">新規レイヤー…</button>
+                  <button type="button" id="annotate" aria-pressed="false" data-key="N" aria-keyshortcuts="N" title="地図に矢印・線・四角・文字を作図（N）">注記作図</button>
+                  <button type="button" id="new-layer" title="ジオメトリ（ポイント・ライン・ポリゴン）と属性（名前と型）を指定して空の一時レイヤーを作成。作成後すぐ作図可">新規レイヤー…</button>
                   <!-- Squares, hexagons or triangles over an area: src/tessellate-dialog.ts. -->
-                  <button type="button" id="tessellate-open" title="描いた範囲・レイヤーの地物・表示範囲に、正方形・六角形・三角形の格子を任意の大きさで敷き詰めます（測地線または任意の座標系）">格子を敷き詰める…</button>
+                  <button type="button" id="tessellate-open" title="作図範囲・レイヤーの地物・表示範囲に、正方形・六角形・三角形の格子を任意の大きさで敷き詰め（測地線または任意の座標系）">格子の敷き詰め…</button>
                 </div>
               </section>
             </div>
@@ -105,17 +105,17 @@
                 <p class="menu-heading">解析</p>
                 <div class="point-tools">
                   <button type="button" id="processing" title="バッファ・ポイント→ライン・重心・ボロノイ・ティーセン・投影変換・バンド演算・パンシャープンなど">プロセッシング</button>
-                  <button type="button" id="gp-open" title="ArcGIS の GP サービス（GPServer）や OGC API – Processes の処理をサーバーで実行し、結果をレイヤーとして開きます">サーバ処理…</button>
+                  <button type="button" id="gp-open" title="ArcGIS の GP サービス（GPServer）や OGC API – Processes の処理をサーバーで実行し、結果をレイヤーとして表示">サーバ処理…</button>
                   <!-- Analysis and editing written in JavaScript, run apart from the page: src/script-dialog.ts. -->
-                  <button type="button" id="script-open" title="JavaScript で解析・編集・撮像計画・書き出しを書いて実行します（ページから切り離された環境で動きます）">スクリプト…</button>
+                  <button type="button" id="script-open" title="JavaScript による解析・編集・撮像計画・書き出しの実行（ページから切り離された環境で動作）">スクリプト…</button>
                 </div>
               </section>
               <section class="menu-group">
                 <p class="menu-heading">AI</p>
                 <div class="point-tools">
-                  <button type="button" id="ai-detect" title="学習済みの YOLO モデル（ONNX）で、表示中の画像から物体を探してレイヤーにします">物体検出…</button>
-                  <button type="button" id="ai-segment" aria-pressed="false" title="Segment Anything（ONNX）で、クリックした物体の輪郭を取ります">クリックで抽出</button>
-                  <button type="button" id="ai-transfer" title="検出結果（人が直したものも）を Esri フィーチャーサービスへ転記します" hidden>DB へ転記…</button>
+                  <button type="button" id="ai-detect" title="学習済みの YOLO モデル（ONNX）で、表示中の画像の物体を検出してレイヤー化">物体検出…</button>
+                  <button type="button" id="ai-segment" aria-pressed="false" title="Segment Anything（ONNX）による、クリックした物体の輪郭抽出">クリック抽出</button>
+                  <button type="button" id="ai-transfer" title="検出結果（人の修正分も含む）を Esri フィーチャーサービスへ転記" hidden>DB へ転記…</button>
                 </div>
               </section>
               <!-- What is seen in each image (time, place, thing, activity) and each thing's flow: src/observation-panel.ts. -->
@@ -128,8 +128,8 @@
               <section class="menu-group">
                 <p class="menu-heading">時間・集計</p>
                 <div class="point-tools">
-                  <button type="button" id="timeline-open" aria-pressed="false" data-key="T" aria-keyshortcuts="T" title="時間を持つレイヤーを時間軸に並べ、期間で絞り込みます（T）">タイムライン</button>
-                  <button type="button" id="dashboard-open" aria-pressed="false" data-key="B" aria-keyshortcuts="B" title="件数・属性別の集計・数値の分布・時間の推移・ヒートマップ。グラフをクリックすると地図とテーブルを絞り込みます（B）">ダッシュボード</button>
+                  <button type="button" id="timeline-open" aria-pressed="false" data-key="T" aria-keyshortcuts="T" title="時間を持つレイヤーを時間軸に並べ、期間で絞り込み（T）">タイムライン</button>
+                  <button type="button" id="dashboard-open" aria-pressed="false" data-key="B" aria-keyshortcuts="B" title="件数・属性別の集計・数値の分布・時間の推移・ヒートマップ。グラフのクリックで地図とテーブルを絞り込み（B）">ダッシュボード</button>
                 </div>
               </section>
             </div>
@@ -138,26 +138,26 @@
                 <p class="menu-heading">計画</p>
                 <div class="point-tools">
                   <!-- Satellite passes over a layer's features: src/imaging-plan-panel.ts. -->
-                  <button type="button" id="plan-open" title="衛星カタログの軌道（TLE）と諸元から、レイヤーの地物を次にいつ撮像できるかを計算します">撮像計画</button>
+                  <button type="button" id="plan-open" title="衛星カタログの軌道（TLE）と諸元から、レイヤーの地物の次回撮像可能時刻を計算">撮像計画</button>
                   <!-- Chosen satellites' ground tracks and reach at a moment or over a period: src/satellite-track-panel.ts. -->
-                  <button type="button" id="track-open" title="選んだ衛星（複数可）の、ある時点または期間の地上軌跡と撮像可能範囲を地図と 3D に表示します">衛星パス</button>
+                  <button type="button" id="track-open" title="選択した衛星（複数可）の、ある時点または期間の地上軌跡と撮像可能範囲を地図と 3D に表示">衛星パス</button>
                   <!-- Moving targets from any layer of position reports: src/moving-target-dialog.ts. -->
-                  <button type="button" id="moving-target-open" title="航跡・位置報告のレイヤー（AIS 以外も。属性を対応づけ）から、目標の先の位置を誤差の円（存在予測）で示し、その撮像計画を立てます">移動目標撮像計画…</button>
+                  <button type="button" id="moving-target-open" title="航跡・位置報告のレイヤー（AIS 以外も可。属性の対応づけ）から、目標の将来位置を誤差の円（存在予測）で表示し、その撮像計画を作成">移動目標撮像計画…</button>
                 </div>
               </section>
               <!-- Ships (AIS) and aircraft (ADS-B): src/moving-dialog.ts, src/moving-match-dialog.ts. -->
               <section class="menu-group">
                 <p class="menu-heading">移動体</p>
                 <div class="point-tools">
-                  <button type="button" id="moving-open" title="AIS・ADS-B などのフィード（WebSocket・SSE・ポーリング・ArcGIS Stream Service）や履歴ファイルを、向きのある記号と航跡で表示します">移動体（AIS・ADS-B）…</button>
-                  <button type="button" id="moving-match" title="AI の検出結果を撮影時刻の移動体の位置と照らし合わせ、一致しない検出を赤で示します">AI 検出と照合…</button>
+                  <button type="button" id="moving-open" title="AIS・ADS-B などのフィード（WebSocket・SSE・ポーリング・ArcGIS Stream Service）や履歴ファイルを、向き付きの記号と航跡で表示">移動体（AIS・ADS-B）…</button>
+                  <button type="button" id="moving-match" title="AI の検出結果と撮影時刻の移動体の位置の照合。不一致の検出を赤で表示">AI 検出と照合…</button>
                 </div>
               </section>
               <section class="menu-group">
                 <p class="menu-heading">データ検索</p>
                 <div class="point-tools">
                   <!-- Scenes of STAC APIs and static catalogs (config.json's stacCatalogs; [] hides it): src/stac-panel.ts. -->
-                  <button type="button" id="stac-open" title="STAC（Earth Search など）から範囲・撮像日・雲量でシーンを探して、COG で開きます">STAC 検索…</button>
+                  <button type="button" id="stac-open" title="STAC（Earth Search など）から範囲・撮像日・雲量でシーンを検索し、COG で表示">STAC 検索…</button>
                 </div>
               </section>
             </div>
@@ -165,42 +165,42 @@
               <section class="menu-group">
                 <p class="menu-heading">保存・印刷</p>
                 <div class="point-tools">
-                  <button type="button" id="save-view" title="表示範囲を PNG・GeoTIFF で保存します">表示範囲を保存</button>
+                  <button type="button" id="save-view" title="表示範囲の PNG・GeoTIFF 保存">表示範囲を保存</button>
                   <!-- A sheet with a title, scale bar, north arrow and legend: src/print-layout.ts. -->
-                  <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例を付けて A4・A3 の PDF・PNG に保存します">印刷レイアウト…</button>
+                  <button type="button" id="print" title="タイトル・縮尺バー・方位記号・凡例付きで A4・A3 の PDF・PNG に保存">印刷レイアウト…</button>
                   <!-- Processing results kept in the browser, to open, save as COG / GeoTIFF or delete: src/results-dialog.ts. -->
-                  <button type="button" id="results-open" title="プロセッシングで作った画像（ブラウザ内に保存され、再読み込みしても残ります）を開く・COG や GeoTIFF で保存する・削除します">処理結果…</button>
+                  <button type="button" id="results-open" title="プロセッシングで作成した画像（ブラウザ内に保存、再読み込み後も保持）の表示・COG や GeoTIFF での保存・削除">処理結果…</button>
                   <!-- Downloads, or a folder written into directly (Chrome, Edge): src/save-folder.ts. -->
-                  <button type="button" id="save-folder" title="処理結果の GeoTIFF・表示範囲・印刷の保存先を、ダウンロードかフォルダ（直接書き込み）から選びます" hidden>保存先…</button>
+                  <button type="button" id="save-folder" title="処理結果の GeoTIFF・表示範囲・印刷の保存先の選択（ダウンロードまたはフォルダへの直接書き込み）" hidden>保存先…</button>
                 </div>
               </section>
               <!-- Pasting shapes and pictures, copying the view, the share sheet: src/clipboard.ts. -->
               <section class="menu-group">
                 <p class="menu-heading">クリップボード・共有</p>
                 <div class="point-tools">
-                  <button type="button" id="clip-paste" aria-keyshortcuts="Control+V" title="クリップボードの GeoJSON・WKT・KML・座標・緯度経度の表（Excel）を一時レイヤー「貼り付け」に、画像を位置情報なしの画像として開きます（地図の上で Ctrl+V）">クリップボードから貼り付け</button>
-                  <button type="button" id="clip-copy-view" title="表示範囲を PNG 画像としてクリップボードにコピーします">表示範囲の画像をコピー</button>
-                  <button type="button" id="clip-share" title="今の表示のリンク（と表示範囲の画像）を他のアプリに共有します" hidden>共有…</button>
+                  <button type="button" id="clip-paste" aria-keyshortcuts="Control+V" title="クリップボードの GeoJSON・WKT・KML・座標・緯度経度の表（Excel）は一時レイヤー「貼り付け」に、画像は位置情報なしの画像として表示（地図上で Ctrl+V）">クリップボードから貼り付け</button>
+                  <button type="button" id="clip-copy-view" title="表示範囲を PNG 画像としてクリップボードにコピー">表示範囲の画像をコピー</button>
+                  <button type="button" id="clip-share" title="現在の表示のリンク（と表示範囲の画像）を他のアプリに共有" hidden>共有…</button>
                 </div>
               </section>
               <!-- Light, dark or the system's setting: src/theme.ts. -->
               <section class="menu-group">
                 <p class="menu-heading">表示</p>
                 <div class="point-tools theme-choices" id="theme-choices" role="radiogroup" aria-label="表示">
-                  <button type="button" role="radio" data-keep-open data-theme-choice="auto" aria-checked="true" title="システムの設定に合わせます">自動</button>
+                  <button type="button" role="radio" data-keep-open data-theme-choice="auto" aria-checked="true" title="システムの設定に連動">自動</button>
                   <button type="button" role="radio" data-keep-open data-theme-choice="light" aria-checked="false">ライト</button>
                   <button type="button" role="radio" data-keep-open data-theme-choice="dark" aria-checked="false">ダーク</button>
                 </div>
                 <!-- The panels' places and sizes back as they first were: src/dock.ts. -->
                 <div class="point-tools">
-                  <button type="button" id="layout-reset" title="左・右・下に置いたパネルや浮かせたパネル、その大きさを最初の配置に戻します">レイアウトを元に戻す</button>
+                  <button type="button" id="layout-reset" title="左・右・下に配置したパネルやフローティングのパネル、その大きさを初期配置に復元">レイアウトの初期化</button>
                 </div>
               </section>
             </div>
           </div>
         </div>
         <!-- Every tool by name (Ctrl+K): src/command-palette.ts. -->
-        <button type="button" id="palette-open" class="bar-button palette-button" aria-keyshortcuts="Control+K" title="機能を名前で探して実行します（Ctrl+K）" aria-label="機能を検索">⌕</button>
+        <button type="button" id="palette-open" class="bar-button palette-button" aria-keyshortcuts="Control+K" title="機能を名前で検索して実行（Ctrl+K）" aria-label="機能を検索">⌕</button>
         <button type="button" id="help" class="bar-button help-button" aria-keyshortcuts="Shift+?" title="使い方とショートカット（?）">?</button>
       </header>
       <aside class="side">
@@ -208,7 +208,7 @@
           <h2 id="images-title">レイヤー</h2>
           <ol id="images" class="images"></ol>
           <p id="empty" class="empty">
-            左上のボタンでローカルの画像・GeoTIFF・Shapefile・GeoJSON・GeoPackage・KML・GPX・FlatGeobuf・CSV を選ぶか、COG や Esri イメージサービス（ImageServer）の URL を入力してください。表示エリアへのドラッグ＆ドロップでも開けます。「サービスを追加」で WMS・WMTS・WFS・Esri（フィーチャー・マップ・イメージサービス）のレイヤーも重ねられます。
+            レイヤーなし。左上のボタンでローカルの画像・GeoTIFF・Shapefile・GeoJSON・GeoPackage・KML・GPX・FlatGeobuf・CSV を選択、または COG や Esri イメージサービス（ImageServer）の URL を入力。表示エリアへのドラッグ＆ドロップにも対応。「サービスを追加」で WMS・WMTS・WFS・Esri（フィーチャー・マップ・イメージサービス）のレイヤーの重ね合わせも可能。
           </p>
         </section>
         <details class="fold" data-fold="globe" id="globe-section" open hidden>
@@ -228,15 +228,15 @@
           <dl id="info" class="info"></dl>
           <button id="metadata-open" type="button" class="metadata-open" hidden>メタデータを表示…</button>
           <div class="analysis-tools" role="group" aria-label="比較・分析">
-            <button id="swipe" type="button" aria-pressed="false" title="選択中のレイヤーを線の片側だけに表示し、下のレイヤーと見比べます">スワイプ比較</button>
-            <button id="split" type="button" aria-pressed="false" title="地図を2つ（または4つ）に分けて別のレイヤーを並べ、移動と拡大を連動させます（C）">並べて比較</button>
+            <button id="swipe" type="button" aria-pressed="false" title="選択中のレイヤーを線の片側のみに表示し、下のレイヤーと比較">スワイプ比較</button>
+            <button id="split" type="button" aria-pressed="false" title="地図を2つ（または4つ）に分割して別のレイヤーを並べ、移動と拡大を連動（C）">並べて比較</button>
             <span id="split-counts" class="split-counts" role="radiogroup" aria-label="画面の数" hidden>
               <button type="button" role="radio" data-count="2" aria-checked="true">2画面</button>
               <button type="button" role="radio" data-count="4" aria-checked="false">4画面</button>
             </span>
             <button id="histogram-open" type="button" aria-pressed="false" title="選択中の画像の、表示範囲のヒストグラム">ヒストグラム</button>
             <!-- Every band's value at clicked points or over a dragged box: src/spectral.ts. -->
-            <button id="spectral-open" type="button" aria-pressed="false" title="地図をクリックした点（またはドラッグした範囲）の、全バンドの値をグラフにします">スペクトル</button>
+            <button id="spectral-open" type="button" aria-pressed="false" title="地図のクリック地点（またはドラッグ範囲）の全バンドの値のグラフ表示">スペクトル</button>
           </div>
           <div id="histogram"></div>
           <div id="spectral"></div>

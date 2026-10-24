@@ -98,7 +98,7 @@ test('display rules: a condition, the stacking order and a raster function', asy
   await dialog.getByText('詳細').click();
   await dialog.getByRole('textbox', { name: 'レンダリングルール' }).fill('{not json');
   await dialog.getByRole('button', { name: '適用' }).click();
-  await expect(dialog.locator('.raster-status')).toHaveText('レンダリングルールが JSON として読めません');
+  await expect(dialog.locator('.raster-status')).toHaveText('レンダリングルールが JSON として読み込み不可');
   await dialog.getByRole('button', { name: 'キャンセル' }).click();
   await expect(dialog).toBeHidden();
 });
@@ -137,7 +137,7 @@ test('config.json rules: one applies on open, and others can be chosen', async (
   await page.locator('#images li', { hasText: 'Scenes' }).getByRole('button', { name: /表示ルール/ }).click();
   await dialog.getByRole('textbox', { name: '条件', exact: true }).fill("Sensor = 'WV2'");
   await expect(rule).toHaveValue('');
-  await dialog.getByRole('button', { name: '既定に戻す' }).click();
+  await dialog.getByRole('button', { name: '既定に復元' }).click();
   await expect(rule).toHaveValue('\u0000default');
   await expect(dialog.getByRole('textbox', { name: '条件', exact: true })).toHaveValue('');
 });
@@ -149,7 +149,7 @@ test('a click identifies the pixel and the images under it, and the view comes i
   await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(page.locator('#status')).toHaveText('3 件の地物があります');
+  await expect(page.locator('#status')).toHaveText('地物 3 件');
   const rows = page.locator('.attributes tbody tr[data-index]');
   await expect(rows).toHaveCount(3);
   await expect(rows.first()).toContainText('表示中');
@@ -171,7 +171,7 @@ test('a map service: its map as a picture, the layers drawn and a condition on e
   await page.getByRole('button', { name: 'サービスを追加' }).click();
   const add = page.getByRole('dialog', { name: 'サービスを追加' });
   await add.getByRole('textbox', { name: 'サービスの URL' }).fill(mapService);
-  await add.getByRole('button', { name: '読み込む' }).click();
+  await add.getByRole('button', { name: '読み込み' }).click();
   await expect(add.locator('.service-layer')).toHaveCount(3);
   await expect(add.locator('.service-layer .title').first()).toHaveText('Base（地図画像）');
   await add.locator('.service-layer input[type=checkbox]').first().check();
@@ -201,7 +201,7 @@ test('a map service: its map as a picture, the layers drawn and a condition on e
   await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(page.locator('#status')).toHaveText('1 件の地物があります');
+  await expect(page.locator('#status')).toHaveText('地物 1 件');
   const identify = (await requests(page, 'identify')).at(-1)!;
   expect(identify.layers).toBe('visible:1');
   await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('中央通り');

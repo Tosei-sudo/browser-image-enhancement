@@ -125,7 +125,7 @@ export function layoutOf(output: Output, spec: DetectorSpec): { format: Exclude<
   const known = spec.classes.length;
   /** Values per candidate of a format, with the class names known. */
   const valuesOf = (format: 'yolov8' | 'yolov5') => 4 + extra + known + (format === 'yolov5' ? 1 : 0);
-  if (spec.format === 'detectron2') throw new Error('Detectron2 の出力は decodeDetectron2 で読みます');
+  if (spec.format === 'detectron2') throw new Error('Detectron2 の出力は decodeDetectron2 で読み込み');
   let format = spec.format;
   if (format === 'auto') {
     // End-to-end exports (NMS inside, YOLOv10, YOLO26): [1, ≤ 1000, 6] (7 with an angle, 38 with mask coefficients).
@@ -238,7 +238,7 @@ export function decodeDetectron2(boxes: Output, scores: Output, classes: Output,
  */
 export function yoloxGrid(size: readonly [number, number], strides: readonly number[], count: number): Float32Array {
   const cells = strides.reduce((n, s) => n + Math.floor(size[0] / s) * Math.floor(size[1] / s), 0);
-  if (cells !== count) throw new Error(`YOLOX の出力 ${count} 個が入力 ${size[0]}×${size[1]}・ストライド ${strides.join('/')} の格子（${cells} 個）と合いません`);
+  if (cells !== count) throw new Error(`YOLOX の出力 ${count} 個が入力 ${size[0]}×${size[1]}・ストライド ${strides.join('/')} の格子（${cells} 個）と不一致`);
   const out = new Float32Array(3 * count);
   let i = 0;
   for (const s of strides) {

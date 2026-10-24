@@ -115,7 +115,7 @@ describe('names, CSV and config', () => {
     expect(store.fields.id).toBe('OBS_ID');
     expect(store.softDelete).toBe(false);
     expect(store.activities).toEqual(['入港']);
-    expect(problems).toEqual(['observationStores[0] の fields.bogus は使えない役割です']);
+    expect(problems).toEqual(['observationStores[0] の fields.bogus は使用不可の役割']);
     expect(observationStoreOf({ url: 'https://x/MapServer/2' }, problems, 1)).toBeNull();
     expect(vocabularyOf({ kinds: ['艦艇'] }, problems).kinds).toEqual(['艦艇']);
   });
@@ -191,6 +191,6 @@ describe('EsriObservationStore', () => {
   it('says which required field is missing', async () => {
     const layer = fakeLayer(['OBS_ID']);
     const store = new EsriObservationStore(observationStoreOf({ label: '観測', url: 'https://x/FeatureServer/0' }, [], 0)!, layer.ask);
-    await expect(store.load()).rejects.toThrow('観測 に属性 OBJECT_ID がありません');
+    await expect(store.load()).rejects.toThrow('観測 に属性 OBJECT_ID なし');
   });
 });

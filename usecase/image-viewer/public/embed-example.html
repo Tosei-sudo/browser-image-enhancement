@@ -64,7 +64,7 @@
     <iframe id="viewer" title="画像ビューア"></iframe>
     <aside>
       <h1 style="font-size: 1.1rem; margin: 0">埋め込み例</h1>
-      <p id="state" role="status">接続しています…</p>
+      <p id="state" role="status">接続中…</p>
       <label>COG の URL <input id="url" value="" placeholder="https://…/image.tif" /></label>
       <button type="button" id="open">開く</button>
       <button type="button" id="tokyo">東京駅へ移動</button>
@@ -97,7 +97,7 @@
       try {
         const viewer = await connect(iframe, viewerUrl.origin, { timeout: Number(query.get('timeout')) || 15000 });
         window.viewerClient = viewer;
-        state.textContent = `接続しました（${viewer.info.readOnly ? '読み取り専用' : '操作可'}）`;
+        state.textContent = `接続（${viewer.info.readOnly ? '読み取り専用' : '操作可'}）`;
         for (const name of viewer.info.events) {
           viewer.on(name, (data) => {
             window.embedLog.events.push({ name, data });
@@ -115,7 +115,7 @@
           run('addShapes', { wkt: document.getElementById('wkt').value.split('\n').map((s) => s.trim()).filter(Boolean), name: '埋め込みの図形' });
         document.getElementById('selection').onclick = () => run('getSelection', { features: true });
       } catch (error) {
-        state.textContent = `接続できませんでした: ${error.message}`;
+        state.textContent = `接続失敗: ${error.message}`;
         window.embedLog.error = error.code;
       }
     </script>

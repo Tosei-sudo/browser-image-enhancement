@@ -30,7 +30,7 @@ export class ResultsDialog {
     this.dialog.setAttribute('aria-labelledby', 'results-title');
     this.dialog.innerHTML = `
       <h2 id="results-title">処理結果</h2>
-      <p class="hint">プロセッシングで作った画像はブラウザの中に保存され、再読み込みしても残ります。ここから開く・ファイルに保存（COG・GeoTIFF）・削除ができます。</p>
+      <p class="hint">プロセッシングで作成した画像はブラウザ内に保存、再読み込み後も保持。ここから表示・ファイルに保存（COG・GeoTIFF）・削除が可能。</p>
       <ul class="results-list"></ul>
       <p class="hint results-usage"></p>
       <div class="service-actions">
@@ -94,7 +94,7 @@ export class ResultsDialog {
     if (!kept.length) {
       const none = document.createElement('li');
       none.className = 'results-none';
-      none.textContent = results.kept ? 'ブラウザに保存された処理結果はありません' : 'このブラウザでは処理結果を保存できません（ページを閉じると消えます）';
+      none.textContent = results.kept ? 'ブラウザに保存された処理結果なし' : 'このブラウザでは処理結果の保存不可（ページを閉じると消去）';
       this.list_.append(none);
     }
     this.clear_.disabled = !kept.length;
@@ -115,10 +115,10 @@ export class ResultsDialog {
       if (!image) return;
       results.mark(image, info);
       this.images.setBadge(image, result.tool);
-      this.options.say(`${result.name} を開きました`);
+      this.options.say(`${result.name} を表示`);
       await this.fill_();
     } catch (error) {
-      this.options.say(`${result.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.options.say(`${result.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -129,20 +129,20 @@ export class ResultsDialog {
 
   private async remove_(result: KeptResult): Promise<void> {
     const layers = this.layersOf_(result.id);
-    const warning = layers.length ? `${result.name} を削除します。表示中のレイヤーも閉じます。` : `${result.name} を削除します。`;
+    const warning = layers.length ? `${result.name} を削除。表示中のレイヤーも閉じる。` : `${result.name} を削除。`;
     if (!confirm(warning)) return;
     for (const layer of layers) this.images.remove(layer);
     await results.remove(result.id);
-    this.options.say(`${result.name} を削除しました`);
+    this.options.say(`${result.name} を削除`);
   }
 
   private async clearAll_(): Promise<void> {
     const kept = await results.list();
-    if (!kept.length || !confirm(`ブラウザに保存された処理結果 ${kept.length} 件をすべて削除します。表示中のものも閉じます。`)) return;
+    if (!kept.length || !confirm(`ブラウザに保存された処理結果 ${kept.length} 件をすべて削除。表示中のものも閉じる。`)) return;
     for (const result of kept) {
       for (const layer of this.layersOf_(result.id)) this.images.remove(layer);
       await results.remove(result.id).catch(() => {});
     }
-    this.options.say(`処理結果 ${kept.length} 件を削除しました`);
+    this.options.say(`処理結果 ${kept.length} 件を削除`);
   }
 }

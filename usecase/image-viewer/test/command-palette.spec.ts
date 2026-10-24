@@ -15,11 +15,11 @@ test('Ctrl+K finds a tool by name and runs it, and remembers it as recent', asyn
   // A button inside the closed ツール menu is found and run; kana not yet turned into kanji already finds it.
   await search.fill('zzz');
   await expect(palette.getByRole('option')).toHaveCount(0);
-  await expect(palette.getByText('一致する機能がありません')).toBeVisible();
+  await expect(palette.getByText('一致する機能なし')).toBeVisible();
   await search.fill('きょり');
-  await expect(palette.getByRole('option').first()).toContainText('距離を測る');
+  await expect(palette.getByRole('option').first()).toContainText('距離計測');
   await search.fill('距離');
-  await expect(palette.getByRole('option').first()).toContainText('距離を測る');
+  await expect(palette.getByRole('option').first()).toContainText('距離計測');
   await expect(palette.getByRole('option').first()).toContainText('計測');
   await search.press('Enter');
   await expect(palette).toBeHidden();
@@ -36,7 +36,7 @@ test('Ctrl+K finds a tool by name and runs it, and remembers it as recent', asyn
   await page.keyboard.press('Control+k');
   await expect(palette.getByRole('option').first()).toContainText('バンド演算');
   await expect(palette.getByRole('option').first()).toContainText('最近');
-  await expect(palette.getByRole('option').nth(1)).toContainText('距離を測る');
+  await expect(palette.getByRole('option').nth(1)).toContainText('距離計測');
   // Arrows move the choice, Ctrl+K again closes.
   await search.press('ArrowDown');
   await expect(palette.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');

@@ -77,7 +77,7 @@ export function transactionOf(doc: Document): { endpoint: string | null; forType
 export async function readWfs(url: string): Promise<ServiceCatalog> {
   const doc = await requestXml(withParams(url, { SERVICE: 'WFS', REQUEST: 'GetCapabilities', ACCEPTVERSIONS: '2.0.0,1.1.0,1.0.0' }));
   const root = doc.documentElement;
-  if (root.localName !== 'WFS_Capabilities') throw new ServiceError('WFS の GetCapabilities ではありません');
+  if (root.localName !== 'WFS_Capabilities') throw new ServiceError('WFS の GetCapabilities 以外');
   const version = root.getAttribute('version') ?? '2.0.0';
 
   const operation = (name: string) => descendants(doc, 'Operation').find((o) => o.getAttribute('name') === name);
@@ -105,7 +105,7 @@ export async function readWfs(url: string): Promise<ServiceCatalog> {
       operations: transaction.forType(ft),
     };
   });
-  if (types.length === 0) throw new ServiceError('フィーチャータイプがありません');
+  if (types.length === 0) throw new ServiceError('フィーチャータイプなし');
 
   const choices: LayerChoice[] = types.map((t) => ({ name: t.name, title: t.title, abstract: t.abstract }));
   return {
@@ -121,7 +121,7 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
   const v2 = ep.version.startsWith('2');
   const crs = type.crs.find((c) => epsgCode(c) === 3857) ?? type.crs[0] ?? 'EPSG:4326';
   const projection = await projectionOf(crs);
-  if (!projection) throw new ServiceError(`${crs} に対応していません`);
+  if (!projection) throw new ServiceError(`${crs} に非対応`);
   const json = type.formats.find((f) => /json/i.test(f));
   const params = {
     SERVICE: 'WFS',
@@ -137,7 +137,7 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
     describe(ep.endpoint, type.name, ep.version).catch(() => null),
   ]);
   if (/^\s*</.test(text) && /ExceptionReport/.test(text.slice(0, 500))) {
-    throw new ServiceError('GetFeature がエラーを返しました');
+    throw new ServiceError('GetFeature からエラー応答');
   }
   const read = { dataProjection: projection, featureProjection: projection };
   let features: Feature[];
@@ -146,7 +146,7 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
       ? new GeoJSON().readFeatures(text, read)
       : new WFS({ version: ep.version as '1.0.0' | '1.1.0' | '2.0.0' }).readFeatures(text, read)) as Feature[];
   } catch {
-    throw new ServiceError('地物を読めませんでした');
+    throw new ServiceError('地物の読み込みに失敗');
   }
   const truncated = features.length > MAX_FEATURES;
   if (truncated) features = features.slice(0, MAX_FEATURES);

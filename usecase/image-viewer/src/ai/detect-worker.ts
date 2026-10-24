@@ -35,7 +35,7 @@ if (thread) {
       model = await createModel(request.bytes, request.name, request.useGpu);
       self.postMessage({ type: 'loaded', backend: model.backend });
     } else {
-      if (!model) throw new Error('モデルが読み込まれていません');
+      if (!model) throw new Error('モデルが未読み込み');
       const input = nameOf(model.session.inputNames, 'images', 0);
       const found = await detectTile(model, input, request.rgba, request.width, request.height, 0, 0, request.spec);
       self.postMessage({ type: 'done', id: request.id, found });

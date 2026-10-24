@@ -32,7 +32,7 @@ async function browse(page: Page, field: ReturnType<Page['locator']>, name: stri
   const button = field.locator('xpath=ancestor::*[contains(@class,"source-field")][1]').locator('.source-browse');
   await button.click();
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('menuitem', { name: 'ファイルを選ぶ…' }).click();
+  await page.getByRole('menuitem', { name: 'ファイルを選択…' }).click();
   await (await chooser).setFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
 }
 
@@ -102,7 +102,7 @@ test('runs band math on a file chosen in the dialog, without adding it to the ma
   expect(await page.evaluate(() => ({ center: window.viewer.map.getView().getCenter(), resolution: window.viewer.map.getView().getResolution() }))).toEqual(view);
 
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('field_ndvi.tif を作りました');
+  await expect(page.locator('#status')).toContainText('field_ndvi.tif を作成');
   // Only the result is on the map.
   await expect(page.locator('#images .name')).toHaveCount(1);
   await expect(page.locator('#images .name')).toContainText('field_ndvi.tif');
@@ -142,5 +142,5 @@ test('buffers a GeoJSON file chosen in the processing dialog', async ({ page }) 
   await expect(page.locator('#images .name')).toHaveCount(0);
   await dialog.getByRole('button', { name: '実行' }).click();
   await expect(page.locator('#images .name')).toHaveCount(1);
-  await expect(page.locator('#status')).toContainText('作成しました');
+  await expect(page.locator('#status')).toContainText('作成');
 });

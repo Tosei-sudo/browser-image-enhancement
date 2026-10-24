@@ -123,7 +123,7 @@ export async function loadSatellites(catalog: SatelliteCatalogConfig): Promise<{
     if (typeof sat === 'string') problems.push(sat);
     else satellites.push(sat);
   }
-  if (json.exceededTransferLimit) problems.push(`衛星が多すぎるため、先頭 ${satellites.length} 機だけを読みました`);
+  if (json.exceededTransferLimit) problems.push(`衛星が多すぎのため、先頭 ${satellites.length} 機のみ読み込み`);
   return { satellites, problems };
 }
 
@@ -146,7 +146,7 @@ export async function loadSensorModes(catalogs: readonly SensorCatalogConfig[]):
         if (mode) modes.push(mode);
       }
     } catch (error) {
-      problems.push(`${catalog.label} を読めませんでした（${error instanceof Error ? error.message : String(error)}）`);
+      problems.push(`${catalog.label} の読み込みに失敗（${error instanceof Error ? error.message : String(error)}）`);
     }
   }
   return { modes, problems };
@@ -495,20 +495,20 @@ export class ImagingPlanPanel {
               <div class="plan-sats-list"></div>
             </fieldset>
             <div class="plan-options">
-              <label>日照条件<select name="daylight"><option value="optical">光学衛星は日中のみ</option><option value="none">考慮しない</option></select></label>
+              <label>日照条件<select name="daylight"><option value="optical">光学衛星は日中のみ</option><option value="none">考慮なし</option></select></label>
               <label>太陽高度（以上）<input name="minSun" type="number" min="-18" max="90" step="any" value="10" /></label>
               <div class="plan-conds wide">
-                <label title="地表から見た衛星の視線と鉛直のなす角。範囲をそろえると見え方（SAR の明るさ・建物の倒れ込み）がそろいます">入射角<span class="plan-range"><input name="minIncidence" type="number" min="0" max="89" step="any" placeholder="下限" aria-label="入射角の下限" />〜<input name="maxIncidence" type="number" min="0" max="89" step="any" placeholder="上限" aria-label="入射角の上限" />°</span></label>
+                <label title="地表から見た衛星の視線と鉛直のなす角。範囲をそろえると見え方（SAR の明るさ・建物の倒れ込み）も一定に">入射角<span class="plan-range"><input name="minIncidence" type="number" min="0" max="89" step="any" placeholder="下限" aria-label="入射角の下限" />〜<input name="maxIncidence" type="number" min="0" max="89" step="any" placeholder="上限" aria-label="入射角の上限" />°</span></label>
                 <label title="北へ進むパス（昇交）か南へ進むパス（降交）か">軌道<select name="pass"><option value="">北行・南行</option><option value="ascending">北行のみ</option><option value="descending">南行のみ</option></select></label>
                 <label title="衛星の進行方向に対して、どちら側を見るか">向き<select name="side"><option value="">左右とも</option><option value="right">右のみ</option><option value="left">左のみ</option></select></label>
               </div>
               <div class="plan-cloud wide" hidden>
-                <label class="check" title="光学衛星の撮像機会ごとに、その時刻・地点の雲量予報（16 日先まで）を出します。対象の位置を予報サービスへ送ります"><input name="cloud" type="checkbox" />雲量予報（<span class="plan-cloud-label"></span>）</label>
+                <label class="check" title="光学衛星の撮像機会ごとに、その時刻・地点の雲量予報（16 日先まで）を表示。対象の位置を予報サービスへ送信"><input name="cloud" type="checkbox" />雲量予報（<span class="plan-cloud-label"></span>）</label>
                 <label>雲量（以下）<input name="maxCloud" type="number" min="0" max="100" step="1" placeholder="—" />%</label>
               </div>
               <label class="check"><input name="each" type="checkbox" checked />地物ごとに計算</label>
               <label class="plan-name" title="一覧・CSV・レイヤーで対象の名前に使う属性。自動は name・名称 などを探し、なければ ID">名前の属性<select name="nameField"><option value="">自動</option></select></label>
-              <label class="plan-priority" title="組み合わせで、優先度の高い地物から衛星の撮像を割り当てます（撮像間隔・1 日の上限で取り合いになるとき、高い方が先に撮れます）">優先度の属性<select name="priority"><option value="">なし</option></select></label>
+              <label class="plan-priority" title="組み合わせで、優先度の高い地物から衛星の撮像を割り当て（撮像間隔・1 日の上限で競合するときは高い方を優先）">優先度の属性<select name="priority"><option value="">なし</option></select></label>
               <label class="plan-priority">優先する値<select name="priorityOrder"><option value="small">小さいほど優先（1 が最優先）</option><option value="large">大きいほど優先</option></select></label>
               <label class="wide">TLE を貼り付けて追加<textarea name="tle" rows="3" placeholder="ISS (ZARYA)&#10;1 25544U 98067A   …&#10;2 25544  51.6416 …" spellcheck="false"></textarea></label>
               <div class="plan-pasted wide">
@@ -516,7 +516,7 @@ export class ImagingPlanPanel {
                 <label>観測幅（km）<input name="pasteSwath" type="number" min="0.1" step="any" value="${builtInDefaults.swath}" /></label>
                 <label>撮像間隔（分）<input name="pasteGap" type="number" min="0" step="any" value="0" title="1 回撮像してから次に撮像できるまでの時間。0 は制約なし" /></label>
                 <label>1 日の上限（回）<input name="pastePerDay" type="number" min="0" step="1" value="0" title="24 時間に撮像できる回数。0 は制約なし" /></label>
-                <label>発注リード（時間）<input name="pasteLead" type="number" min="0" step="any" value="0" title="何時間先の撮像からオーダーできるか。それより近い機会は除きます。0 は制約なし" /></label>
+                <label>発注リード（時間）<input name="pasteLead" type="number" min="0" step="any" value="0" title="オーダー可能な撮像の最短時間（何時間先から）。それより近い機会は除外。0 は制約なし" /></label>
                 <label class="check"><input name="pasteSar" type="checkbox" />SAR（夜間も撮像）</label>
               </div>
             </div>
@@ -533,34 +533,34 @@ export class ImagingPlanPanel {
           <option value="repeat">干渉ペア（同じ軌道・SAR）</option>
           <option value="revisit">再訪間隔マップ</option>
         </select>
-        <span class="plan-pair-stereo" hidden title="2 回の撮像の視線のなす角（交会角）。15〜45° が DSM・建物の高さに向きます">交会角<input name="stereoMin" type="number" min="1" max="90" step="1" value="15" aria-label="交会角の下限" />〜<input name="stereoMax" type="number" min="1" max="90" step="1" value="45" aria-label="交会角の上限" />°・<input name="stereoDays" type="number" min="0.01" max="60" step="any" value="7" aria-label="日数の上限" />日以内<label class="check"><input name="stereoSeries" type="checkbox" checked />同じシリーズ</label></span>
-        <span class="plan-pair-repeat" hidden title="同じ衛星（シリーズ）が同じ軌道（北行・南行、向き、入射角、方位）で戻ってきた 2 回">入射角の差<input name="repeatIncidence" type="number" min="0.01" max="10" step="any" value="1" aria-label="入射角の差の上限" />°以内・基線<input name="repeatBaseline" type="number" min="1" step="any" placeholder="制限なし" aria-label="垂直基線の上限" />m以下<label class="check" title="同じシリーズの衛星（同じ軌道のコンステレーション）同士もペアにします"><input name="repeatSeries" type="checkbox" />同じシリーズ</label></span>
-        <span class="plan-revisit-opts" hidden title="対象を囲む範囲をこの数 × この数のセルに分け、セルごとに撮像機会の間隔を求めます">格子<input name="revisitGrid" type="number" min="2" max="30" step="1" value="10" aria-label="格子の数" />×</span>
+        <span class="plan-pair-stereo" hidden title="2 回の撮像の視線のなす角（交会角）。15〜45° が DSM・建物の高さに好適">交会角<input name="stereoMin" type="number" min="1" max="90" step="1" value="15" aria-label="交会角の下限" />〜<input name="stereoMax" type="number" min="1" max="90" step="1" value="45" aria-label="交会角の上限" />°・<input name="stereoDays" type="number" min="0.01" max="60" step="any" value="7" aria-label="日数の上限" />日以内<label class="check"><input name="stereoSeries" type="checkbox" checked />同じシリーズ</label></span>
+        <span class="plan-pair-repeat" hidden title="同じ衛星（シリーズ）が同じ軌道（北行・南行、向き、入射角、方位）で戻ってきた 2 回">入射角の差<input name="repeatIncidence" type="number" min="0.01" max="10" step="any" value="1" aria-label="入射角の差の上限" />°以内・基線<input name="repeatBaseline" type="number" min="1" step="any" placeholder="制限なし" aria-label="垂直基線の上限" />m以下<label class="check" title="同じシリーズの衛星（同じ軌道のコンステレーション）同士もペア化"><input name="repeatSeries" type="checkbox" />同じシリーズ</label></span>
+        <span class="plan-revisit-opts" hidden title="対象を囲む範囲をこの数 × この数のセルに分け、セルごとに撮像機会の間隔を算出">格子<input name="revisitGrid" type="number" min="2" max="30" step="1" value="10" aria-label="格子の数" />×</span>
         <label class="plan-goal" hidden title="面の対象をどこまで覆えば完了とするか">目標<input name="goal" type="number" min="10" max="100" step="1" value="95" />%</label>
-        <label class="check plan-share" hidden title="同じパスで 1 シーン（観測幅 × シーン長）に収まる地点を、1 回の撮像でまとめて撮ります"><input type="checkbox" name="share" checked />近い地点を 1 シーンにまとめる</label>
+        <label class="check plan-share" hidden title="同じパスで 1 シーン（観測幅 × シーン長）に収まる地点を、1 回の撮像でまとめて撮像"><input type="checkbox" name="share" checked />近い地点を 1 シーンに集約</label>
         <label class="check plan-first"><input type="checkbox" name="firstOnly" />衛星・対象ごとに最初の機会のみ</label>
-        <label class="check plan-tl-toggle" title="衛星ごとの撮像を時間軸に並べます（薄い帯は撮像間隔で次を撮れない時間）"><input type="checkbox" name="timeline" />タイムライン</label>
+        <label class="check plan-tl-toggle" title="衛星ごとの撮像を時間軸に並べて表示（薄い帯は撮像間隔で次を撮れない時間）"><input type="checkbox" name="timeline" />タイムライン</label>
       </div>
       <div class="plan-timeline" hidden></div>
       <div class="catalog-results"><table class="catalog-table plan-table"><thead></thead><tbody></tbody></table></div>
       <div class="plan-remind" hidden>
         <label>撮像の<input name="remindMinutes" type="number" min="0" max="1440" step="1" value="30" aria-label="何分前" />分前</label>
-        <button type="button" value="notify" title="一覧の撮像（組み合わせではシーンごと）の前に、ヘッダーの「通知」とアプリのバッジで知らせます（このビューアを開いている間）">通知を設定</button>
-        <button type="button" value="ics" title="一覧の撮像を予定表（iCalendar .ics）で保存します。Outlook などに取り込めます（設定した分前のアラームつき）">予定表 (.ics)</button>
-        <button type="button" value="unnotify" title="設定したすべての撮像の通知を解除します">通知を解除</button>
+        <button type="button" value="notify" title="一覧の撮像（組み合わせではシーンごと）の前に、ヘッダーの「通知」とアプリのバッジで通知（このビューアを開いている間）">通知を設定</button>
+        <button type="button" value="ics" title="一覧の撮像を予定表（iCalendar .ics）で保存。Outlook などに取り込み可能（設定した分前のアラーム付き）">予定表 (.ics)</button>
+        <button type="button" value="unnotify" title="設定したすべての撮像の通知を解除">通知を解除</button>
         <span class="plan-remind-count"></span>
       </div>
       <div class="plan-save" hidden>
         <label>計画名<input name="planName" type="text" autocomplete="off" /></label>
         <select name="planStore" aria-label="保存先"></select>
-        <button type="button" value="save" title="一覧の撮像（組み合わせではシーンごと）を保存先のフィーチャーサービスに保存します。撮像時刻を過ぎると、画像カタログで撮れたかを確かめられます">保存先に保存</button>
-        <button type="button" value="saved" title="保存した計画を開き、撮像されたかを確かめます">保存した計画…</button>
+        <button type="button" value="save" title="一覧の撮像（組み合わせではシーンごと）を保存先のフィーチャーサービスに保存。撮像時刻の経過後、画像カタログで撮像の成否を確認可能">保存先に保存</button>
+        <button type="button" value="saved" title="保存した計画を開き、撮像の成否を確認">保存した計画…</button>
       </div>
       <div class="service-actions catalog-actions">
-        <button type="button" value="store" hidden title="計画をフィーチャーサービスに保存し、撮れたかを追跡します">保存・追跡…</button>
-        <button type="button" value="remind" disabled title="撮像の前に通知する・予定表（.ics）に保存する">予定・通知…</button>
-        <button type="button" value="csv" disabled title="一覧を CSV で保存します">CSV 保存</button>
-        <button type="button" value="layer" disabled title="撮像範囲をレイヤーとして追加します（撮像時刻つき。タイムラインで絞り込めます）">レイヤーとして追加</button>
+        <button type="button" value="store" hidden title="計画をフィーチャーサービスに保存し、撮れたかを追跡">保存・追跡…</button>
+        <button type="button" value="remind" disabled title="撮像前の通知・予定表（.ics）への保存">予定・通知…</button>
+        <button type="button" value="csv" disabled title="一覧を CSV で保存">CSV 保存</button>
+        <button type="button" value="layer" disabled title="撮像範囲をレイヤーとして追加（撮像時刻付き。タイムラインで絞り込み可能）">レイヤーとして追加</button>
         <button type="button" value="zoom" class="primary" disabled>範囲へ移動</button>
       </div>`;
     document.body.append(this.dialog);
@@ -658,7 +658,7 @@ export class ImagingPlanPanel {
     this.dialog.querySelector('button[value=unnotify]')!.addEventListener('click', () => {
       clearReminders();
       this.countReminders();
-      this.options.say('撮像の通知をすべて解除しました');
+      this.options.say('撮像の通知をすべて解除');
     });
     map.addInteraction(this.dragInteraction());
     const stores = options.planStores ?? [];
@@ -685,7 +685,7 @@ export class ImagingPlanPanel {
       const projection = map.getView().getProjection();
       this.clicked_ = transform(e.coordinate, projection, 'EPSG:4326') as [number, number];
       this.showTargets();
-      this.status_.textContent = `地点 ${round(this.clicked_[1], 5)}, ${round(this.clicked_[0], 5)} を対象にしました。「計算」で撮像機会を探します`;
+      this.status_.textContent = `地点 ${round(this.clicked_[1], 5)}, ${round(this.clicked_[0], 5)} を対象に設定。「計算」で撮像機会を検索`;
     });
   }
 
@@ -702,7 +702,7 @@ export class ImagingPlanPanel {
       if (!this.tree_.items().length) this.listSats();
       if (!this.plan_) {
         this.status_.textContent =
-          'config.json に衛星カタログ（satelliteCatalogs）がないので、サンプル衛星 2 機（光学・SAR。SAR はストリップマップ・スポットライト・スキャンSAR の 3 モード。実在の衛星ではありません）で計算します。「詳細条件」で TLE を貼り付けて追加できます';
+          'config.json に衛星カタログ（satelliteCatalogs）がないため、サンプル衛星 2 機（光学・SAR。SAR はストリップマップ・スポットライト・スキャンSAR の 3 モード。架空の衛星）で計算。「詳細条件」で TLE を貼り付けて追加可能';
       }
     } else void this.loadCatalog();
   }
@@ -734,7 +734,7 @@ export class ImagingPlanPanel {
     const catalog = this.catalog_;
     if (!catalog) return;
     this.loaded_ ??= (async () => {
-      this.status_.textContent = '衛星カタログを読んでいます…';
+      this.status_.textContent = '衛星カタログを読み込み中…';
       try {
         const [{ satellites, problems }, sensors] = await Promise.all([loadSatellites(catalog), this.sensorModes()]);
         if (catalog !== this.catalog_) return;
@@ -745,7 +745,7 @@ export class ImagingPlanPanel {
         this.status_.textContent = `${catalog.label}: ${satellites.length} 機${modes ? `（撮像モード ${modes} 種）` : ''}${problems.length ? `（読めなかったもの ${problems.length} 件: ${problems.slice(0, 3).join('、')}${problems.length > 3 ? ' …' : ''}）` : ''}。対象と期間を選んで「計算」`;
       } catch (error) {
         this.loaded_ = null;
-        this.status_.textContent = `衛星カタログを読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+        this.status_.textContent = `衛星カタログの読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
       }
     })();
     return this.loaded_;
@@ -862,28 +862,28 @@ export class ImagingPlanPanel {
     const choice = this.target_.value;
     const projection = this.map.getView().getProjection().getCode();
     if (choice === 'click') {
-      if (!this.clicked_) return '地図をクリックして地点を指定してください';
+      if (!this.clicked_) return '地図をクリックして地点を指定';
       return [{ label: `${round(this.clicked_[1], 5)}, ${round(this.clicked_[0], 5)}`, center: this.clicked_, points: [] }];
     }
     // Moving targets, where they were last reported (the plan follows them: see runShips).
-    if (choice === 'moving') return this.moving_?.ships.map((s) => ({ label: s.name, center: [s.lon, s.lat] as [number, number], points: [] })) ?? '移動目標がありません';
+    if (choice === 'moving') return this.moving_?.ships.map((s) => ({ label: s.name, center: [s.lon, s.lat] as [number, number], points: [] })) ?? '移動目標なし';
     let name: string;
     if (choice === 'selection') name = '選択中の地物';
     else {
       const layer = this.vectorLayers()[Number(choice.slice('layer:'.length))];
-      if (!layer) return '対象のレイヤーがありません';
+      if (!layer) return '対象のレイヤーなし';
       name = layer.name;
     }
     let features = this.chosenFeatures()!;
     const nameField = (this.form_.elements.namedItem('nameField') as HTMLSelectElement).value;
     features = features.filter((f) => f.getGeometry());
-    if (!features.length) return '対象に図形がありません';
+    if (!features.length) return '対象に図形なし';
     const each = (this.form_.elements.namedItem('each') as HTMLInputElement).checked;
     if (!each || features.length === 1) {
       const t = targetOf(features, projection, features.length === 1 ? nameOf(features[0], 0, nameField) : name);
-      return t ? [t] : '対象に図形がありません';
+      return t ? [t] : '対象に図形なし';
     }
-    if (features.length > MAX_TARGETS) return `地物が ${features.length.toLocaleString()} 件あります。${MAX_TARGETS} 件以下を選択するか、「詳細条件」の「地物ごとに計算」を外してまとめて計算してください`;
+    if (features.length > MAX_TARGETS) return `地物 ${features.length.toLocaleString()} 件。${MAX_TARGETS} 件以下を選択するか、「詳細条件」の「地物ごとに計算」を外して一括計算`;
     const field = (this.form_.elements.namedItem('priority') as HTMLSelectElement).value;
     const sign = (this.form_.elements.namedItem('priorityOrder') as HTMLSelectElement).value === 'large' ? 1 : -1;
     return features.flatMap((f, i) => {
@@ -969,21 +969,21 @@ export class ImagingPlanPanel {
     if (typeof targets === 'string') return void (this.status_.textContent = targets);
     if (!sats.length) {
       this.dialog.querySelector<HTMLDetailsElement>('.plan-more')!.open = true;
-      this.status_.textContent = this.tree_.items().length ? '衛星を選んでください（詳細条件）' : '衛星がありません。衛星カタログを確認するか、「詳細条件」に TLE を貼り付けてください';
+      this.status_.textContent = this.tree_.items().length ? '衛星が未選択（詳細条件で選択）' : '衛星なし。衛星カタログを確認するか、「詳細条件」に TLE を貼り付け';
       return;
     }
     if (ships) return this.runShips(sats, ships);
     const options = this.planOptions();
     this.worker_?.terminate();
     const { worker, result: planned } = startPlan(sats, targets, options, (done) => {
-      this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算しています… ${Math.round(done * 100)}%`;
+      this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算中… ${Math.round(done * 100)}%`;
     });
     this.worker_ = worker;
-    this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算しています…`;
+    this.status_.textContent = `${sats.length} 機 × ${targets.length} 対象を計算中…`;
     const result = await planned;
     if (this.worker_ !== worker) return;
     this.worker_ = null;
-    if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
+    if (typeof result === 'string') return void (this.status_.textContent = `計算失敗: ${result}`);
     // An area no single pass covers: start with the combination that covers it.
     const best = new Map<number, number>();
     for (const op of result.opportunities) if (op.cells) best.set(op.target, Math.max(best.get(op.target) ?? 0, op.coverage));
@@ -1027,24 +1027,24 @@ export class ImagingPlanPanel {
     const options = this.planOptions();
     const span = shipWindow(ships, options);
     if (!ships.length || span.end <= span.start) {
-      return void (this.status_.textContent = ships.length ? `船の位置は最後の AIS 報告から ${MAX_HORIZON} 時間先までしか推測しません。開始日時を報告の近くにしてください` : 'AIS の位置報告がある船がありません');
+      return void (this.status_.textContent = ships.length ? `船の位置は最後の AIS 報告から ${MAX_HORIZON} 時間先までのみ推測。開始日時を報告の近くで指定` : 'AIS の位置報告がある船なし');
     }
     const planned = { ...options, ...span };
     const { targets, samples } = sampleTargets(ships, span.start, span.end);
     this.worker_?.terminate();
     const { worker, result: first } = startPlan(sats, targets, planned, (done) => {
-      this.status_.textContent = `${sats.length} 機 × 船 ${ships.length} 隻の推測位置を計算しています… ${Math.round(done * 100)}%`;
+      this.status_.textContent = `${sats.length} 機 × 船 ${ships.length} 隻の推測位置を計算中… ${Math.round(done * 100)}%`;
     });
     this.worker_ = worker;
-    this.status_.textContent = `${sats.length} 機 × 船 ${ships.length} 隻の推測位置を計算しています…`;
+    this.status_.textContent = `${sats.length} 機 × 船 ${ships.length} 隻の推測位置を計算中…`;
     const result = await first;
     if (this.worker_ !== worker) return;
     this.worker_ = null;
-    if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
-    this.status_.textContent = '撮像の時刻の船の位置に合わせて計算し直しています…';
+    if (typeof result === 'string') return void (this.status_.textContent = `計算失敗: ${result}`);
+    this.status_.textContent = '撮像時刻の船の位置に合わせて再計算中…';
     await new Promise((resolve) => setTimeout(resolve));
     const plan = shipPlan(refineShots(result, samples, ships, sats, planned), result);
-    if (left > 0) plan.problems = [...plan.problems, `船が多いため最近報告のあった ${MAX_SHIPS} 隻だけを計算しました（ほか ${left} 隻）`];
+    if (left > 0) plan.problems = [...plan.problems, `船が多いため最近報告のあった ${MAX_SHIPS} 隻だけを計算（ほか ${left} 隻）`];
     await this.showPlan({ sats, targets: plan.targets, result: plan, options: planned }, 'all');
   }
 
@@ -1055,9 +1055,9 @@ export class ImagingPlanPanel {
     if (!plan || !config) return;
     const { sats, targets, result } = plan;
     const places = placesFor(result.opportunities, sats, targets);
-    if (!places.length) return void (this.status_.textContent = `${this.status_.textContent}（雲量予報は 16 日先までの光学衛星の機会だけです）`);
+    if (!places.length) return void (this.status_.textContent = `${this.status_.textContent}（雲量予報は 16 日先までの光学衛星の機会のみ）`);
     const before = this.status_.textContent;
-    this.status_.textContent = `${config.label} に雲量予報を問い合わせています…`;
+    this.status_.textContent = `${config.label} に雲量予報を問い合わせ中…`;
     try {
       const forecasts = await fetchClouds(config, places);
       if (this.plan_ !== plan) return;
@@ -1068,7 +1068,7 @@ export class ImagingPlanPanel {
       this.render();
       this.status_.textContent = `${before}（雲量予報 ${n} 回分: ${config.label}）`;
     } catch (error) {
-      this.status_.textContent = `${before}（雲量予報を取得できませんでした: ${error instanceof Error ? error.message : String(error)}）`;
+      this.status_.textContent = `${before}（雲量予報の取得に失敗: ${error instanceof Error ? error.message : String(error)}）`;
     }
   }
 
@@ -1155,25 +1155,25 @@ export class ImagingPlanPanel {
     const { sats, targets, result } = plan;
     const problems =
       (result.problems.length ? `（計算できなかった衛星: ${result.problems.join('、')}）` : '') +
-      (result.tooSoon ? `（発注リードタイムに間に合わない機会 ${result.tooSoon} 回を除きました）` : '');
+      (result.tooSoon ? `（発注リードタイムに間に合わない機会 ${result.tooSoon} 回を除外）` : '');
     const first = result.opportunities[0];
     if (!first) {
-      this.status_.textContent = `期間内に撮像できる機会はありません。期間を延ばすか、オフナディア角・入射角・軌道・向きの制限や日照条件を見直してください${problems}`;
+      this.status_.textContent = `期間内に撮像できる機会なし。期間の延長、またはオフナディア角・入射角・軌道・向きの制限や日照条件の見直しが必要${problems}`;
     } else if (pairing) {
       const pairs = this.pairs();
       const what = pairing === 'stereo' ? 'ステレオペア' : '干渉ペア';
-      const hint = pairing === 'stereo' ? '交会角・日数の条件を緩めるか、オフナディア角の上限を上げてください' : 'SAR 衛星を選び、期間を回帰日数より長くするか、入射角の差の条件を緩めてください';
+      const hint = pairing === 'stereo' ? '交会角・日数の条件の緩和、またはオフナディア角の上限の引き上げが必要' : 'SAR 衛星を選び、期間を回帰日数より長くするか、入射角の差の条件の緩和が必要';
       this.status_.textContent = pairs.length
-        ? `${what} ${pairs.length.toLocaleString()} 組。最初の 2 回目は ${localText(pairs[0][pairing === 'stereo' ? 'b' : 'a'].time)}。行を選ぶと 1 回目（青）と 2 回目（番号 2）の撮像範囲を地図に表示します${problems}`
-        : `条件に合う${what}はありません。${hint}${problems}`;
+        ? `${what} ${pairs.length.toLocaleString()} 組。最初の 2 回目は ${localText(pairs[0][pairing === 'stereo' ? 'b' : 'a'].time)}。行を選ぶと 1 回目（青）と 2 回目（番号 2）の撮像範囲を地図に表示${problems}`
+        : `条件に合う${what}なし。${hint}${problems}`;
     } else if (!combining) {
-      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${satelliteLabel(sats[first.satellite])}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します（撮像範囲はドラッグで動かせます）${problems}`;
+      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${satelliteLabel(sats[first.satellite])}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示（撮像範囲はドラッグで移動可能）${problems}`;
     } else {
       const plans = this.coverPlans();
       const done = plans.filter((p) => p.done !== null);
       const blocked = plans.reduce((n, p) => n + p.blocked, 0);
       const line = (p: CoverPlan) =>
-        `${targets[p.target].label}: ${p.steps.length} パスで ${percent(p.coverage)}${p.done !== null ? `（${localText(p.done)} 完了）` : '（期間内に目標に届きません）'}`;
+        `${targets[p.target].label}: ${p.steps.length} パスで ${percent(p.coverage)}${p.done !== null ? `（${localText(p.done)} 完了）` : '（期間内に目標未達）'}`;
       const summary =
         plans.length <= 3
           ? plans.map(line).join('、')
@@ -1183,8 +1183,8 @@ export class ImagingPlanPanel {
       for (const step of plans.flatMap((p) => p.steps)) if (step.shot !== undefined) shots.set(step.shot, step.shotTargets ?? 1);
       const shared = [...shots.values()].filter((n) => n > 1);
       const scenes = plans.length > 1 ? `全 ${shots.size} シーン${shared.length ? `（うち ${shared.length} シーンで ${shared.reduce((a, b) => a + b, 0)} 地点をまとめて撮像）` : ''}。` : '';
-      const ranked = new Set(targets.map((t) => t.priority)).size > 1 ? '優先度の高い対象から撮像を割り当てました。' : '';
-      this.status_.textContent = `${summary}。${scenes}${ranked}${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示します${problems}`;
+      const ranked = new Set(targets.map((t) => t.priority)).size > 1 ? '優先度の高い対象から撮像を割り当て。' : '';
+      this.status_.textContent = `${summary}。${scenes}${ranked}${blocked ? `撮像間隔・1 日の上限のため見送ったパス ${blocked} 回。` : ''}行を選ぶと、その回と同じ対象の他の回（番号つき）を地図に表示${problems}`;
     }
     if (this.shown_.length) this.choose(this.shown_[0]);
   }
@@ -1198,13 +1198,13 @@ export class ImagingPlanPanel {
         label: '日時',
         text: (op) => `${localText(op.time)}${op.adjusted ? ' ✎' : ''}`,
         title: (op) =>
-          [plan.sats[op.satellite].leadTime > 0 ? `発注期限 ${localText(op.time - plan.sats[op.satellite].leadTime * 3600000)}` : '', op.adjusted ? '撮像範囲を地図で動かしました（✎）' : ''].filter(Boolean).join('・'),
+          [plan.sats[op.satellite].leadTime > 0 ? `発注期限 ${localText(op.time - plan.sats[op.satellite].leadTime * 3600000)}` : '', op.adjusted ? '撮像範囲を地図で移動済み（✎）' : ''].filter(Boolean).join('・'),
       },
       {
         key: 'satellite',
         label: '衛星',
         text: (op) => satelliteLabel(plan.sats[op.satellite]),
-        title: (op) => `${plan.sats[op.satellite].source}${modeFacts(plan.sats[op.satellite])}・TLE ${round(op.tleAge, 0)} 日${plan.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれることがあります）' : ''}`,
+        title: (op) => `${plan.sats[op.satellite].source}${modeFacts(plan.sats[op.satellite])}・TLE ${round(op.tleAge, 0)} 日${plan.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれる場合あり）' : ''}`,
       },
       ...(many ? [{ key: 'target' as const, label: '対象', text: (op: Opportunity) => plan.targets[op.target].label }] : []),
       ...(many && plan.targets.some((t) => t.priority !== undefined)
@@ -1217,7 +1217,7 @@ export class ImagingPlanPanel {
               label: '位置の誤差',
               text: (op: Opportunity) => `±${round(plan.targets[op.target].uncertainty ?? 0, 1)} km`,
               title: (op: Opportunity) =>
-                `最後の AIS 報告から ${hoursText((plan.targets[op.target].guessed ?? 0) / 3600000)} 後の推測位置（針路・速力から）。誤差の円のうち撮像範囲に入る割合が被覆です`,
+                `最後の AIS 報告から ${hoursText((plan.targets[op.target].guessed ?? 0) / 3600000)} 後の推測位置（針路・速力から）。誤差の円のうち撮像範囲に入る割合が被覆`,
             },
           ]
         : []),
@@ -1225,7 +1225,7 @@ export class ImagingPlanPanel {
       { key: 'side', label: '方向', text: sideText, title: () => '衛星の進行方向に対して対象が右か左か、北行（昇交）か南行（降交）か' },
       { key: 'sun', label: '太陽高度', text: (op) => `${round(op.sunElevation, 0)}°` },
       ...(plan.result.opportunities.some((op) => op.cloud !== undefined)
-        ? [{ key: 'cloud' as const, label: '雲量', text: (op: Opportunity) => (op.cloud === undefined ? '—' : `${op.cloud}%`), title: (op: Opportunity) => (op.cloud === undefined ? (plan.sats[op.satellite].sar ? 'SAR は雲を通して撮像します' : '予報の範囲外（16 日先まで）') : `${this.options.cloudForecast?.label ?? ''} の雲量予報`) }]
+        ? [{ key: 'cloud' as const, label: '雲量', text: (op: Opportunity) => (op.cloud === undefined ? '—' : `${op.cloud}%`), title: (op: Opportunity) => (op.cloud === undefined ? (plan.sats[op.satellite].sar ? 'SAR は雲を通して撮像' : '予報の範囲外（16 日先まで）') : `${this.options.cloudForecast?.label ?? ''} の雲量予報`) }]
         : []),
       ...(plan.options.stations?.length
         ? [
@@ -1234,7 +1234,7 @@ export class ImagingPlanPanel {
               label: '受信見込み',
               text: (op: Opportunity) => (op.downlink ? localText(op.downlink.time) : '1 日以内なし'),
               title: (op: Opportunity) =>
-                op.downlink ? `${plan.options.stations![op.downlink.station]?.name ?? ''}・撮像から ${Math.round((op.downlink.time - op.time) / 60000)} 分（衛星が地上局の上に来る時刻。データの処理・配信の時間は含みません）` : '撮像から 24 時間以内に地上局の上を通りません',
+                op.downlink ? `${plan.options.stations![op.downlink.station]?.name ?? ''}・撮像から ${Math.round((op.downlink.time - op.time) / 60000)} 分（衛星が地上局の上に来る時刻。データの処理・配信の時間は含まず）` : '撮像から 24 時間以内の地上局上空の通過なし',
             },
           ]
         : []),
@@ -1251,7 +1251,7 @@ export class ImagingPlanPanel {
                     key: 'shot' as const,
                     label: 'シーン',
                     text: (op: Opportunity) => `#${op.shot ?? ''}${(op.shotTargets ?? 1) > 1 ? `（${op.shotTargets} 地点）` : ''}`,
-                    title: (op: Opportunity) => ((op.shotTargets ?? 1) > 1 ? `この ${op.shotTargets} 地点は 1 回の撮像（1 シーン）でまとめて撮れます` : ''),
+                    title: (op: Opportunity) => ((op.shotTargets ?? 1) > 1 ? `この ${op.shotTargets} 地点は 1 回の撮像（1 シーン）でまとめて撮像可能` : ''),
                   },
                 ]
               : []),
@@ -1272,8 +1272,8 @@ export class ImagingPlanPanel {
         title: (op) => `オフナディア角 ${round(second(op).offNadir)}°・入射角 ${round(second(op).incidence)}°・${sideText(second(op))}`,
       },
       this.pairing() === 'stereo'
-        ? { key: 'angle', label: '交会角', text: (op) => `${round(op.pair!.convergence)}°`, title: (op) => `B/H ${round(op.pair!.bh, 2)}（2 回の視線のなす角。大きいほど高さの精度が上がり、大きすぎると対応づけにくくなります）` }
-        : { key: 'baseline', label: '垂直基線', text: (op) => `${Math.round(op.pair!.baseline).toLocaleString()} m`, title: (op) => `入射角の差 ${round(Math.abs(second(op).incidence - op.incidence), 2)}°（基線が短いほど干渉しやすく、長いほど地形の高さに敏感です）` },
+        ? { key: 'angle', label: '交会角', text: (op) => `${round(op.pair!.convergence)}°`, title: (op) => `B/H ${round(op.pair!.bh, 2)}（2 回の視線のなす角。大きいほど高さの精度が向上、大きすぎると対応づけが困難）` }
+        : { key: 'baseline', label: '垂直基線', text: (op) => `${Math.round(op.pair!.baseline).toLocaleString()} m`, title: (op) => `入射角の差 ${round(Math.abs(second(op).incidence - op.incidence), 2)}°（基線が短いほど干渉しやすく、長いほど地形の高さに敏感）` },
       { key: 'days', label: '間隔', text: (op) => hoursText(op.pair!.days * 24), title: () => '1 回目から 2 回目までの時間' },
     ];
   }
@@ -1363,7 +1363,7 @@ export class ImagingPlanPanel {
       const td = document.createElement('td');
       td.colSpan = columns.length;
       td.className = 'plan-more-rows';
-      td.textContent = `ほか ${rest.toLocaleString()} 件（並べ替えると先頭が変わります。CSV とレイヤーにはすべて入ります）`;
+      td.textContent = `ほか ${rest.toLocaleString()} 件（並べ替えで先頭が変化。CSV とレイヤーにはすべて出力）`;
       more.append(td);
     }
     this.table_.tBodies[0].replaceChildren(
@@ -1406,15 +1406,15 @@ export class ImagingPlanPanel {
       const cells = gridCells(boxOf(plan.targets), size);
       this.worker_?.terminate();
       const { worker, result: planned } = startPlan(plan.sats, cellTargets(cells), { ...plan.options, stations: [] }, (done) => {
-        this.status_.textContent = `再訪間隔を ${cells.length} セルで計算しています… ${Math.round(done * 100)}%`;
+        this.status_.textContent = `再訪間隔を ${cells.length} セルで計算中… ${Math.round(done * 100)}%`;
       });
       this.worker_ = worker;
-      this.status_.textContent = `再訪間隔を ${cells.length} セルで計算しています…`;
+      this.status_.textContent = `再訪間隔を ${cells.length} セルで計算中…`;
       const result = await planned;
       if (this.worker_ !== worker) return;
       this.worker_ = null;
       if (this.plan_ !== plan || this.view_.value !== 'revisit') return;
-      if (typeof result === 'string') return void (this.status_.textContent = `計算できませんでした: ${result}`);
+      if (typeof result === 'string') return void (this.status_.textContent = `計算失敗: ${result}`);
       this.revisit_ = { size, cells, stats: revisitStats(result.opportunities, cells.length, plan.options.start, plan.options.end), chosen: null };
     }
     this.renderRevisit();
@@ -1424,8 +1424,8 @@ export class ImagingPlanPanel {
     const worst = Math.max(...stats.map((s) => s.maxGap));
     const days = (plan.options.end - plan.options.start) / 86400000;
     this.status_.textContent = seen.length
-      ? `${stats.length} セルのうち ${seen.length} セルで撮像機会があります。最長の待ちは ${hoursText(worst)}、平均で ${round(seen.reduce((n, s) => n + s.count, 0) / stats.length / days, 2)} 回/日（緑ほど早く撮れ、赤ほど待ちます）。行を選ぶとセルを示します`
-      : `この期間、範囲内のどのセルにも撮像機会がありません。期間を延ばすか条件を見直してください`;
+      ? `${stats.length} セルのうち ${seen.length} セルで撮像機会あり。最長の待ちは ${hoursText(worst)}、平均で ${round(seen.reduce((n, s) => n + s.count, 0) / stats.length / days, 2)} 回/日（緑ほど早く撮像、赤ほど長い待ち）。行の選択でセルを表示`
+      : `この期間、範囲内のどのセルにも撮像機会なし。期間の延長か条件の見直しが必要`;
   }
 
   /** Lists the revisit map's cells, longest wait first. */
@@ -1558,7 +1558,7 @@ export class ImagingPlanPanel {
         this.render();
         this.options.onChosen?.();
         const op = drag.op;
-        this.status_.textContent = `撮像範囲を動かしました: オフナディア角 ${round(op.offNadir)}°・入射角 ${round(op.incidence)}°・${op.cells ? `被覆 ${percent(op.coverage)}` : op.coverage ? '対象を含みます' : '対象から外れています'}`;
+        this.status_.textContent = `撮像範囲を移動: オフナディア角 ${round(op.offNadir)}°・入射角 ${round(op.incidence)}°・${op.cells ? `被覆 ${percent(op.coverage)}` : op.coverage ? '対象を含む' : '対象外'}`;
         return false;
       },
       handleMoveEvent: (e) => {
@@ -1588,7 +1588,7 @@ export class ImagingPlanPanel {
     if (!plan || !this.shown_.length) return 0;
     const n = addReminders(this.shown_, plan.sats, plan.targets, this.remindMinutes(), (op) => passShapes(plan.sats[op.satellite], plan.targets[op.target], op)?.scenes ?? []);
     this.countReminders();
-    this.options.say(n ? `撮像 ${n} 件の ${this.remindMinutes()} 分前に「通知」で知らせます（このビューアを開いている間）` : 'これから先の撮像がないため、通知は設定しませんでした');
+    this.options.say(n ? `撮像 ${n} 件の ${this.remindMinutes()} 分前に「通知」で通知（このビューアを開いている間）` : '今後の撮像がないため、通知の設定なし');
     return n;
   }
 
@@ -1604,14 +1604,14 @@ export class ImagingPlanPanel {
     const name = nameInput.value.trim() || `撮像計画 ${localText(plan.options.start).slice(0, 10)}`;
     const id = newPlanId();
     const features = shotFeatures(this.shown_, plan.sats, plan.targets, (op) => passShapes(plan.sats[op.satellite], plan.targets[op.target], op)?.scenes ?? [], { id, name }, store.fields);
-    this.status_.textContent = `${store.label} に ${features.length} 回の撮像を保存しています…`;
+    this.status_.textContent = `${store.label} に ${features.length} 回の撮像を保存中…`;
     try {
       const { saved, failed } = await addShots(store, ask, features);
-      this.status_.textContent = `「${name}」を ${store.label} に保存しました（${saved} 回${failed.length ? `。保存できなかったもの ${failed.length} 回: ${failed[0]}` : ''}）。「保存した計画…」で撮れたかを確かめられます`;
-      this.options.say(`撮像計画「${name}」を保存しました`);
+      this.status_.textContent = `「${name}」を ${store.label} に保存（${saved} 回${failed.length ? `。保存失敗 ${failed.length} 回: ${failed[0]}` : ''}）。「保存した計画…」で撮像の成否を確認可能`;
+      this.options.say(`撮像計画「${name}」を保存`);
       return saved ? id : null;
     } catch (error) {
-      this.status_.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `保存失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     }
   }
@@ -1622,7 +1622,7 @@ export class ImagingPlanPanel {
     if (!plan || !this.shown_.length) return;
     const day = (ms: number) => localText(ms).slice(0, 10).replaceAll('/', '');
     download(`imaging-plan_${day(plan.options.start)}-${day(plan.options.end)}.ics`, planIcs(this.shown_, plan.sats, plan.targets, this.remindMinutes()), 'text/calendar');
-    this.options.say('撮像の予定を予定表（.ics）で保存しました');
+    this.options.say('撮像の予定を予定表（.ics）で保存');
   }
 
   /** The chosen pass for the 3D view, and in a combination the other passes over the same target; none while the panel is closed. */
@@ -1721,13 +1721,13 @@ export class ImagingPlanPanel {
   saveCsv(): void {
     if (this.plan_ && this.revisit_ && this.view_.value === 'revisit') {
       download('revisit.csv', revisitCsv(this.revisit_.cells, this.revisit_.stats), 'text/csv');
-      return void this.options.say(`再訪間隔 ${this.revisit_.cells.length} セルを CSV で保存しました`);
+      return void this.options.say(`再訪間隔 ${this.revisit_.cells.length} セルを CSV で保存`);
     }
     if (!this.plan_ || !this.shown_.length) return;
     const { sats, targets, options } = this.plan_;
     const day = (ms: number) => localText(ms).slice(0, 10).replaceAll('/', '');
     download(`imaging-plan_${day(options.start)}-${day(options.end)}.csv`, planCsv(this.shown_, sats, targets, options.stations ?? []), 'text/csv');
-    this.options.say(`撮像機会 ${this.shown_.length} 件を CSV で保存しました`);
+    this.options.say(`撮像機会 ${this.shown_.length} 件を CSV で保存`);
   }
 
   /** The listed opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
@@ -1866,9 +1866,9 @@ export function startPlan(
   const result = new Promise<PlanResult | string>((resolve) => {
     worker.onmessage = (e: MessageEvent<{ progress?: number; result?: PlanResult; error?: string }>) => {
       if (e.data.progress !== undefined) onProgress?.(e.data.progress);
-      else resolve(e.data.result ?? e.data.error ?? '計算できませんでした');
+      else resolve(e.data.result ?? e.data.error ?? '計算失敗');
     };
-    worker.onerror = (e) => resolve(e.message || '計算できませんでした');
+    worker.onerror = (e) => resolve(e.message || '計算失敗');
     worker.postMessage({ satellites: sats, targets, options } satisfies PlanJob);
   }).finally(() => worker.terminate());
   return { worker, result };

@@ -5,7 +5,7 @@
  * are found by name; 「詳細」 sets them by hand, with the kind of symbol, the
  * polling interval and how long tracks are drawn and objects kept.
  *
- * 「撮影時刻に合わせる」 opens the timeline at the selected image's
+ * 「撮影時刻に同期」 opens the timeline at the selected image's
  * acquisition time, so the feeds show where every object was when it was
  * taken. Clicking an object shows its latest attributes in a small popup.
  */
@@ -69,7 +69,7 @@ export class MovingDialog {
         <button type="button" value="url">接続</button>
         <div class="wide moving-file">
           <button type="button" value="file">履歴ファイルを開く…</button>
-          <span class="processing-hint">CSV（時刻・緯度・経度の列）か GeoJSON。タイムラインで時刻を動かすと、その時刻の位置を補間して表示します。</span>
+          <span class="processing-hint">CSV（時刻・緯度・経度の列）か GeoJSON。タイムラインで時刻を動かすと、その時刻の位置を補間して表示。</span>
           <input type="file" accept=".csv,.tsv,.txt,.geojson,.json" hidden />
         </div>
         <details class="wide moving-details">
@@ -83,7 +83,7 @@ export class MovingDialog {
             <label>薄くする（分）<input name="stale" type="number" min="0" step="1" placeholder="自動" /></label>
             <label>消す（分）<input name="remove" type="number" min="1" step="1" placeholder="自動" /></label>
           </div>
-          <p class="processing-hint">属性名（空欄は自動。入れ子は MetaData.MMSI のように . でつなぐ）</p>
+          <p class="processing-hint">属性名（空欄は自動。入れ子は MetaData.MMSI のように . で連結）</p>
           <div class="moving-settings moving-roles"></div>
         </details>
       </form>
@@ -91,8 +91,8 @@ export class MovingDialog {
       <ul class="moving-list"></ul>
       <p class="service-status moving-note" role="status"></p>
       <div class="service-actions">
-        <button type="button" value="align" title="選んだ画像の撮影時刻でタイムラインを開き、その時刻の位置を表示します">撮影時刻に合わせる</button>
-        <button type="button" value="live" title="タイムラインを閉じて、最新の位置に戻します">ライブに戻す</button>
+        <button type="button" value="align" title="選択した画像の撮影時刻でタイムラインを開き、その時刻の位置を表示">撮影時刻に同期</button>
+        <button type="button" value="live" title="タイムラインを閉じて、最新の位置に復帰">ライブに復帰</button>
         <button type="button" value="cancel">閉じる</button>
       </div>`;
     document.body.append(this.dialog);
@@ -223,7 +223,7 @@ export class MovingDialog {
   private connectUrl_(): void {
     const text = this.url_.value.trim();
     if (!text) {
-      this.note_.textContent = 'URL を入れてください';
+      this.note_.textContent = 'URL を入力';
       return;
     }
     const type = this.type_.value === 'auto' ? feedTypeOf(text) : (this.type_.value as FeedType);
@@ -253,7 +253,7 @@ export class MovingDialog {
     };
     const layer = new MovingLayer({ feed: merged, settings: details.settings, say: this.options.say, onChange: () => this.scheduleList_() });
     this.add_(layer);
-    this.options.say(`${feed.label} に接続しています`);
+    this.options.say(`${feed.label} に接続中`);
     return layer;
   }
 
@@ -263,7 +263,7 @@ export class MovingDialog {
     try {
       rows = historyRows(new Uint8Array(await file.arrayBuffer()), file.name);
     } catch (error) {
-      this.note_.textContent = `${file.name} を読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     }
     const details = this.details_();
@@ -277,7 +277,7 @@ export class MovingDialog {
     layer.addRows(rows);
     if (!layer.store.tracks.size) {
       layer.close();
-      this.note_.textContent = `${file.name} に位置がありませんでした${layer.statusDetail ? `（${layer.statusDetail}）` : ''}`;
+      this.note_.textContent = `${file.name} に位置なし${layer.statusDetail ? `（${layer.statusDetail}）` : ''}`;
       return null;
     }
     const entry = this.add_(layer);
@@ -310,12 +310,12 @@ export class MovingDialog {
       const found = await imageTime(image).catch(() => null);
       if (!found) continue;
       this.alignTo(found.time);
-      const text = `${image.name} の撮影時刻（${utcText(found.time)}）の位置を表示しています`;
+      const text = `${image.name} の撮影時刻（${utcText(found.time)}）の位置を表示中`;
       this.note_.textContent = text;
       this.options.say(text);
       return found.time;
     }
-    const text = '撮影時刻の分かる画像がありません（タイムラインの「設定」で画像の撮影日時を入れられます）';
+    const text = '撮影時刻の分かる画像なし（タイムラインの「設定」で画像の撮影日時を入力可能）';
     this.note_.textContent = text;
     this.options.say(text);
     return null;
@@ -333,7 +333,7 @@ export class MovingDialog {
   live(): void {
     this.options.timeline.setOpen(false);
     for (const layer of this.feeds()) layer.setTime(null);
-    this.note_.textContent = '最新の位置を表示しています';
+    this.note_.textContent = '最新の位置を表示中';
     this.refreshList_();
   }
 
@@ -378,7 +378,7 @@ export class MovingDialog {
     if (!rows.length) {
       const li = document.createElement('li');
       li.className = 'moving-empty';
-      li.textContent = 'まだありません。登録済みのフィードか URL で接続するか、履歴ファイルを開いてください。';
+      li.textContent = '接続なし。登録済みのフィードか URL で接続、または履歴ファイルを開く。';
       rows.push(li);
     }
     this.list_.replaceChildren(...rows);

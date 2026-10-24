@@ -128,7 +128,7 @@ function sayBlocked(button: HTMLButtonElement): void {
     note.setAttribute('role', 'status');
     button.after(note);
   }
-  note.textContent = 'ポップアップがブロックされました。このサイトのポップアップを許可してください';
+  note.textContent = 'ポップアップがブロック済み。このサイトのポップアップを許可';
   setTimeout(() => note.remove(), 6000);
 }
 
@@ -254,8 +254,8 @@ function updateButton(dialog: HTMLDialogElement): void {
   if (!button) return;
   const out = popped.has(dialog);
   button.textContent = out ? '↩' : '⧉';
-  button.title = out ? 'タブに戻す' : '別ウィンドウで開く（Shift+クリックで常に手前に表示）';
-  button.setAttribute('aria-label', out ? 'タブに戻す' : '別ウィンドウで開く');
+  button.title = out ? 'タブに復帰' : '別ウィンドウで開く（Shift+クリックで常に手前に表示）';
+  button.setAttribute('aria-label', out ? 'タブに復帰' : '別ウィンドウで開く');
 }
 
 /** Gives `dialog` its button, at its title (once; again after its content is replaced). */

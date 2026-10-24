@@ -99,7 +99,7 @@ export class SatelliteTree {
       const summary = document.createElement('summary');
       const box = document.createElement('input');
       box.type = 'checkbox';
-      box.setAttribute('aria-label', `${name}をすべて選ぶ`);
+      box.setAttribute('aria-label', `${name}をすべて選択`);
       box.addEventListener('click', (e) => e.stopPropagation());
       box.addEventListener('change', () => {
         this.choose(members, box.checked);
@@ -217,7 +217,7 @@ export class SatelliteTree {
     bar.className = 'plan-modes';
     const title = document.createElement('span');
     title.textContent = '撮像モード';
-    title.title = 'モードごとに、そのモードを持つ衛星をまとめて選びます（衛星ごとの選択は下の一覧で）';
+    title.title = 'モードごとに、そのモードを持つ衛星をまとめて選択（衛星ごとの選択は下の一覧で）';
     bar.append(title);
     for (const name of names) {
       const members = this.listed_.filter((l) => l.sat.mode === name);
@@ -300,14 +300,14 @@ export class SatelliteTree {
       .join('・');
     const note = document.createElement('small');
     note.textContent = facts;
-    label.title = sat.source === SAMPLE_SOURCE ? 'サンプル（決め打ちの軌道。実在の衛星ではありません）' : `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
+    label.title = sat.source === SAMPLE_SOURCE ? 'サンプル（決め打ちの軌道。架空の衛星）' : `${sat.source}${Number.isNaN(age) ? '' : `・TLE ${round(age, 0)} 日前`}`;
     const marker = this.options.marker?.(sat);
     label.append(box, ...(marker ? [marker] : []), document.createTextNode(modeOnly && sat.mode ? sat.mode : satelliteLabel(sat)), note);
     if (sat.source !== SAMPLE_SOURCE && Math.abs(age) > OLD_TLE) {
       const old = document.createElement('span');
       old.className = 'plan-old';
       old.textContent = 'TLE 古い';
-      old.title = `TLE の元期が ${round(age, 0)} 日前です。予測がずれることがあります`;
+      old.title = `TLE の元期が ${round(age, 0)} 日前。予測がずれる場合あり`;
       label.append(old);
     }
     return label;

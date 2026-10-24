@@ -59,7 +59,7 @@ const fileKey = (file: File) => `file:${file.name}:${file.size}:${file.lastModif
 /** The bytes of a model at `url`, reporting progress (0–1) when the server gives the length. */
 export async function fetchModel(url: string, onProgress?: (done: number) => void): Promise<Uint8Array> {
   const response = await authFetch(url);
-  if (!response.ok) throw new Error(`${url} を読めませんでした（HTTP ${response.status}）`);
+  if (!response.ok) throw new Error(`${url} の読み込みに失敗（HTTP ${response.status}）`);
   const total = Number(response.headers.get('content-length')) || 0;
   if (!response.body || !total || !onProgress) return new Uint8Array(await response.arrayBuffer());
   const out = new Uint8Array(total);

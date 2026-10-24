@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /*
  * Windows dragged anywhere: the 撮像計画 panel and the 物体検出 dialog by
- * their title, the クリックで抽出 panel over the map by its background. They
+ * their title, the クリック抽出 panel over the map by its background. They
  * stay inside the screen (the map for the panel), keep their place when
  * opened again, and go back on a double click of the title.
  */
@@ -77,7 +77,7 @@ test('the modal object detection dialog moves by its title', async ({ page }) =>
   const dialog = page.locator('.ai-dialog');
   await expect(dialog).toBeVisible();
   // Centred until moved, so it shifts while the model's description fills in: wait for the last one.
-  await expect(dialog.locator('.ai-model-info')).toContainText(/で実行|読み込めません/, { timeout: 30_000 });
+  await expect(dialog.locator('.ai-model-info')).toContainText(/で実行|読み込み不可/, { timeout: 30_000 });
   const title = await boxOf(dialog.locator('h2'));
   const x = title.x + 20;
   const y = title.y + title.height / 2;

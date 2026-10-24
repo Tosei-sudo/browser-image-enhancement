@@ -74,11 +74,11 @@ const RESERVED_HEADERS = new Set(['host', 'cookie', 'origin', 'referer', 'conten
 /** The portal of one `arcgisPortals` entry; null (with the reason in `problems`) when it cannot be used. */
 export function arcgisPortalOf(value: unknown, problems: string[], index: number): ArcgisPortalConfig | null {
   const at = `arcgisPortals[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, clientId } = value;
   const u = typeof url === 'string' ? secureUrl(url.trim()) : null;
-  if (!u || u.search || u.hash) return (problems.push(`${at} の url はポータルの https の URL（https://www.arcgis.com、https://gis.example.com/portal など）にしてください`), null);
-  if (typeof clientId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(clientId)) return (problems.push(`${at} の clientId（ポータルに登録したアプリのクライアント ID）がありません`), null);
+  if (!u || u.search || u.hash) return (problems.push(`${at} の url はポータルの https の URL（https://www.arcgis.com、https://gis.example.com/portal など）で指定`), null);
+  if (typeof clientId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(clientId)) return (problems.push(`${at} の clientId（ポータルに登録したアプリのクライアント ID）なし`), null);
   const root = u.href.replace(/\/+$/, '').replace(/\/sharing(\/rest)?$/i, '');
   return { label: typeof label === 'string' && label.trim() ? label.trim() : u.host, url: root, clientId };
 }
@@ -86,32 +86,32 @@ export function arcgisPortalOf(value: unknown, problems: string[], index: number
 /** The rule of one `authRules` entry; null (with the reason in `problems`) when it cannot be used. */
 export function authRuleOf(value: unknown, problems: string[], index: number): AuthRule | null {
   const at = `authRules[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { prefix, headers, query } = value;
   // At least the host and the `/` after it, so `https://bucket.example.com` cannot match `https://bucket.example.com.evil.net`.
   const u = typeof prefix === 'string' && /^https?:\/\/[^/?#]+\//i.test(prefix) ? secureUrl(prefix) : null;
-  if (!u || u.hash) return (problems.push(`${at} の prefix は https:// で始まり、ホストの後の / まで含む URL にしてください（http は localhost のみ）`), null);
+  if (!u || u.hash) return (problems.push(`${at} の prefix は https:// で始まり、ホストの後の / まで含む URL で指定（http は localhost のみ）`), null);
   const out: AuthRule = { prefix: u.href, headers: {}, query: {} };
   const valid = (v: unknown): v is string => typeof v === 'string' && v.length <= 8192 && !/[\r\n\0]/.test(v);
   if (headers !== undefined) {
-    if (!isRecord(headers)) problems.push(`${at} の headers はオブジェクトにしてください`);
+    if (!isRecord(headers)) problems.push(`${at} の headers はオブジェクトで指定`);
     else {
       for (const [name, v] of Object.entries(headers)) {
         if (isHeaderName(name) && !RESERVED_HEADERS.has(name.toLowerCase()) && !/^(sec-|proxy-)/i.test(name) && valid(v)) out.headers[name] = v;
-        else problems.push(`${at} の headers の「${name.slice(0, 40)}」は無視しました`);
+        else problems.push(`${at} の headers の「${name.slice(0, 40)}」は無視`);
       }
     }
   }
   if (query !== undefined) {
-    if (!isRecord(query)) problems.push(`${at} の query はオブジェクトにしてください`);
+    if (!isRecord(query)) problems.push(`${at} の query はオブジェクトで指定`);
     else {
       for (const [name, v] of Object.entries(query)) {
         if (name && name.length <= 100 && valid(v)) out.query[name] = v;
-        else problems.push(`${at} の query の「${name.slice(0, 40)}」は無視しました`);
+        else problems.push(`${at} の query の「${name.slice(0, 40)}」は無視`);
       }
     }
   }
-  if (!Object.keys(out.headers).length && !Object.keys(out.query).length) return (problems.push(`${at} に headers も query もありません`), null);
+  if (!Object.keys(out.headers).length && !Object.keys(out.query).length) return (problems.push(`${at} に headers も query もなし`), null);
   return out;
 }
 
@@ -386,16 +386,16 @@ async function portalPost(url: string, form: Record<string, string>): Promise<Re
   try {
     response = await fetch(url, { method: 'POST', body: new URLSearchParams(form), headers: { 'content-type': 'application/x-www-form-urlencoded' } });
   } catch {
-    throw new Error('ポータルに接続できませんでした（URL、または CORS の設定を確認してください）');
+    throw new Error('ポータルへの接続に失敗（URL、または CORS の設定を確認）');
   }
   const json = (await response.json().catch(() => null)) as unknown;
-  if (!isRecord(json)) throw new Error(`ポータルの応答が JSON ではありません（HTTP ${response.status}）`);
+  if (!isRecord(json)) throw new Error(`ポータルの応答が JSON 以外（HTTP ${response.status}）`);
   if (isRecord(json.error)) {
     const message = typeof json.error.message === 'string' ? json.error.message : String(json.error.code ?? '');
     const description = typeof json.error_description === 'string' ? json.error_description : '';
-    throw new Error(`ポータルがエラーを返しました: ${[message, description].filter(Boolean).join(' ').slice(0, 300)}`);
+    throw new Error(`ポータルからエラー応答: ${[message, description].filter(Boolean).join(' ').slice(0, 300)}`);
   }
-  if (typeof json.error === 'string') throw new Error(`ポータルがエラーを返しました: ${json.error}${typeof json.error_description === 'string' ? ` ${json.error_description.slice(0, 300)}` : ''}`);
+  if (typeof json.error === 'string') throw new Error(`ポータルからエラー応答: ${json.error}${typeof json.error_description === 'string' ? ` ${json.error_description.slice(0, 300)}` : ''}`);
   return json;
 }
 
@@ -403,7 +403,7 @@ async function portalPost(url: string, form: Record<string, string>): Promise<Re
 export async function requestToken(portal: string, form: Record<string, string>, now = Date.now()): Promise<TokenAnswer> {
   const json = await portalPost(`${portal}/sharing/rest/oauth2/token`, { ...form, f: 'json' });
   const { access_token, expires_in, refresh_token, refresh_token_expires_in, username } = json;
-  if (typeof access_token !== 'string' || !access_token || typeof expires_in !== 'number' || !(expires_in > 0)) throw new Error('ポータルからトークンを受け取れませんでした');
+  if (typeof access_token !== 'string' || !access_token || typeof expires_in !== 'number' || !(expires_in > 0)) throw new Error('ポータルからトークンの受け取りに失敗');
   return {
     token: access_token,
     expires: now + expires_in * 1000,
@@ -512,7 +512,7 @@ let pending: { state: string; resolve: (code: string) => void; reject: (error: E
 
 /** Stops a sign-in that is waiting for the popup. */
 export function cancelSignIn(): void {
-  pending?.reject(new Error('サインインを中止しました'));
+  pending?.reject(new Error('サインインを中止'));
 }
 
 /** Waits for the callback page to send the code for `state` (10 minutes at most). */
@@ -520,12 +520,12 @@ function waitForCode(state: string): Promise<string> {
   cancelSignIn();
   return new Promise<string>((resolve, reject) => {
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CHANNEL);
-    const timer = setTimeout(() => finish(new Error('サインインが時間内に終わりませんでした')), 10 * 60_000);
+    const timer = setTimeout(() => finish(new Error('サインインが時間切れ')), 10 * 60_000);
     const take = (data: unknown) => {
       if (!isRecord(data) || data.type !== 'arcgis-oauth' || data.state !== state) return;
       const m = data as unknown as CallbackMessage;
       if (typeof m.code === 'string' && m.code) finish(null, m.code);
-      else finish(new Error(`サインインできませんでした${typeof m.error === 'string' && m.error ? `（${m.error.slice(0, 200)}）` : ''}`));
+      else finish(new Error(`サインイン失敗${typeof m.error === 'string' && m.error ? `（${m.error.slice(0, 200)}）` : ''}`));
     };
     const onMessage = (e: MessageEvent) => {
       // Only this site's callback page.
@@ -554,7 +554,7 @@ function waitForCode(state: string): Promise<string> {
  */
 export async function signIn(portal: ArcgisPortalConfig): Promise<ArcgisUser> {
   const popup = window.open('about:blank', 'arcgis-signin', 'popup,width=520,height=720');
-  if (!popup) throw new Error('ポップアップがブロックされました。このサイトのポップアップを許可してください');
+  if (!popup) throw new Error('ポップアップがブロック済み。このサイトのポップアップを許可');
   const verifier = randomString(48);
   const state = randomString(24);
   const redirect = redirectUri();
@@ -567,7 +567,7 @@ export async function signIn(portal: ArcgisPortalConfig): Promise<ArcgisUser> {
     const servers = await portalPost(`${portal.url}/sharing/rest/portals/self/servers`, { f: 'json', token: answer.token }).catch(() => null);
     const user = isRecord(self.user) ? self.user : {};
     const username = typeof user.username === 'string' && user.username ? user.username : answer.username;
-    if (!username) throw new Error('サインインしたユーザーが分かりませんでした');
+    if (!username) throw new Error('サインインしたユーザーが不明');
     const session: Session = {
       portal: portal.url,
       clientId: portal.clientId,
@@ -616,7 +616,7 @@ export function signOut(portalUrl?: string): void {
 function loadInto(image: HTMLImageElement, src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     image.addEventListener('load', () => resolve(image), { once: true });
-    image.addEventListener('error', () => reject(new Error('画像を読み込めませんでした')), { once: true });
+    image.addEventListener('error', () => reject(new Error('画像の読み込みに失敗')), { once: true });
     image.src = src;
   });
 }

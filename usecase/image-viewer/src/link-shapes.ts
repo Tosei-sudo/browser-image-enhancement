@@ -138,7 +138,7 @@ export function readLinkShapes(params: URLSearchParams): LinkShapes {
         return;
       }
       vertices += countVertices(g);
-      if (vertices > MAX_VERTICES) throw new LinkError(`頂点が多すぎます（全体で ${MAX_VERTICES.toLocaleString()} 点まで）`);
+      if (vertices > MAX_VERTICES) throw new LinkError(`頂点が多すぎ（全体で ${MAX_VERTICES.toLocaleString()} 点まで）`);
       const feature = new Feature({ geometry: g, ...properties[i] });
       group.push(feature);
       features.push(feature);
@@ -153,7 +153,7 @@ export function readLinkShapes(params: URLSearchParams): LinkShapes {
     if (!SHAPE_PARAMS.has(key)) continue;
     const shown = raw.length > 40 ? `${raw.slice(0, 40)}…` : raw;
     try {
-      if (raw.length > MAX_VALUE) throw new LinkError(`長すぎます（${MAX_VALUE.toLocaleString()} 文字まで）`);
+      if (raw.length > MAX_VALUE) throw new LinkError(`長すぎ（${MAX_VALUE.toLocaleString()} 文字まで）`);
       if (vertices > MAX_VERTICES) break;
       if (key === 'geojson') {
         const read = readGeoJson(raw, extra);
@@ -163,11 +163,11 @@ export function readLinkShapes(params: URLSearchParams): LinkShapes {
         const points = coordinates(raw);
         if (key === 'geom') take([points.length === 1 ? new Point(points[0]) : new MultiPoint(points)]);
         else if (key === 'line') {
-          if (points.length < 2) throw new LinkError('ラインには 2 点以上が必要です');
+          if (points.length < 2) throw new LinkError('ラインには 2 点以上が必要');
           take([new LineString(points)]);
         } else {
           const ring = closed(points);
-          if (ring.length < 4) throw new LinkError('ポリゴンには 3 点以上が必要です');
+          if (ring.length < 4) throw new LinkError('ポリゴンには 3 点以上が必要');
           take([new Polygon([ring])]);
         }
       }
@@ -179,7 +179,7 @@ export function readLinkShapes(params: URLSearchParams): LinkShapes {
     }
     if (full) break;
   }
-  if (full) errors.push(`図形が多すぎます（${MAX_SHAPES.toLocaleString()} 個まで表示しました）`);
+  if (full) errors.push(`図形が多すぎ（${MAX_SHAPES.toLocaleString()} 個まで表示）`);
   let labeled = false;
   groups.forEach((group, i) => {
     const label = labels[i];
@@ -222,12 +222,12 @@ function colorOf(text: string | null): string | null {
 /** Coordinates separated by `;` (or new lines), each in any notation, in `EPSG:3857`. */
 function coordinates(text: string): number[][] {
   const parts = text.split(/[;\n]/).map((p) => p.trim()).filter(Boolean);
-  if (!parts.length) throw new LinkError('座標がありません');
-  if (parts.length > MAX_VERTICES) throw new LinkError(`頂点が多すぎます（${MAX_VERTICES.toLocaleString()} 点まで）`);
+  if (!parts.length) throw new LinkError('座標なし');
+  if (parts.length > MAX_VERTICES) throw new LinkError(`頂点が多すぎ（${MAX_VERTICES.toLocaleString()} 点まで）`);
   return parts.map((p) => {
-    if (p.length > 100) throw new LinkError(`座標として読めません: ${p.slice(0, 40)}…`);
+    if (p.length > 100) throw new LinkError(`座標として読み込み不可: ${p.slice(0, 40)}…`);
     const lonLat = parseCoordinate(p);
-    if (!lonLat) throw new LinkError(`座標として読めません: ${p}`);
+    if (!lonLat) throw new LinkError(`座標として読み込み不可: ${p}`);
     return fromLonLat(lonLat);
   });
 }
@@ -241,18 +241,18 @@ function closed(points: number[][]): number[][] {
 
 /** WKT or EWKT in WGS 84 (`SRID=4326;`, or none) or Web Mercator (`SRID=3857;`). */
 function readWkt(text: string): Geometry[] {
-  if (!WKT_CHARS.test(text)) throw new LinkError('WKT に使えない文字があります');
+  if (!WKT_CHARS.test(text)) throw new LinkError('WKT に使用不可の文字あり');
   const m = /^\s*SRID\s*=\s*(\d+)\s*;\s*/i.exec(text);
   const srid = m ? Number(m[1]) : 4326;
-  if (srid !== 4326 && srid !== 3857 && srid !== 900913) throw new LinkError(`SRID=${srid} には対応していません（4326・3857）`);
+  if (srid !== 4326 && srid !== 3857 && srid !== 900913) throw new LinkError(`SRID=${srid} には非対応（4326・3857）`);
   const body = m ? text.slice(m[0].length) : text;
   let geometry: Geometry;
   try {
     geometry = wkt.readGeometry(body, { dataProjection: srid === 4326 ? 'EPSG:4326' : 'EPSG:3857', featureProjection: 'EPSG:3857' });
   } catch {
-    throw new LinkError('WKT として読めません');
+    throw new LinkError('WKT として読み込み不可');
   }
-  if (!geometry) throw new LinkError('WKT として読めません');
+  if (!geometry) throw new LinkError('WKT として読み込み不可');
   checkGeometry(geometry);
   return [geometry];
 }
@@ -263,15 +263,15 @@ function readGeoJson(text: string, fields: Map<string, Field['type']>): { geomet
   try {
     object = JSON.parse(text);
   } catch {
-    throw new LinkError('GeoJSON（JSON）として読めません');
+    throw new LinkError('GeoJSON（JSON）として読み込み不可');
   }
   const kinds = ['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon', 'GeometryCollection', 'Feature', 'FeatureCollection'];
-  if (!object || typeof object !== 'object' || !kinds.includes((object as { type?: unknown }).type as string)) throw new LinkError('GeoJSON の type がありません');
+  if (!object || typeof object !== 'object' || !kinds.includes((object as { type?: unknown }).type as string)) throw new LinkError('GeoJSON の type なし');
   let read: Feature[];
   try {
     read = geojson.readFeatures(object, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
   } catch {
-    throw new LinkError('GeoJSON として読めません');
+    throw new LinkError('GeoJSON として読み込み不可');
   }
   const geometries: Geometry[] = [];
   const properties: Array<Record<string, unknown>> = [];
@@ -291,7 +291,7 @@ function readGeoJson(text: string, fields: Map<string, Field['type']>): { geomet
     geometries.push(g);
     properties.push(props);
   }
-  if (!geometries.length) throw new LinkError('図形がありません');
+  if (!geometries.length) throw new LinkError('図形なし');
   return { geometries, properties };
 }
 
@@ -303,14 +303,14 @@ function checkGeometry(geometry: Geometry): void {
       checkGeometry(part);
       continue;
     }
-    if (!(part instanceof SimpleGeometry)) throw new LinkError('対応していない図形です');
+    if (!(part instanceof SimpleGeometry)) throw new LinkError('非対応の図形');
     const flat = part.getFlatCoordinates();
     const stride = part.getStride();
-    if (!flat.length) throw new LinkError('空の図形です');
+    if (!flat.length) throw new LinkError('空の図形');
     for (let i = 0; i < flat.length; i += stride) {
       const [lon, lat] = toLonLat([flat[i], flat[i + 1]]) as LonLat;
       if (!Number.isFinite(flat[i]) || !Number.isFinite(flat[i + 1]) || Math.abs(lat) > 90 || Math.abs(flat[i]) > 20037508.35 * 1.0000001 || Math.abs(lon) > 180.0000001) {
-        throw new LinkError('緯度経度の範囲外の座標があります（WKT・GeoJSON は経度・緯度の順です）');
+        throw new LinkError('緯度経度の範囲外の座標あり（WKT・GeoJSON は経度・緯度の順）');
       }
     }
   }

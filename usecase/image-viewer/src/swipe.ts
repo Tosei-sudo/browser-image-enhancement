@@ -88,7 +88,7 @@ export class SwipeTool {
     this.attach_();
     if (active) {
       this.place_();
-      this.options.say(this.layer_ ? `${this.name_} を線の${this.side_()}だけに表示しています。下のレイヤーと見比べられます` : 'レイヤーを選ぶと、線の片側だけに表示して見比べられます');
+      this.options.say(this.layer_ ? `${this.name_} を線の${this.side_()}のみに表示中。下のレイヤーと比較可能` : 'レイヤーを選ぶと、線の片側のみに表示して比較可能');
     }
   }
 
@@ -225,7 +225,7 @@ export class SwipeTool {
     this.handle_.addEventListener('dblclick', (e) => {
       e.stopPropagation();
       this.setOrientation(this.orientation_ === 'vertical' ? 'horizontal' : 'vertical');
-      this.options.say(`スワイプを${this.orientation_ === 'vertical' ? '縦線（左右で比較）' : '横線（上下で比較）'}にしました`);
+      this.options.say(`スワイプを${this.orientation_ === 'vertical' ? '縦線（左右で比較）' : '横線（上下で比較）'}に変更`);
     });
     this.handle_.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 0.1 : 0.01;

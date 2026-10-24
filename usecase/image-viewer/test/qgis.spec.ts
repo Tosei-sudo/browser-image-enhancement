@@ -83,7 +83,7 @@ test('an SLD from QGIS is read into a vector layer’s style, and the style is w
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
   await page.locator('#images li').first().getByRole('button', { name: 'スタイル・ラベル' }).click();
   const dialog = page.getByRole('dialog', { name: 'スタイル: landuse' });
 
@@ -91,7 +91,7 @@ test('an SLD from QGIS is read into a vector layer’s style, and the style is w
   await dialog.getByRole('button', { name: '読み込み…' }).click();
   await (await chooser).setFiles({ name: 'landuse.sld', mimeType: 'application/xml', buffer: readFileSync(new URL('./data/qgis/landuse-categorized.sld', import.meta.url)) });
   const note = dialog.locator('.style-note');
-  await expect(note).toContainText('landuse.sld（SLD）を読み込みました');
+  await expect(note).toContainText('landuse.sld（SLD）を読み込み');
   await expect(note).toContainText('模様・画像の塗り');
   await expect(dialog.getByLabel('表示方法')).toHaveValue('categorized');
   await expect(dialog.getByLabel('商業 の色')).toHaveValue('#ff8800');
@@ -107,7 +107,7 @@ test('an SLD from QGIS is read into a vector layer’s style, and the style is w
   // Written as QML for QGIS.
   await page.locator('#images li').first().getByRole('button', { name: 'スタイル・ラベル' }).click();
   await dialog.getByRole('button', { name: '書き出し…' }).click();
-  await dialog.getByLabel('書き出す形式').selectOption('qml');
+  await dialog.getByLabel('書き出し形式').selectOption('qml');
   const downloading = page.waitForEvent('download');
   await dialog.getByRole('button', { name: '保存', exact: true }).click();
   const download = await downloading;
@@ -174,7 +174,7 @@ test('a QGIS project (.qgz) opens with its WMS, WFS and XYZ layers, styles and e
   const qgz = zip([{ name: 'tokyo.qgs', text: project(baseURL!) }]);
   await choose(page, 'tokyo.qgz', qgz);
   const status = page.locator('#status');
-  await expect(status).toContainText('QGIS プロジェクト「tokyo」を開きました', { timeout: 20_000 });
+  await expect(status).toContainText('QGIS プロジェクト「tokyo」を表示', { timeout: 20_000 });
   await expect(status).toContainText('開けないレイヤー: 建物（データベース）');
 
   const layers = await page.evaluate(() =>
@@ -201,7 +201,7 @@ test('a QGIS project (.qgz) opens with its WMS, WFS and XYZ layers, styles and e
 
   // And out again, for QGIS.
   const downloading = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'QGIS 形式で書き出す' }).click();
+  await page.getByRole('button', { name: 'QGIS 形式で書き出し' }).click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe('tokyo.qgs');
   const qgs = readFileSync((await download.path())!, 'utf8');

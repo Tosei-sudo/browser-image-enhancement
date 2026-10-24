@@ -2524,7 +2524,7 @@ body {
   font: inherit;
 }
 .split-pane.empty::after {
-  content: '上でレイヤーを選んでください';
+  content: '上でレイヤーを選択';
   position: absolute;
   inset: 0;
   display: grid;
@@ -4224,7 +4224,7 @@ body {
 }
 .script-log ol:empty::before {
   color: var(--muted);
-  content: 'まだ実行していません';
+  content: '未実行';
 }
 .script-log time {
   color: var(--muted);
@@ -4249,7 +4249,7 @@ body {
 }
 .script-output:empty::before {
   color: var(--muted);
-  content: 'print() の出力がここに出ます';
+  content: 'print() の出力を表示';
 }
 .script-warn {
   color: #b7791f;
@@ -5428,7 +5428,7 @@ dialog.docked > .dock-dialog-corner {
   right: 10px;
 }
 
-/* 格子を敷き詰める (tessellate-dialog.ts): the shapes as picture buttons, and the draw buttons. */
+/* 格子の敷き詰め (tessellate-dialog.ts): the shapes as picture buttons, and the draw buttons. */
 .tessellate-shapes {
   display: flex;
   flex-wrap: wrap;

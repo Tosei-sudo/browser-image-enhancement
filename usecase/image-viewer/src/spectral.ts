@@ -367,14 +367,14 @@ export class SpectralPanel {
 
   private async add_(read: () => Promise<Pixels>, geometry: Point | Polygon): Promise<void> {
     const image = this.options.image();
-    if (!image) return this.say_('画像のレイヤーを選んでください');
+    if (!image) return this.say_('画像のレイヤーを選択');
     this.image_ = image;
     try {
       const got = await read();
       if (this.options.image() !== image) return;
       const nodata = this.noDataTest_(image);
       const bands = bandStats(got.bands, nodata);
-      if (bands.every((b) => b.count === 0)) return this.say_(got.pixels ? 'そこはノーデータです' : 'そこには画像がありません');
+      if (bands.every((b) => b.count === 0)) return this.say_(got.pixels ? 'その地点はノーデータ' : 'その地点に画像なし');
       const number = this.next_++;
       const color = COLORS[(number - 1) % COLORS.length];
       this.series_.push({ number, label: got.label, color, bands, pixels: got.pixels });
@@ -468,7 +468,7 @@ export class SpectralPanel {
     this.note_.textContent = this.series_.length
       ? ''
       : this.mode_.value === 'box'
-        ? '地図上をドラッグすると、その範囲の各バンドの平均（と最小〜最大の幅）を表示します'
-        : '地図をクリックすると、その点の各バンドの値を表示します。いくつも重ねて比べられます';
+        ? '地図上をドラッグすると、その範囲の各バンドの平均（と最小〜最大の幅）を表示'
+        : '地図をクリックすると、その点の各バンドの値を表示。複数を重ねて比較可能';
   }
 }

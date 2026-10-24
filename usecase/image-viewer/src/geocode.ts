@@ -134,7 +134,7 @@ export function readGazetteer(text: string, source: string, nameField?: string):
   const lon = index(/^(lon|lng|long|longitude|経度|x)$/i);
   let name = nameField ? head.findIndex((h) => h.trim() === nameField) : index(/^(name|名称|名前|地名|title)$/i);
   if (name < 0) name = head.findIndex((_, i) => i !== lat && i !== lon);
-  if (lat < 0 || lon < 0 || name < 0) throw new Error(`${source}: 名前・緯度（lat）・経度（lon）の列が見つかりません`);
+  if (lat < 0 || lon < 0 || name < 0) throw new Error(`${source}: 名前・緯度（lat）・経度（lon）の列なし`);
   const others = head.map((_, i) => i).filter((i) => i !== lat && i !== lon && i !== name);
   return {
     rows: rows.flatMap((r) => {

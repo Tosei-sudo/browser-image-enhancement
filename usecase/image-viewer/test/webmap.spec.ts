@@ -34,10 +34,10 @@ test('a web map opens as layers in its order, styles, view and bookmarks; what c
   const dialog = page.getByRole('dialog', { name: 'ArcGIS Web マップを開く' });
   await dialog.getByRole('textbox', { name: 'Web マップのアイテム' }).fill(`${base}/svc/portal/home/item.html?id=${WEBMAP_ID}`);
   await dialog.getByRole('button', { name: '開く', exact: true }).click();
-  await expect(dialog.getByRole('status')).toContainText('Web マップ「東京の公園」の 3 レイヤーを開きました（1 レイヤーは開けませんでした）');
-  await expect(dialog.locator('.webmap-result')).toContainText('開けませんでした: KML の層 — KML レイヤーには対応していません');
-  await expect(dialog.locator('.webmap-result')).toContainText('背景地図「テストの背景」はレイヤーとして下に追加しました');
-  await expect(dialog.locator('.webmap-result')).toContainText('ブックマーク 1 件を追加しました');
+  await expect(dialog.getByRole('status')).toContainText('Web マップ「東京の公園」の 3 レイヤーを表示（1 レイヤーは読み込み失敗）');
+  await expect(dialog.locator('.webmap-result')).toContainText('読み込み失敗: KML の層 — KML レイヤーには非対応');
+  await expect(dialog.locator('.webmap-result')).toContainText('背景地図「テストの背景」はレイヤーとして下に追加');
+  await expect(dialog.locator('.webmap-result')).toContainText('ブックマーク 1 件を追加');
   await dialog.getByRole('button', { name: '閉じる' }).click();
 
   await expect(page.locator('#images .name')).toHaveText(['一時メモ', 'EsriWeb マップの公園', 'Web マップ背景: テストのタイル']);
@@ -82,10 +82,10 @@ test('a secured web map needs its token', async ({ page }) => {
   await dialog.getByText('詳細（ポータル・トークン・ファイル）').click();
   await dialog.getByRole('textbox', { name: 'ポータルの URL' }).fill(`${base}/svc/portal`);
   await dialog.getByRole('button', { name: '開く', exact: true }).click();
-  await expect(dialog.getByRole('status')).toContainText('開けませんでした: このサービスにはトークンが必要です');
+  await expect(dialog.getByRole('status')).toContainText('読み込み失敗: このサービスにはトークンが必要');
   await dialog.getByLabel('ポータルのトークン').fill('secret');
   await dialog.getByRole('button', { name: '開く', exact: true }).click();
-  await expect(dialog.getByRole('status')).toContainText('Web マップ「非公開の地図」の 3 レイヤーを開きました');
+  await expect(dialog.getByRole('status')).toContainText('Web マップ「非公開の地図」の 3 レイヤーを表示');
 });
 
 test('what is open saves as a web map: a JSON file, a new portal item after asking, and over it', async ({ page }) => {
@@ -94,7 +94,7 @@ test('what is open saves as a web map: a JSON file, a new portal item after aski
   const openDialog = page.getByRole('dialog', { name: 'ArcGIS Web マップを開く' });
   await openDialog.getByRole('textbox', { name: 'Web マップのアイテム' }).fill(`${base}/svc/portal/apps/mapviewer/index.html?webmap=${WEBMAP_ID}`);
   await openDialog.getByRole('button', { name: '開く', exact: true }).click();
-  await expect(openDialog.getByRole('status')).toContainText('3 レイヤーを開きました');
+  await expect(openDialog.getByRole('status')).toContainText('3 レイヤーを表示');
   await openDialog.getByRole('button', { name: '閉じる' }).click();
   // Hide the collection: saved hidden.
   await page.locator('#images li', { hasText: 'メモ' }).locator('input[type=checkbox]').first().uncheck();
@@ -102,7 +102,7 @@ test('what is open saves as a web map: a JSON file, a new portal item after aski
   await menu(page, 'ArcGIS Web マップとして保存…');
   const dialog = page.getByRole('dialog', { name: 'ArcGIS Web マップとして保存' });
   await expect(dialog.getByRole('textbox', { name: 'Web マップのタイトル' })).toHaveValue('東京の公園');
-  await expect(dialog.locator('.webmap-summary')).toHaveText('2 レイヤーを書きます: Web マップの公園、メモ');
+  await expect(dialog.locator('.webmap-summary')).toHaveText('2 レイヤーを書き込み: Web マップの公園、メモ');
   await dialog.getByRole('textbox', { name: 'Web マップのタイトル' }).fill('Tokyo parks');
   const [download] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'JSON をダウンロード' }).click()]);
   expect(download.suggestedFilename()).toBe('Tokyo parks.json');
@@ -127,11 +127,11 @@ test('what is open saves as a web map: a JSON file, a new portal item after aski
   await dialog.getByRole('textbox', { name: 'タグ' }).fill('公園, テスト');
   await dialog.getByRole('button', { name: 'ポータルに保存…' }).click();
   const ask = page.locator('dialog.folder-ask');
-  await expect(ask).toContainText('ユーザー tester のフォルダー「地図」 に、Web マップ「東京の公園」を新しく作ります（2 レイヤー）');
+  await expect(ask).toContainText('ユーザー tester のフォルダー「地図」 に、Web マップ「東京の公園」を新規作成（2 レイヤー）');
   // Nothing is written before the answer.
   expect(await (await page.request.get(`${base}/svc/portal/saved`)).json()).toEqual([]);
-  await ask.getByRole('button', { name: '作成する' }).click();
-  await expect(dialog.getByRole('status')).toContainText('保存しました（アイテム aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1）');
+  await ask.getByRole('button', { name: '作成' }).click();
+  await expect(dialog.getByRole('status')).toContainText('保存完了（アイテム aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1）');
   let saved = await (await page.request.get(`${base}/svc/portal/saved`)).json();
   expect(saved).toHaveLength(1);
   expect(saved[0]).toMatchObject({ op: 'addItem', folder: 'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0', type: 'Web Map', title: '東京の公園', tags: '公園, テスト' });
@@ -140,10 +140,10 @@ test('what is open saves as a web map: a JSON file, a new portal item after aski
 
   // Again, over the item just made.
   await dialog.getByRole('textbox', { name: 'Web マップのタイトル' }).fill('東京の公園（改）');
-  await dialog.getByText('開いた Web マップ（aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1）を上書きする').click();
+  await dialog.getByText('開いた Web マップ（aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1）に上書き').click();
   await dialog.getByRole('button', { name: 'ポータルに保存…' }).click();
-  await page.locator('dialog.folder-ask').getByRole('button', { name: '上書きする' }).click();
-  await expect(dialog.getByRole('status')).toContainText('上書き保存しました');
+  await page.locator('dialog.folder-ask').getByRole('button', { name: '上書き' }).click();
+  await expect(dialog.getByRole('status')).toContainText('上書き保存');
   saved = await (await page.request.get(`${base}/svc/portal/saved`)).json();
   expect(saved[1]).toMatchObject({ op: 'update', id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1', title: '東京の公園（改）' });
 });

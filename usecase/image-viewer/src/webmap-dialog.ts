@@ -159,7 +159,7 @@ export class WebMapDialogs {
           <label class="wide">トークン<input name="token" type="password" autocomplete="off" aria-label="保存先のトークン" /></label>
           <label>ユーザー名（空欄: トークンの持ち主）<input name="user" type="text" aria-label="ユーザー名" /></label>
           <label>フォルダー（任意）<input name="folder" type="text" aria-label="フォルダー" /></label>
-          <label class="wide check" hidden><input name="update" type="checkbox" /> <span class="update-text">開いた Web マップを上書きする</span></label>
+          <label class="wide check" hidden><input name="update" type="checkbox" /> <span class="update-text">開いた Web マップに上書き</span></label>
           <button type="button" value="portal" class="wide">ポータルに保存…</button>
         </div>
       </details>
@@ -224,19 +224,19 @@ export class WebMapDialogs {
     const item = this.opened_?.item;
     update.closest('label')!.hidden = !item;
     update.checked = false;
-    if (item) this.saveDialog.querySelector('.update-text')!.textContent = `開いた Web マップ（${item.id}）を上書きする`;
+    if (item) this.saveDialog.querySelector('.update-text')!.textContent = `開いた Web マップ（${item.id}）に上書き`;
   }
 
   /** Opens what the item field names. */
   async openTyped(): Promise<void> {
     const text = this.field_(this.openDialog, 'item').value.trim();
     if (!text) {
-      this.openStatus_.textContent = 'アイテムの URL か ID を入れてください（JSON ファイルは「詳細」から）';
+      this.openStatus_.textContent = 'アイテムの URL か ID を入力（JSON ファイルは「詳細」から）';
       return;
     }
     const ref = parseItemInput(text, this.field_(this.openDialog, 'portal').value.trim() || DEFAULT_PORTAL);
     if (!ref) {
-      this.openStatus_.textContent = 'アイテムの URL（…/home/item.html?id=…、…/apps/mapviewer/index.html?webmap=…）か 32 桁のアイテム ID を入れてください';
+      this.openStatus_.textContent = 'アイテムの URL（…/home/item.html?id=…、…/apps/mapviewer/index.html?webmap=…）か 32 桁のアイテム ID を入力';
       return;
     }
     await this.run_(() => this.openItem(ref, this.field_(this.openDialog, 'token').value.trim() || undefined));
@@ -245,12 +245,12 @@ export class WebMapDialogs {
   /** Opens a web map JSON file. */
   async openFile(file: File): Promise<void> {
     await this.run_(async () => {
-      if (file.size > MAX_WEBMAP_READ) throw new ServiceError('ファイルが大きすぎます');
+      if (file.size > MAX_WEBMAP_READ) throw new ServiceError('ファイルが大きすぎ');
       let json: unknown;
       try {
         json = JSON.parse(await file.text());
       } catch {
-        throw new ServiceError('JSON として読めません');
+        throw new ServiceError('JSON として読み込み不可');
       }
       const portal = portalRoot(this.field_(this.openDialog, 'portal').value) ?? null;
       return this.apply(planWebMap(json), { title: file.name.replace(/\.json$/i, ''), item: null, portal, token: this.field_(this.openDialog, 'token').value.trim() || undefined });
@@ -258,14 +258,14 @@ export class WebMapDialogs {
   }
 
   private async run_(work: () => Promise<string>): Promise<void> {
-    this.openStatus_.textContent = '読み込んでいます…';
+    this.openStatus_.textContent = '読み込み中…';
     this.openResult_.replaceChildren();
     try {
       const summary = await work();
       this.openStatus_.textContent = summary;
       this.options.say(summary);
     } catch (error) {
-      this.openStatus_.textContent = `開けませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.openStatus_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -273,7 +273,7 @@ export class WebMapDialogs {
   async openItem(ref: WebMapItemRef, typed?: string): Promise<string> {
     rememberPortal(ref.portal);
     const item = await esriJson<{ type?: string; title?: string; owner?: string; extent?: unknown }>(itemUrl(ref), {}, await tokenFor(itemUrl(ref), ref.portal, typed));
-    if (item.type !== 'Web Map') throw new ServiceError(`Web マップのアイテムではありません（種類: ${item.type ?? '不明'}）`);
+    if (item.type !== 'Web Map') throw new ServiceError(`Web マップ以外のアイテム（種類: ${item.type ?? '不明'}）`);
     const data = await readData(itemDataUrl(ref), await tokenFor(itemDataUrl(ref), ref.portal, typed));
     return this.apply(planWebMap(data), { title: item.title ?? ref.id, item: ref, owner: item.owner, portal: ref.portal, token: typed, itemExtent: itemExtent(item) });
   }
@@ -293,11 +293,11 @@ export class WebMapDialogs {
     let extra = plan.basemap.layers.filter((l) => l.reference);
     if (match) {
       baseMap.set(match.id);
-      notes.push(`背景地図は「${match.label}」にしました`);
+      notes.push(`背景地図は「${match.label}」に設定`);
     } else if (plan.basemap.layers.length) {
       baseMap.set('');
       extra = plan.basemap.layers;
-      notes.push(`背景地図「${plan.basemap.title}」はレイヤーとして下に追加しました`);
+      notes.push(`背景地図「${plan.basemap.title}」はレイヤーとして下に追加`);
     }
 
     // Opened at once, added in order: bottom first, so the last is on top.
@@ -336,15 +336,15 @@ export class WebMapDialogs {
     }
     if (bookmarks.length) {
       this.options.bookmarks.merge(bookmarks);
-      notes.push(`ブックマーク ${bookmarks.length} 件を追加しました`);
+      notes.push(`ブックマーク ${bookmarks.length} 件を追加`);
     }
     this.options.onChange?.();
 
     this.openResult_.replaceChildren(
       ...notes.map((n) => listItem(n, 'note')),
-      ...problems.map((p) => listItem(`開けませんでした: ${p.title} — ${p.reason}`, 'problem')),
+      ...problems.map((p) => listItem(`読み込み失敗: ${p.title} — ${p.reason}`, 'problem')),
     );
-    return `Web マップ「${from.title}」の ${count} レイヤーを開きました${problems.length ? `（${problems.length} レイヤーは開けませんでした）` : ''}`;
+    return `Web マップ「${from.title}」の ${count} レイヤーを表示${problems.length ? `（${problems.length} レイヤーは読み込み失敗）` : ''}`;
   }
 
   /** One layer of a web map as the viewer's layer, in the web map's style. */
@@ -377,7 +377,7 @@ export class WebMapDialogs {
     const out: ServiceLayer[] = [];
     for (const part of spec.parts) {
       const projection = await projectionOf(`EPSG:${part.wkid}`);
-      if (!projection) throw new ServiceError(`座標系 EPSG:${part.wkid} を読めません`);
+      if (!projection) throw new ServiceError(`座標系 EPSG:${part.wkid} の読み込み不可`);
       const features = collectionFeatures(part, projection.getCode());
       const fields = part.fields.map((f) => toField(f, true, new Set())).filter((f): f is Field => f !== null && f.type !== 'oid');
       const record: TempRecord = {
@@ -456,7 +456,7 @@ export class WebMapDialogs {
 
   private saveLayer_(l: ViewerLayer): SaveLayer {
     const common = { title: l.name, visible: this.options.images.isVisible(l), opacity: l.layer.getOpacity() };
-    if (l.type === 'image') return { ...common, type: 'none', reason: '画像（COG・ファイル）は Web マップに書けません' };
+    if (l.type === 'image') return { ...common, type: 'none', reason: '画像（COG・ファイル）は Web マップへの書き込み不可' };
     const service = (l as ViewerService).service;
     const kept = this.kept_.get(service);
     const spec = service.style?.get();
@@ -470,10 +470,10 @@ export class WebMapDialogs {
       return { ...common, ...scales, type: 'ref', ref: service.ref, spec, geometryType: service.esri?.geometryType ?? first, renderer: kept?.renderer };
     }
     if (service.vector && !service.tableOnly) {
-      if (service.vector.note) return { ...common, type: 'none', reason: 'すべての地物を読み込んでいないレイヤーです' };
+      if (service.vector.note) return { ...common, type: 'none', reason: '地物を一部のみ読み込んだレイヤー' };
       return { ...common, ...scales, type: 'features', features: service.vector.source.getFeatures(), fields: service.vector.fields, spec, renderer: kept?.renderer };
     }
-    return { ...common, type: 'none', reason: service.tableOnly ? '表（ジオメトリなし）は書けません' : 'サービスの URL がありません' };
+    return { ...common, type: 'none', reason: service.tableOnly ? '表（ジオメトリなし）は書き込み不可' : 'サービスの URL なし' };
   }
 
   private title_(): string {
@@ -482,9 +482,9 @@ export class WebMapDialogs {
 
   private showSummary_(result: ReturnType<typeof buildWebMap>): void {
     this.saveDialog.querySelector('.webmap-summary')!.textContent = result.included.length
-      ? `${result.included.length} レイヤーを書きます: ${result.included.join('、')}`
-      : '書けるレイヤーがありません（表示範囲と背景地図だけを書きます）';
-    this.saveResult_.replaceChildren(...result.skipped.map((s) => listItem(`書けません: ${s.title} — ${s.reason}`, 'problem')));
+      ? `${result.included.length} レイヤーを書き込み: ${result.included.join('、')}`
+      : '書き込めるレイヤーなし（表示範囲と背景地図のみ書き込み）';
+    this.saveResult_.replaceChildren(...result.skipped.map((s) => listItem(`書き込み不可: ${s.title} — ${s.reason}`, 'problem')));
   }
 
   /** Downloads the web map as a .json file. */
@@ -497,7 +497,7 @@ export class WebMapDialogs {
     a.download = `${this.title_().replace(/[\\/:*?"<>|]+/g, '_')}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-    this.saveStatus_.textContent = `${a.download} を保存しました`;
+    this.saveStatus_.textContent = `${a.download} を保存`;
   }
 
   /** Saves the web map to a portal (a new item, or over the one opened), after asking. */
@@ -506,28 +506,28 @@ export class WebMapDialogs {
     const portal = portalRoot(this.field_(this.saveDialog, 'portal').value || DEFAULT_PORTAL);
     const typed = this.field_(this.saveDialog, 'token').value.trim() || undefined;
     if (!portal) {
-      status.textContent = 'ポータルの URL を入れてください';
+      status.textContent = 'ポータルの URL を入力';
       return;
     }
     const token = await tokenFor(`${portal}/sharing/rest`, portal, typed);
     if (!token) {
-      status.textContent = 'ポータルに保存するにはトークンを入れてください（https のポータルのみ）';
+      status.textContent = 'ポータルに保存するにはトークンを入力（https のポータルのみ）';
       return;
     }
     try {
-      status.textContent = 'ポータルを確かめています…';
+      status.textContent = 'ポータルを確認中…';
       let user = this.field_(this.saveDialog, 'user').value.trim();
       if (!user) {
         const self = await esriJson<{ username?: string; user?: { username?: string } }>(`${portal}/sharing/rest/community/self`, {}, token);
         user = self.username ?? self.user?.username ?? '';
-        if (!user) throw new ServiceError('トークンのユーザーが分かりません。ユーザー名を入れてください');
+        if (!user) throw new ServiceError('トークンのユーザーが不明。ユーザー名を入力');
       }
       const folderName = this.field_(this.saveDialog, 'folder').value.trim();
       let folder: string | undefined;
       if (folderName) {
         const content = await esriJson<{ folders?: Array<{ id: string; title: string }> }>(userContentUrl(portal, user), {}, token);
         folder = content.folders?.find((f) => f.title === folderName || f.id === folderName)?.id;
-        if (!folder) throw new ServiceError(`フォルダー「${folderName}」がありません`);
+        if (!folder) throw new ServiceError(`フォルダー「${folderName}」なし`);
       }
       const item = this.opened_?.item;
       const update = this.field_(this.saveDialog, 'update').checked && item && item.portal === portal ? item : null;
@@ -536,11 +536,11 @@ export class WebMapDialogs {
       const title = this.title_();
       const tags = this.field_(this.saveDialog, 'tags').value.trim() || 'image-viewer';
       const message = update
-        ? `${portal} の Web マップ（${update.id}）を「${title}」で上書きします（${result.included.length} レイヤー）。よろしいですか？`
-        : `${portal} のユーザー ${user}${folderName ? ` のフォルダー「${folderName}」` : ''} に、Web マップ「${title}」を新しく作ります（${result.included.length} レイヤー）。よろしいですか？`;
+        ? `${portal} の Web マップ（${update.id}）を「${title}」で上書き（${result.included.length} レイヤー）。よろしいですか？`
+        : `${portal} のユーザー ${user}${folderName ? ` のフォルダー「${folderName}」` : ''} に、Web マップ「${title}」を新規作成（${result.included.length} レイヤー）。よろしいですか？`;
       status.textContent = '';
-      const saved = await askDialog()(message, update ? '上書きする' : '作成する', async () => {
-        status.textContent = 'ポータルに書き込んでいます…';
+      const saved = await askDialog()(message, update ? '上書き' : '作成', async () => {
+        status.textContent = 'ポータルに書き込み中…';
         const extent = await wgs84Extent(this.options.map);
         const params: Record<string, string> = {
           title,
@@ -550,7 +550,7 @@ export class WebMapDialogs {
         };
         if (update) {
           const r = await esriJson<{ success?: boolean; id?: string }>(`${userContentUrl(portal, user)}/items/${update.id}/update`, params, token, true);
-          if (r.success === false) throw new ServiceError('ポータルが更新を受け付けませんでした');
+          if (r.success === false) throw new ServiceError('ポータルが更新を拒否');
           return update.id;
         }
         const r = await esriJson<{ success?: boolean; id?: string }>(
@@ -559,11 +559,11 @@ export class WebMapDialogs {
           token,
           true,
         );
-        if (r.success === false || !r.id || !/^[0-9a-f]{32}$/i.test(r.id)) throw new ServiceError('ポータルがアイテムを作りませんでした');
+        if (r.success === false || !r.id || !/^[0-9a-f]{32}$/i.test(r.id)) throw new ServiceError('ポータルでのアイテム作成に失敗');
         return r.id;
       });
       if (saved === null) {
-        status.textContent = '保存しませんでした';
+        status.textContent = '保存取消';
         return;
       }
       rememberPortal(portal);
@@ -574,10 +574,10 @@ export class WebMapDialogs {
       link.target = '_blank';
       link.rel = 'noopener';
       link.textContent = saved;
-      status.replaceChildren(`${update ? '上書き保存' : '保存'}しました（アイテム `, link, '）');
-      this.options.say(`Web マップ「${title}」をポータルに保存しました`);
+      status.replaceChildren(`${update ? '上書き保存' : '保存'}完了（アイテム `, link, '）');
+      this.options.say(`Web マップ「${title}」をポータルに保存`);
     } catch (error) {
-      status.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      status.textContent = `保存失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 }
@@ -593,17 +593,17 @@ function listItem(text: string, className: string): HTMLLIElement {
 async function readData(url: string, token?: string): Promise<unknown> {
   const params = new URLSearchParams({ f: 'json', ...(token ? { token } : {}) });
   const response = token ? await request(url, { method: 'POST', body: params, headers: { 'content-type': 'application/x-www-form-urlencoded' } }) : await request(`${url}?${params}`);
-  if (Number(response.headers.get('content-length') ?? 0) > MAX_WEBMAP_READ) throw new ServiceError('Web マップが大きすぎます');
+  if (Number(response.headers.get('content-length') ?? 0) > MAX_WEBMAP_READ) throw new ServiceError('Web マップが大きすぎ');
   const text = await response.text();
-  if (text.length > MAX_WEBMAP_READ) throw new ServiceError('Web マップが大きすぎます');
+  if (text.length > MAX_WEBMAP_READ) throw new ServiceError('Web マップが大きすぎ');
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    throw new ServiceError('Web マップの内容が JSON ではありません');
+    throw new ServiceError('Web マップの内容が JSON 以外');
   }
   const error = (json as { error?: { code?: number; message?: string } } | null)?.error;
-  if (error) throw new ServiceError(error.code === 498 || error.code === 499 || error.code === 403 ? 'このアイテムにはトークン（権限）が必要です' : `ポータルがエラーを返しました: ${error.message ?? ''}`);
+  if (error) throw new ServiceError(error.code === 498 || error.code === 499 || error.code === 403 ? 'このアイテムにはトークン（権限）が必要' : `ポータルからエラー応答: ${error.message ?? ''}`);
   return json;
 }
 
@@ -611,12 +611,12 @@ async function readData(url: string, token?: string): Promise<unknown> {
 async function openService(ref: ServiceRef, context: OpenContext, token?: string): Promise<ServiceLayer> {
   const catalog = await readService(ref.url, ref.kind, token);
   const choice = catalog.choices.find((c) => c.name === ref.layer) ?? (ref.kind === 'esri' && catalog.choices.length === 1 ? catalog.choices[0] : undefined);
-  if (!choice) throw new ServiceError(`レイヤー ${ref.layer} がサービスにありません`);
+  if (!choice) throw new ServiceError(`レイヤー ${ref.layer} がサービスに存在せず`);
   const matrixSet = ref.matrixSet && choice.matrixSets?.includes(ref.matrixSet) ? ref.matrixSet : undefined;
   const format = ref.format && choice.formats?.includes(ref.format) ? ref.format : undefined;
   const layer = await catalog.open(choice, { ...context, token }, { matrixSet, format, settings: ref.settings });
   // Only coverages open as images (null); a web map holds none of those.
-  if (!layer) throw new ServiceError(`レイヤー ${ref.layer} は画像として開きました`);
+  if (!layer) throw new ServiceError(`レイヤー ${ref.layer} は画像として表示`);
   return layer;
 }
 

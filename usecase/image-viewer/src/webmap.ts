@@ -184,28 +184,28 @@ export interface WebMapPlan {
 }
 
 const unsupportedReasons: Record<string, string> = {
-  CSV: 'CSV レイヤーには対応していません',
-  GeoJSON: 'GeoJSON レイヤーには対応していません（ファイルとして開いてください）',
-  KML: 'KML レイヤーには対応していません',
-  GeoRSS: 'GeoRSS レイヤーには対応していません',
-  OGCFeatureLayer: 'OGC API - Features には対応していません',
-  ArcGISSceneServiceLayer: 'シーンレイヤーは 3D 表示の「3D タイル」から開いてください',
-  IntegratedMeshLayer: '統合メッシュには対応していません',
-  PointCloudLayer: '点群には対応していません',
-  BuildingSceneLayer: 'ビルディングシーンレイヤーには対応していません',
-  ArcGISStreamLayer: 'ストリームレイヤーには対応していません',
-  SubtypeGroupLayer: 'サブタイプグループレイヤーには対応していません',
-  BingMapsAerial: 'Bing Maps には対応していません',
-  BingMapsRoad: 'Bing Maps には対応していません',
-  BingMapsHybrid: 'Bing Maps には対応していません',
-  MediaLayer: 'メディアレイヤーには対応していません',
-  ArcGISImageServiceVectorLayer: 'ベクターフィールドの表示には対応していません',
-  KnowledgeGraphLayer: 'ナレッジグラフには対応していません',
+  CSV: 'CSV レイヤーには非対応',
+  GeoJSON: 'GeoJSON レイヤーには非対応（ファイルとして開く）',
+  KML: 'KML レイヤーには非対応',
+  GeoRSS: 'GeoRSS レイヤーには非対応',
+  OGCFeatureLayer: 'OGC API - Features には非対応',
+  ArcGISSceneServiceLayer: 'シーンレイヤーは 3D 表示の「3D タイル」から',
+  IntegratedMeshLayer: '統合メッシュには非対応',
+  PointCloudLayer: '点群には非対応',
+  BuildingSceneLayer: 'ビルディングシーンレイヤーには非対応',
+  ArcGISStreamLayer: 'ストリームレイヤーには非対応',
+  SubtypeGroupLayer: 'サブタイプグループレイヤーには非対応',
+  BingMapsAerial: 'Bing Maps には非対応',
+  BingMapsRoad: 'Bing Maps には非対応',
+  BingMapsHybrid: 'Bing Maps には非対応',
+  MediaLayer: 'メディアレイヤーには非対応',
+  ArcGISImageServiceVectorLayer: 'ベクターフィールドの表示には非対応',
+  KnowledgeGraphLayer: 'ナレッジグラフには非対応',
 };
 
 /** Reads a web map's JSON; anything malformed is skipped and listed, never thrown, except a document that is not a web map. */
 export function planWebMap(json: unknown): WebMapPlan {
-  if (!isRecord(json) || (!Array.isArray(json.operationalLayers) && !isRecord(json.baseMap))) throw new Error('Web マップの JSON ではありません（operationalLayers・baseMap がありません）');
+  if (!isRecord(json) || (!Array.isArray(json.operationalLayers) && !isRecord(json.baseMap))) throw new Error('Web マップの JSON 以外（operationalLayers・baseMap なし）');
   const unsupported: WebMapPlan['unsupported'] = [];
   const layers: WebMapLayer[] = [];
   const walk = (list: unknown, parent: { visible: boolean; opacity: number; minScale: number | null; maxScale: number | null }) => {
@@ -298,16 +298,16 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
   const url = str(item.url);
   const definition = isRecord(item.layerDefinition) ? item.layerDefinition : {};
   const drawing = isRecord(definition.drawingInfo) ? definition.drawingInfo : {};
-  if (url && !/^https?:\/\//i.test(url)) return { reason: 'URL が http(s) ではありません' };
+  if (url && !/^https?:\/\//i.test(url)) return { reason: 'URL が http(s) 以外' };
   switch (type) {
     case 'ArcGISFeatureLayer': {
       if (isRecord(item.featureCollection)) {
         const parts = collectionParts(item.featureCollection);
-        return parts.length ? { ...base, type: 'collection', parts } : { reason: 'フィーチャーコレクションに地物がありません' };
+        return parts.length ? { ...base, type: 'collection', parts } : { reason: 'フィーチャーコレクションに地物なし' };
       }
-      if (!url) return { reason: 'URL がありません（アイテムの地物は読めません）' };
+      if (!url) return { reason: 'URL なし（アイテムの地物は読み込み不可）' };
       const m = /^(.*\/(?:FeatureServer|MapServer))(?:\/(\d+))?\/?$/i.exec(url.replace(/\?.*$/, ''));
-      if (!m) return { reason: 'FeatureServer・MapServer のレイヤーの URL ではありません' };
+      if (!m) return { reason: 'FeatureServer・MapServer のレイヤーの URL 以外' };
       const id = m[2] ?? String(num(item.layerId) ?? 0);
       const where = str(definition.definitionExpression);
       const renderer = isRecord(drawing.renderer) ? (drawing.renderer as unknown as EsriRenderer) : undefined;
@@ -323,7 +323,7 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
     case 'ArcGISMapServiceLayer':
     case 'ArcGISTiledMapServiceLayer': {
       const service = url && /^(.*\/MapServer)\/?$/i.exec(url.replace(/\?.*$/, ''))?.[1];
-      if (!service) return { reason: 'MapServer の URL ではありません' };
+      if (!service) return { reason: 'MapServer の URL 以外' };
       const settings: EsriRasterSettings = {};
       const visible = Array.isArray(item.visibleLayers) ? item.visibleLayers.filter((v): v is number => Number.isInteger(v)) : null;
       if (visible) settings.layers = visible;
@@ -338,7 +338,7 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
     case 'ArcGISImageServiceLayer':
     case 'ArcGISTiledImageServiceLayer': {
       const service = url && /^(.*\/ImageServer)\/?$/i.exec(url.replace(/\?.*$/, ''))?.[1];
-      if (!service) return { reason: 'ImageServer の URL ではありません' };
+      if (!service) return { reason: 'ImageServer の URL 以外' };
       const settings: EsriRasterSettings = {};
       if (isRecord(item.renderingRule)) settings.renderingRule = JSON.stringify(item.renderingRule);
       const mosaic = isRecord(item.mosaicRule) ? item.mosaicRule : {};
@@ -351,11 +351,11 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
       return { ...base, type: 'service', esri: true, ref: { kind: 'esri', url: service, layer: 'image', ...(Object.keys(settings).length ? { settings } : {}) } };
     }
     case 'WMS': {
-      if (!url) return { reason: 'URL がありません' };
+      if (!url) return { reason: 'URL なし' };
       const names = Array.isArray(item.visibleLayers) ? item.visibleLayers.filter((v): v is string => typeof v === 'string' && !!v) : [];
       const listed = Array.isArray(item.layers) ? item.layers.map((l) => (isRecord(l) ? str(l.name) : undefined)).filter((v): v is string => !!v) : [];
       const name = names[0] ?? listed[0];
-      if (!name) return { reason: '表示する WMS レイヤーがありません' };
+      if (!name) return { reason: '表示する WMS レイヤーなし' };
       // More than one WMS layer: one viewer layer each, in the web map's order.
       const shown = names.length ? names : [name];
       return shown.map((layer) => ({ ...base, title: shown.length > 1 ? `${base.title}: ${layer}` : base.title, type: 'service' as const, esri: false, ref: { kind: 'wms' as const, url: str(item.mapUrl) ?? url, layer } }));
@@ -364,18 +364,18 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
       const info = isRecord(item.wmtsInfo) ? item.wmtsInfo : {};
       const service = str(info.url) ?? url;
       const id = str(info.layerIdentifier);
-      if (!service || !id) return { reason: 'WMTS のレイヤー（wmtsInfo）がありません' };
+      if (!service || !id) return { reason: 'WMTS のレイヤー（wmtsInfo）なし' };
       return { ...base, type: 'service', esri: false, ref: { kind: 'wmts', url: service, layer: id, ...(str(info.tileMatrixSet) ? { matrixSet: str(info.tileMatrixSet) } : {}), ...(str(item.format) ? { format: str(item.format) } : {}) } };
     }
     case 'WFS': {
       const info = isRecord(item.wfsInfo) ? item.wfsInfo : {};
       const name = str(info.name);
-      if (!url || !name) return { reason: 'WFS の地物型（wfsInfo.name）がありません' };
+      if (!url || !name) return { reason: 'WFS の地物型（wfsInfo.name）なし' };
       return { ...base, type: 'service', esri: false, ref: { kind: 'wfs', url, layer: name } };
     }
     case 'WebTiledLayer': {
       const template = str(item.templateUrl);
-      if (!template || !/^https?:\/\//i.test(template)) return { reason: 'タイルの URL（templateUrl）がありません' };
+      if (!template || !/^https?:\/\//i.test(template)) return { reason: 'タイルの URL（templateUrl）なし' };
       return { ...base, type: 'tiles', urls: tileUrls(template, item.subDomains), ...(str(item.copyright) ? { attributions: str(item.copyright) } : {}) };
     }
     case 'OpenStreetMap':
@@ -383,14 +383,14 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
     case 'VectorTileLayer': {
       const style = str(item.styleUrl);
       const service = url ?? (style ? /^(.*\/VectorTileServer)(?:\/|$)/i.exec(style)?.[1] : undefined);
-      if (style && !/^https?:\/\//i.test(style)) return { reason: 'スタイルの URL が http(s) ではありません' };
-      if (!service && !style) return { reason: 'URL がありません' };
+      if (style && !/^https?:\/\//i.test(style)) return { reason: 'スタイルの URL が http(s) 以外' };
+      if (!service && !style) return { reason: 'URL なし' };
       return { ...base, type: 'vector-tiles', url: service ?? style!, ...(style ? { style } : {}) };
     }
     case '':
-      return { reason: '種類（layerType）がありません' };
+      return { reason: '種類（layerType）なし' };
     default:
-      return { reason: unsupportedReasons[type] ?? `${type} には対応していません` };
+      return { reason: unsupportedReasons[type] ?? `${type} には非対応` };
   }
 }
 
@@ -756,7 +756,7 @@ export function buildWebMap(input: SaveInput): SaveResult {
     }
     const chars = JSON.stringify(out).length;
     if (size + chars > MAX_WEBMAP_CHARS) {
-      skipped.push({ title: layer.title, reason: `大きすぎます（Web マップ全体で ${(MAX_WEBMAP_CHARS / 1e6).toFixed(0)} MB まで）` });
+      skipped.push({ title: layer.title, reason: `大きすぎ（Web マップ全体で ${(MAX_WEBMAP_CHARS / 1e6).toFixed(0)} MB まで）` });
       return;
     }
     size += chars;
@@ -834,7 +834,7 @@ function refLayer(layer: Extract<SaveLayer, { type: 'ref' }>, common: Json): Jso
     case 'wfs':
       return { ...common, layerType: 'WFS', url: serviceRoot(ref.url), wfsInfo: { name: ref.layer } };
   }
-  return { reason: '書き出せない種類です' };
+  return { reason: '書き出し不可の種類' };
 }
 
 /** A service URL without the request parameters the viewer adds (SERVICE, REQUEST, VERSION). */
@@ -851,8 +851,8 @@ function serviceRoot(url: string): string {
 /** A vector layer without a service as a feature collection, or why not. */
 function collectionLayer(layer: Extract<SaveLayer, { type: 'features' }>, common: Json): Json | { reason: string } {
   const all = layer.features.filter((f) => f.getGeometry());
-  if (!all.length) return { reason: '地物がありません' };
-  if (all.length > MAX_COLLECTION_FEATURES) return { reason: `地物が多すぎます（${all.length.toLocaleString()} 件。フィーチャーコレクションは ${MAX_COLLECTION_FEATURES.toLocaleString()} 件まで）` };
+  if (!all.length) return { reason: '地物なし' };
+  if (all.length > MAX_COLLECTION_FEATURES) return { reason: `地物が多すぎ（${all.length.toLocaleString()} 件。フィーチャーコレクションは ${MAX_COLLECTION_FEATURES.toLocaleString()} 件まで）` };
   // One part per kind of geometry: a collection layer holds one.
   const byKind = new Map<GeometryKind, Feature[]>();
   for (const f of all) {
@@ -920,7 +920,7 @@ function basemapJson(basemap: SaveInput['basemap']): { json: Json; skipped?: { t
     }
     if (config.type === 'style') return { json: { title, baseMapLayers: [{ id: `basemap-${config.id}`, title, layerType: 'VectorTileLayer', styleUrl: config.url, visibility: true, opacity: 1 }] } };
     // Plain {z}/{x}/{y}.pbf tiles have no style a web map could name.
-    return { json: { title: '背景なし', baseMapLayers: [] }, skipped: { title: `背景地図: ${title}`, reason: 'スタイルのないベクタータイルは Web マップに書けません' } };
+    return { json: { title: '背景なし', baseMapLayers: [] }, skipped: { title: `背景地図: ${title}`, reason: 'スタイルのないベクタータイルは Web マップへの書き込み不可' } };
   }
   if (basemap.json && Array.isArray(basemap.json.baseMapLayers)) return { json: basemap.json };
   return { json: { title: '背景なし', baseMapLayers: [] } };

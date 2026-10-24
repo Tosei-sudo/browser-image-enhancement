@@ -102,7 +102,7 @@ print('commands', (await viewer.commands()).some((c) => c.id === 'timeline-open'
 await viewer.command('timeline-open');
 await viewer.split(2);
 await viewer.theme('dark');
-try { await viewer.setEnhance(rgb, { brightness: 'much' }); } catch (e) { print('bad', e.message.includes('補正を設定できません')); }`,
+try { await viewer.setEnhance(rgb, { brightness: 'much' }); } catch (e) { print('bad', e.message.includes('補正の設定不可')); }`,
   );
   expect(status).toContain('完了');
   await expect(output(page)).toContainText('visible false');
@@ -178,7 +178,7 @@ test('a script opens layers from URLs (asking about a new server) and from files
   });
   await run(page, `try { await viewer.serviceLayers('${other}', 'wms'); } catch (e) { print('declined', e.message); }`);
   expect(asked[0]).toContain('http://127.0.0.1:4175');
-  await expect(output(page)).toContainText('declined http://127.0.0.1:4175 への接続は許可されませんでした');
+  await expect(output(page)).toContainText('declined http://127.0.0.1:4175 への接続は拒否');
 
   // Allowed once, it is not asked again in the same run.
   let questions = 0;
@@ -198,12 +198,12 @@ print('wms', wms.kind);`,
   expect(questions).toBe(1);
 
   // Files: the script asks, the person picks.
-  await dialog(page).getByLabel('スクリプト（JavaScript）').fill(`const got = await viewer.openFiles({ accept: '.geojson', message: '区画のファイルを選んでください' });\nprint('files', got.length, got[0]?.kind);`);
+  await dialog(page).getByLabel('スクリプト（JavaScript）').fill(`const got = await viewer.openFiles({ accept: '.geojson', message: '区画のファイルを選択' });\nprint('files', got.length, got[0]?.kind);`);
   await dialog(page).getByRole('button', { name: '実行' }).click();
   const ask = dialog(page).getByRole('group', { name: 'スクリプトからの確認' });
-  await expect(ask).toContainText('区画のファイルを選んでください');
+  await expect(ask).toContainText('区画のファイルを選択');
   const chooser = page.waitForEvent('filechooser');
-  await ask.getByRole('button', { name: 'ファイルを選ぶ…' }).click();
+  await ask.getByRole('button', { name: 'ファイルを選択…' }).click();
   await (await chooser).setFiles({ name: 'parcels.geojson', mimeType: 'application/geo+json', buffer: Buffer.from(parcels) });
   await expect(output(page)).toContainText('files 1 vector');
   await expect(ask).toBeHidden();
@@ -211,7 +211,7 @@ print('wms', wms.kind);`,
   // Declining gives none.
   await dialog(page).getByLabel('スクリプト（JavaScript）').fill(`print('none', (await viewer.openFiles()).length);`);
   await dialog(page).getByRole('button', { name: '実行' }).click();
-  await ask.getByRole('button', { name: 'やめる' }).click();
+  await ask.getByRole('button', { name: '取消' }).click();
   await expect(output(page)).toContainText('none 0');
 
   // Closing a layer; one with unsaved edits is kept.
@@ -234,7 +234,7 @@ test('the automation samples run', async ({ page }) => {
   await choose(page, 'four.tif', geotiff(4));
   await choose(page, 'parcels.geojson', parcels);
   await openScripts(page);
-  for (const name of ['画像の見え方をそろえる（補正・バンド・不透明度）', 'すべての画像で NDVI（ツールを実行）', '属性で色分けしてラベルを付ける']) {
+  for (const name of ['画像の見え方をそろえる（補正・バンド・不透明度）', 'すべての画像で NDVI（ツールを実行）', '属性による色分けとラベル付け']) {
     // The last one styles the selected layer: the parcels (the NDVI result was selected when made).
     if (name.startsWith('属性')) await page.evaluate(() => window.viewer.images.select(window.viewer.images.layers().find((l) => l.name.includes('parcels'))!));
     await dialog(page).getByLabel('スクリプトを開く').selectOption({ label: name });
@@ -242,6 +242,6 @@ test('the automation samples run', async ({ page }) => {
     await expect(dialog(page).getByRole('button', { name: '実行' })).toBeEnabled({ timeout: 30_000 });
     await expect(dialog(page).locator('.script-status')).toContainText('完了');
   }
-  await expect(output(page)).toContainText('name で 3 色に分けました');
+  await expect(output(page)).toContainText('name で 3 色に色分け');
   await expect(page.locator('#images .name', { hasText: 'NDVI' })).not.toHaveCount(0);
 });

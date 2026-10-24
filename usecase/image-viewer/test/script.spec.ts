@@ -116,14 +116,14 @@ for (const [name, f] of Object.entries(tries)) {
   await expect(output(page)).toContainText('start');
   expect(await page.evaluate(() => 1 + 1)).toBe(2);
   await dialog(page).getByRole('button', { name: '停止' }).click();
-  await expect(dialog(page).locator('.script-status')).toContainText('停止しました');
+  await expect(dialog(page).locator('.script-status')).toContainText('停止');
   await expect(page.locator('iframe[sandbox]')).toHaveCount(0);
 
   // Errors point at the line of the script.
   expect(await run(page, 'print(1);\nconst x = ;')).toContain('エラー');
   await expect(output(page)).toContainText('行 2');
   await run(page, 'print(1);\n\nawait viewer.features("どこにもない");');
-  await expect(output(page)).toContainText('レイヤー「どこにもない」が見つかりません（行 3');
+  await expect(output(page)).toContainText('レイヤー「どこにもない」なし（行 3');
   expect(errors).toEqual([]);
 });
 
@@ -137,7 +137,7 @@ test('a script reads layers, makes a temporary layer, and its edits wait for 「
   await dialog(page).getByLabel('スクリプトを開く').selectOption({ label: '面積を計算して一時レイヤーに' });
   await dialog(page).getByRole('button', { name: '実行' }).click();
   await expect(dialog(page).locator('.script-status')).toContainText('完了');
-  await expect(output(page)).toContainText('3 件の面積を計算しました');
+  await expect(output(page)).toContainText('3 件の面積を計算');
   const areas = await page.evaluate(() => {
     const layer = window.viewer.images.layers().find((l) => l.name === 'parcels（面積）');
     return layer?.type === 'service' ? layer.service.vector!.source.getFeatures().map((f) => f.get('area_m2') as number) : null;
@@ -163,7 +163,7 @@ print('ignored', added.ignored);
 const r = await viewer.deleteFeatures(layer.id, [c.id]);
 print('pending', r.pending);`,
   );
-  expect(status).toContain('未保存の変更が 3 件あります（parcels）');
+  expect(status).toContain('未保存の変更 3 件（parcels）');
   await expect(output(page)).toContainText('ignored [\n  "unknown"\n]');
   await expect(page.locator('.edit-bar')).toBeVisible();
   const names = () =>
@@ -193,7 +193,7 @@ print('pending', r.pending);`,
   const edit = `const fc = await viewer.features('parcels');\nawait viewer.updateFeatures('parcels', [{ id: fc.features[0].id, properties: { note: 'x' } }]);\nprint(JSON.stringify(await viewer.saveEdits()));`;
   await run(page, edit);
   expect(asked.pop()).toContain('スクリプトが「parcels」の未保存の変更 1 件を');
-  await expect(output(page)).toContainText('保存は取り消されました');
+  await expect(output(page)).toContainText('保存を取り消し');
   expect(await page.evaluate(() => window.viewer.editor.session()?.count())).toBe(1);
   // Accepted: saved (a file without a handle is saved as a download of the same name).
   answer = true;
@@ -205,7 +205,7 @@ print('pending', r.pending);`,
 
   // A layer it cannot edit is refused.
   await run(page, `const t = (await viewer.layers()).find((l) => l.name === 'parcels（面積）');\nawait viewer.deleteFeatures(t.id, ['nope']);`);
-  await expect(output(page)).toContainText('id「nope」の地物がありません');
+  await expect(output(page)).toContainText('id「nope」の地物なし');
 });
 
 test('the editor suggests functions and layer names', async ({ page }) => {
@@ -363,7 +363,7 @@ test('a saved script repeats at an interval while the page is open, with a recor
   await expect(log.locator('li')).toHaveCount(3);
 
   await dialog(page).getByRole('button', { name: '停止' }).click();
-  await expect(status).toContainText('繰り返しを止めました');
+  await expect(status).toContainText('繰り返しを停止');
   await expect(dialog(page).getByRole('button', { name: '停止' })).toBeDisabled();
   await page.clock.fastForward(130_000);
   await expect(log.locator('li')).toHaveCount(3);

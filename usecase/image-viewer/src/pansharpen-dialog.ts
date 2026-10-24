@@ -30,7 +30,7 @@ const TILE = 256;
 const FIT_WHOLE = 2048 * 2048;
 
 const methods: Array<[PanSharpenMethod, string]> = [
-  ['gram-schmidt', 'Gram-Schmidt（おすすめ・色を保つ）'],
+  ['gram-schmidt', 'Gram-Schmidt（推奨・色を維持）'],
   ['ihs', 'IHS（くっきり・色が変わることも）'],
   ['brovey', 'Brovey（コントラスト強め）'],
 ];
@@ -154,7 +154,7 @@ export class PanSharpenDialog {
     const ms = byFine.reverse().find((i) => i !== pan && i.source.getValueBandCount() > 1) ?? this.images_.find((i) => i !== pan);
     if (pan) this.pan_.value = String(this.images_.indexOf(pan));
     if (ms) this.ms_.value = String(this.images_.indexOf(ms));
-    this.note_.textContent = this.images_.length < 2 ? 'パンクロ画像とマルチスペクトル画像を開いてください' : '';
+    this.note_.textContent = this.images_.length < 2 ? 'パンクロ画像とマルチスペクトル画像を開く必要あり' : '';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     this.describe_();
@@ -179,7 +179,7 @@ export class PanSharpenDialog {
     const pan = this.images_[Number(form.get('pan'))];
     const ms = this.images_[Number(form.get('ms'))];
     if (!pan || !ms || pan === ms) {
-      this.note_.textContent = '別々のパンクロ画像とマルチスペクトル画像を選んでください';
+      this.note_.textContent = '別々のパンクロ画像とマルチスペクトル画像を選択';
       return null;
     }
     this.run_.disabled = true;
@@ -213,14 +213,14 @@ export class PanSharpenDialog {
       /** Set when a block failed: the others stop too. */
       let failed = false;
       const stop = () => {
-        if (running.cancelled) throw new Error('中止しました');
-        if (failed) throw new Error('ほかのブロックで失敗しました');
+        if (running.cancelled) throw new Error('中止');
+        if (failed) throw new Error('ほかのブロックで失敗');
       };
       const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
       for (let i = 0; i < threads; i++) workers.push(new Worker(new URL('./pansharpen-worker.ts', import.meta.url), { type: 'module' }));
 
       // The weights and gains, from the whole result when it is small, else from windows spread over it.
-      this.note_.textContent = '色の関係を調べています…';
+      this.note_.textContent = '色の関係を調査中…';
       const fitOn = plan.width * plan.height <= FIT_WHOLE ? [plan.pan.window] : sampleWindows(plan);
       const fitJobs = await Promise.all(fitOn.map(read));
       stop();
@@ -229,7 +229,7 @@ export class PanSharpenDialog {
         { kind: 'fit', jobs: fitJobs },
         fitJobs.flatMap((j) => [j.pan.data.buffer as ArrayBuffer, j.ms.data.buffer as ArrayBuffer]),
       );
-      if (!('model' in fitted)) throw new Error('係数を求められませんでした');
+      if (!('model' in fitted)) throw new Error('係数の算出に失敗');
       const model = fitted.model;
 
       // Then the blocks, a few at a time, each written into the file as it comes.
@@ -251,7 +251,7 @@ export class PanSharpenDialog {
           stop();
           const task: PanSharpenTask = { kind: 'block', job: { ...job, model }, tileSize: TILE, tx0: (window[0] - x0) / TILE, ty0: (window[1] - y0) / TILE };
           const reply = await call(worker, task, [job.pan.data.buffer as ArrayBuffer, job.ms.data.buffer as ArrayBuffer]);
-          if (!('block' in reply)) throw new Error('ブロックを作れませんでした');
+          if (!('block' in reply)) throw new Error('ブロックの作成に失敗');
           const block: PanSharpenBlock = reply.block;
           writer ??= new TiledTiffWriter({
             width: plan.width,
@@ -268,10 +268,10 @@ export class PanSharpenDialog {
             max[b] = Math.max(max[b], block.max[b]);
           }
           done++;
-          if (!running.cancelled) note.textContent = `パンシャープンしています… ${Math.floor((100 * done) / blocks.length)}%`;
+          if (!running.cancelled) note.textContent = `パンシャープン中… ${Math.floor((100 * done) / blocks.length)}%`;
         }
       }
-      note.textContent = 'パンシャープンしています… 0%';
+      note.textContent = 'パンシャープン中… 0%';
       await Promise.all(
         workers.map(async (worker) => {
           try {
@@ -285,7 +285,7 @@ export class PanSharpenDialog {
       stop();
       const blob = await (writer as TiledTiffWriter | null)!.finish(await tagsOf(plan, panTiff, msTiff, min, max), name);
 
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const image = source && this.images.find(source);
@@ -296,13 +296,13 @@ export class PanSharpenDialog {
       await keepLook(ms.source, source);
       this.setPipeline_(image, ms.source.getPipeline());
       this.dialog.close();
-      this.options.say(`${name} を作りました（${plan.width.toLocaleString()} × ${plan.height.toLocaleString()} px）`);
+      this.options.say(`${name} を作成（${plan.width.toLocaleString()} × ${plan.height.toLocaleString()} px）`);
       return image;
     } catch (error) {
       await draft.discard();
       const message = error instanceof Error ? error.message : String(error);
-      if (running.cancelled) this.options.say('パンシャープンを中止しました');
-      else this.note_.textContent = `パンシャープンできませんでした: ${message}`;
+      if (running.cancelled) this.options.say('パンシャープンを中止');
+      else this.note_.textContent = `パンシャープン失敗: ${message}`;
       return null;
     } finally {
       for (const w of workers) w.terminate();
@@ -321,13 +321,13 @@ export class PanSharpenDialog {
   ): { plan: PanSharpenPlan; panTiff: GeoTIFFImage; msTiff: GeoTIFFImage; at: (window: readonly [number, number, number, number]) => PanSharpenPlan } {
     const panTiff = tiffOf(pan);
     const msTiff = tiffOf(ms);
-    if (!panTiff || !msTiff) throw new Error('画像を読み込み中です');
+    if (!panTiff || !msTiff) throw new Error('画像を読み込み中');
     // Ordinary pictures have no ground position of their own: they are taken to cover the same ground.
     const sameGround = pan.kind === 'image' || ms.kind === 'image';
     if (!sameGround) {
       const a = crsOf(panTiff);
       const b = crsOf(msTiff);
-      if (a !== null && b !== null && a !== b) throw new Error(`座標系が違います（EPSG:${a} と EPSG:${b}）。同じ座標系の画像を選んでください`);
+      if (a !== null && b !== null && a !== b) throw new Error(`座標系の不一致（EPSG:${a} と EPSG:${b}）。同じ座標系の画像を選択`);
     }
     const panGrid = gridOf(panTiff);
     const msGrid = gridOf(msTiff);
@@ -348,18 +348,18 @@ export class PanSharpenDialog {
       return;
     }
     if (pan === ms) {
-      out.textContent = '別々の画像を選んでください';
+      out.textContent = '別々の画像を選択';
       return;
     }
     try {
       const { plan, msTiff } = this.plan_(pan, ms);
       const ratio = (plan.ratio[0] + plan.ratio[1]) / 2;
-      const warn = pan.source.getValueBandCount() > 1 ? ' パンクロ画像は 1 バンド目を使います。' : '';
-      const finer = ratio < 1 ? ' マルチスペクトル画像の方が細かいようです。選び方を確かめてください。' : '';
+      const warn = pan.source.getValueBandCount() > 1 ? ' パンクロ画像は 1 バンド目を使用。' : '';
+      const finer = ratio < 1 ? ' マルチスペクトル画像の方が細かい可能性あり。選び方を確認。' : '';
       const bytes = plan.width * plan.height * msTiff.getSamplesPerPixel() * Math.ceil(msTiff.getBitsPerSample() / 8);
       out.textContent =
         `解像度の比 1 : ${ratio.toFixed(ratio < 10 ? 2 : 1)}。結果は ${plan.width.toLocaleString()} × ${plan.height.toLocaleString()} px、${msTiff.getSamplesPerPixel()} バンド` +
-        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、少し時間がかかります）` : '') +
+        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、時間がかかる場合あり）` : '') +
         `。${warn}${finer}`;
     } catch (error) {
       out.textContent = error instanceof Error ? error.message : String(error);
@@ -399,7 +399,7 @@ async function keepLook(from: EnhancedGeoTIFF, to: EnhancedGeoTIFF): Promise<voi
 function call(worker: Worker, task: PanSharpenTask, transfer: Transferable[]): Promise<Exclude<PanSharpenReply, { ok: false }>> {
   return new Promise((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<PanSharpenReply>) => (e.data.ok ? resolve(e.data) : reject(new Error(e.data.message)));
-    worker.onerror = (e) => reject(new Error(e.message || 'パンシャープンの処理が止まりました'));
+    worker.onerror = (e) => reject(new Error(e.message || 'パンシャープンの処理が停止'));
     worker.postMessage(task, transfer);
   });
 }
