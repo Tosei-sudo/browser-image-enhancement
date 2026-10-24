@@ -2908,6 +2908,7 @@ body {
 .catalog-dialog[open],
 .plan-dialog[open],
 .plan-saved-dialog[open],
+.obs-dialog[open],
 .track-dialog[open],
 .watch-dialog[open] {
   position: fixed;
@@ -5483,4 +5484,131 @@ dialog.docked > .dock-dialog-corner {
 }
 .tessellate-drawn {
   color: var(--muted);
+}
+
+/* Observations (src/observation-panel.ts): the image stepper, the form, the lists and a thing's flow. */
+.obs-dialog[open] {
+  width: min(38rem, calc(100% - 32px));
+  overflow-y: auto;
+}
+.obs-image,
+.obs-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.obs-image select {
+  flex: 1;
+  min-width: 0;
+}
+.obs-carry {
+  flex: 1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.obs-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.obs-time[hidden],
+.obs-form[hidden],
+.obs-flow[hidden] {
+  display: none;
+}
+.obs-form {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.obs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.obs-chips button {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+.obs-chips button[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.obs-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.obs-tabs button {
+  border-radius: 6px 6px 0 0;
+  border-bottom: none;
+}
+.obs-tabs button[aria-selected='true'] {
+  font-weight: 600;
+  background: var(--bg);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.obs-list {
+  min-height: 6em;
+  max-height: 32vh;
+}
+.obs-dialog tbody tr {
+  cursor: pointer;
+}
+.obs-dialog tr[aria-selected='true'] td {
+  background: var(--accent-bg);
+}
+.obs-ghost td {
+  color: var(--muted);
+  font-style: italic;
+}
+.obs-ghost td:first-child {
+  box-shadow: inset 3px 0 #9ca3af;
+}
+.obs-deleted td {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.obs-absent td {
+  color: var(--danger);
+}
+.obs-row-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.obs-dialog td button {
+  font-size: 12px;
+  padding: 1px 6px;
+  font-style: normal;
+}
+.obs-flow h3 {
+  margin: 8px 0 2px;
+  font-size: 14px;
+}
+.obs-summary {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+.obs-strip {
+  display: block;
+  width: 100%;
+  height: 34px;
+}
+.obs-step.absent {
+  fill: transparent;
+  stroke: #dc2626;
+  stroke-dasharray: 4 3;
+}
+.obs-tick {
+  fill: var(--fg);
+}
+.obs-steps {
+  margin-top: 4px;
+}
+.ol-viewport.observing {
+  cursor: crosshair;
 }
