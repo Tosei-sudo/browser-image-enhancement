@@ -9,6 +9,7 @@ import { Pipeline, presets, type PresetName } from 'browser-image-enhancement';
 import { catalogOf, type CatalogConfig } from './catalog.js';
 import { groundStationsOf, satelliteCatalogOf, type GroundStation, type SatelliteCatalogConfig } from './imaging-plan.js';
 import { planStoreOf, type PlanStoreConfig } from './imaging-plan-store.js';
+import { sensorCatalogOf, type SensorCatalogConfig } from './sensor-modes.js';
 import { cloudForecastOf, defaultCloudForecast, type CloudForecastConfig } from './imaging-plan-weather.js';
 import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.js';
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
@@ -112,6 +113,8 @@ export interface ViewerConfig {
   pathMappings: PathMapping[];
   /** Esri layers (or tables) of satellites with their TLEs and specifications, for the 「撮像計画」 panel (imaging-plan.ts). */
   satelliteCatalogs: SatelliteCatalogConfig[];
+  /** The imaging modes of the satellites' sensors (sensor-modes.ts): a table, or written here; none plans each satellite as its catalog says. */
+  sensorCatalogs: SensorCatalogConfig[];
   /** Where the imaging plan asks for cloud cover forecasts (imaging-plan-weather.ts); null hides the choice. Only asked once turned on in the panel. */
   cloudForecast: CloudForecastConfig | null;
   /** Ground stations, for when the imaging plan's shots can be sent down (imaging-plan.ts); none hides the column. */
@@ -213,6 +216,7 @@ export const defaultConfig: ViewerConfig = {
   watchInterval: 10,
   pathMappings: [],
   satelliteCatalogs: [],
+  sensorCatalogs: [],
   cloudForecast: defaultCloudForecast,
   groundStations: [],
   planStores: [],
@@ -297,7 +301,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], groundStations: [], planStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
   if (!isRecord(json)) return { config, problems: ['設定がオブジェクトではありません'] };
 
   if ('baseMaps' in json) {
@@ -387,6 +391,11 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.satelliteCatalogs)) {
       config.satelliteCatalogs = json.satelliteCatalogs.map((c, i) => satelliteCatalogOf(c, problems, i)).filter((c): c is SatelliteCatalogConfig => c !== null);
     } else problems.push('satelliteCatalogs が配列ではありません');
+  }
+  if ('sensorCatalogs' in json) {
+    if (Array.isArray(json.sensorCatalogs)) {
+      config.sensorCatalogs = json.sensorCatalogs.map((c, i) => sensorCatalogOf(c, problems, i)).filter((c): c is SensorCatalogConfig => c !== null);
+    } else problems.push('sensorCatalogs が配列ではありません');
   }
 
   if ('cloudForecast' in json) config.cloudForecast = cloudForecastOf(json.cloudForecast, problems);

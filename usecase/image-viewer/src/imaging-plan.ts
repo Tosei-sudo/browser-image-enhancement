@@ -55,6 +55,12 @@ export interface SatelliteFields {
   series?: string;
   /** Hours ahead an order must be placed: shots sooner than that cannot be ordered; 0 or empty for none. */
   leadTime?: string;
+  /** The sensor it carries: the key of its imaging modes in `sensorCatalogs` (the series, then the name, when absent). */
+  sensor?: string;
+  /** The imaging mode of this record, for catalogs with one record per satellite and mode (records with the same id are one satellite). */
+  mode?: string;
+  /** Ground resolution, m (shown, and preferred when modes take the same pass). */
+  resolution?: string;
 }
 
 /** Specifications used when the catalog leaves a field empty. */
@@ -98,7 +104,7 @@ const defaultSar = /SAR|radar|レーダ/i;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isName = (value: unknown): value is string => typeof value === 'string' && /^[\w.]+$/.test(value);
 const isUrl = (url: unknown): url is string => typeof url === 'string' && /^(https?:)?\/\/|^\.{0,2}\//.test(url);
-const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir', 'swath', 'length', 'lookSide', 'kind', 'scenesPerPass', 'minInterval', 'maxPerDay', 'series', 'leadTime'] as const;
+const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir', 'swath', 'length', 'lookSide', 'kind', 'scenesPerPass', 'minInterval', 'maxPerDay', 'series', 'leadTime', 'sensor', 'mode', 'resolution'] as const;
 
 /** The catalog of one `satelliteCatalogs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function satelliteCatalogOf(value: unknown, problems: string[], index: number): SatelliteCatalogConfig | null {
@@ -176,7 +182,25 @@ export interface SatelliteSpec {
   sar: boolean;
   /** Where it came from (the catalog's label, or 「貼り付け」). */
   source: string;
+  /** The sensor it carries (the key of its modes in a sensor catalog). */
+  sensor?: string;
+  /**
+   * The imaging mode this entry plans with (ストリップマップ, スポットライト …):
+   * a satellite with several modes is listed once per mode, all with the
+   * same `source` and `id`; absent for a satellite with one way of imaging.
+   */
+  mode?: string;
+  /** Ground resolution of the mode, m. */
+  resolution?: number;
+  /** Whether this is the satellite's usual mode, chosen when the satellite is (false for its other modes). */
+  primary?: boolean;
 }
+
+/** The satellite (not the mode) an entry belongs to: its modes share it, and with it their shots' intervals and daily limit. */
+export const platformKey = (sat: Pick<SatelliteSpec, 'source' | 'id'>): string => `${sat.source}\n${sat.id}`;
+
+/** A satellite's name with its mode, for lists and labels: 「ICEYE-X27（スポットライト）」. */
+export const satelliteLabel = (sat: Pick<SatelliteSpec, 'name' | 'mode'>): string => (sat.mode ? `${sat.name}（${sat.mode}）` : sat.name);
 
 /**
  * The series a satellite's name suggests: the name without its number at
@@ -243,8 +267,16 @@ export function satelliteOf(attributes: Record<string, unknown>, catalog: Satell
     lookSide: lookSideOf(get(fields.lookSide)),
     sar: typeof kind === 'string' && catalog.sarPattern.test(kind),
     source: catalog.label,
+    ...textField('sensor', get(fields.sensor)),
+    ...textField('mode', get(fields.mode)),
+    ...(numberOf(get(fields.resolution)) !== null ? { resolution: numberOf(get(fields.resolution))! } : {}),
   };
 }
+
+const textField = <K extends string>(key: K, value: unknown): Partial<Record<K, string>> => {
+  const text = value === null || value === undefined ? '' : String(value).trim();
+  return text ? ({ [key]: text } as Record<K, string>) : {};
+};
 
 /**
  * Satellites from pasted TLE text (two lines each, or three with a name
@@ -725,6 +757,9 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
     ];
   };
 
+  /** The orbit (TLE) the samples are of, and the samples each group of targets looks at. */
+  let sampled = '';
+  let ranges: number[][] | null = [];
   sats.forEach((sat, s) => {
     const satrec = satrecOf(sat);
     if (typeof satrec === 'string') {
@@ -738,46 +773,55 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
       return;
     }
     const epoch = msOf(satrec.jdsatepoch);
-    let failed = 0;
-    for (let k = 0; k < count; k++) {
-      const st = stateAt(satrec, options.start + k * step);
-      if (!st) {
-        xs[k] = Number.NaN;
-        failed++;
-        continue;
+    // The modes of one satellite follow one another and share its orbit: its samples and ranges are made once.
+    const orbit = `${sat.tle1}\n${sat.tle2}`;
+    if (orbit !== sampled) {
+      sampled = orbit;
+      let failed = 0;
+      for (let k = 0; k < count; k++) {
+        const st = stateAt(satrec, options.start + k * step);
+        if (!st) {
+          xs[k] = Number.NaN;
+          failed++;
+          continue;
+        }
+        [xs[k], ys[k], zs[k]] = st.r;
+        rs[k] = norm(st.r);
+        vs.set(st.v, k * 3);
+        const n = unit(cross(st.r, st.v));
+        ns.set(n, k * 3);
       }
-      [xs[k], ys[k], zs[k]] = st.r;
-      rs[k] = norm(st.r);
-      vs.set(st.v, k * 3);
-      const n = unit(cross(st.r, st.v));
-      ns.set(n, k * 3);
+      if (failed === count) {
+        problems.push(`${sat.name}: 軌道を計算できません（TLE が古すぎるか、落下済みの可能性があります）`);
+        ranges = null;
+      } else {
+        // The samples at which each group of targets may be above the horizon (with the samples either side), so
+        // that each target only looks at those: a satellite is over a region for a few minutes of each orbit.
+        let reach = 0;
+        for (let k = 0; k < count; k++) if (rs[k] > POLAR_RADIUS) reach = Math.max(reach, Math.acos(POLAR_RADIUS / rs[k]));
+        ranges = groups.map((g) => {
+          const cosine = Math.cos(Math.min(Math.PI, reach + g.radius + HORIZON_MARGIN));
+          const [gx, gy, gz] = g.direction;
+          const out: number[] = [];
+          for (let k = 0; k < count; k++) {
+            if (!(xs[k] * gx + ys[k] * gy + zs[k] * gz > cosine * rs[k])) continue;
+            const from = Math.max(0, k - 1);
+            let to = k + 1;
+            while (to < count && xs[to] * gx + ys[to] * gy + zs[to] * gz > cosine * rs[to]) to++;
+            const last = Math.min(count - 1, to);
+            if (out.length && out[out.length - 1] >= from - 1) out[out.length - 1] = last;
+            else out.push(from, last);
+            k = to;
+          }
+          return out;
+        });
+      }
     }
-    if (failed === count) {
-      problems.push(`${sat.name}: 軌道を計算できません（TLE が古すぎるか、落下済みの可能性があります）`);
+    if (!ranges) {
       onProgress?.((s + 1) / sats.length);
       return;
     }
-
-    // The samples at which each group of targets may be above the horizon (with the samples either side), so
-    // that each target only looks at those: a satellite is over a region for a few minutes of each orbit.
-    let reach = 0;
-    for (let k = 0; k < count; k++) if (rs[k] > POLAR_RADIUS) reach = Math.max(reach, Math.acos(POLAR_RADIUS / rs[k]));
-    const ranges = groups.map((g) => {
-      const cosine = Math.cos(Math.min(Math.PI, reach + g.radius + HORIZON_MARGIN));
-      const [gx, gy, gz] = g.direction;
-      const out: number[] = [];
-      for (let k = 0; k < count; k++) {
-        if (!(xs[k] * gx + ys[k] * gy + zs[k] * gz > cosine * rs[k])) continue;
-        const from = Math.max(0, k - 1);
-        let to = k + 1;
-        while (to < count && xs[to] * gx + ys[to] * gy + zs[to] * gz > cosine * rs[to]) to++;
-        const last = Math.min(count - 1, to);
-        if (out.length && out[out.length - 1] >= from - 1) out[out.length - 1] = last;
-        else out.push(from, last);
-        k = to;
-      }
-      return out;
-    });
+    const spans = ranges;
 
     prepared.forEach((t, ti) => {
       // cos of the off-nadir angle at each sample, or −2 where the target is below the horizon (as look(), inline:
@@ -798,7 +842,7 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
         const dz = tz - z;
         return -(x * dx + y * dy + z * dz) / (rs[k] * Math.sqrt(dx * dx + dy * dy + dz * dz));
       };
-      const span = ranges[groupOf[ti]];
+      const span = spans[groupOf[ti]];
       for (let i = 0; i < span.length; i += 2) {
         let prev = c(span[i] - 1);
         let here = c(span[i]);
@@ -1158,7 +1202,13 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
   const plans: CoverPlan[] = targets.map((_, ti) => ({ target: ti, steps: [], coverage: 0, done: null, blocked: 0 }));
   const covered = targets.map((t) => new Uint8Array(t.cells?.length ?? 0));
   const totals = targets.map(() => 0);
-  const shots = sats.map(() => [] as number[]);
+  // Shots are counted by satellite, not by mode: the modes of one satellite share its intervals and daily limit.
+  const platforms = new Map<string, number[]>();
+  const shots = sats.map((sat) => {
+    const key = platformKey(sat);
+    if (!platforms.has(key)) platforms.set(key, []);
+    return platforms.get(key)!;
+  });
   // Whether the satellite cannot take a shot at `time`: too close to one it takes (before or after, as more important
   // targets are planned first), or a 24 hours round it already full.
   const busy = (s: number, time: number) => {
@@ -1174,11 +1224,16 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
   const isPoint = (o: Opportunity) => !covered[o.target].length && o.width === 0;
   const rank = (t: number) => targets[t]?.priority ?? -Infinity;
   const tiers = [...new Set(targets.map((_, t) => rank(t)))].sort((a, b) => b - a);
-  for (const tier of tiers) sorted.forEach((op, i) => {
-    if (rank(op.target) !== tier) return;
-    const plan = plans[op.target];
+  /** Opportunities left out because another mode of their satellite was weighed for the same pass and target. */
+  const weighed = new Set<Opportunity>();
+  for (const tier of tiers) sorted.forEach((first, i) => {
+    if (rank(first.target) !== tier || weighed.has(first)) return;
+    const plan = plans[first.target];
     if (!plan || plan.done !== null) return;
-    const n = covered[op.target].length;
+    const n = covered[first.target].length;
+    // A satellite takes a pass in one mode: of its modes that see this target on this pass, the one that takes the
+    // most of what is still uncovered (for a point, the sharpest).
+    const op = bestMode(first, sorted, i, sats, weighed, n ? covered[first.target] : null);
     const sat = sats[op.satellite];
     if (!n) {
       if (busy(op.satellite, op.time)) {
@@ -1245,6 +1300,42 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
     for (const p of plans) for (const s of p.steps) s.shot = renumber.get(s.shot!);
   }
   return plans;
+}
+
+/** Seconds apart that two modes' opportunities of one satellite and target are one pass. */
+const SAME_PASS = 120000;
+
+/**
+ * Of `op` and the opportunities of the other modes of its satellite on the
+ * same pass over the same target (from `sorted`, after `i`), the one to
+ * plan with: for an area (`cov`, its cells covered so far), the one whose
+ * scenes take the most still uncovered; for a point, the finest resolution.
+ * The others are put in `weighed`, so they are not planned too.
+ */
+function bestMode(op: Opportunity, sorted: Opportunity[], i: number, sats: SatelliteSpec[], weighed: Set<Opportunity>, cov: Uint8Array | null): Opportunity {
+  const key = platformKey(sats[op.satellite]);
+  const siblings = [op];
+  for (let j = i + 1; j < sorted.length && sorted[j].time - op.time <= SAME_PASS; j++) {
+    const o = sorted[j];
+    if (o.target === op.target && o.satellite !== op.satellite && platformKey(sats[o.satellite]) === key && !weighed.has(o)) siblings.push(o);
+  }
+  if (siblings.length === 1) return op;
+  for (const o of siblings) weighed.add(o);
+  const score = (o: Opportunity) => {
+    const sat = sats[o.satellite];
+    if (!cov || !o.cells || !o.cellsAlong) return -(sat.resolution ?? Infinity);
+    return bestScene(o.cells, o.cellsAlong, sat.swath / R, sat.length / R, sat.scenesPerPass, (c) => !cov[c])?.count ?? -1;
+  };
+  let best = op;
+  let most = score(op);
+  for (const o of siblings.slice(1)) {
+    const v = score(o);
+    if (v > most || (v === most && (sats[o.satellite].resolution ?? Infinity) < (sats[best.satellite].resolution ?? Infinity))) {
+      best = o;
+      most = v;
+    }
+  }
+  return best;
 }
 
 /** The orbit's frame at a moment: the normal of its plane, along the track, and up. */

@@ -9,7 +9,7 @@
  * {@link wrapPolygon} cut what crosses the antimeridian into pieces within
  * ±180°, for the 2D map.
  */
-import { groundStateAt, satrecOf, sunElevation, type SatelliteSpec } from './imaging-plan.js';
+import { groundStateAt, satelliteLabel, satrecOf, sunElevation, type SatelliteSpec } from './imaging-plan.js';
 import { ecefOf, type Xyz } from './imaging-plan-3d.js';
 
 type LonLat = [number, number];
@@ -237,7 +237,7 @@ export interface Track3d {
 export function track3d(track: SatelliteTrack, color: string, at?: { index: number; label: string }): Track3d {
   const orbit = track.track.map(([lon, lat], i) => ecefOf(lon, lat, track.heights[i]));
   const reach = track.bands.flatMap((b) => bandRings(b, 10));
-  const result: Track3d = { name: track.sat.name, color, orbit, heights: track.heights.slice(), reach };
+  const result: Track3d = { name: satelliteLabel(track.sat), color, orbit, heights: track.heights.slice(), reach };
   if (at && at.index >= 0) {
     const i = at.index;
     const [a, b] = [orbit[Math.max(0, i - 1)], orbit[Math.min(orbit.length - 1, i + 1)]];

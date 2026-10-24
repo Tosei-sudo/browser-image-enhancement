@@ -7,7 +7,7 @@
  * Only the display is worked out here; the plan itself is imaging-plan.ts's.
  */
 import { eciToEcf, eciToGeodetic, geodeticToEcf, gstime, sgp4, type SatRec } from 'satellite.js';
-import { passShapes, satrecOf, type Opportunity, type PlanTarget, type SatelliteSpec } from './imaging-plan.js';
+import { passShapes, satelliteLabel, satrecOf, type Opportunity, type PlanTarget, type SatelliteSpec } from './imaging-plan.js';
 
 export type Xyz = [number, number, number];
 
@@ -85,7 +85,7 @@ export function satellitePass3d(sat: SatelliteSpec, target: PlanTarget, op: Oppo
     const lat = Math.asin(sum[2] / n) / rad;
     aim = ecefOf(lon, lat);
   }
-  return { name: sat.name, time: op.time, chosen, orbit, heights, position: now.r, velocity: now.v, aim, scenes, offNadir: op.offNadir, side: op.side };
+  return { name: satelliteLabel(sat), time: op.time, chosen, orbit, heights, position: now.r, velocity: now.v, aim, scenes, offNadir: op.offNadir, side: op.side };
 }
 
 /**

@@ -3549,6 +3549,24 @@ body {
 .plan-group-2 > label.check {
   margin-left: 18px;
 }
+.plan-group-3 {
+  margin-left: 18px;
+}
+.plan-group-3 > label.check {
+  margin-left: 18px;
+}
+.plan-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.plan-modes > span {
+  color: var(--muted);
+  font-size: 12px;
+}
 .plan-group-count {
   margin-left: auto;
   color: var(--muted);
