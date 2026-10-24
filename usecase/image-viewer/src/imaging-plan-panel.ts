@@ -35,6 +35,7 @@ import {
   SAMPLE_SOURCE,
   sampleSatellites,
   passShapes,
+  satelliteLabel,
   satelliteOf,
   satellitesFromText,
   scenesTaken,
@@ -53,6 +54,7 @@ import type { PlanJob } from './imaging-plan-worker.js';
 import { satellitePass3d, type SatellitePass3d } from './imaging-plan-3d.js';
 import { collator } from './table-text.js';
 import { SatelliteTree } from './satellite-tree.js';
+import { sampleSensorModes, sensorModeOf, withModes, type SensorCatalogConfig, type SensorMode } from './sensor-modes.js';
 import { drawTimeline } from './imaging-plan-timeline.js';
 import { addReminders, clearReminders, loadReminders, planIcs } from './imaging-plan-remind.js';
 import { applyClouds, fetchClouds, placesFor, type CloudForecastConfig } from './imaging-plan-weather.js';
@@ -85,6 +87,8 @@ export interface PlanPanelOptions {
   openSaved?: (planId?: string) => void;
   /** The track of a moving object's feature (its id `moving:…`), for planning ships followed by AIS. */
   shipTrack?: (featureId: string) => Track | null;
+  /** The imaging modes of the sensors (config.json's `sensorCatalogs`): the satellites are listed once per mode of their sensor. */
+  sensorCatalogs?: SensorCatalogConfig[];
 }
 
 /** Where the panel remembers whether cloud forecasts are on. */
@@ -121,6 +125,31 @@ export async function loadSatellites(catalog: SatelliteCatalogConfig): Promise<{
   }
   if (json.exceededTransferLimit) problems.push(`衛星が多すぎるため、先頭 ${satellites.length} 機だけを読みました`);
   return { satellites, problems };
+}
+
+/** Reads the modes of the sensor catalogs: those written in config.json, and those of tables. */
+export async function loadSensorModes(catalogs: readonly SensorCatalogConfig[]): Promise<{ modes: SensorMode[]; problems: string[] }> {
+  const modes: SensorMode[] = [];
+  const problems: string[] = [];
+  for (const catalog of catalogs) {
+    modes.push(...catalog.modes);
+    if (!catalog.url) continue;
+    try {
+      const json = await esriJson<{ features?: Array<{ attributes: Record<string, unknown> }> }>(
+        `${catalog.url}/query`,
+        { where: catalog.where ?? '1=1', outFields: '*', returnGeometry: 'false' },
+        catalog.token,
+        true,
+      );
+      for (const f of json.features ?? []) {
+        const mode = sensorModeOf(f.attributes ?? {}, catalog);
+        if (mode) modes.push(mode);
+      }
+    } catch (error) {
+      problems.push(`${catalog.label} を読めませんでした（${error instanceof Error ? error.message : String(error)}）`);
+    }
+  }
+  return { modes, problems };
 }
 
 /** Up to `max` of `items`, evenly spread. */
@@ -236,6 +265,10 @@ const coverText = (op: Opportunity) =>
       : op.strips * op.frames === 1
         ? `1 シーン（幅 ${round(op.width, 0)} km）`
         : `${op.strips * op.frames} シーン（${op.strips > 1 ? `横 ${op.strips}` : ''}${op.strips > 1 && op.frames > 1 ? ' × ' : ''}${op.frames > 1 ? `パス方向 ${op.frames}` : ''}）`;
+/** A mode's facts for a tooltip: 「・スポットライト（幅 10 km・分解能 1 m）」; empty for a satellite without modes. */
+const modeFacts = (sat: SatelliteSpec) =>
+  sat.mode ? `・${sat.mode}（幅 ${round(sat.swath)} km・${round(sat.minOffNadir)}〜${round(sat.maxOffNadir)}°${sat.resolution !== undefined ? `・分解能 ${round(sat.resolution, 2)} m` : ''}）` : '';
+
 const coverTitle = (op: Opportunity, sat: SatelliteSpec) =>
   op.cells
     ? `この回は ${scenesTaken(op, sat)} シーン（観測幅 ${round(sat.swath)} km × シーン長 ${round(sat.length)} km をパス方向に連続、1 パス最大 ${sat.scenesPerPass} シーン）で対象の ${percent(op.coverage)} を撮像。対象全体は横 ${op.strips} 列 × パス方向 ${op.frames} 枚`
@@ -255,11 +288,13 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
   const downlinked = stations.length > 0;
   const paired = ops.some((op) => op.pair);
   const moving = targets.some((t) => t.uncertainty !== undefined);
+  const moded = sats.some((s) => s.mode);
   const head = [
     '日時（UTC）',
     '日時（ローカル）',
     '発注期限（ローカル）',
     '衛星',
+    ...(moded ? ['撮像モード'] : []),
     '衛星ID',
     '対象',
     ...(prioritized ? ['優先度'] : []),
@@ -289,6 +324,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       localText(op.time, true),
       sat.leadTime > 0 ? localText(op.time - sat.leadTime * 3600000, true) : '',
       sat.name,
+      ...(moded ? [sat.mode ?? ''] : []),
       sat.id,
       t.label,
       ...(prioritized ? [t.priorityText ?? ''] : []),
@@ -310,7 +346,7 @@ export function planCsv(ops: Opportunity[], sats: SatelliteSpec[], targets: Plan
       ...(paired && op.pair
         ? [
             new Date(op.pair.b.time).toISOString().replace(/\.\d+Z$/, 'Z'),
-            sats[op.pair.b.satellite].name,
+            satelliteLabel(sats[op.pair.b.satellite]),
             round(op.pair.b.offNadir, 2),
             round(op.pair.b.incidence, 2),
             round(op.pair.convergence, 2),
@@ -407,6 +443,7 @@ export class ImagingPlanPanel {
   private catalog_: SatelliteCatalogConfig | null;
   private loaded_: Promise<void> | null = null;
   private catalogSats_: SatelliteSpec[] = [];
+  private sensors_: Promise<{ modes: SensorMode[]; problems: string[] }> | null = null;
   /** The satellites (catalog and pasted) as a checklist: kind → series → satellite. */
   private readonly tree_: SatelliteTree;
   /** The point clicked on the map, when the target is one. */
@@ -433,8 +470,9 @@ export class ImagingPlanPanel {
     private readonly options: PlanPanelOptions,
   ) {
     this.catalog_ = catalogs[0] ?? null;
-    // Without a catalog in config.json, two fixed sample satellites stand in, so the panel can be tried at once.
-    if (!this.catalog_) this.catalogSats_ = sampleSatellites();
+    // Without a catalog in config.json, two fixed sample satellites stand in, so the panel can be tried at once (the
+    // SAR one with three made-up modes, unless config.json has sensors).
+    if (!this.catalog_) this.catalogSats_ = withModes(sampleSatellites(), options.sensorCatalogs?.length ? [] : sampleSensorModes());
     this.dialog = document.createElement('dialog');
     this.dialog.className = 'add-service plan-dialog';
     this.dialog.setAttribute('aria-labelledby', 'plan-title');
@@ -664,7 +702,7 @@ export class ImagingPlanPanel {
       if (!this.tree_.items().length) this.listSats();
       if (!this.plan_) {
         this.status_.textContent =
-          'config.json に衛星カタログ（satelliteCatalogs）がないので、サンプル衛星 2 機（光学・SAR。実在の衛星ではありません）で計算します。「詳細条件」で TLE を貼り付けて追加できます';
+          'config.json に衛星カタログ（satelliteCatalogs）がないので、サンプル衛星 2 機（光学・SAR。SAR はストリップマップ・スポットライト・スキャンSAR の 3 モード。実在の衛星ではありません）で計算します。「詳細条件」で TLE を貼り付けて追加できます';
       }
     } else void this.loadCatalog();
   }
@@ -698,17 +736,29 @@ export class ImagingPlanPanel {
     this.loaded_ ??= (async () => {
       this.status_.textContent = '衛星カタログを読んでいます…';
       try {
-        const { satellites, problems } = await loadSatellites(catalog);
+        const [{ satellites, problems }, sensors] = await Promise.all([loadSatellites(catalog), this.sensorModes()]);
         if (catalog !== this.catalog_) return;
-        this.catalogSats_ = satellites;
+        this.catalogSats_ = withModes(satellites, sensors.modes);
+        problems.push(...sensors.problems);
         this.listSats();
-        this.status_.textContent = `${catalog.label}: ${satellites.length} 機${problems.length ? `（読めなかったもの ${problems.length} 件: ${problems.slice(0, 3).join('、')}${problems.length > 3 ? ' …' : ''}）` : ''}。対象と期間を選んで「計算」`;
+        const modes = this.tree_.modeNames().length;
+        this.status_.textContent = `${catalog.label}: ${satellites.length} 機${modes ? `（撮像モード ${modes} 種）` : ''}${problems.length ? `（読めなかったもの ${problems.length} 件: ${problems.slice(0, 3).join('、')}${problems.length > 3 ? ' …' : ''}）` : ''}。対象と期間を選んで「計算」`;
       } catch (error) {
         this.loaded_ = null;
         this.status_.textContent = `衛星カタログを読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
       }
     })();
     return this.loaded_;
+  }
+
+  /** The modes of the sensor catalogs (read once). */
+  private sensorModes(): Promise<{ modes: SensorMode[]; problems: string[] }> {
+    this.sensors_ ??= loadSensorModes(this.options.sensorCatalogs ?? []).then((result) => {
+      // A table that could not be read is asked again next time.
+      if (result.problems.length) this.sensors_ = null;
+      return result;
+    });
+    return this.sensors_;
   }
 
   /** The satellites pasted in the TLE box. */
@@ -1117,7 +1167,7 @@ export class ImagingPlanPanel {
         ? `${what} ${pairs.length.toLocaleString()} 組。最初の 2 回目は ${localText(pairs[0][pairing === 'stereo' ? 'b' : 'a'].time)}。行を選ぶと 1 回目（青）と 2 回目（番号 2）の撮像範囲を地図に表示します${problems}`
         : `条件に合う${what}はありません。${hint}${problems}`;
     } else if (!combining) {
-      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${sats[first.satellite].name}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します（撮像範囲はドラッグで動かせます）${problems}`;
+      this.status_.textContent = `${result.opportunities.length.toLocaleString()} 回。最短は ${localText(first.time)}（${satelliteLabel(sats[first.satellite])}、オフナディア角 ${round(first.offNadir)}°）。行を選ぶと地図に軌道と撮像範囲を表示します（撮像範囲はドラッグで動かせます）${problems}`;
     } else {
       const plans = this.coverPlans();
       const done = plans.filter((p) => p.done !== null);
@@ -1153,8 +1203,8 @@ export class ImagingPlanPanel {
       {
         key: 'satellite',
         label: '衛星',
-        text: (op) => plan.sats[op.satellite].name,
-        title: (op) => `${plan.sats[op.satellite].source}・TLE ${round(op.tleAge, 0)} 日${plan.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれることがあります）' : ''}`,
+        text: (op) => satelliteLabel(plan.sats[op.satellite]),
+        title: (op) => `${plan.sats[op.satellite].source}${modeFacts(plan.sats[op.satellite])}・TLE ${round(op.tleAge, 0)} 日${plan.sats[op.satellite].source !== SAMPLE_SOURCE && Math.abs(op.tleAge) > OLD_TLE ? '（古い TLE。予測がずれることがあります）' : ''}`,
       },
       ...(many ? [{ key: 'target' as const, label: '対象', text: (op: Opportunity) => plan.targets[op.target].label }] : []),
       ...(many && plan.targets.some((t) => t.priority !== undefined)
@@ -1218,7 +1268,7 @@ export class ImagingPlanPanel {
       {
         key: 'second',
         label: '2 回目',
-        text: (op) => `${localText(second(op).time)} ${plan.sats[second(op).satellite].name}`,
+        text: (op) => `${localText(second(op).time)} ${satelliteLabel(plan.sats[second(op).satellite])}`,
         title: (op) => `オフナディア角 ${round(second(op).offNadir)}°・入射角 ${round(second(op).incidence)}°・${sideText(second(op))}`,
       },
       this.pairing() === 'stereo'
@@ -1241,7 +1291,7 @@ export class ImagingPlanPanel {
     const value = (op: Opportunity): number | string => {
       switch (this.sort_.key) {
         case 'satellite':
-          return plan.sats[op.satellite].name;
+          return satelliteLabel(plan.sats[op.satellite]);
         case 'target':
           return plan.targets[op.target].label;
         case 'priority':
@@ -1644,7 +1694,7 @@ export class ImagingPlanPanel {
         rings.forEach((ring, k) => source.addFeature(new Feature({ kind: 'step', label: k === Math.floor(rings.length / 2) ? String(i + 1) : '', geometry: new Polygon([ring.map(to)]) })));
       });
     }
-    source.addFeature(new Feature({ kind: 'satellite', label: `${sat.name} ${localText(op.time).slice(5)}`, geometry: new Point(to(shapes.position)) }));
+    source.addFeature(new Feature({ kind: 'satellite', label: `${satelliteLabel(sat)} ${localText(op.time).slice(5)}`, geometry: new Point(to(shapes.position)) }));
   }
 
   /** Fits the view to the chosen opportunity's target, scenes and satellite (or the combination's passes), beside the panel. */
@@ -1706,6 +1756,7 @@ export class ImagingPlanPanel {
 /** Opportunities' scenes as a layer: one feature per opportunity, with its time and angles. */
 export function planFeatures(ops: readonly Opportunity[], sats: readonly SatelliteSpec[], targets: readonly PlanTarget[], combined: boolean, stations: readonly GroundStation[] = []): ProcessingResult {
   const clouded = ops.some((op) => op.cloud !== undefined);
+  const moded = sats.some((s) => s.mode);
   const paired = ops.some((op) => op.pair);
   const moving = targets.some((t) => t.uncertainty !== undefined);
   const features: Feature[] = [];
@@ -1719,6 +1770,7 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
         geometry: rings.length === 1 ? new Polygon(rings[0]) : new MultiPolygon(rings),
         time: op.time,
         satellite: sat.name,
+        ...(moded ? { mode: sat.mode ?? null } : {}),
         satellite_id: sat.id,
         target: targets[op.target].label,
         ...(moving ? { uncertainty_km: Math.round((targets[op.target].uncertainty ?? 0) * 100) / 100 } : {}),
@@ -1734,7 +1786,7 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
         ...(paired
           ? {
               pair_time: op.pair?.b.time ?? null,
-              pair_satellite: op.pair ? sats[op.pair.b.satellite].name : null,
+              pair_satellite: op.pair ? satelliteLabel(sats[op.pair.b.satellite]) : null,
               convergence: op.pair ? Math.round(op.pair.convergence * 100) / 100 : null,
               bh: op.pair ? Math.round(op.pair.bh * 1000) / 1000 : null,
               baseline: op.pair ? Math.round(op.pair.baseline) : null,
@@ -1751,6 +1803,7 @@ export function planFeatures(ops: readonly Opportunity[], sats: readonly Satelli
     fields: [
       field('time', 'date', '撮像日時'),
       field('satellite', 'string', '衛星'),
+      ...(moded ? [field('mode', 'string', '撮像モード')] : []),
       field('satellite_id', 'string', '衛星ID'),
       field('target', 'string', '対象'),
       ...(moving ? [field('uncertainty_km', 'double', '位置の誤差km')] : []),

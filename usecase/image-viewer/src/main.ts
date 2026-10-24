@@ -1287,6 +1287,7 @@ const stac = new StacPanel(document.getElementById('stac-open') as HTMLButtonEle
 
 // Imaging plans (config.json's satelliteCatalogs, or pasted TLEs): when the satellites can next image a layer's features.
 const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as HTMLButtonElement, map, config.satelliteCatalogs, {
+  sensorCatalogs: config.sensorCatalogs,
   shipTrack: (id): Track | null => {
     for (const feed of moving.feeds() as MovingLayer[]) {
       const track = feed.store.tracks.get(id.slice('moving:'.length));

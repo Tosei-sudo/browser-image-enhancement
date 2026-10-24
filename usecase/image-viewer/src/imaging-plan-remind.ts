@@ -8,7 +8,7 @@
  * of the viewer is open; desktop notifications are never used.
  */
 import { addNotices, type WatchNotice } from './catalog-watch.js';
-import type { Opportunity, PlanTarget, SatelliteSpec } from './imaging-plan.js';
+import { satelliteLabel, type Opportunity, type PlanTarget, type SatelliteSpec } from './imaging-plan.js';
 
 /** One shot to remind of. */
 export interface PlanReminder {
@@ -84,6 +84,7 @@ export function planIcs(ops: readonly Opportunity[], sats: readonly SatelliteSpe
     const end = Math.max(op.time + 60000, op.scene?.[1] ?? 0);
     const details = [
       `衛星: ${sat.name}（${sat.id}）`,
+      ...(sat.mode ? [`撮像モード: ${sat.mode}`] : []),
       `対象: ${names.join('、')}`,
       `オフナディア角: ${op.offNadir.toFixed(1)}°・入射角 ${op.incidence.toFixed(1)}°`,
       `方向: ${op.side === 'right' ? '右' : '左'}・${op.ascending ? '北行' : '南行'}`,
@@ -96,12 +97,12 @@ export function planIcs(ops: readonly Opportunity[], sats: readonly SatelliteSpe
       `DTSTAMP:${icsTime(now)}`,
       `DTSTART:${icsTime(op.time)}`,
       `DTEND:${icsTime(end)}`,
-      `SUMMARY:${icsText(`撮像 ${sat.name} → ${names.join('、')}`)}`,
+      `SUMMARY:${icsText(`撮像 ${satelliteLabel(sat)} → ${names.join('、')}`)}`,
       `DESCRIPTION:${icsText(details.join('\n'))}`,
       `GEO:${targets[op.target].center[1].toFixed(6)};${targets[op.target].center[0].toFixed(6)}`,
       'TRANSP:TRANSPARENT',
     );
-    if (alarm !== null) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(`撮像 ${sat.name}`)}`, `TRIGGER:-PT${Math.max(0, Math.round(alarm))}M`, 'END:VALARM');
+    if (alarm !== null) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(`撮像 ${satelliteLabel(sat)}`)}`, `TRIGGER:-PT${Math.max(0, Math.round(alarm))}M`, 'END:VALARM');
     lines.push('END:VEVENT');
   }
   lines.push('END:VCALENDAR');
@@ -146,7 +147,7 @@ export function addReminders(
       id: `${sat.id}:${op.time}`,
       time: op.time,
       notifyAt: op.time - Math.max(0, minutes) * 60000,
-      satellite: sat.name,
+      satellite: satelliteLabel(sat),
       target: names.join('、'),
       offNadir: Math.round(op.offNadir * 10) / 10,
       rings: ringsOf(op),

@@ -5,7 +5,7 @@
  * and which satellites are free show at a glance. A bar's colour tells its
  * target; clicking a bar chooses that shot.
  */
-import type { Opportunity, SatelliteSpec } from './imaging-plan.js';
+import { platformKey, type Opportunity, type SatelliteSpec } from './imaging-plan.js';
 
 export interface TimelineOptions {
   ops: readonly Opportunity[];
@@ -33,12 +33,21 @@ const el = <K extends keyof SVGElementTagNameMap>(name: K, attrs: Record<string,
   return node;
 };
 
-/** The rows of the timeline: the satellites with shots, by name, each with its shots in time order. */
+/**
+ * The rows of the timeline: the satellites with shots, by name, each with
+ * its shots in time order (those of all its modes in one row, as they share
+ * its time).
+ */
 export function timelineRows(ops: readonly Opportunity[], sats: readonly SatelliteSpec[]): Array<{ satellite: number; ops: Opportunity[] }> {
-  const rows = new Map<number, Opportunity[]>();
-  for (const op of ops) rows.set(op.satellite, [...(rows.get(op.satellite) ?? []), op]);
-  return [...rows]
-    .map(([satellite, list]) => ({ satellite, ops: list.sort((a, b) => a.time - b.time) }))
+  const rows = new Map<string, { satellite: number; ops: Opportunity[] }>();
+  for (const op of ops) {
+    const key = platformKey(sats[op.satellite]);
+    const row = rows.get(key);
+    if (row) row.ops.push(op);
+    else rows.set(key, { satellite: op.satellite, ops: [op] });
+  }
+  return [...rows.values()]
+    .map(({ satellite, ops: list }) => ({ satellite, ops: list.sort((a, b) => a.time - b.time) }))
     .sort((a, b) => sats[a.satellite].name.localeCompare(sats[b.satellite].name, 'ja', { numeric: true }));
 }
 

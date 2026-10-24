@@ -19,7 +19,7 @@ import { Circle, Fill, Stroke, Style, Text } from 'ol/style.js';
 import { LineString, MultiLineString, MultiPolygon, Point, Polygon } from 'ol/geom.js';
 import { createEmpty, extend, isEmpty } from 'ol/extent.js';
 import { fromLonLat } from 'ol/proj.js';
-import { builtInDefaults, satellitesFromText, type SatelliteSpec } from './imaging-plan.js';
+import { builtInDefaults, platformKey, satelliteLabel, satellitesFromText, type SatelliteSpec } from './imaging-plan.js';
 import { localText } from './imaging-plan-panel.js';
 import { bandRings, sampleAt, satelliteTrack, track3d, wrapLine, wrapPolygon, type SatelliteTrack, type Track3d } from './satellite-track.js';
 import { field, type ProcessingResult } from './processing/common.js';
@@ -249,7 +249,7 @@ export class SatelliteTrackPanel {
     if (!this.dialog.open) return [];
     const at = this.moment();
     return this.tracks_.map(({ track, color }) =>
-      track3d(track, color, at === null ? undefined : { index: sampleAt(track, at), label: `${track.sat.name}\n${localText(at)}` }),
+      track3d(track, color, at === null ? undefined : { index: sampleAt(track, at), label: `${satelliteLabel(track.sat)}\n${localText(at)}` }),
     );
   }
 
@@ -321,7 +321,7 @@ export class SatelliteTrackPanel {
     const all = [...this.catalog_, ...pasted];
     this.swatches_.clear();
     // At first only a few satellites (the samples) start chosen, so something shows at once.
-    this.tree_.set(all, (sat, first) => pasted.includes(sat) || (first && all.length <= 2));
+    this.tree_.set(all, (sat, first) => pasted.includes(sat) || (first && new Set(all.map(platformKey)).size <= 2));
     this.filter_.hidden = all.length <= 8;
     this.tree_.filter(this.filter_.value);
     this.paint();
@@ -389,7 +389,7 @@ export class SatelliteTrackPanel {
           ...(daylight !== '' ? { minSun: Number(daylight) } : {}),
         });
         if (track && track.times.length > 1) this.tracks_.push({ track, color: this.colors_.get(l.key)! });
-        else failed.push(l.sat.name);
+        else failed.push(satelliteLabel(l.sat));
       }
       for (const { track, color } of this.tracks_) this.drawTrack(track, color, period.at);
       const when = period.at !== null ? `${localText(period.at)} 前後 ${Math.round((period.to - period.at) / 60000)} 分` : `${localText(period.from)} 〜 ${localText(period.to)}`;
@@ -405,7 +405,7 @@ export class SatelliteTrackPanel {
     const source = this.overlay.getSource()!;
     const projection = this.map.getView().getProjection();
     const to = (c: [number, number]) => fromLonLat(c, projection);
-    const name = track.sat.name;
+    const name = satelliteLabel(track.sat);
     for (const band of track.bands) {
       for (const ring of bandRings(band)) for (const part of wrapPolygon(ring)) source.addFeature(new Feature({ kind: 'reach', color, satellite: name, geometry: new Polygon([part.map(to)]) }));
     }
@@ -445,7 +445,7 @@ export class SatelliteTrackPanel {
       row.insertCell().append(swatch);
       const reach = track.offNadir.min > 0 ? `${round(track.offNadir.min)}〜${round(track.offNadir.max)}°` : `${round(track.offNadir.max)}° 以下`;
       const side = track.sat.lookSide === 'both' ? '左右' : track.sat.lookSide === 'right' ? '右' : '左';
-      for (const text of [track.sat.name, `${round(lat, 3)}, ${round(lon, 3)}`, `${round(track.heights[i] / 1000, 0)} km`, track.ascending[i] ? '北行' : '南行', `${reach}・${side}`]) row.insertCell().textContent = text;
+      for (const text of [satelliteLabel(track.sat), `${round(lat, 3)}, ${round(lon, 3)}`, `${round(track.heights[i] / 1000, 0)} km`, track.ascending[i] ? '北行' : '南行', `${reach}・${side}`]) row.insertCell().textContent = text;
       row.title = 'クリックでこの衛星へ移動';
       row.addEventListener('click', () => this.zoomTo(track));
     }
@@ -456,7 +456,7 @@ export class SatelliteTrackPanel {
   zoomTo(track?: SatelliteTrack): void {
     const extent = createEmpty();
     for (const f of this.overlay.getSource()!.getFeatures()) {
-      if (track && f.get('satellite') !== track.sat.name) continue;
+      if (track && f.get('satellite') !== satelliteLabel(track.sat)) continue;
       // At a moment, one satellite: where it is and the pass around it.
       if (f.get('kind') === 'tick') continue;
       extend(extent, f.getGeometry()!.getExtent());
@@ -489,7 +489,7 @@ export function trackFeatures(tracks: readonly SatelliteTrack[]): ProcessingResu
   const to = (c: [number, number]) => fromLonLat(c, 'EPSG:3857');
   for (const track of tracks) {
     const base = {
-      satellite: track.sat.name,
+      satellite: satelliteLabel(track.sat),
       satellite_id: track.sat.id,
       start: track.from,
       end: track.to,

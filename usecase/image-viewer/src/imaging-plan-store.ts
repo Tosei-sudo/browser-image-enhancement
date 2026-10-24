@@ -23,6 +23,8 @@ export interface PlanStoreFields {
   shotTime: string;
   satellite: string;
   satelliteId: string;
+  /** The imaging mode the shot is planned in (written when the layer has it). */
+  mode: string;
   target: string;
   offNadir: string;
   incidence: string;
@@ -40,6 +42,7 @@ export const defaultPlanFields: PlanStoreFields = {
   shotTime: 'SHOT_TIME',
   satellite: 'SATELLITE',
   satelliteId: 'SATELLITE_ID',
+  mode: 'MODE',
   target: 'TARGET',
   offNadir: 'OFF_NADIR',
   incidence: 'INCIDENCE',
@@ -167,6 +170,7 @@ export function shotFeatures(
       [fields.shotTime]: op.time,
       [fields.satellite]: sat.name,
       [fields.satelliteId]: sat.id,
+      [fields.mode]: sat.mode ?? null,
       [fields.target]: names.join('、').slice(0, 250),
       [fields.offNadir]: Math.round(op.offNadir * 100) / 100,
       [fields.incidence]: Math.round(op.incidence * 100) / 100,
