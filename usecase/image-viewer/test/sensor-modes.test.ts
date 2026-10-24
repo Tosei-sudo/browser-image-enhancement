@@ -145,16 +145,25 @@ describe('planning by mode', () => {
     expect(timelineRows([...plans[0].steps, ...plans[1].steps], sats)).toHaveLength(1);
   });
 
-  it('covers an area with the mode that takes most of it', () => {
-    // A strip 60 km wide straight below: ScanSAR (100 km) takes it all at once, spotlight (5 km) a sliver.
-    const dLon = 30 / (111.32 * Math.cos((below[1] * Math.PI) / 180));
-    const cells: Array<[number, number]> = [];
-    for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) cells.push([below[0] - dLon + (2 * dLon * (i + 0.5)) / 12, below[1] - 0.25 + (0.5 * (j + 0.5)) / 12]);
-    const area: PlanTarget = { label: 'area', center: below, points: cells.filter((_, k) => k % 11 === 0), cells };
+  it('covers an area with the sharpest mode whose scene holds it, else the next', () => {
+    /** A box `km` wide and long straight below, as a grid of cells. */
+    const box = (km: number): PlanTarget => {
+      const dLon = km / 2 / (111.32 * Math.cos((below[1] * Math.PI) / 180));
+      const dLat = km / 2 / 111.32;
+      const cells: Array<[number, number]> = [];
+      for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) cells.push([below[0] - dLon + (2 * dLon * (i + 0.5)) / 12, below[1] - dLat + (2 * dLat * (j + 0.5)) / 12]);
+      return { label: `${km} km`, center: below, points: cells.filter((_, k) => k % 11 === 0), cells };
+    };
     const sats = withModes([iss()], sarModes.map((m) => ({ ...m, minOffNadir: 0 })));
-    const { opportunities } = planAccess(sats, [area], options);
-    const [plan] = coverPlan(opportunities, [area], sats, 0.9);
-    expect(plan.steps).toHaveLength(1);
-    expect(sats[plan.steps[0].satellite].mode).toBe('スキャンSAR');
+    const modeFor = (km: number) => {
+      const area = box(km);
+      const [plan] = coverPlan(planAccess(sats, [area], options).opportunities, [area], sats, 0.9);
+      expect(plan.steps).toHaveLength(1);
+      return sats[plan.steps[0].satellite].mode;
+    };
+    // Spotlight's 5 km scene holds 3 km; stripmap's 30 × 50 km holds 20 km; only ScanSAR's 100 km holds 60 km.
+    expect(modeFor(3)).toBe('スポットライト');
+    expect(modeFor(20)).toBe('ストリップマップ');
+    expect(modeFor(60)).toBe('スキャンSAR');
   });
 });

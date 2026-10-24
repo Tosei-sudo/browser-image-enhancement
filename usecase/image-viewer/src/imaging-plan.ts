@@ -1231,9 +1231,9 @@ export function coverPlan(opportunities: Opportunity[], targets: PlanTarget[], s
     const plan = plans[first.target];
     if (!plan || plan.done !== null) return;
     const n = covered[first.target].length;
-    // A satellite takes a pass in one mode: of its modes that see this target on this pass, the one that takes the
-    // most of what is still uncovered (for a point, the sharpest).
-    const op = bestMode(first, sorted, i, sats, weighed, n ? covered[first.target] : null);
+    // A satellite takes a pass in one mode: of its modes that see this target on this pass, the sharpest whose
+    // scenes finish it, else the one that takes the most of what is still uncovered (for a point, the sharpest).
+    const op = bestMode(first, sorted, i, sats, weighed, n ? covered[first.target] : null, Math.ceil(goal * n - totals[first.target] - 1e-9));
     const sat = sats[op.satellite];
     if (!n) {
       if (busy(op.satellite, op.time)) {
@@ -1308,11 +1308,13 @@ const SAME_PASS = 120000;
 /**
  * Of `op` and the opportunities of the other modes of its satellite on the
  * same pass over the same target (from `sorted`, after `i`), the one to
- * plan with: for an area (`cov`, its cells covered so far), the one whose
- * scenes take the most still uncovered; for a point, the finest resolution.
- * The others are put in `weighed`, so they are not planned too.
+ * plan with. For a point, the finest resolution. For an area (`cov`, its
+ * cells covered so far; `need`, the cells still needed for the goal), the
+ * modes are tried from the finest resolution: the first whose scenes take
+ * all that is needed; when none does, the one that takes the most. The
+ * others are put in `weighed`, so they are not planned too.
  */
-function bestMode(op: Opportunity, sorted: Opportunity[], i: number, sats: SatelliteSpec[], weighed: Set<Opportunity>, cov: Uint8Array | null): Opportunity {
+function bestMode(op: Opportunity, sorted: Opportunity[], i: number, sats: SatelliteSpec[], weighed: Set<Opportunity>, cov: Uint8Array | null, need: number): Opportunity {
   const key = platformKey(sats[op.satellite]);
   const siblings = [op];
   for (let j = i + 1; j < sorted.length && sorted[j].time - op.time <= SAME_PASS; j++) {
@@ -1321,18 +1323,23 @@ function bestMode(op: Opportunity, sorted: Opportunity[], i: number, sats: Satel
   }
   if (siblings.length === 1) return op;
   for (const o of siblings) weighed.add(o);
-  const score = (o: Opportunity) => {
+  const resolution = (o: Opportunity) => sats[o.satellite].resolution ?? Infinity;
+  // Finest first (a stable sort keeps the catalog's order among equals).
+  const byResolution = [...siblings].sort((a, b) => resolution(a) - resolution(b));
+  if (!cov) return byResolution[0];
+  const taken = (o: Opportunity) => {
     const sat = sats[o.satellite];
-    if (!cov || !o.cells || !o.cellsAlong) return -(sat.resolution ?? Infinity);
+    if (!o.cells || !o.cellsAlong) return -1;
     return bestScene(o.cells, o.cellsAlong, sat.swath / R, sat.length / R, sat.scenesPerPass, (c) => !cov[c])?.count ?? -1;
   };
-  let best = op;
-  let most = score(op);
-  for (const o of siblings.slice(1)) {
-    const v = score(o);
-    if (v > most || (v === most && (sats[o.satellite].resolution ?? Infinity) < (sats[best.satellite].resolution ?? Infinity))) {
+  let best = byResolution[0];
+  let most = -Infinity;
+  for (const o of byResolution) {
+    const count = taken(o);
+    if (count >= Math.max(1, need)) return o;
+    if (count > most) {
       best = o;
-      most = v;
+      most = count;
     }
   }
   return best;
