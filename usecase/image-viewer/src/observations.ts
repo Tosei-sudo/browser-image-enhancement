@@ -19,6 +19,7 @@
  */
 import { timeOf, type FieldTypes } from './catalog-query.js';
 import { getDistance } from 'ol/sphere.js';
+import { fromKinds, kindOf, pathOf, taxonomyOf, taxonomyTableOf, within, type Taxon, type TaxonomyTableConfig } from './taxonomy.js';
 
 /** One observation of one thing in one image. */
 export interface Observation {
@@ -32,7 +33,7 @@ export interface Observation {
   /** The thing's id, the same in every image it is recorded in. */
   objectId: string;
   objectName: string;
-  /** 種別: ship, aircraft, building… */
+  /** 種別: the path of its class in the classification (taxonomy.ts), `船舶 > 支援船 > 〇〇級`, as deep as known. */
   kind: string;
   /** 活動: what it was doing. */
   activity: string;
@@ -83,13 +84,27 @@ export const defaultObservationFields: ObservationFields = {
 
 /** The kinds and activities offered first (more can be typed; those used are offered too). */
 export interface ObservationVocabulary {
+  /** The top classes (the roots of `taxonomy`). */
   kinds: string[];
   activities: string[];
+  /** The classification the kinds are chosen from (taxonomy.ts). */
+  taxonomy: Taxon[];
 }
 
+/** The classes offered at first: each branch with its own levels. */
+const defaultTaxonomy: Taxon[] = [
+  { path: ['船舶'], levels: ['大分類', '種別', '級'], nameLabel: '船名' },
+  { path: ['航空機'], levels: ['大分類', '種別', '型式'], nameLabel: '機番' },
+  { path: ['車両'], levels: ['大分類', '種別', '車種'] },
+  { path: ['建物'], levels: ['大分類', '用途'] },
+  { path: ['構造物'], levels: ['大分類', '種別'] },
+  { path: ['その他'] },
+];
+
 export const defaultVocabulary: ObservationVocabulary = {
-  kinds: ['船舶', '航空機', '車両', '建物', '構造物', 'その他'],
+  kinds: defaultTaxonomy.map((t) => t.path[0]),
   activities: ['停泊', '航行', '駐機', '移動', '工事', '集積', '活動なし'],
+  taxonomy: defaultTaxonomy,
 };
 
 /** One entry of `config.json`'s `observationStores`. */
@@ -105,6 +120,10 @@ export interface ObservationStoreConfig {
   softDelete: boolean;
   kinds?: string[];
   activities?: string[];
+  /** The store's own classification (else `observationVocabulary`'s). */
+  taxonomy?: Taxon[];
+  /** An Esri table the classification is kept in, shared by everyone using the store (else the browser). */
+  taxonomyTable?: TaxonomyTableConfig;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -114,8 +133,10 @@ const words = (value: unknown): string[] | undefined => (Array.isArray(value) ? 
 export function observationStoreOf(value: unknown, problems: string[], index: number): ObservationStoreConfig | null {
   const at = `observationStores[${index}]`;
   if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
-  const { label, url, token, fields, where, softDelete, kinds, activities } = value;
+  const { label, url, token, fields, where, softDelete, kinds, activities, taxonomy, taxonomyTable } = value;
   if (typeof url !== 'string' || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) return (problems.push(`${at} の url は編集できる …/FeatureServer/0 のようなポイントレイヤーの URL で指定`), null);
+  const classes = taxonomy !== undefined ? taxonomyOf(taxonomy, problems, `${at}.taxonomy`) : words(kinds)?.length ? fromKinds(words(kinds)!) : null;
+  const table = taxonomyTable !== undefined ? taxonomyTableOf(taxonomyTable, problems, `${at}.taxonomyTable`) : null;
   const mapped = { ...defaultObservationFields };
   if (isRecord(fields)) {
     for (const [key, v] of Object.entries(fields)) {
@@ -133,6 +154,8 @@ export function observationStoreOf(value: unknown, problems: string[], index: nu
     softDelete: softDelete !== false,
     ...(words(kinds)?.length ? { kinds: words(kinds) } : {}),
     ...(words(activities)?.length ? { activities: words(activities) } : {}),
+    ...(classes?.length ? { taxonomy: classes } : {}),
+    ...(table ? { taxonomyTable: table } : {}),
   };
 }
 
@@ -142,7 +165,12 @@ export function vocabularyOf(value: unknown, problems: string[]): ObservationVoc
     problems.push('observationVocabulary はオブジェクトで指定');
     return { ...defaultVocabulary };
   }
-  return { kinds: words(value.kinds)?.length ? words(value.kinds)! : defaultVocabulary.kinds, activities: words(value.activities)?.length ? words(value.activities)! : defaultVocabulary.activities };
+  const taxonomy = value.taxonomy !== undefined ? taxonomyOf(value.taxonomy, problems, 'observationVocabulary.taxonomy') : words(value.kinds)?.length ? fromKinds(words(value.kinds)!) : null;
+  return {
+    kinds: taxonomy?.length ? [...new Set(taxonomy.map((t) => t.path[0]))] : words(value.kinds)?.length ? words(value.kinds)! : defaultVocabulary.kinds,
+    activities: words(value.activities)?.length ? words(value.activities)! : defaultVocabulary.activities,
+    taxonomy: taxonomy?.length ? taxonomy : defaultVocabulary.taxonomy,
+  };
 }
 
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -151,9 +179,9 @@ export const newObservationId = (): string => randomId();
 /** A new thing id: short, to be read and typed (`OBJ-K3F9Q2TX`). */
 export const newObjectId = (): string => `OBJ-${randomId().replace(/-/g, '').slice(-8).toUpperCase()}`;
 
-/** The next free name of a kind: 船舶-1, 船舶-2… */
+/** The next free name of a kind (its deepest class): 船舶-1, 〇〇級-2… */
 export function nextName(kind: string, taken: Iterable<string>): string {
-  const base = kind || 'モノ';
+  const base = pathOf(kind).at(-1) || 'モノ';
   const pattern = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)$`);
   let max = 0;
   for (const name of taken) {
@@ -224,12 +252,14 @@ export function flowOf(records: readonly Observation[]): ObjectFlow {
     } else steps.push({ activity: o.present ? o.activity : '', present: o.present, from: timeKey(o), to: timeKey(o), count: 1, moved: steps.length ? moved : null, observations: [o] });
     if (o.present) previous = o;
   }
-  // The name and kind as last written.
+  // The name and kind as last written; the kind as deep as any record knows it below that (one image may tell only 「船舶」).
   const named = [...list].reverse().find((o) => o.objectName) ?? last;
+  const written = [...list].reverse().find((o) => o.kind) ?? named;
+  const kind = list.map((o) => o.kind).reduce((best, k) => (within(k, pathOf(best)) && pathOf(k).length > pathOf(best).length ? k : best), written.kind);
   return {
     objectId: last.objectId,
     name: named.objectName || last.objectId,
-    kind: named.kind,
+    kind: kindOf(pathOf(kind)),
     observations: list,
     first: timeKey(list[0]),
     last: timeKey(last),
@@ -311,10 +341,16 @@ export function observationsCsv(records: readonly Observation[]): string {
     const text = String(v ?? '');
     return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
-  const head = ['観測ID', 'モノID', 'モノ', '種別', '活動', '有無', '撮像日時', '画像ID', '画像', '経度', '緯度', '備考', '登録日時', '更新日時', '削除日時'];
+  // The kind whole, then a column per level (分類1 the top), for sorting and pivoting.
+  const depth = Math.max(1, ...records.map((o) => pathOf(o.kind).length));
+  const levels = Array.from({ length: depth }, (_, i) => `分類${i + 1}`);
+  const head = ['観測ID', 'モノID', 'モノ', '種別', ...levels, '活動', '有無', '撮像日時', '画像ID', '画像', '経度', '緯度', '備考', '登録日時', '更新日時', '削除日時'];
   const rows = [...records]
     .sort((a, b) => a.objectId.localeCompare(b.objectId) || byTime(a, b))
-    .map((o) => [o.id, o.objectId, o.objectName, o.kind, o.activity, o.present ? 'あり' : 'なし', iso(o.imageTime), o.imageId, o.imageName, o.lon.toFixed(7), o.lat.toFixed(7), o.note, iso(o.createdAt), iso(o.updatedAt), iso(o.deletedAt)]);
+    .map((o) => {
+      const path = pathOf(o.kind);
+      return [o.id, o.objectId, o.objectName, kindOf(path), ...levels.map((_, i) => path[i] ?? ''), o.activity, o.present ? 'あり' : 'なし', iso(o.imageTime), o.imageId, o.imageName, o.lon.toFixed(7), o.lat.toFixed(7), o.note, iso(o.createdAt), iso(o.updatedAt), iso(o.deletedAt)];
+    });
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
 
