@@ -66,7 +66,7 @@ export function metresPerDegree(lat: number): { x: number; y: number; radius: nu
  */
 export function gridAround(cells: readonly Dted[], { lon, lat, radius }: Pick<ViewshedOptions, 'lon' | 'lat' | 'radius'>, maxCells = 4_000_000): ViewshedGrid {
   const here = cells.filter((c) => lon >= c.west && lon <= c.west + (c.width - 1) * c.spacing[0] && lat >= c.south && lat <= c.south + (c.height - 1) * c.spacing[1]);
-  if (!here.length) throw new Error('観測点に標高データがありません');
+  if (!here.length) throw new Error('観測点に標高データなし');
   let dLon = Math.min(...here.map((c) => c.spacing[0]));
   let dLat = Math.min(...here.map((c) => c.spacing[1]));
   const m = metresPerDegree(lat);
@@ -111,7 +111,7 @@ export function viewshed(grid: ViewshedGrid, options: ViewshedOptions, rowStart 
     return (heights[k] * (1 - tx) + heights[k + 1] * tx) * (1 - ty) + (heights[k + width] * (1 - tx) + heights[k + width + 1] * tx) * ty;
   };
   const ground = at(ox, oy);
-  if (Number.isNaN(ground)) throw new Error('観測点に標高データがありません');
+  if (Number.isNaN(ground)) throw new Error('観測点に標高データなし');
   const eye = ground + options.observerHeight;
   const r2 = options.radius * options.radius;
   const out = new Uint8Array((rowEnd - rowStart) * width).fill(OUTSIDE);
@@ -189,7 +189,7 @@ export async function runViewshed(grid: ViewshedGrid, options: ViewshedOptions, 
               onProgress?.(done / grid.height);
               send();
             };
-            worker.onerror = (e) => reject(new Error(e.message || '可視解析のワーカーが止まりました'));
+            worker.onerror = (e) => reject(new Error(e.message || '可視解析のワーカーが停止'));
             worker.postMessage({ grid });
             send();
           }),

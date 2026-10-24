@@ -141,7 +141,7 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
     const view = views.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && views.size === 1 ? [...views.values()][0] : null);
     const side = sides.get(baseName(file.name).toLowerCase()) ?? (images.length === 1 && sides.size === 1 ? [...sides.values()][0] : null);
     return prepareImage(file, context, rpc, ovr, view, side, bulk).catch((error: unknown) => {
-      context.say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      context.say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return async () => null;
     });
   };
@@ -159,7 +159,7 @@ export async function openFiles(files: File[], context: OpenFilesContext): Promi
     context.onProgress?.(done, images.length);
   }
   const unused = ovrs.filter((o) => !used.has(o));
-  if (unused.length) context.say(`${nameList(unused.map((o) => o.name))} に合う GeoTIFF がありません（画像と一緒に選んでください）`);
+  if (unused.length) context.say(`${nameList(unused.map((o) => o.name))} に合う GeoTIFF なし（画像と一緒に選択）`);
 }
 
 /** Whether `name` is a side file that places an image: a world file or an .aux.xml. */
@@ -192,7 +192,7 @@ async function readSideFiles(files: File[], { say }: OpenFilesContext): Promise<
         side.crs = normalizeCrs(text) ?? side.crs;
       }
     } catch (error) {
-      say(`${file.name} を読めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     sides.set(key, side);
@@ -217,7 +217,7 @@ async function readRpcFiles(files: File[], { say }: OpenFilesContext): Promise<M
     try {
       models.set(rpcBaseName(file.name), parseRpcText(await file.text()));
     } catch (error) {
-      say(`${file.name} を読めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return models;
@@ -225,7 +225,7 @@ async function readRpcFiles(files: File[], { say }: OpenFilesContext): Promise<M
 
 async function openVectors(chosen: File[], { addLayer, say }: OpenFilesContext): Promise<void> {
   const names = nameList(chosen.map((f) => f.name));
-  say(`${names} を読み込んでいます…`);
+  say(`${names} を読み込み中…`);
   let files: File[];
   try {
     // Large Shapefiles are read a piece at a time into the browser, and shown a view at a time.
@@ -235,19 +235,19 @@ async function openVectors(chosen: File[], { addLayer, say }: OpenFilesContext):
       const style = parts.qml ? fileStyle({ styleQml: parts.qml }) : null;
       const layer = await openStreamedShapefile(parts, (message, fraction) => say(`${parts.title}: ${message}… ${Math.round(fraction * 100)}%`), style);
       addLayer(layer);
-      say(`${parts.title} を開きました（${layer.info.find(([k]) => k === '地物数')?.[1]} 件。大容量のため表示範囲だけを読み込みます・読み取り専用）`);
+      say(`${parts.title} を表示（${layer.info.find(([k]) => k === '地物数')?.[1]} 件。大容量のため表示範囲のみ読み込み・読み取り専用）`);
     }
   } catch (error) {
-    say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    say(`${names} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
   if (!files.some((f) => isVectorName(f.name))) return;
   try {
     const read = await readVectorFiles(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()), handle: handleOf(f) }))), projectionOf);
     for (const file of read) addLayer(vectorFileLayer(file));
-    say(`${nameList(read.map((f) => f.title))} を開きました（✎ で編集できます）`);
+    say(`${nameList(read.map((f) => f.title))} を表示（✎ で編集可能）`);
   } catch (error) {
-    say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    say(`${names} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -256,9 +256,9 @@ async function openCsv(file: File, { addLayer, say }: OpenFilesContext): Promise
   try {
     const csv = readCsv(new Uint8Array(await file.arrayBuffer()), stem(file.name));
     addLayer(csvLayer(csv));
-    say(`${file.name} を開きました（${csv.features.length.toLocaleString()} 行。「プロセッシング」の「XY 座標からポイントを作成」で地図に置けます）`);
+    say(`${file.name} を表示（${csv.features.length.toLocaleString()} 行。「プロセッシング」の「XY 座標からポイントを作成」で地図に配置可能）`);
   } catch (error) {
-    say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -358,7 +358,7 @@ async function prepareImage(file: File, context: OpenFilesContext, sideRpc: Rpc 
     try {
       nitf = await nitfAsTiff(file);
     } catch (error) {
-      say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return async () => null;
     }
     for (const note of nitf.notes) say(`${file.name}: ${note}`);
@@ -378,7 +378,7 @@ async function prepareImage(file: File, context: OpenFilesContext, sideRpc: Rpc 
     }
   }
   if (tiff) {
-    say(`${name} を読み込んでいます…`);
+    say(`${name} を読み込み中…`);
     const info = await tiffInfo(tiff).catch(() => null);
     rpc = sideRpc ?? info?.rpc ?? null;
     // Coordinates in no known CRS (no GeoKeys) are no projection.
@@ -396,7 +396,7 @@ async function prepareImage(file: File, context: OpenFilesContext, sideRpc: Rpc 
         origin.georef = georef;
         georeferenced = true;
       } catch (error) {
-        say(`${side!.from} を使えませんでした: ${error instanceof Error ? error.message : String(error)}`);
+        say(`${side!.from} の使用に失敗: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     if (origin && !placement && !georeferenced) {
@@ -410,7 +410,7 @@ async function prepareImage(file: File, context: OpenFilesContext, sideRpc: Rpc 
       try {
         blob = (await withExternalOverviews(file, ovr, { name: ovr.name, replace: geo ? geoEntries(geo) : [] })) ?? file;
       } catch (error) {
-        say(`${ovr.name} は ${name} の RSET に使えません（${error instanceof Error ? error.message : String(error)}）。RSET を生成します`);
+        say(`${ovr.name} は ${name} の RSET に使用不可（${error instanceof Error ? error.message : String(error)}）。RSET を生成`);
       }
     }
     // Unreadable here (an unusual TIFF): open it as it is, and let the loader say what is wrong.
@@ -471,11 +471,11 @@ function opened(source: EnhancedGeoTIFF, origin: RasterOrigin | null, side: Side
   onUnplaced?.(source);
   const name = origin.file.name;
   if (side && !(side.crs && (side.transform ?? origin.own))) {
-    say(`${name}: ${side.from} だけでは配置できません（${side.crs ? `${crsLabel(side.crs)} のほかに配置` : '座標系'}を選んでください）`);
+    say(`${name}: ${side.from} だけでは配置不可（${side.crs ? `${crsLabel(side.crs)} のほかに配置` : '座標系'}を選択）`);
     askGeoref?.(source, side);
   } else if (origin.tiff === origin.file) {
     // Pictures never have one: their row's ⌖ says so. A TIFF is expected to.
-    say(`${name} を開きました（投影の情報がありません。レイヤーの ⌖ で座標系と配置を設定できます）`);
+    say(`${name} を表示（投影の情報なし。レイヤーの ⌖ で座標系と配置を設定可能）`);
   }
 }
 
@@ -487,7 +487,7 @@ function opened(source: EnhancedGeoTIFF, origin: RasterOrigin | null, side: Side
  */
 export async function placeImage(source: EnhancedGeoTIFF, georef: Georef | null, context: OpenFilesContext, replace: (source: EnhancedGeoTIFF) => void): Promise<EnhancedGeoTIFF> {
   const origin = originOf(source);
-  if (!origin) throw new Error('ファイルから開いた画像だけ投影を設定できます');
+  if (!origin) throw new Error('ファイルから開いた画像だけ投影を設定可能');
   if (!origin.tiff) {
     const made = await pictureAsTiff(origin.file);
     origin.tiff = made.tiff;
@@ -497,7 +497,7 @@ export async function placeImage(source: EnhancedGeoTIFF, georef: Georef | null,
   const { width, height } = origin;
   const placement = georef ? await georefPlacement(georef, width, height) : { geo: unplacedGeo(width, height), projection: getProjection('EPSG:3857')! };
   const plan = await planOverviews(origin.tiff, { geo: placement.geo }).catch(() => null);
-  if (!plan) throw new Error('この画像の形式では投影を設定できません');
+  if (!plan) throw new Error('この画像の形式では投影の設定不可');
   const next: RasterOrigin = { ...origin, georef, unplaced: !georef };
   const name = origin.file.name;
   let placed: EnhancedGeoTIFF;
@@ -568,7 +568,7 @@ async function buildLater(name: string, plan: OverviewPlan, shown: EnhancedGeoTI
   const made = blob && madeOverviews(blob);
   const source = blob && made ? await loader.createSource(blob, { projection }).catch(() => null) : null;
   if (!source || !made) {
-    say(`${name} の RSET を生成できませんでした。縮小表示でも生画素を読みます`);
+    say(`${name} の RSET の生成に失敗。縮小表示でも生画素を読み込み`);
     onRsetMade?.(shown, shown);
     return;
   }
@@ -619,7 +619,7 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
     ['地物数', `${file.features.length.toLocaleString()}${truncated ? `（先頭 ${max.toLocaleString()} 件）` : ''}`],
   ];
   if (file.encoding) info.push(['文字コード', file.encoding === 'shift_jis' ? 'Shift_JIS' : file.encoding.toUpperCase()]);
-  if (editable && file.format === 'Shapefile' && file.encoding !== 'utf-8') info.push(['保存', '属性は UTF-8（.cpg 付き）で書き込みます']);
+  if (editable && file.format === 'Shapefile' && file.encoding !== 'utf-8') info.push(['保存', '属性は UTF-8（.cpg 付き）で書き込み']);
   return {
     ref: null,
     badge: { Shapefile: 'SHP', GeoJSON: 'GeoJSON', GeoPackage: 'GPKG', KML: 'KML', KMZ: 'KMZ', GPX: 'GPX', FlatGeobuf: 'FGB' }[file.format],
@@ -627,7 +627,7 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
     layer,
     correction: null,
     vector: { source, fields, truncated, idField: file.gpkg?.idColumn },
-    // The style that came with the file, else one symbol in the next color; 「初期設定に戻す」 goes back to it.
+    // The style that came with the file, else one symbol in the next color; 「初期設定に復元」 goes back to it.
     style: new LayerStyle(layer, fileStyle(file) ?? singleSpec(nextColor())),
     ...(editable ? { editTarget: localTarget(file, source, fields) } : {}),
     fileCrs: file.writeCrs,

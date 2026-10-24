@@ -99,17 +99,17 @@ export class MosaicDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="mosaic-title">モザイク</h2>
-        <p class="wide processing-hint">複数の画像をつなぎ合わせて 1 枚にします。重なる所は優先順が上の画像を使い、データのない所（nodata）は次の画像で埋めます。</p>
+        <p class="wide processing-hint">複数の画像を接合して 1 枚に。重なる所は優先順が上の画像を使用、データのない所（nodata）は次の画像で補完。</p>
         <div class="wide mosaic-images">
-          <span>つなぐ画像（上ほど優先）</span>
-          <ol class="mosaic-list" aria-label="つなぐ画像"></ol>
+          <span>接合する画像（上ほど優先）</span>
+          <ol class="mosaic-list" aria-label="接合する画像"></ol>
         </div>
         <label>優先順<select name="order" aria-label="優先順">
           <option value="layers">レイヤーの順（上を優先）</option>
           <option value="newest">新しい画像を優先</option>
           <option value="oldest">古い画像を優先</option>
         </select></label>
-        <label class="check"><input name="feather" type="checkbox" /><span>境界をぼかしてつなぐ</span></label>
+        <label class="check"><input name="feather" type="checkbox" /><span>境界をぼかして接合</span></label>
         <details class="wide composite-more">
           <summary>詳細設定</summary>
           <div class="service-form">
@@ -117,8 +117,8 @@ export class MosaicDialog {
             <label>ぼかす幅（px）<input name="featherWidth" type="number" min="1" max="${MAX_FEATHER}" step="1" value="32" aria-label="ぼかす幅" /></label>
             <label class="wide">基準の画像（位置とピクセルの大きさ）<select name="reference" aria-label="基準の画像"></select></label>
             <label>範囲<select name="extent" aria-label="範囲"><option value="union">すべてを含む範囲</option><option value="intersection">重なる範囲</option></select></label>
-            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値を変えない）</option></select></label>
-            <label class="wide check"><input name="zero" type="checkbox" checked /><span>全バンド 0 の画素（黒い縁）をデータなしとして扱う</span></label>
+            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値の変化なし）</option></select></label>
+            <label class="wide check"><input name="zero" type="checkbox" checked /><span>全バンド 0 の画素（黒い縁）をデータなしとして処理</span></label>
           </div>
         </details>
         <p class="wide processing-hint composite-plan mosaic-plan"></p>
@@ -148,7 +148,7 @@ export class MosaicDialog {
       valueOf: () => null,
       take: (layers) => {
         const added = layers.filter((l): l is ViewerImage => l.type === 'image' && !!tiffOf(l) && !this.images_.includes(l));
-        if (!added.length) return this.options.say('つなげる画像（GeoTIFF）がありませんでした');
+        if (!added.length) return this.options.say('つなげる画像（GeoTIFF）なし');
         this.images_.push(...added);
         added.forEach((image) => this.fresh_.add(image));
         void this.addTimes_(added);
@@ -168,7 +168,7 @@ export class MosaicDialog {
   async open(): Promise<void> {
     this.images_ = this.images.inputImages().filter((i) => tiffOf(i));
     this.times_ = new Map();
-    this.note_.textContent = this.images_.length >= 2 ? '' : 'つなぐ画像を 2 枚以上開いてください';
+    this.note_.textContent = this.images_.length >= 2 ? '' : '接合する画像が不足（2 枚以上を開く）';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     this.list_.replaceChildren();
@@ -251,8 +251,8 @@ export class MosaicDialog {
 
   private plan_(chosen: ViewerImage[]): { plan: CompositePlan; bands: number } {
     const reference = this.images_[Number(this.reference_.value)];
-    if (chosen.length < 2) throw new Error('つなぐ画像を 2 枚以上選んでください');
-    if (!reference) throw new Error('基準の画像を選んでください');
+    if (chosen.length < 2) throw new Error('接合する画像を 2 枚以上選択');
+    if (!reference) throw new Error('基準の画像を選択');
     const extent = new FormData(this.form_).get('extent') === 'intersection' ? 'intersection' : 'union';
     const plan = planComposite(
       chosen.map((image) => ({ image, band: 0 })),
@@ -285,8 +285,8 @@ export class MosaicDialog {
       let done = 0;
       let failed = false;
       const stop = () => {
-        if (running.cancelled) throw new Error('中止しました');
-        if (failed) throw new Error('ほかのブロックで失敗しました');
+        if (running.cancelled) throw new Error('中止');
+        if (failed) throw new Error('ほかのブロックで失敗');
       };
       const note = this.note_;
       const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
@@ -306,10 +306,10 @@ export class MosaicDialog {
           }
           covered += block.covered;
           done++;
-          if (!running.cancelled) note.textContent = `つないでいます… ${Math.floor((100 * done) / blocks.length)}%`;
+          if (!running.cancelled) note.textContent = `接合中… ${Math.floor((100 * done) / blocks.length)}%`;
         }
       };
-      note.textContent = 'つないでいます… 0%';
+      note.textContent = '接合中… 0%';
       await Promise.all(
         workers.map(async (worker) => {
           try {
@@ -321,10 +321,10 @@ export class MosaicDialog {
         }),
       );
       stop();
-      if (!covered) throw new Error('選んだ画像にデータのある所がありませんでした');
+      if (!covered) throw new Error('選んだ画像にデータのある所なし');
       const blob = await writer.finish(await tagsOf(plan, min, max), name);
 
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const image = source && this.images.find(source);
@@ -333,13 +333,13 @@ export class MosaicDialog {
       this.made_.set(image, blob);
       this.images.setBadge(image, 'モザイク');
       this.dialog.close();
-      this.options.say(`${name} を作りました（${chosen.length} 枚、${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）`);
+      this.options.say(`${name} を作成（${chosen.length} 枚、${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）`);
       return image;
     } catch (error) {
       await draft.discard();
       const message = error instanceof Error ? error.message : String(error);
-      if (running.cancelled) this.options.say('モザイクを中止しました');
-      else this.note_.textContent = `モザイクを作れませんでした: ${message}`;
+      if (running.cancelled) this.options.say('モザイクを中止');
+      else this.note_.textContent = `モザイクの作成に失敗: ${message}`;
       return null;
     } finally {
       for (const w of workers) w.terminate();
@@ -362,7 +362,7 @@ export class MosaicDialog {
     width.disabled = !(this.form_.elements.namedItem('feather') as HTMLInputElement).checked;
     this.run_.disabled = chosen.length < 2;
     if (chosen.length < 2) {
-      out.textContent = this.images_.length >= 2 ? 'つなぐ画像を 2 枚以上選んでください。' : '';
+      out.textContent = this.images_.length >= 2 ? '接合する画像を 2 枚以上選択。' : '';
       return;
     }
     try {
@@ -374,9 +374,9 @@ export class MosaicDialog {
       const counts = new Set(chosen.map((image) => image.source.getValueBandCount()));
       out.textContent =
         `結果は ${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px、${bands} バンド（${kind}）、${plan.ownGrid ? `${reference.name} と同じ格子` : 'Web メルカトル'}` +
-        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、少し時間がかかります）` : '') +
+        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、時間がかかる場合あり）` : '') +
         '。' +
-        (counts.size > 1 ? `バンド数がそろわないので、先頭の ${bands} バンドをつなぎます。` : '');
+        (counts.size > 1 ? `バンド数が不揃いのため、先頭の ${bands} バンドを接合。` : '');
     } catch (error) {
       out.textContent = error instanceof Error ? error.message : String(error);
       this.run_.disabled = true;
@@ -429,7 +429,7 @@ async function readBlock(
 function call(worker: Worker, task: MosaicTask, transfer: Transferable[]): Promise<CompositeBlock> {
   return new Promise((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<MosaicReply>) => (e.data.ok ? resolve(e.data.block) : reject(new Error(e.data.message)));
-    worker.onerror = (e) => reject(new Error(e.message || 'モザイクの処理が止まりました'));
+    worker.onerror = (e) => reject(new Error(e.message || 'モザイクの処理が停止'));
     worker.postMessage(task, transfer);
   });
 }

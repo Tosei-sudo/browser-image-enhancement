@@ -120,8 +120,8 @@ export function geodesicBuffer(input: ProcessingInput, options: BufferOptions): 
     });
   }
 
-  const notes = [dissolve ? `${buffered.length} 件のバッファを 1 つに統合しました` : `${features.length} 件のバッファを作成しました`];
-  if (emptied > 0) notes.push(`${emptied} 件はバッファが空になるため除外しました`);
-  if (noGeometry > 0) notes.push(`${noGeometry} 件はジオメトリがないため除外しました`);
+  const notes = [dissolve ? `${buffered.length} 件のバッファを 1 つに統合` : `${features.length} 件のバッファを作成`];
+  if (emptied > 0) notes.push(`${emptied} 件はバッファが空になるため除外`);
+  if (noGeometry > 0) notes.push(`${noGeometry} 件はジオメトリがないため除外`);
   return { title: `${input.title}_バッファ`, features, fields: dissolve ? [] : copyFields(input.fields), crs: input.crs, notes };
 }

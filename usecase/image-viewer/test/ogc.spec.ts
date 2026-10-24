@@ -46,7 +46,7 @@ async function addService(page: Page, url: string, options: { kind?: string; lay
   const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(url);
   await dialog.getByRole('combobox', { name: 'サービスの種類' }).selectOption(options.kind ?? 'auto');
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-layer')).toHaveCount(options.layers ?? 1);
   await dialog.locator('.service-layer input[type=checkbox]').first().check();
   await options.setup?.(dialog);
@@ -183,7 +183,7 @@ test('OGC API – Features: collections listed, items read page by page, filtere
   await rows(page).nth(1).locator('td.check input').check();
   await page.getByRole('button', { name: '削除' }).click();
   await page.getByRole('button', { name: '保存 (2)' }).click();
-  await expect(page.locator('#status')).toContainText('2 件の変更を保存しました');
+  await expect(page.locator('#status')).toContainText('2 件の変更を保存');
   const put = asked.find((a) => a.method === 'PUT')!;
   expect(put.url.pathname).toBe('/ogc/collections/parks/items/p1');
   expect(JSON.parse(put.body!)).toMatchObject({ type: 'Feature', geometry: { type: 'Point' }, properties: { name: '代々木公園', area: 54 } });
@@ -366,7 +366,7 @@ test('WFS-T: an editable feature type saves its edits as one Transaction and rep
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.getByRole('button', { name: '追加', exact: true }).click();
   await page.getByRole('button', { name: '保存 (3)' }).click();
-  await expect(page.locator('#status')).toContainText('3 件の変更を保存しました（WFS-T: 追加 1・更新 1・削除 1）');
+  await expect(page.locator('#status')).toContainText('3 件の変更を保存（WFS-T: 追加 1・更新 1・削除 1）');
 
   expect(posted).toHaveLength(1);
   const xml = posted[0];

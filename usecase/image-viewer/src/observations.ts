@@ -113,15 +113,15 @@ const words = (value: unknown): string[] | undefined => (Array.isArray(value) ? 
 /** One `observationStores` entry; null (with the reason in `problems`) when it cannot be used. */
 export function observationStoreOf(value: unknown, problems: string[], index: number): ObservationStoreConfig | null {
   const at = `observationStores[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, token, fields, where, softDelete, kinds, activities } = value;
-  if (typeof url !== 'string' || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) return (problems.push(`${at} の url は編集できる …/FeatureServer/0 のようなポイントレイヤーの URL にしてください`), null);
+  if (typeof url !== 'string' || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) return (problems.push(`${at} の url は編集できる …/FeatureServer/0 のようなポイントレイヤーの URL で指定`), null);
   const mapped = { ...defaultObservationFields };
   if (isRecord(fields)) {
     for (const [key, v] of Object.entries(fields)) {
-      if (!(key in defaultObservationFields)) problems.push(`${at} の fields.${key} は使えない役割です`);
+      if (!(key in defaultObservationFields)) problems.push(`${at} の fields.${key} は使用不可の役割`);
       else if (typeof v === 'string' && /^[\w.]+$/.test(v)) mapped[key as keyof ObservationFields] = v;
-      else problems.push(`${at} の fields.${key} は属性名にしてください`);
+      else problems.push(`${at} の fields.${key} は属性名で指定`);
     }
   }
   return {
@@ -139,7 +139,7 @@ export function observationStoreOf(value: unknown, problems: string[], index: nu
 /** `config.json`'s `observationVocabulary`. */
 export function vocabularyOf(value: unknown, problems: string[]): ObservationVocabulary {
   if (!isRecord(value)) {
-    problems.push('observationVocabulary がオブジェクトではありません');
+    problems.push('observationVocabulary はオブジェクトで指定');
     return { ...defaultVocabulary };
   }
   return { kinds: words(value.kinds)?.length ? words(value.kinds)! : defaultVocabulary.kinds, activities: words(value.activities)?.length ? words(value.activities)! : defaultVocabulary.activities };
@@ -343,7 +343,7 @@ export class LocalObservationStore implements ObservationStore {
         if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: 'id' });
       };
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('IndexedDB を開けません'));
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB のオープン不可'));
     });
   }
 
@@ -353,7 +353,7 @@ export class LocalObservationStore implements ObservationStore {
       return await new Promise<Observation[]>((resolve, reject) => {
         const request = db.transaction(STORE).objectStore(STORE).getAll();
         request.onsuccess = () => resolve(request.result as Observation[]);
-        request.onerror = () => reject(request.error ?? new Error('読み込めません'));
+        request.onerror = () => reject(request.error ?? new Error('読み込み不可'));
       });
     } finally {
       db.close();
@@ -369,7 +369,7 @@ export class LocalObservationStore implements ObservationStore {
         const store = tx.objectStore(STORE);
         for (const o of list) store.put(o);
         tx.oncomplete = () => resolve();
-        tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('ブラウザに保存できません'));
+        tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('ブラウザに保存不可'));
       });
     } finally {
       db.close();
@@ -416,7 +416,7 @@ export class EsriObservationStore implements ObservationStore {
       const types: FieldTypes = {};
       for (const f of json.fields ?? []) types[f.name] = f.type;
       const oid = json.objectIdField ?? json.fields?.find((f) => f.type === 'esriFieldTypeOID')?.name ?? 'OBJECTID';
-      for (const role of ['id', 'objectId'] as const) if (!(this.config.fields[role] in types)) throw new Error(`${this.config.label} に属性 ${this.config.fields[role]} がありません`);
+      for (const role of ['id', 'objectId'] as const) if (!(this.config.fields[role] in types)) throw new Error(`${this.config.label} に属性 ${this.config.fields[role]} なし`);
       return { types, oid };
     })();
     this.layer_.catch(() => (this.layer_ = null));
@@ -493,7 +493,7 @@ export class EsriObservationStore implements ObservationStore {
         exceededTransferLimit?: boolean;
         error?: { message?: string };
       };
-      if (json.error) throw new Error(json.error.message ?? '読み込めません');
+      if (json.error) throw new Error(json.error.message ?? '読み込み不可');
       const features = json.features ?? [];
       for (const feature of features) {
         const o = this.recordOf(feature, oid);
@@ -520,11 +520,11 @@ export class EsriObservationStore implements ObservationStore {
       )) as { addResults?: Array<{ success: boolean; objectId?: number; error?: { description?: string } | null }>; updateResults?: Array<{ success: boolean; error?: { description?: string } | null }> };
       (json.addResults ?? []).forEach((r, k) => {
         if (r.success && typeof r.objectId === 'number') this.oids_.set(adds[k].id, r.objectId);
-        else if (!r.success) failed.push(r.error?.description ?? '追加できませんでした');
+        else if (!r.success) failed.push(r.error?.description ?? '追加失敗');
       });
-      for (const r of json.updateResults ?? []) if (!r.success) failed.push(r.error?.description ?? '更新できませんでした');
+      for (const r of json.updateResults ?? []) if (!r.success) failed.push(r.error?.description ?? '更新失敗');
     }
-    if (failed.length) throw new Error(`${failed.length} 件を保存できませんでした: ${failed[0]}`);
+    if (failed.length) throw new Error(`${failed.length} 件の保存に失敗: ${failed[0]}`);
   }
 
   async remove(list: readonly Observation[], now = Date.now()): Promise<Observation[]> {

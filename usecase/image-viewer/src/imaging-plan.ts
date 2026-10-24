@@ -109,27 +109,27 @@ const roles = ['name', 'id', 'tle', 'tle1', 'tle2', 'maxOffNadir', 'minOffNadir'
 /** The catalog of one `satelliteCatalogs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function satelliteCatalogOf(value: unknown, problems: string[], index: number): SatelliteCatalogConfig | null {
   const at = `satelliteCatalogs[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, token, fields, where, swathUnit, defaults, sarPattern } = value;
   if (!isUrl(url) || !/\/(FeatureServer|MapServer)\/\d+\/?$/i.test(url.split('?', 1)[0])) {
-    return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤー（テーブル）の URL にしてください`), null);
+    return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤー（テーブル）の URL で指定`), null);
   }
-  if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）がありません`), null);
+  if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）なし`), null);
   const mapped: SatelliteFields = {};
   for (const role of roles) {
     const name = fields[role];
     if (name === undefined || name === '') continue;
     if (isName(name)) mapped[role] = name;
-    else problems.push(`${at} の fields.${role} は属性名（英数字と _）にしてください`);
+    else problems.push(`${at} の fields.${role} は属性名（英数字と _）で指定`);
   }
-  if (!mapped.tle && !(mapped.tle1 && mapped.tle2)) return (problems.push(`${at} に fields.tle（または tle1 と tle2）がありません`), null);
+  if (!mapped.tle && !(mapped.tle1 && mapped.tle2)) return (problems.push(`${at} に fields.tle（または tle1 と tle2）なし`), null);
 
   const given: Partial<SatelliteDefaults> = {};
   if (isRecord(defaults)) {
     for (const key of ['maxOffNadir', 'minOffNadir', 'swath', 'scenesPerPass', 'minInterval', 'maxPerDay', 'leadTime'] as const) {
       const v = defaults[key];
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0) given[key] = v;
-      else if (v !== undefined) problems.push(`${at} の defaults.${key} は 0 以上の数にしてください`);
+      else if (v !== undefined) problems.push(`${at} の defaults.${key} は 0 以上の数で指定`);
     }
   }
   let sar = defaultSar;
@@ -137,7 +137,7 @@ export function satelliteCatalogOf(value: unknown, problems: string[], index: nu
     try {
       sar = new RegExp(sarPattern, 'i');
     } catch {
-      problems.push(`${at} の sarPattern は正規表現として読めません`);
+      problems.push(`${at} の sarPattern は正規表現として読み込み不可`);
     }
   }
   return {
@@ -245,7 +245,7 @@ export function satelliteOf(attributes: Record<string, unknown>, catalog: Satell
   const text = fields.tle ? String(get(fields.tle) ?? '') : `${String(get(fields.tle1) ?? '')}\n${String(get(fields.tle2) ?? '')}`;
   const tle = tleLines(text);
   const name = String(get(fields.name) ?? tle?.name ?? '').trim() || (tle ? `NORAD ${tle.tle1.slice(2, 7).trim()}` : '');
-  if (!tle) return `${name || '名前のない衛星'}: TLE がありません`;
+  if (!tle) return `${name || '名前のない衛星'}: TLE なし`;
   const scale = catalog.swathUnit === 'm' ? 0.001 : 1;
   const swath = (numberOf(get(fields.swath)) ?? defaults.swath / scale) * scale;
   const length = numberOf(get(fields.length));
@@ -525,14 +525,14 @@ export interface GroundStation {
 
 /** The ground stations of `config.json`'s `groundStations`, each checked on its own (problems say what was left out). */
 export function groundStationsOf(value: unknown, problems: string[]): GroundStation[] {
-  if (!Array.isArray(value)) return (problems.push('groundStations が配列ではありません'), []);
+  if (!Array.isArray(value)) return (problems.push('groundStations は配列で指定'), []);
   return value.flatMap((v, i) => {
     const at = `groundStations[${i}]`;
-    if (!isRecord(v)) return (problems.push(`${at} がオブジェクトではありません`), []);
+    if (!isRecord(v)) return (problems.push(`${at} はオブジェクトで指定`), []);
     const { name, lon, lat, minElevation } = v;
-    if (typeof lon !== 'number' || typeof lat !== 'number' || Math.abs(lat) > 90 || Math.abs(lon) > 180) return (problems.push(`${at} の lon・lat は経度・緯度の数にしてください`), []);
+    if (typeof lon !== 'number' || typeof lat !== 'number' || Math.abs(lat) > 90 || Math.abs(lon) > 180) return (problems.push(`${at} の lon・lat は経度・緯度の数で指定`), []);
     const min = typeof minElevation === 'number' && minElevation >= 0 && minElevation < 90 ? minElevation : 5;
-    if (minElevation !== undefined && min !== minElevation) problems.push(`${at} の minElevation は 0〜90 の数にしてください`);
+    if (minElevation !== undefined && min !== minElevation) problems.push(`${at} の minElevation は 0〜90 の数で指定`);
     return [{ name: typeof name === 'string' && name ? name : `地上局 ${i + 1}`, lon, lat, minElevation: min }];
   });
 }
@@ -636,10 +636,10 @@ export interface PlanResult {
 export function satrecOf(sat: SatelliteSpec): SatRec | string {
   try {
     const satrec = twoline2satrec(sat.tle1, sat.tle2);
-    if (satrec.error || !Number.isFinite(satrec.no) || satrec.no <= 0) return `${sat.name}: TLE を読めません`;
+    if (satrec.error || !Number.isFinite(satrec.no) || satrec.no <= 0) return `${sat.name}: TLE の読み込み不可`;
     return satrec;
   } catch {
-    return `${sat.name}: TLE を読めません`;
+    return `${sat.name}: TLE の読み込み不可`;
   }
 }
 
@@ -792,7 +792,7 @@ export function planAccess(sats: SatelliteSpec[], targets: PlanTarget[], options
         ns.set(n, k * 3);
       }
       if (failed === count) {
-        problems.push(`${sat.name}: 軌道を計算できません（TLE が古すぎるか、落下済みの可能性があります）`);
+        problems.push(`${sat.name}: 軌道の計算不可（TLE が古すぎるか、落下済みの可能性あり）`);
         ranges = null;
       } else {
         // The samples at which each group of targets may be above the horizon (with the samples either side), so

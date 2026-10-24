@@ -18,7 +18,7 @@ test('a matching file opens with the rule’s correction and bands', async ({ pa
   page.on('pageerror', (e) => errors.push(e.message));
   await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config) }));
   await page.goto('/index.html?url=/fixture16.tif');
-  await expect(page.locator('#status')).toHaveText('/fixture16.tif を開きました（設定「フォールスカラー」を適用）');
+  await expect(page.locator('#status')).toHaveText('/fixture16.tif を表示（設定「フォールスカラー」を適用）');
 
   await expect.poll(() => page.evaluate(() => window.viewer.images.list()[0].source.getSelect())).toEqual([3, 2, 1]);
   await expect(page.locator('.ol-enhance-bands select').first()).toHaveValue('3');
@@ -35,7 +35,7 @@ test('a matching file opens with the rule’s correction and bands', async ({ pa
 test('other files open as before', async ({ page }) => {
   await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config) }));
   await page.goto('/index.html?url=/fixture.tif');
-  await expect(page.locator('#status')).toHaveText('/fixture.tif を開きました');
+  await expect(page.locator('#status')).toHaveText('/fixture.tif を表示');
   const steps = await page.evaluate(() => window.viewer.images.list()[0].source.getPipeline().ops.length);
   expect(steps).toBe(0);
 });
@@ -44,7 +44,7 @@ test('a rule’s bands the image does not have are reported, and the rest still 
   const rules = { imageRules: [{ label: '8 バンド用', match: 'fixture16', enhance: { brightness: 0.1 }, bands: [8, 7, 6] }] };
   await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rules) }));
   await page.goto('/index.html?url=/fixture16.tif');
-  await expect(page.locator('#status')).toContainText('設定「8 バンド用」のバンド割り当てを使えませんでした（バンド 8 はありません（4 バンドの画像です））');
+  await expect(page.locator('#status')).toContainText('設定「8 バンド用」のバンド割り当ての使用に失敗（バンド 8 なし（4 バンドの画像））');
   expect(await page.evaluate(() => window.viewer.images.list()[0].source.getSelect())).toBeNull();
   expect(await page.evaluate(() => window.viewer.enhance.getPipeline().get('brightness')?.amount)).toBe(0.1);
 });

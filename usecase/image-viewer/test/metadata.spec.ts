@@ -10,7 +10,7 @@ test('band names from GDAL metadata label the band selects, and the metadata dia
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html?url=/fixture16.tif');
-  await expect(page.locator('#status')).toContainText('fixture16.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture16.tif を表示');
 
   // The correction panel (open from the start) names each band.
   const red = page.locator('.ol-enhance-bands select').first();
@@ -35,7 +35,7 @@ test('band names from GDAL metadata label the band selects, and the metadata dia
 
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await dialog.getByRole('button', { name: 'JSON でコピー' }).click();
-  await expect(page.locator('#status')).toHaveText('メタデータをコピーしました');
+  await expect(page.locator('#status')).toHaveText('メタデータをコピー');
   const json = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
   expect(json['概要']['サイズ']).toBe('512 × 256 px');
   expect(json['バンド']['バンド 4']).toBe('NIR・UInt16');

@@ -33,7 +33,7 @@ test('a page of an allowed origin opens a COG, moves the view, adds shapes and r
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await openExample(page, { allowedOrigins: [PARENT] });
-  await expect(page.locator('#state')).toHaveText('接続しました（操作可）');
+  await expect(page.locator('#state')).toHaveText('接続（操作可）');
   await expect.poll(() => events(page, 'ready')).toHaveLength(1);
 
   // The iframe shows the map alone.
@@ -97,14 +97,14 @@ test('a page of an allowed origin opens a COG, moves the view, adds shapes and r
   expect(((await call(page, 'listTools')).result as Array<{ id: string }>).map((t) => t.id)).not.toContain('save-view');
   // A server the viewer does not use is asked about; declined, nothing opens.
   page.on('dialog', (d) => void d.dismiss());
-  expect(await call(page, 'open', { url: 'https://elsewhere.example.com/a.tif' })).toMatchObject({ code: 'failed', message: expect.stringContaining('許可されませんでした') });
+  expect(await call(page, 'open', { url: 'https://elsewhere.example.com/a.tif' })).toMatchObject({ code: 'failed', message: expect.stringContaining('拒否') });
   expect(errors).toEqual([]);
 
 });
 
 test('read-only embedding moves the view but changes no layers', async ({ page }) => {
   await openExample(page, { allowedOrigins: [PARENT], readOnly: true });
-  await expect(page.locator('#state')).toHaveText('接続しました（読み取り専用）');
+  await expect(page.locator('#state')).toHaveText('接続（読み取り専用）');
   expect(await call(page, 'open', { url: `${VIEWER}/fixture.tif` })).toMatchObject({ code: 'read-only' });
   expect(await call(page, 'addShapes', { wkt: ['POINT(139.7 35.6)'] })).toMatchObject({ code: 'read-only' });
   expect((await call(page, 'setView', { zoom: 5 })).result).toMatchObject({ zoom: 5 });
@@ -113,7 +113,7 @@ test('read-only embedding moves the view but changes no layers', async ({ page }
 
 test('a page of another origin gets no answer', async ({ page }) => {
   await openExample(page, { allowedOrigins: [VIEWER] }, 2500);
-  await expect(page.locator('#state')).toContainText('接続できませんでした', { timeout: 10_000 });
+  await expect(page.locator('#state')).toContainText('接続失敗', { timeout: 10_000 });
   const log = await page.evaluate(() => (window as never as { embedLog: { received: number; error: string } }).embedLog);
   expect(log).toEqual({ events: [], received: 0, error: 'timeout' });
 });
@@ -121,6 +121,6 @@ test('a page of another origin gets no answer', async ({ page }) => {
 test('without embed in config.json the API is off', async ({ page }) => {
   await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await page.goto(`${PARENT}/embed-example.html?viewer=${encodeURIComponent(`${VIEWER}/index.html?embed=1`)}&timeout=2500`);
-  await expect(page.locator('#state')).toContainText('接続できませんでした', { timeout: 10_000 });
+  await expect(page.locator('#state')).toContainText('接続失敗', { timeout: 10_000 });
   expect(await page.evaluate(() => (window as never as { embedLog: { received: number } }).embedLog.received)).toBe(0);
 });

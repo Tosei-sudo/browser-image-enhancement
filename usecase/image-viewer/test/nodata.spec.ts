@@ -9,7 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 /** Opens `url` and waits for its tiles to be drawn. */
 async function open(page: Page, url: string): Promise<void> {
   await page.goto(`/index.html?url=${url}`);
-  await expect(page.locator('#status')).toContainText('を開きました');
+  await expect(page.locator('#status')).toContainText('を表示');
   await page.waitForFunction(() => window.viewer.images.list()[0]?.source.getState() === 'ready');
   await drawn(page);
 }
@@ -54,7 +54,7 @@ test('a black collar is made transparent from the no-data dialog, and saved in t
   await page.evaluate(() => window.viewer.noData.open());
   const dialog = page.locator('dialog.nodata-dialog');
   await expect(dialog.locator('.nodata-file')).toHaveText('ファイルのノーデータ値: なし');
-  await dialog.getByLabel('黒い縁（すべてのバンドが 0 の画素）を透明にする').check();
+  await dialog.getByLabel('黒い縁（すべてのバンドが 0 の画素）を透明化').check();
   await page.waitForFunction(() => window.viewer.images.list()[0].source.getNoData().values.includes(0));
   await drawn(page);
   [collar, scene] = await shown(page, [0.3, 0.6]);
@@ -64,7 +64,7 @@ test('a black collar is made transparent from the no-data dialog, and saved in t
 
   await dialog.getByLabel('ほかに透明にする値').fill('255, abc');
   await dialog.getByLabel('ほかに透明にする値').press('Tab');
-  await expect(dialog.locator('.processing-note')).toContainText('数字をカンマで区切って');
+  await expect(dialog.locator('.processing-note')).toContainText('数字をカンマ区切り');
   await dialog.getByLabel('ほかに透明にする値').fill('255');
   await dialog.getByLabel('ほかに透明にする値').press('Tab');
   await page.waitForFunction(() => window.viewer.images.list()[0].source.getNoData().values.length === 2);
@@ -80,8 +80,8 @@ test('a black collar is made transparent from the no-data dialog, and saved in t
   expect(reopened).toEqual({ auto: true, values: [0, 255] });
   await page.evaluate(() => window.viewer.noData.open());
 
-  await dialog.getByRole('button', { name: '既定に戻す' }).click();
-  await expect(dialog.getByLabel('黒い縁（すべてのバンドが 0 の画素）を透明にする')).not.toBeChecked();
+  await dialog.getByRole('button', { name: '既定に復元' }).click();
+  await expect(dialog.getByLabel('黒い縁（すべてのバンドが 0 の画素）を透明化')).not.toBeChecked();
   expect(await page.evaluate(() => window.viewer.project.collect().project.layers[0].noData)).toBeUndefined();
   expect(errors).toEqual([]);
 });

@@ -119,7 +119,7 @@ export interface ImageListOptions {
   onGeoref?: (layer: ViewerImage) => void;
   /** Called by the save button of a processing result (see {@link ImageList.setSavable}). */
   onSave?: (layer: ViewerImage) => void;
-  /** More items of a layer's right-click menu (such as 「似た画像を探す…」 for an image from a catalog), at its top. */
+  /** More items of a layer's right-click menu (such as 「類似画像の検索…」 for an image from a catalog), at its top. */
   layerMenu?: (layer: ViewerLayer) => MenuItem[];
 }
 
@@ -164,7 +164,7 @@ export class ImageList {
     const out = resolution !== undefined && (resolution < layer.getMinResolution() || resolution >= layer.getMaxResolution());
     entry.row.classList.toggle('out-of-scale', out);
     // An image is only limited while its RSET is made (see rset.ts).
-    const why = entry.type === 'image' ? 'RSET の生成中は、拡大したときだけ表示します' : 'この縮尺では表示されません（スタイルの「縮尺で表示を切り替える」）';
+    const why = entry.type === 'image' ? 'RSET の生成中は、拡大時のみ表示' : 'この縮尺では非表示（スタイルの「縮尺による表示切り替え」）';
     entry.row.title = out ? why : '';
   }
 
@@ -905,7 +905,7 @@ export class ImageList {
     if (hidden) this.timeHidden_.add(image);
     else this.timeHidden_.delete(image);
     image.row.classList.toggle('time-out', hidden);
-    image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.title = hidden ? '表示（タイムラインの期間外のため隠れています）' : '表示';
+    image.row.querySelector<HTMLInputElement>('input[type=checkbox]')!.title = hidden ? '表示（タイムラインの期間外のため非表示）' : '表示';
     this.applyVisible_(image);
   }
 
@@ -1005,13 +1005,13 @@ export class ImageList {
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'group-toggle';
-    toggle.title = '開く・たたむ';
+    toggle.title = '展開・折りたたみ';
     toggle.addEventListener('click', () => this.setGroupCollapsed(group, !group.collapsed));
 
     const title = document.createElement('button');
     title.type = 'button';
     title.className = 'group-name';
-    title.title = 'クリックで開く・たたむ、ダブルクリックで名前を変更';
+    title.title = 'クリックで展開・折りたたみ、ダブルクリックで名前を変更';
     const label = document.createElement('span');
     label.className = 'group-label';
     label.textContent = name;
@@ -1052,7 +1052,7 @@ export class ImageList {
       const r = b.getBoundingClientRect();
       this.openGroupMenu_(group, r.left, r.bottom);
     });
-    button('remove', '×', 'グループを閉じる（中のレイヤーもすべて閉じます）', () => {
+    button('remove', '×', 'グループを閉じる（中のレイヤーもすべて閉じる）', () => {
       const n = this.members(group).length;
       if (n <= 1 || confirm(`グループ「${group.name}」の ${n} 件のレイヤーをすべて閉じますか？`)) this.removeGroup(group);
     });
@@ -1099,8 +1099,8 @@ export class ImageList {
       { label: '名前を変更…', run: () => this.askName_(group) },
       ...(this.options.onGroupStyle && this.styledMembers(group).length ? [{ label: 'スタイルをまとめて設定…（ベクターのみ）', run: () => this.styleGroup_(group) }] : []),
       { label: '中のレイヤーをすべて表示', run: () => this.members(group).forEach((l) => this.setVisible(l, true)) },
-      { label: '中のレイヤーをすべて隠す', run: () => this.members(group).forEach((l) => this.setVisible(l, false)) },
-      { label: 'グループを解除（レイヤーは残す）', run: () => this.ungroup(group) },
+      { label: '中のレイヤーをすべて非表示', run: () => this.members(group).forEach((l) => this.setVisible(l, false)) },
+      { label: 'グループを解除（レイヤーは保持）', run: () => this.ungroup(group) },
       { label: 'グループを閉じる（中のレイヤーもすべて閉じる）', danger: true, run: () => this.removeGroup(group) },
     ];
     this.contextMenu_().open(items, x, y);
@@ -1112,27 +1112,27 @@ export class ImageList {
     if (picked.length > 1 && picked.includes(layer)) {
       const n = picked.length;
       const items: MenuItem[] = [
-        { label: `選択した ${n} 件を新しいグループに入れる…`, run: () => this.askNewGroup_(picked) },
+        { label: `選択した ${n} 件を新しいグループに追加…`, run: () => this.askNewGroup_(picked) },
         { label: `選択した ${n} 件を上へ`, run: () => this.moveMany(picked, 1) },
         { label: `選択した ${n} 件を下へ`, run: () => this.moveMany(picked, -1) },
         { label: `選択した ${n} 件をいちばん上へ`, run: () => this.moveMany(picked, this.images_.length) },
         { label: `選択した ${n} 件をいちばん下へ`, run: () => this.moveMany(picked, -this.images_.length) },
         { label: `選択した ${n} 件を表示`, run: () => picked.forEach((l) => this.setVisible(l, true)) },
-        { label: `選択した ${n} 件を隠す`, run: () => picked.forEach((l) => this.setVisible(l, false)) },
+        { label: `選択した ${n} 件を非表示`, run: () => picked.forEach((l) => this.setVisible(l, false)) },
         { label: `選択した ${n} 件を閉じる`, danger: true, run: () => confirm(`選択した ${n} 件のレイヤーを閉じますか？`) && picked.forEach((l) => this.remove(l)) },
       ];
       this.contextMenu_().open(items, x, y);
       return;
     }
     const current = this.groupOf_.get(layer);
-    const items: MenuItem[] = [{ label: '新しいグループに入れる…', run: () => this.askNewGroup_(layer) }];
+    const items: MenuItem[] = [{ label: '新しいグループに追加…', run: () => this.askNewGroup_(layer) }];
     const save = layer.row.querySelector<HTMLButtonElement>('button[data-action=save]');
     if (layer.type === 'image' && save && !save.hidden) items.unshift({ label: '保存（COG・GeoTIFF）…', run: () => save.click() });
     items.unshift(...(this.options.layerMenu?.(layer) ?? []));
     for (const group of this.groups()) {
-      if (group !== current) items.push({ label: `グループ「${group.name}」に入れる`, run: () => this.setGroup(layer, group) });
+      if (group !== current) items.push({ label: `グループ「${group.name}」に追加`, run: () => this.setGroup(layer, group) });
     }
-    if (current) items.push({ label: `グループ「${current.name}」から出す`, run: () => this.setGroup(layer, null) });
+    if (current) items.push({ label: `グループ「${current.name}」から除外`, run: () => this.setGroup(layer, null) });
     this.contextMenu_().open(items, x, y);
   }
 
@@ -1213,7 +1213,7 @@ export class ImageList {
       });
     }
     if (image.type === 'image' && this.options.onGeoref) {
-      button('georef', '⌖', '投影を設定（この画像には座標系がありません）', () => {
+      button('georef', '⌖', '投影を設定（この画像には座標系なし）', () => {
         this.select(image);
         this.options.onGeoref!(image);
       });

@@ -55,7 +55,7 @@ function sampleKind(image: GeoTIFFImage): SampleKind {
   const bits = image.getBitsPerSample(0);
   const format = image.getSampleFormat(0) || 1;
   const kind = ({ 1: { 8: 'u8', 16: 'u16', 32: 'u32' }, 2: { 8: 'i8', 16: 'i16', 32: 'i32' }, 3: { 32: 'f32', 64: 'f64' } } as Record<number, Record<number, SampleKind>>)[format]?.[bits];
-  if (!kind) throw new Error(`この画素の形式（${bits} bit、SampleFormat ${format}）は COG に書けません`);
+  if (!kind) throw new Error(`この画素の形式（${bits} bit、SampleFormat ${format}）は COG への書き込み不可`);
   return kind;
 }
 
@@ -84,7 +84,7 @@ export function workerCodec(threads = Math.max(1, Math.min(4, (navigator.hardwar
       try {
         return await new Promise((resolve, reject) => {
           worker.onmessage = (e: MessageEvent<CogReply>) => (e.data.ok ? resolve(e.data) : reject(new Error(e.data.message)));
-          worker.onerror = (e) => reject(new Error(e.message || 'COG の処理が止まりました'));
+          worker.onerror = (e) => reject(new Error(e.message || 'COG の処理が停止'));
           const buffer = job.kind === 'encode' ? job.tile.buffer : job.reduce.quad.buffer;
           worker.postMessage(job, [buffer as ArrayBuffer]);
         });
@@ -118,7 +118,7 @@ interface Level {
 
 /**
  * Writes `input` (a GeoTIFF) as a COG into `out`: the file, named `name`.
- * Throws `中止しました` when stopped.
+ * Throws `中止` when stopped.
  */
 export async function writeCog(input: Blob, out: ByteSink, name: string, options: CogOptions = {}): Promise<File> {
   const T = options.tileSize ?? 256;
@@ -128,7 +128,7 @@ export async function writeCog(input: Blob, out: ByteSink, name: string, options
   const codec = options.codec ?? workerCodec();
   const control = options.control ?? { cancelled: false };
   const stop = () => {
-    if (control.cancelled) throw new Error('中止しました');
+    if (control.cancelled) throw new Error('中止');
   };
   const sinks: ByteSink[] = [];
   const work = () => {

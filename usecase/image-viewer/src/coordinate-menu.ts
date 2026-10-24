@@ -57,7 +57,7 @@ export class CoordinateMenu {
     menu.setAttribute('aria-label', '座標をコピー');
     menu.hidden = true;
     map.getViewport().append(menu);
-    // The menu sits on the map: its clicks are not the map's (a click on 「この地点で撮像計画を立てる」 would also set a
+    // The menu sits on the map: its clicks are not the map's (a click on 「この地点の撮像計画」 would also set a
     // point where the button is).
     for (const type of ['pointerdown', 'pointerup', 'click', 'dblclick', 'wheel']) menu.addEventListener(type, (e) => e.stopPropagation());
 
@@ -217,11 +217,11 @@ export class CoordinateMenu {
       const ok = document.execCommand('copy');
       area.remove();
       if (!ok) {
-        this.options.say(`コピーできませんでした: ${item.value}`);
+        this.options.say(`コピー失敗: ${item.value}`);
         return;
       }
     }
-    this.options.say(`${item.label} をコピーしました: ${item.value}`);
+    this.options.say(`${item.label} をコピー: ${item.value}`);
   }
 
   /** The image the point is on: the selected one if it is on it, else the topmost visible one. */

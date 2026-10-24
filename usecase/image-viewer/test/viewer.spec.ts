@@ -57,7 +57,7 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
 
   // A local picture through the file chooser.
   await choosePng(page, 'photo.png');
-  await expect(page.locator('#status')).toContainText('photo.png を開きました');
+  await expect(page.locator('#status')).toContainText('photo.png を表示');
   await expect(page.locator('#empty')).toBeHidden();
   await expect(page.locator('#info')).toContainText('64 × 48 px');
 
@@ -65,13 +65,13 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
   await page.getByRole('button', { name: 'URL を開く（COG・Esri ImageServer）' }).click();
   await page.getByRole('textbox', { name: 'URL を開く（COG・Esri ImageServer）' }).fill(new URL('/fixture.tif', page.url()).href);
   await page.getByRole('button', { name: '開く', exact: true }).click();
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   expect(await names(page)).toEqual(['fixture.tif', 'photo.png']); // newest on top
   await expect(page.locator('#info')).toContainText('EPSG:4326');
   await expect(page.locator('#info')).toContainText('512 × 256 px');
   // A COG opened by URL is used as it is: this one has no RSET.
   await expect(page.locator('#images li').first().locator('.tag')).toHaveText('RSETなし');
-  await expect(page.locator('#info')).toContainText('なし（縮小表示でも生画素を読みます）');
+  await expect(page.locator('#info')).toContainText('なし（縮小表示でも生画素を読み込み）');
   await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
 
   // The panel corrects the selected image only, and shows each image's own correction.
@@ -105,13 +105,13 @@ test('opens a local picture and a COG URL as layers, each with its own correctio
 
 test('?url= opens a COG at start', async ({ page }) => {
   await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   expect(await names(page)).toEqual(['fixture.tif']);
 });
 
 test('reports a URL that cannot be read', async ({ page }) => {
   await open(page, `?url=${encodeURIComponent('http://localhost:4175/missing.tif')}`);
-  await expect(page.locator('#status')).toContainText('を開けませんでした');
+  await expect(page.locator('#status')).toContainText('の読み込みに失敗');
   await expect(page.locator('#empty')).toBeVisible();
 });
 
@@ -119,7 +119,7 @@ test('points are added on the selected image, named, and saved as GeoJSON', asyn
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   await expect(page.locator('#save-points')).toBeDisabled();
 
   // The map is fitted to the image, so its center is on the image.
@@ -140,11 +140,11 @@ test('points are added on the selected image, named, and saved as GeoJSON', asyn
   // A click off the image adds nothing.
   const box = (await page.locator('#map').boundingBox())!;
   await page.mouse.click(box.x + 40, box.y + box.height - 10);
-  await expect(page.locator('#status')).toContainText('画像（fixture）の上に置いてください');
+  await expect(page.locator('#status')).toContainText('画像（fixture）の上に配置');
 
   // A point on a picture.
   await choosePng(page, 'photo.jpeg.png');
-  await expect(page.locator('#status')).toContainText('photo.jpeg.png を開きました');
+  await expect(page.locator('#status')).toContainText('photo.jpeg.png を表示');
   c = await center();
   await page.mouse.click(c.x, c.y);
   await expect(page.locator('#points li')).toHaveCount(2);
@@ -183,7 +183,7 @@ test('points are added on the selected image, named, and saved as GeoJSON', asyn
 test('right click copies the coordinates of the point in several notations', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   const box = (await page.locator('#map').boundingBox())!;
   const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
@@ -207,7 +207,7 @@ test('right click copies the coordinates of the point in several notations', asy
   await menu.getByRole('menuitem', { name: /MGRS/ }).click();
   await expect(menu).toBeHidden();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(values[1]);
-  await expect(page.locator('#status')).toContainText('MGRS をコピーしました');
+  await expect(page.locator('#status')).toContainText('MGRS をコピー');
 
   // Escape closes it.
   await page.mouse.click(center.x, center.y, { button: 'right' });
@@ -217,7 +217,7 @@ test('right click copies the coordinates of the point in several notations', asy
 
   // On an ordinary picture: pixels only.
   await choosePng(page, 'photo.png');
-  await expect(page.locator('#status')).toContainText('photo.png を開きました');
+  await expect(page.locator('#status')).toContainText('photo.png を表示');
   await page.mouse.click(center.x, center.y, { button: 'right' });
   await expect(menu).toBeVisible();
   await expect(menu.locator('.coordinate-label')).toHaveText(['画素 (x, y)']);
@@ -225,7 +225,7 @@ test('right click copies the coordinates of the point in several notations', asy
 
 test('the bottom left shows the latitude / longitude under the cursor', async ({ page }) => {
   await open(page, `?url=${encodeURIComponent('http://localhost:4175/fixture.tif')}`);
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   const box = (await page.locator('#map').boundingBox())!;
   const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const label = page.locator('.cursor-position');
@@ -262,7 +262,7 @@ test('the bottom left shows the latitude / longitude under the cursor', async ({
   await expect(label).toHaveText(/^54N \d{6} \d{7}$/);
   // Kept for the next visit.
   await page.reload();
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   await page.mouse.move(center.x + 5, center.y);
   await expect(label).toHaveText(/^54N \d{6} \d{7}$/);
   await pick('10進');
@@ -274,7 +274,7 @@ test('the bottom left shows the latitude / longitude under the cursor', async ({
 
   // On an ordinary picture, which has no location: nothing.
   await choosePng(page, 'photo.png');
-  await expect(page.locator('#status')).toContainText('photo.png を開きました');
+  await expect(page.locator('#status')).toContainText('photo.png を表示');
   await page.mouse.move(center.x, center.y);
   await page.mouse.move(center.x + 3, center.y);
   await expect(label).toBeHidden();
@@ -298,14 +298,14 @@ test('the jump field goes to latitude / longitude, MGRS and UTM', async ({ page 
     expect((2 * Math.atan(Math.exp(y / r)) - Math.PI / 2) / (Math.PI / 180)).toBeCloseTo(lat, 3);
   };
   await go('35.6812, 139.7671');
-  await expect(page.locator('#status')).toContainText('移動しました: 35.681200, 139.767100');
+  await expect(page.locator('#status')).toContainText('移動: 35.681200, 139.767100');
   await expectAt(139.7671, 35.6812);
   await go('19S 351290 6297680');
   await expectAt(-70.6, -33.45);
   await go('54SUE8843349290');
   await expectAt(139.7671, 35.6812);
   await go('ここはどこ');
-  await expect(page.locator('#status')).toContainText('見つかりませんでした: ここはどこ');
+  await expect(page.locator('#status')).toContainText('該当なし: ここはどこ');
 });
 
 test('shows the version and build at the bottom of the side panel', async ({ page }) => {

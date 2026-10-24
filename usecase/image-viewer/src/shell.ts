@@ -164,14 +164,14 @@ export class Guide {
     el.innerHTML = `
       <h2 id="guide-title">はじめに</h2>
       <ol>
-        <li>左上のフォルダのボタンで画像・GeoTIFF・Shapefile などを開きます。地図へのドラッグ＆ドロップでも開けます。</li>
-        <li>右上のパネルで明るさ・コントラストなどを調整します。調整は画像ごとに残ります。</li>
-        <li>計測やポイントは「ツール」に、細かな操作は「?」のショートカット一覧にまとめてあります。どの機能も <kbd>Ctrl</kbd>+<kbd>K</kbd> で名前から探せます。</li>
-        <li>わからないときは右上の「?」で、やりたいことから操作の手順と場所を探せます。</li>
+        <li>左上のフォルダのボタンで画像・GeoTIFF・Shapefile などを読み込み。地図へのドラッグ＆ドロップにも対応。</li>
+        <li>右上のパネルで明るさ・コントラストなどを調整。調整は画像ごとに保持。</li>
+        <li>計測やポイントは「ツール」に、細かな操作は「?」のショートカット一覧に集約。どの機能も <kbd>Ctrl</kbd>+<kbd>K</kbd> で名前から検索可能。</li>
+        <li>不明点は右上の「?」で、やりたいことから操作の手順と場所を検索可能。</li>
       </ol>
       <div class="guide-actions">
-        <button type="button" class="bar-button guide-hints" title="ボタンやスライダーにマウスを乗せると、何をするものかを説明します。「?」からいつでもやめられます">ボタンの説明を出す</button>
-        <button type="button" class="bar-button guide-start">はじめる</button>
+        <button type="button" class="bar-button guide-hints" title="ボタンやスライダーにマウスを乗せると、その機能を説明。「?」からいつでも解除可能">ボタンの説明を表示</button>
+        <button type="button" class="bar-button guide-start">開始</button>
       </div>`;
     el.querySelector('.guide-start')!.addEventListener('click', () => this.close());
     const hintsButton = el.querySelector<HTMLButtonElement>('.guide-hints')!;
@@ -206,20 +206,20 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
   [
     '基本',
     [
-      [['Ctrl', 'K'], '機能を名前で探して実行（コマンド）'],
+      [['Ctrl', 'K'], '機能を名前で検索して実行（コマンド）'],
       [['O'], 'ファイルを開く'],
       [['/'], '座標・地名の入力欄へ'],
-      [['D'], '距離を測る（もう一度で終了）'],
-      [['A'], '面積を測る（もう一度で終了）'],
-      [['H'], '影から高さを測る（もう一度で終了）'],
+      [['D'], '距離計測（もう一度で終了）'],
+      [['A'], '面積計測（もう一度で終了）'],
+      [['H'], '影から高さを計測（もう一度で終了）'],
       [['P'], 'ポイント追加（もう一度で終了）'],
-      [['3'], '3D 表示に切り替え・2D に戻る'],
-      [['T'], 'タイムラインを開く・閉じる'],
-      [['B'], 'ダッシュボードを開く・閉じる'],
-      [['M'], '今の表示をブックマークに追加'],
-      [['N'], '注記を描く・やめる'],
+      [['3'], '3D 表示と 2D 表示の切り替え'],
+      [['T'], 'タイムラインの表示・非表示'],
+      [['B'], 'ダッシュボードの表示・非表示'],
+      [['M'], '現在の表示をブックマークに追加'],
+      [['N'], '注記作図の開始・終了'],
       [['C'], '並べて比較（2画面）・終了'],
-      [['Esc'], '描いている計測を取り消す・メニューを閉じる'],
+      [['Esc'], '作図中の計測の取り消し・メニューを閉じる'],
       [['Ctrl', 'S'], 'プロジェクトを保存'],
       [['Ctrl', 'Shift', 'S'], 'プロジェクトに名前を付けて保存'],
       [['?'], 'この一覧'],
@@ -234,7 +234,7 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
       [['Alt', 'Shift', 'ドラッグ'], '回転'],
       [['Ctrl', 'ドラッグ'], '範囲内の地物を選択に追加（ベクターレイヤー）'],
       [['Ctrl', 'クリック'], '地物を選択に追加・解除'],
-      [['右クリック'], 'その地点の座標をコピー・左下の座標表示の表記を切り替え'],
+      [['右クリック'], 'その地点の座標をコピー・左下の座標表示の表記の切り替え'],
       [['+'], '拡大（地図をクリックしてから）'],
       [['−'], '縮小（同上）'],
       [['矢印'], '移動（同上）'],
@@ -245,10 +245,10 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
   [
     'タイムライン（グラフをクリックしてから）',
     [
-      [['←', '→'], '期間を前後に送る'],
+      [['←', '→'], '期間の前後移動'],
       [['Space'], '再生・停止'],
       [['Home', 'End'], '最初・最後の期間へ'],
-      [['ドラッグ'], '期間を選ぶ・動かす（端で伸縮）'],
+      [['ドラッグ'], '期間の選択・移動（端で伸縮）'],
       [['ホイール'], '時間軸の拡大・縮小'],
       [['ダブルクリック'], '全期間を表示'],
     ],
@@ -256,11 +256,11 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
   [
     '編集（編集ツールバーが出ているとき）',
     [
-      [['Ctrl', 'Z'], '元に戻す（描いている途中は 1 点戻す）'],
+      [['Ctrl', 'Z'], '元に戻す（作図中は 1 点戻す）'],
       [['Ctrl', 'Y'], 'やり直し（Ctrl + Shift + Z でも）'],
-      [['Backspace'], '描いている途中で 1 点戻す'],
-      [['Enter'], '描いている線・面を確定（ダブルクリックでも）'],
-      [['Esc'], '描いている途中の図形・分割をやめる'],
+      [['Backspace'], '作図中に 1 点戻す'],
+      [['Enter'], '作図中の線・面を確定（ダブルクリックでも）'],
+      [['Esc'], '作図中の図形・分割の取り消し'],
       [['Alt', 'クリック'], '「形状編集」中に頂点を削除'],
     ],
   ],
@@ -276,8 +276,8 @@ const SHORTCUTS: Array<[title: string, rows: Shortcut[]]> = [
   [
     'パネル',
     [
-      [['ダブルクリック'], 'スライダー名で値を元に戻す・パネルの境界で幅を戻す'],
-      [['矢印'], '幾何補正の「位置をずらす」中に画像を動かす（Shift で 10 倍）'],
+      [['ダブルクリック'], 'スライダー名で値の初期化・パネルの境界で幅の初期化'],
+      [['矢印'], '幾何補正の「位置ずらし」中に画像を移動（Shift で 10 倍）'],
     ],
   ],
 ];
@@ -309,7 +309,7 @@ export class HelpDialog {
     const search = (this.search_ = document.createElement('input'));
     search.type = 'search';
     search.className = 'help-search';
-    search.placeholder = 'やりたいこと・言葉で探す（例: 明るく、距離、バンド）';
+    search.placeholder = 'やりたいこと・言葉で検索（例: 明るく、距離、バンド）';
     search.setAttribute('aria-label', 'ヘルプを検索');
     search.autocomplete = 'off';
     search.addEventListener('input', () => this.filter_());
@@ -432,7 +432,7 @@ export class HelpDialog {
     if (!parts.length) {
       const empty = document.createElement('p');
       empty.className = 'help-empty';
-      empty.textContent = '見つかりませんでした。別の言葉で探すか、Ctrl + K で機能の名前から探してください。';
+      empty.textContent = '該当なし。別の言葉での検索、または Ctrl + K で機能の名前から検索。';
       parts.push(empty);
     }
     this.results_.replaceChildren(...parts);
@@ -463,7 +463,7 @@ export class HelpDialog {
           const where = document.createElement('button');
           where.type = 'button';
           where.className = 'help-where';
-          where.textContent = '場所を見る';
+          where.textContent = '場所を表示';
           where.addEventListener('click', () => {
             this.dialog.close();
             pointAt(topic, (text) => {

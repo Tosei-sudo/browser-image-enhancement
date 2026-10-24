@@ -48,14 +48,14 @@ const localOf = (name: string) => name.slice(name.indexOf(':') + 1);
 
 /** Reads an XML document; throws {@link XmlError} with a message for the status line when it cannot. */
 export function parseXml(text: string, maxChars = MAX_XML): XmlElement {
-  if (text.length > maxChars) throw new XmlError(`ファイルが大きすぎます（${Math.round(maxChars / 1e6)} MB まで）`);
+  if (text.length > maxChars) throw new XmlError(`ファイルが大きすぎ（${Math.round(maxChars / 1e6)} MB まで）`);
   const stack: XmlElement[] = [];
   let root: XmlElement | null = null;
   let count = 0;
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   const n = text.length;
   const fail = (what: string): never => {
-    throw new XmlError(`XML として読めません（${what}）`);
+    throw new XmlError(`XML として読み込み不可（${what}）`);
   };
   while (i < n) {
     const lt = text.indexOf('<', i);
@@ -64,16 +64,16 @@ export function parseXml(text: string, maxChars = MAX_XML): XmlElement {
     if (lt < 0) break;
     if (text.startsWith('<!--', lt)) {
       const close = text.indexOf('-->', lt + 4);
-      if (close < 0) fail('コメントが閉じていません');
+      if (close < 0) fail('コメントが未閉合');
       i = close + 3;
     } else if (text.startsWith('<![CDATA[', lt)) {
       const close = text.indexOf(']]>', lt + 9);
-      if (close < 0) fail('CDATA が閉じていません');
+      if (close < 0) fail('CDATA が未閉合');
       if (stack.length) stack[stack.length - 1].text += text.slice(lt + 9, close);
       i = close + 3;
     } else if (text.startsWith('<?', lt)) {
       const close = text.indexOf('?>', lt + 2);
-      if (close < 0) fail('処理命令が閉じていません');
+      if (close < 0) fail('処理命令が未閉合');
       i = close + 2;
     } else if (text.startsWith('<!', lt)) {
       // A document type: one with an internal subset may declare entities, which are refused.
@@ -85,15 +85,15 @@ export function parseXml(text: string, maxChars = MAX_XML): XmlElement {
         else if (c === ']') depth--;
         else if (c === '>' && depth <= 0) break;
       }
-      if (j >= n) fail('文書型宣言が閉じていません');
-      if (/<!ENTITY/i.test(text.slice(lt, j))) throw new XmlError('実体（ENTITY）を宣言した XML は安全のため読みません');
+      if (j >= n) fail('文書型宣言が未閉合');
+      if (/<!ENTITY/i.test(text.slice(lt, j))) throw new XmlError('実体（ENTITY）を宣言した XML は安全のため読み込み対象外');
       i = j + 1;
     } else if (text[lt + 1] === '/') {
       const close = text.indexOf('>', lt);
-      if (close < 0) fail('終了タグが閉じていません');
+      if (close < 0) fail('終了タグが未閉合');
       const name = text.slice(lt + 2, close).trim();
       const open = stack.pop();
-      if (!open || open.name !== name) fail(`</${name}> が対応していません`);
+      if (!open || open.name !== name) fail(`</${name}> が非対応`);
       i = close + 1;
     } else {
       // A start tag: its end is the first `>` outside quotes.
@@ -106,11 +106,11 @@ export function parseXml(text: string, maxChars = MAX_XML): XmlElement {
         } else if (c === '"' || c === "'") quote = c;
         else if (c === '>') break;
       }
-      if (j >= n) fail('タグが閉じていません');
+      if (j >= n) fail('タグが未閉合');
       const selfClosing = text[j - 1] === '/';
       const body = text.slice(lt + 1, selfClosing ? j - 1 : j);
       const m = /^[^\s/>]+/.exec(body);
-      if (!m) fail('要素名がありません');
+      if (!m) fail('要素名なし');
       const name = m![0];
       const attrs: Record<string, string> = {};
       const re = /([^\s=]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
@@ -118,19 +118,19 @@ export function parseXml(text: string, maxChars = MAX_XML): XmlElement {
       let a: RegExpExecArray | null;
       while ((a = re.exec(rest))) attrs[a[1]] = decodeXml(a[2] ?? a[3] ?? '');
       const element: XmlElement = { name, local: localOf(name), attrs, children: [], text: '' };
-      if (++count > MAX_ELEMENTS) fail('要素が多すぎます');
+      if (++count > MAX_ELEMENTS) fail('要素が多すぎ');
       if (stack.length) stack[stack.length - 1].children.push(element);
-      else if (root) fail('ルート要素が二つあります');
+      else if (root) fail('ルート要素が二つ');
       else root = element;
       if (!selfClosing) {
         stack.push(element);
-        if (stack.length > MAX_DEPTH) fail('入れ子が深すぎます');
+        if (stack.length > MAX_DEPTH) fail('入れ子が深すぎ');
       }
       i = j + 1;
     }
   }
-  if (!root) fail('要素がありません');
-  if (stack.length) fail(`<${stack[stack.length - 1].name}> が閉じていません`);
+  if (!root) fail('要素なし');
+  if (stack.length) fail(`<${stack[stack.length - 1].name}> が未閉合`);
   return root!;
 }
 

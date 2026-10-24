@@ -24,7 +24,7 @@ export type FeedStatus = 'connecting' | 'open' | 'retrying' | 'error' | 'closed'
 export const feedStatuses: Record<FeedStatus, string> = {
   connecting: '接続中…',
   open: '受信中',
-  retrying: '再接続を待っています',
+  retrying: '再接続を待機中',
   error: 'エラー',
   closed: '切断',
 };
@@ -111,7 +111,7 @@ export function connectFeed(feed: FeedConfig, handlers: FeedHandlers): FeedConne
       };
       ws.onclose = () => {
         if (closed) return;
-        handlers.onStatus('retrying', `${Math.round(wait / 1000)} 秒後に再接続します`);
+        handlers.onStatus('retrying', `${Math.round(wait / 1000)} 秒後に再接続`);
         timer = setTimeout(open, wait);
         wait = Math.min(60_000, wait * 2);
       };
@@ -137,7 +137,7 @@ export function connectFeed(feed: FeedConfig, handlers: FeedHandlers): FeedConne
       source.onerror = () => {
         if (closed) return;
         // EventSource connects again by itself unless the server refused it.
-        handlers.onStatus(source.readyState === EventSource.CLOSED ? 'error' : 'retrying', source.readyState === EventSource.CLOSED ? '接続できませんでした' : undefined);
+        handlers.onStatus(source.readyState === EventSource.CLOSED ? 'error' : 'retrying', source.readyState === EventSource.CLOSED ? '接続失敗' : undefined);
       };
       cleanups.push(() => source.close());
     } else if (feed.type === 'poll') {
@@ -147,23 +147,23 @@ export function connectFeed(feed: FeedConfig, handlers: FeedHandlers): FeedConne
       const poll = async () => {
         try {
           const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-          if (!response.ok) throw new Error(`サーバーがエラーを返しました（HTTP ${response.status}）`);
+          if (!response.ok) throw new Error(`サーバーからエラー応答（HTTP ${response.status}）`);
           const length = Number(response.headers.get('content-length') ?? 0);
-          if (length > MAX_POLL) throw new Error(`応答が大きすぎます（${Math.round(length / 1e6)} MB）`);
+          if (length > MAX_POLL) throw new Error(`応答が大きすぎ（${Math.round(length / 1e6)} MB）`);
           const text = await response.text();
-          if (text.length > MAX_POLL) throw new Error('応答が大きすぎます');
+          if (text.length > MAX_POLL) throw new Error('応答が大きすぎ');
           let data: unknown;
           try {
             data = JSON.parse(text);
           } catch {
-            throw new Error('応答が JSON ではありません');
+            throw new Error('応答が JSON 以外');
           }
           if (closed) return;
           handlers.onStatus('open');
           handlers.onMessage(data, Date.now());
         } catch (error) {
           if (closed) return;
-          fail(error instanceof TypeError ? new Error('接続できませんでした（URL、またはサーバーが CORS を許可しているかを確認してください）') : error);
+          fail(error instanceof TypeError ? new Error('接続失敗（URL、またはサーバーが CORS を許可しているかを確認）') : error);
         }
         if (!closed) timer = setTimeout(() => void poll(), interval);
       };
@@ -201,19 +201,19 @@ export async function streamSocket(url: string): Promise<{ ws: string; fields: F
   try {
     response = await fetch(info.href, { cache: 'no-store' });
   } catch {
-    throw new Error('Stream Service に接続できませんでした（URL、またはサーバーが CORS を許可しているかを確認してください）');
+    throw new Error('Stream Service への接続に失敗（URL、またはサーバーが CORS を許可しているかを確認）');
   }
-  if (!response.ok) throw new Error(`Stream Service がエラーを返しました（HTTP ${response.status}）`);
+  if (!response.ok) throw new Error(`Stream Service からエラー応答（HTTP ${response.status}）`);
   const json = (await response.json().catch(() => null)) as {
     streamUrls?: Array<{ transport?: string; urls?: unknown[]; token?: string }>;
     timeInfo?: { trackIdField?: unknown; startTimeField?: unknown };
     error?: { message?: string };
   } | null;
-  if (!json) throw new Error('Stream Service の説明が JSON ではありません');
-  if (json.error) throw new Error(`Stream Service がエラーを返しました: ${String(json.error.message ?? '').slice(0, 200)}`);
+  if (!json) throw new Error('Stream Service の説明が JSON 以外');
+  if (json.error) throw new Error(`Stream Service からエラー応答: ${String(json.error.message ?? '').slice(0, 200)}`);
   const entry = json.streamUrls?.find((s) => s.transport === 'ws' && Array.isArray(s.urls) && s.urls.length);
   const base = entry?.urls?.find((u): u is string => typeof u === 'string');
-  if (!base) throw new Error('Stream Service に WebSocket の URL（streamUrls）がありません');
+  if (!base) throw new Error('Stream Service に WebSocket の URL（streamUrls）なし');
   const ws = new URL(/\/subscribe\/?$/i.test(base) ? base : `${base.replace(/\/+$/, '')}/subscribe`);
   // The service's own token for its stream; the one typed only goes to the same host.
   const wsToken = entry?.token ?? (ws.hostname === info.hostname ? token : null);

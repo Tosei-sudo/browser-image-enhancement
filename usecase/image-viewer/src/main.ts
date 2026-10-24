@@ -167,7 +167,7 @@ for (const [code, definition] of Object.entries(config.projections)) {
   try {
     proj4.defs(code, definition);
   } catch (error) {
-    console.warn(`config.json: projections の「${code}」を登録できませんでした`, error);
+    console.warn(`config.json: projections の「${code}」の登録に失敗`, error);
   }
 }
 // Japanese CRSs (JGD2011 / JGD2000 / Tokyo, plane rectangular and UTM) for projecting vectors without a lookup.
@@ -175,9 +175,9 @@ registerJapaneseCrs();
 register(proj4);
 // Other projections are looked up in the configured registry (none when it is '').
 setProjectionCodeLookup(async (code) => {
-  if (!config.projectionLookup) throw new Error(`${code} の定義がありません（projectionLookup が未設定です）`);
+  if (!config.projectionLookup) throw new Error(`${code} の定義なし（projectionLookup が未設定）`);
   const response = await fetch(lookupUrl(config.projectionLookup, code));
-  if (!response.ok) throw new Error(`${code} の定義を取得できませんでした: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`${code} の定義の取得に失敗: HTTP ${response.status}`);
   return response.text();
 });
 
@@ -265,7 +265,7 @@ const table = new AttributeTable(document.getElementById('table')!, map, selecti
 });
 dock.add({ id: 'table', title: () => '属性テーブル', element: table.element, grip: table.heading, placeButton: (b) => table.heading.after(b), home: 'bottom' });
 
-/** Attribute tables kept on one layer each (「固定」, or 「属性テーブルを開く」 of a layer's menu), by their id in the layout. */
+/** Attribute tables kept on one layer each (「固定」, or 「属性テーブルを表示」 of a layer's menu), by their id in the layout. */
 const pinnedTables = new globalThis.Map<string, { layer: ViewerLayer; table: AttributeTable }>();
 let pinnedCount = 0;
 
@@ -351,9 +351,9 @@ function tableDataOf(layer: ViewerLayer | null): [data: TableData | null, messag
         : undefined,
     }];
   } else if (layer?.type === 'service' && service?.featureInfo) {
-    return [featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示します'];
+    return [featureInfo.get(layer) ?? null, '地図をクリックすると、その地点の属性を表示'];
   }
-  return [null, layer?.type === 'service' ? 'このレイヤーには属性がありません' : 'WFS・Esri・ファイルのベクターレイヤーを選ぶと属性を表示します'];
+  return [null, layer?.type === 'service' ? 'このレイヤーには属性なし' : 'WFS・Esri・ファイルのベクターレイヤーを選ぶと属性を表示'];
 }
 
 /** Called when the open layers change (set by the panels made later). */
@@ -416,9 +416,9 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
   // An image from 「画像カタログ」: the catalog's images taken like it (same sensor, near angles, same ground).
   layerMenu: (layer) => {
     const from = layer.type === 'image' ? catalogRecords.get(layer) : undefined;
-    const items: MenuItem[] = from ? [{ label: '似た画像を探す…', run: () => void catalogPanel.findSimilar(from.record, from.catalog) }] : [];
+    const items: MenuItem[] = from ? [{ label: '類似画像の検索…', run: () => void catalogPanel.findSimilar(from.record, from.catalog) }] : [];
     // Its own table, kept beside the others (several layers' tables at once).
-    if (layer.type === 'service' && (layer.service.vector || layer.service.featureInfo)) items.push({ label: '属性テーブルを開く', run: () => pinTable(layer) });
+    if (layer.type === 'service' && (layer.service.vector || layer.service.featureInfo)) items.push({ label: '属性テーブルを表示', run: () => pinTable(layer) });
     return items;
   },
 });
@@ -589,9 +589,9 @@ const coordinateMenu: CoordinateMenu = new CoordinateMenu(map, images, {
   say,
   cursor: cursorPosition,
   actions: (): PointAction[] => [
-    { label: 'この地点で撮像計画を立てる', title: '撮像計画を開き、この地点を対象に撮像機会を計算します', run: (lonLat): void => void imagingPlan.planAt(lonLat) },
+    { label: 'この地点の撮像計画', title: '撮像計画を開き、この地点を対象に撮像機会を計算', run: (lonLat): void => void imagingPlan.planAt(lonLat) },
     ...(config.imageCatalogs.length
-      ? [{ label: 'この地点の新着画像を監視…', title: 'この地点を写した画像が画像カタログに新しく入ったら、バッジと「通知」で知らせます', run: ([lon, lat]: LonLat): void => void catalogPanel.watchSearch({ lon, lat }) }]
+      ? [{ label: 'この地点の新着画像を監視…', title: 'この地点を写した画像が画像カタログに新しく入ったら、バッジと「通知」で通知', run: ([lon, lat]: LonLat): void => void catalogPanel.watchSearch({ lon, lat }) }]
       : []),
   ],
 });
@@ -631,16 +631,16 @@ map.on('singleclick', (e) => {
     else if (!add) selection.clear();
     if (hit) table.scrollTo(hit);
   } else if (service.featureInfo) {
-    say('属性を問い合わせています…');
+    say('属性を問い合わせ中…');
     service
       .featureInfo(e.coordinate, map)
       .then(({ features, fields }) => {
         featureInfo.set(layer, { title: `${layer.name}（クリック地点）`, fields, features: () => features });
         selection.set(features);
         if (images.selectedLayer() === layer) showTable(layer);
-        say(features.length ? `${features.length} 件の地物があります` : 'この地点に地物はありません');
+        say(features.length ? `地物 ${features.length} 件` : 'この地点に地物なし');
       })
-      .catch((error) => say(`属性を取得できませんでした: ${error instanceof Error ? error.message : String(error)}`));
+      .catch((error) => say(`属性の取得に失敗: ${error instanceof Error ? error.message : String(error)}`));
   }
 });
 
@@ -650,7 +650,7 @@ boxSelect.on('boxend', () => {
   const layer = images.selectedLayer();
   const vector = layer?.type === 'service' ? layer.service.vector : null;
   if (!vector) {
-    say('範囲で選ぶには、ベクターレイヤーを選んでください');
+    say('範囲選択にはベクターレイヤーの選択が必要');
     return;
   }
   const box = boxSelect.getGeometry();
@@ -665,7 +665,7 @@ boxSelect.on('boxend', () => {
   });
   selection.add(found);
   if (found[0]) table.scrollTo(found[0]);
-  say(found.length ? `${found.length} 件を選択に加えました（選択 ${selection.list().length} 件）` : '範囲内に地物はありません');
+  say(found.length ? `${found.length} 件を選択に追加（選択 ${selection.list().length} 件）` : '範囲内に地物なし');
 });
 map.addInteraction(boxSelect);
 
@@ -688,7 +688,7 @@ function serviceArea(which: 'view' | 'selection'): Extent | null {
 function addService(service: ServiceLayer): void {
   const entry = images.addService(service);
   void images.zoomTo(entry);
-  say(`${service.title} を追加しました`);
+  say(`${service.title} を追加`);
 }
 
 // Files as inputs of the processing tools (📂 next to a tool's layer choice), opened without adding them to the map.
@@ -713,15 +713,15 @@ const rasterTools = [
   { id: 'band-math', label: 'バンド演算・指標（NDVI など）', open: () => void bandMath.open(), dialog: () => bandMath.dialog },
   { id: 'change', label: '変化抽出（2 時期の差・比）', open: () => void change.open(), dialog: () => change.dialog },
   { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', open: () => classify.open(), dialog: () => classify.dialog },
-  { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', open: () => align.open(), dialog: () => align.dialog },
+  { id: 'align', label: '自動位置合わせ（基準画像への位置合わせ）', open: () => align.open(), dialog: () => align.dialog },
   { id: 'colorize', label: '単バンド画像の着色・色分け（カラースケール・区分・値ごと）', open: () => void colorize.open(), dialog: () => colorize.dialog },
   { id: 'nodata', label: 'ノーデータの透明化（黒い縁など）', open: () => noData.open(), dialog: () => noData.dialog },
   { id: 'georef', label: '投影を設定（座標系・ワールドファイル・四隅）', open: () => georef.open(), dialog: () => georef.dialog },
   { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', open: () => void composite.open(), dialog: () => composite.dialog },
-  { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', open: () => void mosaic.open(), dialog: () => mosaic.dialog },
+  { id: 'mosaic', label: 'モザイク（複数画像の接合）', open: () => void mosaic.open(), dialog: () => mosaic.dialog },
   { id: 'pansharpen', label: 'パンシャープン', open: () => panSharpen.open(), dialog: () => panSharpen.dialog },
   { id: 'zonal', label: 'ゾーン統計（ポリゴンごとの平均・最大など）', open: () => void zonal.open(), dialog: () => zonal.dialog },
-  { id: 'tessellate', label: '格子を敷き詰める（正方形・六角形・三角形）', open: () => tessellateDialog.open(), dialog: () => tessellateDialog.dialog, vector: true },
+  { id: 'tessellate', label: '格子の敷き詰め（正方形・六角形・三角形）', open: () => tessellateDialog.open(), dialog: () => tessellateDialog.dialog, vector: true },
 ];
 const processing = new ProcessingDialog(document.getElementById('processing') as HTMLButtonElement, selection, {
   layers: () => images.inputs(),
@@ -730,7 +730,7 @@ const processing = new ProcessingDialog(document.getElementById('processing') as
   say,
   onResult: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     addService(tempLayer(record, tempStore));
   },
   rasterTools,
@@ -743,7 +743,7 @@ const zonal = new ZonalDialog(selection, {
   say,
   onResult: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     addService(tempLayer(record, tempStore));
   },
 });
@@ -756,7 +756,7 @@ const gp = new GpDialog(document.getElementById('gp-open') as HTMLButtonElement 
   say,
   onFeatures: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
   openImage: async (url) => {
@@ -775,10 +775,10 @@ const gp = new GpDialog(document.getElementById('gp-open') as HTMLButtonElement 
 const palette = new CommandPalette(() => [
   { id: 'open-file', label: 'ファイルを開く', detail: '画像・GeoTIFF・Shapefile・GeoJSON など', keys: 'O', run: () => document.querySelector<HTMLButtonElement>('#open .ol-load-image button')?.click() },
   { id: 'jump', label: '座標・地名へ移動', detail: '緯度経度・MGRS・UTM・地名・住所', keys: '/', run: () => document.querySelector<HTMLInputElement>('#jump input')!.focus() },
-  { id: 'bookmark-add', label: '今の表示をブックマークに追加', detail: 'ブックマーク', keys: 'M', run: () => bookmarks.add() },
-  { id: 'help-topics', label: 'やりたいことから探す（ヘルプ）', detail: '操作の手順と、そのボタンの場所', run: () => help.open('topics') },
+  { id: 'bookmark-add', label: '現在の表示をブックマークに追加', detail: 'ブックマーク', keys: 'M', run: () => bookmarks.add() },
+  { id: 'help-topics', label: 'やりたいことから検索（ヘルプ）', detail: '操作の手順と、そのボタンの場所', run: () => help.open('topics') },
   { id: 'help-terms', label: '用語の説明（ヘルプ）', detail: 'バンド・DRA・オルソ補正などの言葉', run: () => help.open('terms') },
-  { id: 'help-hints', label: hints.isEnabled() ? 'ボタンの説明をやめる' : 'ボタンの説明を出す（初心者向け）', detail: 'ヘルプ — マウスを乗せたボタンやスライダーの説明', run: () => hints.toggle() },
+  { id: 'help-hints', label: hints.isEnabled() ? 'ボタンの説明を非表示' : 'ボタンの説明を表示（初心者向け）', detail: 'ヘルプ — マウスを乗せたボタンやスライダーの説明', run: () => hints.toggle() },
   ...buttonCommands(document.querySelectorAll('.bar, .side .analysis-tools, #metadata-open')).filter((c) => c.id !== 'palette-open'),
   ...processingTools.map((t) => ({ id: `processing:${t.id}`, label: t.label, detail: 'プロセッシング（ベクター）', run: () => processing.open(t.id) })),
   // The grid tool has a button of its own in ツール (listed with the bar's buttons).
@@ -798,11 +798,11 @@ async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<{ 
   const shapes = readLinkShapes(params);
   const skipped = shapes.errors.length ? `（読めなかったもの: ${shapes.errors.join(' / ')}）` : '';
   if (!shapes.features.length) {
-    say(`リンクの図形を表示できませんでした${skipped}`);
+    say(`リンクの図形の表示に失敗${skipped}`);
     return { layer: null, count: 0, errors: shapes.errors };
   }
   const record = recordOf({ title: shapes.title, features: shapes.features, fields: shapes.fields }, 'リンクから追加');
-  await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+  await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
   const service = tempLayer(record, tempStore);
   const entry = images.addService(service);
   if (shapes.color || shapes.labeled) {
@@ -820,7 +820,7 @@ async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<{ 
     else void images.zoomTo(entry);
   }
   const n = shapes.features.length;
-  say(`リンクの図形 ${n.toLocaleString()} 個を一時レイヤー「${shapes.title}」に追加しました${skipped}`);
+  say(`リンクの図形 ${n.toLocaleString()} 個を一時レイヤー「${shapes.title}」に追加${skipped}`);
   return { layer: entry, count: n, errors: shapes.errors };
 }
 
@@ -829,16 +829,16 @@ const newLayer = new NewLayerDialog(document.getElementById('new-layer') as HTML
   layers: () => images.layers().filter((l): l is ViewerService => l.type === 'service'),
   say,
   onCreate: async (record, draw) => {
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     const entry = images.addService(tempLayer(record, tempStore));
     if (!editor.start(entry)) {
-      say(`${record.title} を追加しました`);
+      say(`${record.title} を追加`);
       return;
     }
     showTable(entry);
     if (draw) {
       editor.setTool('add');
-      say(`${record.title} を作成しました。地図をクリックして描き始めてください（属性は属性テーブルで入力し、「保存」でブラウザに保存します）`);
+      say(`${record.title} を作成。地図のクリックで作図開始（属性は属性テーブルで入力、「保存」でブラウザに保存）`);
     }
   },
 });
@@ -854,7 +854,7 @@ const tessellateDialog = new TessellateDialog(document.getElementById('tessellat
   say,
   onResult: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
   onStart: () => {
@@ -874,7 +874,7 @@ const aiOptions = {
   say,
   onResult: async (result: ProcessingResult, made: string) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
   // The catalog id (an image opened from 「画像カタログ」) and the acquisition time, written on what is found.
@@ -920,7 +920,7 @@ const movingMatch = new MatchDialog(document.getElementById('moving-match') as H
   say,
   onResult: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     return images.addService(tempLayer(record, tempStore));
   },
 });
@@ -1023,7 +1023,7 @@ const loader = new AuthLoadImageControl({
     showRset(images.add(loaded));
     // Opening a link: back to its `#view=` before the fit to the image is drawn, so the view doesn't jump after.
     if (linkedView) bookmarks.applyHash(linkedView);
-    status.sayForFiles(rule ? `${loaded.name} を開きました（設定「${rule.label}」を適用）` : `${loaded.name} を開きました`, 'done');
+    status.sayForFiles(rule ? `${loaded.name} を表示（設定「${rule.label}」を適用）` : `${loaded.name} を表示`, 'done');
     // A COG opened by URL may be a satellite image with an RPC model, or one for the simple orthorectification.
     if (/^https?:/i.test(loaded.name)) {
       void tiffInfo(loaded.name)
@@ -1035,7 +1035,7 @@ const loader = new AuthLoadImageControl({
     }
   },
   onError: (error, name) => {
-    status.sayForFiles(`${name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    status.sayForFiles(`${name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`, 'error');
   },
 });
 map.addControl(loader);
@@ -1166,7 +1166,7 @@ const change = new ChangeDialog(images, loader, {
   open: (file) => openImageFile(file, fileContext()),
   onPolygons: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
 });
@@ -1177,7 +1177,7 @@ const classify = new ClassifyDialog(images, loader, map, {
   open: (file) => openImageFile(file, fileContext()),
   onPolygons: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
 });
@@ -1223,7 +1223,7 @@ processing.addSwitchers();
 const fromCatalog = new WeakMap<ViewerImage, Array<[string, string]>>();
 /** The catalog ids of images opened from a catalog (written on what the AI tools find in them). */
 const catalogIds = new WeakMap<ViewerImage, string>();
-/** The catalog records of images opened from a catalog (for 「似た画像を探す」). */
+/** The catalog records of images opened from a catalog (for 「類似画像の検索」). */
 const catalogRecords = new WeakMap<ViewerImage, { record: CatalogRecord; catalog: CatalogConfig }>();
 const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
 /** Notes what the catalog says of an image opened from it; its angles start the simple orthorectification. */
@@ -1272,7 +1272,7 @@ const watchPanel = new WatchPanel(document.getElementById('watch-open') as HTMLB
     const source = record.source!;
     if (source.kind === 'url') await openCatalogUrl(source.url, record, catalog);
     else if (openCatalogPath) await openCatalogPath(source.path, record, catalog);
-    else throw new Error('ローカルパスの画像は開けません');
+    else throw new Error('ローカルパスの画像は表示不可');
   },
   selected: () => selection.features.getArray(),
   registration: async () => ('serviceWorker' in navigator ? ((await navigator.serviceWorker.getRegistration()) ?? null) : null),
@@ -1313,9 +1313,9 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   say,
   onLayer: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
-    say(`${made} をレイヤーとして追加しました`);
+    say(`${made} をレイヤーとして追加`);
   },
   // In 3D the chosen pass stands up: its orbit, the satellite and its beam.
   onChosen: (): void => globeToggle.globe()?.updateSatellites(),
@@ -1336,7 +1336,7 @@ const movingTargets = new MovingTargetDialog(document.getElementById('moving-tar
   },
   onResult: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
   },
   plan: (targets, label) => void imagingPlan.planMoving(targets, label),
@@ -1350,10 +1350,10 @@ const savedPlans = new SavedPlansPanel(map, {
   ask: (url, params, token) => esriJson(url, params, token, true),
   open: async (record, catalog) => {
     const source = record.source;
-    if (!source) throw new Error('画像の場所がありません');
+    if (!source) throw new Error('画像の場所なし');
     if (source.kind === 'url') await openCatalogUrl(source.url, record, catalog);
     else if (openCatalogPath) await openCatalogPath(source.path, record, catalog);
-    else throw new Error('ローカルパスの画像は開けません');
+    else throw new Error('ローカルパスの画像は表示不可');
   },
   say,
 });
@@ -1390,9 +1390,9 @@ const observations = new ObservationPanel(map, document.getElementById('observe-
   },
   onLayer: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
-    say(`${made} をレイヤーとして追加しました`);
+    say(`${made} をレイヤーとして追加`);
   },
   say,
 });
@@ -1401,7 +1401,7 @@ imagesChanged = () => {
 };
 
 // Reminders of planned shots become notices of the notification centre a set time before them.
-startReminders((n) => say(`撮像予定の通知が ${n} 件あります（「通知」）`));
+startReminders((n) => say(`撮像予定の通知 ${n} 件（「通知」）`));
 
 // Satellite passes: the chosen satellites' ground tracks and what they can image, at a moment or over a period.
 const satelliteTracks = new SatelliteTrackPanel(document.getElementById('track-open') as HTMLButtonElement, map, {
@@ -1409,9 +1409,9 @@ const satelliteTracks = new SatelliteTrackPanel(document.getElementById('track-o
   say,
   onLayer: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
-    say(`${made} をレイヤーとして追加しました`);
+    say(`${made} をレイヤーとして追加`);
   },
   onChange: (): void => globeToggle.globe()?.updateTracks(),
 });
@@ -1430,7 +1430,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
   say,
   addTempLayer: async (result, made) => {
     const record = recordOf(result, made);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     return images.addService(tempLayer(record, tempStore));
   },
   openRaster: async (file) => {
@@ -1464,16 +1464,16 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'band-math', label: 'バンド演算・指標（NDVI など）', dialog: bandMath.dialog, open: () => bandMath.open(), run: () => bandMath.run() },
     { id: 'change', label: '変化抽出（2 時期の差・比）', dialog: change.dialog, open: () => change.open(), run: () => change.run() },
     { id: 'classify', label: '土地被覆分類（自動・学習ポリゴン）', dialog: classify.dialog, open: () => classify.open(), run: () => classify.run() },
-    { id: 'align', label: '自動位置合わせ（基準の画像に合わせる）', dialog: align.dialog, open: () => align.open(), run: () => align.run() },
+    { id: 'align', label: '自動位置合わせ（基準画像への位置合わせ）', dialog: align.dialog, open: () => align.open(), run: () => align.run() },
     { id: 'composite', label: 'RGB 合成（単バンド画像を R・G・B に）', dialog: composite.dialog, open: () => composite.open(), run: () => composite.run() },
-    { id: 'mosaic', label: 'モザイク（複数の画像をつなぐ）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
+    { id: 'mosaic', label: 'モザイク（複数画像の接合）', dialog: mosaic.dialog, open: () => mosaic.open(), run: () => mosaic.run() },
     { id: 'pansharpen', label: 'パンシャープン', dialog: panSharpen.dialog, open: () => panSharpen.open(), run: () => panSharpen.run() },
     { id: 'save-view', label: '表示範囲を保存（画像・GeoTIFF）', dialog: viewExport.dialog, open: () => viewExport.open(), run: () => viewExport.save() },
     { id: 'moving-match', label: 'AI 検出と照合（移動体）', dialog: movingMatch.dialog, open: () => movingMatch.open(), run: () => movingMatch.run() },
     { id: 'stac', label: 'STAC 検索', dialog: stac.dialog, open: () => stac.open(), run: () => stac.search() },
     { id: 'gp', label: 'サーバ処理（ArcGIS GP・OGC API – Processes）', dialog: gp.dialog, open: () => gp.open(), run: () => gp.run() },
     { id: 'webmap-open', label: 'ArcGIS Web マップを開く', dialog: webMaps.openDialog, open: () => webMaps.open(), run: () => webMaps.openTyped() },
-    { id: 'tessellate', label: '格子を敷き詰める（正方形・六角形・三角形）', dialog: tessellateDialog.dialog, open: () => tessellateDialog.open(), run: () => tessellateDialog.run() },
+    { id: 'tessellate', label: '格子の敷き詰め（正方形・六角形・三角形）', dialog: tessellateDialog.dialog, open: () => tessellateDialog.open(), run: () => tessellateDialog.run() },
     { id: 'moving-target', label: '移動目標撮像計画（存在予測・撮像計画）', dialog: movingTargets.dialog, open: () => movingTargets.open(), run: async () => movingTargets.plan() },
   ],
   commands: () =>
@@ -1670,7 +1670,7 @@ const globeToggle = new GlobeToggle(map, {
     for (const b of twoDOnly) {
       b.disabled = open;
       if (open) b.dataset.title2d ??= b.title;
-      b.title = open ? '3D 表示では使えません（「3D」でもとに戻します）' : (b.dataset.title2d ?? b.title);
+      b.title = open ? '3D 表示では使用不可（「3D」で 2D に復帰）' : (b.dataset.title2d ?? b.title);
     }
     for (const id of Object.keys(threeDMeasure)) document.getElementById(id)!.setAttribute('aria-pressed', 'false');
   },
@@ -1706,14 +1706,14 @@ void clearStreamedCopies();
  */
 async function openEsriUrl(url: string): Promise<boolean> {
   if (!isImageServerUrl(url) && !isMapServerUrl(url)) return false;
-  say(`${url} を読み込んでいます…`);
+  say(`${url} を読み込み中…`);
   try {
     const catalog = await readService(url, 'esri');
     const choice = catalog.choices.find((c) => c.name === IMAGE_CHOICE || c.name === MAP_CHOICE)!;
     const layer = await catalog.open(choice, serviceContext());
     if (layer) addService(layer);
   } catch (error) {
-    say(`${url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}（トークンが必要なサービスは「サービスを追加」から開いてください）`);
+    say(`${url} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}（トークンが必要なサービスは「サービスを追加」から）`);
     throw error;
   }
   return true;
@@ -1721,7 +1721,7 @@ async function openEsriUrl(url: string): Promise<boolean> {
 
 /** Opens one layer at start, giving the service layer's ref; failures are reported in the status line and the rest still open. */
 async function openAtStart(layer: LayerConfig): Promise<ServiceRef | undefined> {
-  say(`${layer.url} を読み込んでいます…`);
+  say(`${layer.url} を読み込み中…`);
   try {
     if (layer.type === 'cog') {
       if (!(await openEsriUrl(layer.url).catch(() => true))) await loader.loadUrl(layer.url);
@@ -1735,7 +1735,7 @@ async function openAtStart(layer: LayerConfig): Promise<ServiceRef | undefined> 
     }
   } catch (error) {
     // The loader's onError has already said why a COG failed.
-    if (layer.type !== 'cog') say(`${layer.url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    if (layer.type !== 'cog') say(`${layer.url} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
   }
   return undefined;
 }
@@ -1763,7 +1763,7 @@ const started = (async () => {
   // The temporary layers of earlier visits, on top.
   const kept = await tempStore.list().catch(() => []);
   for (const record of kept) images.addService(tempLayer(record, tempStore));
-  if (kept.length) say(`一時レイヤー ${kept.length} 件を復元しました`);
+  if (kept.length) say(`一時レイヤー ${kept.length} 件を復元`);
   // Shapes given in the link, on top of all; made into a layer once (a reload restores it), so they leave the address.
   const shapeParams = shapeParamsOf(location.search);
   if (hasShapes(shapeParams)) {

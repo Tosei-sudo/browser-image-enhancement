@@ -60,14 +60,14 @@ test('processing results are temporary layers, kept over a reload, exported, and
   page.on('dialog', (d) => void d.accept());
   await open(page);
   await choose(page, 'track.geojson', track);
-  await expect(page.locator('#status')).toContainText('track を開きました');
+  await expect(page.locator('#status')).toContainText('track を表示');
 
   // Points to lines: sorted by time, one per vehicle.
   await runTool(page, 'ポイント→ライン', async () => {
     await dialog(page).getByLabel('並べ替える属性（時刻など）').selectOption('time');
     await dialog(page).getByLabel('ラインを分ける属性').selectOption('car');
   });
-  await expect(page.locator('#status')).toContainText('track_ライン を作成しました（2 件');
+  await expect(page.locator('#status')).toContainText('track_ライン を作成（2 件');
   await expect(layerRows(page).first()).toContainText('一時');
   const first = await page.evaluate(() => {
     const layer = window.viewer.images.selectedLayer();
@@ -83,17 +83,17 @@ test('processing results are temporary layers, kept over a reload, exported, and
     await dialog(page).getByLabel('単位').selectOption('km');
     await dialog(page).getByText('結果を1つに融合').click();
   });
-  await expect(page.locator('#status')).toContainText('track_バッファ を作成しました');
+  await expect(page.locator('#status')).toContainText('track_バッファ を作成');
 
   // Voronoi cells and Thiessen polygons, and a reprojection to JGD2011 zone IX.
   await runTool(page, 'ボロノイ分割');
-  await expect(page.locator('#status')).toContainText('track_ボロノイ を作成しました（5 件');
+  await expect(page.locator('#status')).toContainText('track_ボロノイ を作成（5 件');
   await runTool(page, 'ティーセンポリゴン');
-  await expect(page.locator('#status')).toContainText('track_ティーセン を作成しました（5 件');
+  await expect(page.locator('#status')).toContainText('track_ティーセン を作成（5 件');
   await runTool(page, 'ベクター投影変換', async () => {
     await dialog(page).getByLabel('変換先の座標系').selectOption('EPSG:6677');
   });
-  await expect(page.locator('#status')).toContainText('を作成しました（5 件');
+  await expect(page.locator('#status')).toContainText('を作成（5 件');
   const reprojected = await layerRows(page).first().locator('.name').textContent();
 
   // Exported in its CRS by default.
@@ -101,7 +101,7 @@ test('processing results are temporary layers, kept over a reload, exported, and
   const exportDialog = page.getByRole('dialog', { name: '書き出し' });
   await expect(exportDialog.getByLabel('座標系').locator('option:checked')).toContainText('6677');
   const downloading = page.waitForEvent('download');
-  await exportDialog.getByRole('button', { name: '書き出す' }).click();
+  await exportDialog.getByRole('button', { name: '書き出し' }).click();
   const geojson = JSON.parse(await textOf(await downloading));
   const [x, y] = geojson.features[0].geometry.coordinates;
   // Zone IX metres (origin 36°N 139°50′E), not degrees.
@@ -111,7 +111,7 @@ test('processing results are temporary layers, kept over a reload, exported, and
 
   // Kept over a reload (the file layer is not).
   await open(page);
-  await expect(page.locator('#status')).toContainText('一時レイヤー 5 件を復元しました');
+  await expect(page.locator('#status')).toContainText('一時レイヤー 5 件を復元');
   await expect(layerRows(page)).toHaveCount(5);
   await expect(layerRows(page).first()).toContainText(reprojected!.replace(/^一時/, ''));
 
@@ -138,16 +138,16 @@ test('processing results are temporary layers, kept over a reload, exported, and
     )
     .toBe(4);
   await open(page);
-  await expect(page.locator('#status')).toContainText('一時レイヤー 4 件を復元しました');
+  await expect(page.locator('#status')).toContainText('一時レイヤー 4 件を復元');
 
   // An edit is saved in the browser.
   await layerRows(page).first().getByRole('button', { name: '編集' }).click();
   await page.locator('.attributes tbody tr[data-index]').first().getByRole('textbox', { name: 'car' }).fill('C');
   await page.locator('.attributes tbody tr[data-index]').first().getByRole('textbox', { name: 'car' }).press('Enter');
   await page.locator('button[data-tool=save]').click();
-  await expect(page.locator('#status')).toContainText('ブラウザに保存しました');
+  await expect(page.locator('#status')).toContainText('ブラウザに保存');
   await open(page);
-  await expect(page.locator('#status')).toContainText('復元しました');
+  await expect(page.locator('#status')).toContainText('復元');
   await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('C');
   expect(errors).toEqual([]);
 });
@@ -157,7 +157,7 @@ test('a CSV opens as a table, and points are made from its X / Y columns', async
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'stations.csv', '﻿名前,経度,緯度,乗降客数\n東京,139.767125,35.681236,"462,589"\n大阪,135.4959,34.7024,\n不明,,,0\n');
-  await expect(page.locator('#status')).toContainText('stations.csv を開きました（3 行');
+  await expect(page.locator('#status')).toContainText('stations.csv を表示（3 行');
   await expect(layerRows(page).first()).toContainText('CSV');
   // A table only: no export, its rows in the attribute table.
   await expect(layerRows(page).first().getByRole('button', { name: /書き出し/ })).toHaveCount(0);
@@ -171,7 +171,7 @@ test('a CSV opens as a table, and points are made from its X / Y columns', async
   await expect(dialog(page).getByLabel('X（経度・東西）の列')).toHaveValue('経度');
   await expect(dialog(page).getByLabel('Y（緯度・南北）の列')).toHaveValue('緯度');
   await dialog(page).getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('stations_ポイント を作成しました（2 件');
+  await expect(page.locator('#status')).toContainText('stations_ポイント を作成（2 件');
   await expect(page.locator('#status')).toContainText('数値でない行 1 件');
   const points = await page.evaluate(() => {
     const layer = window.viewer.images.selectedLayer();

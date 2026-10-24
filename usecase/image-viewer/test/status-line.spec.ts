@@ -35,7 +35,7 @@ test('many files dropped together are summed up in one line, with the problems u
   }
   await drop(page, files);
   const status = page.locator('#status');
-  await expect(status).toContainText('11 件のレイヤーをグループ「scene」にまとめて開きました（開けなかったもの 1 件・確認 3 件）', { timeout: 30_000 });
+  await expect(status).toContainText('11 件のレイヤーをグループ「scene」にまとめて表示（開けなかったもの 1 件・確認 3 件）', { timeout: 30_000 });
   // No file's own message was shown on the way: only the count.
   const seen = await page.evaluate(() => (window as unknown as { seen: string[] }).seen);
   expect(seen.filter((t) => /scene_\d+\.tif/.test(t))).toEqual([]);
@@ -46,14 +46,14 @@ test('many files dropped together are summed up in one line, with the problems u
   await more.click();
   const items = status.locator('.status-details li');
   await expect(items).toHaveCount(4);
-  await expect(items.first()).toContainText('scene_05.tif を開けませんでした');
-  await expect(items.nth(1)).toContainText('scene_00.tif を開きました（投影の情報がありません');
+  await expect(items.first()).toContainText('scene_05.tif の読み込みに失敗');
+  await expect(items.nth(1)).toContainText('scene_00.tif を表示（投影の情報なし');
   await page.screenshot({ path: test.info().outputPath('status-details.png') });
   await page.keyboard.press('Escape');
   await expect(status.locator('.status-details')).toBeHidden();
 
   // A file opened on its own afterwards is said as before.
   await drop(page, [{ name: 'other.tif', bytes: plainGeoTiff(300, 200) }]);
-  await expect(status).toHaveText('other.tif を開きました');
+  await expect(status).toHaveText('other.tif を表示');
   await expect(more).toBeHidden();
 });

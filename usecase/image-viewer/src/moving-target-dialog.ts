@@ -4,7 +4,7 @@
  * to an id, a time, a course, a speed (and its unit) and a name — found by
  * name first, as the moving-object feeds find them — and each target is
  * carried on from its last report. 「存在予測を追加」 adds the circles where
- * each may be, every few hours, as a temporary layer; 「撮像計画を立てる」
+ * each may be, every few hours, as a temporary layer; 「撮像計画の作成」
  * hands the targets to the imaging plan, which aims each pass at the circle
  * of its moment. A moving-object feed (AIS…) is used as it is, with its own
  * tracks.
@@ -34,10 +34,10 @@ export interface MovingTargetDialogOptions {
 
 const escape = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
 const ROLES: Array<[keyof TargetFields, string, string]> = [
-  ['id', 'ID（目標ごとに同じ値）', '同じ値の報告を 1 つの目標の航跡としてまとめます'],
-  ['time', '時刻', 'なければすべて今の報告とみなします'],
-  ['course', '針路（度）', '北から時計回り。なければ最後の 2 報告から求めます'],
-  ['speed', '速力', 'なければ最後の 2 報告から求めます'],
+  ['id', 'ID（目標ごとに同じ値）', '同じ値の報告を 1 つの目標の航跡として集約'],
+  ['time', '時刻', 'なければすべて現在の報告とみなす'],
+  ['course', '針路（度）', '北から時計回り。なければ最後の 2 報告から算出'],
+  ['speed', '速力', 'なければ最後の 2 報告から算出'],
   ['name', '名前', '一覧と計画での目標の名前。なければ ID'],
 ];
 
@@ -58,14 +58,14 @@ export class MovingTargetDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="moving-target-title">移動目標撮像計画</h2>
-        <p class="wide processing-hint">航跡・位置報告のポイントレイヤーから、目標ごとに最後の報告の位置・針路・速力で先の位置を推測し、誤差の円（存在予測）とその撮像計画を作ります。</p>
+        <p class="wide processing-hint">航跡・位置報告のポイントレイヤーから、目標ごとに最後の報告の位置・針路・速力で将来位置を推測し、誤差の円（存在予測）とその撮像計画を作成。</p>
         <label class="wide">レイヤー<select name="layer" aria-label="レイヤー"></select></label>
         <label class="wide check"><input name="selectedOnly" type="checkbox" /><span>選択中の地物だけ</span></label>
         <fieldset class="wide moving-target-fields"><legend>属性の対応づけ</legend>
           ${ROLES.map(([role, label, title]) => `<label title="${escape(title)}">${escape(label)}<select name="f-${role}" aria-label="${escape(label)}"></select></label>`).join('')}
           <label>速力の単位<select name="unit" aria-label="速力の単位">${(Object.keys(speedUnits) as SpeedUnit[]).map((u) => `<option value="${u}">${speedUnits[u]}</option>`).join('')}</select></label>
         </fieldset>
-        <p class="wide processing-hint moving-target-feed" hidden>移動体のフィードです。フィードの航跡（ID・時刻・針路・速力〔ノット〕）をそのまま使います。</p>
+        <p class="wide processing-hint moving-target-feed" hidden>移動体のフィード。フィードの航跡（ID・時刻・針路・速力〔ノット〕）をそのまま使用。</p>
         <label>予測する長さ（時間）<input name="horizon" type="number" min="1" max="${MAX_HORIZON}" step="1" value="${MAX_HORIZON}" aria-label="予測する長さ" /></label>
         <label>存在予測の間隔（時間）<input name="step" type="number" min="0.25" max="72" step="any" value="6" aria-label="存在予測の間隔" /></label>
         <details class="wide pansharpen-more">
@@ -74,7 +74,7 @@ export class MovingTargetDialog {
             <label>報告時の誤差（km）<input name="base" type="number" min="0" step="any" value="${DEFAULT_UNCERTAINTY.base}" aria-label="報告時の誤差" /></label>
             <label>1 時間あたりの増加（km）<input name="perHour" type="number" min="0" step="any" value="${DEFAULT_UNCERTAINTY.perHour}" aria-label="1 時間あたりの増加" /></label>
             <label>航行距離に対する割合（%）<input name="share" type="number" min="0" max="100" step="any" value="${DEFAULT_UNCERTAINTY.share * 100}" aria-label="航行距離に対する割合" /></label>
-            <p class="wide processing-hint">誤差の円の半径 = 報告時の誤差 + 経過時間 ×（1 時間あたりの増加 + 速力 × 割合）。変針・増減速の多い目標ほど大きくします。</p>
+            <p class="wide processing-hint">誤差の円の半径 = 報告時の誤差 + 経過時間 ×（1 時間あたりの増加 + 速力 × 割合）。変針・増減速の多い目標ほど大きく設定。</p>
           </div>
         </details>
       </form>
@@ -82,7 +82,7 @@ export class MovingTargetDialog {
       <div class="service-actions">
         <button type="button" value="cancel">閉じる</button>
         <button type="button" value="places">存在予測を追加</button>
-        <button type="button" value="plan" class="primary">撮像計画を立てる</button>
+        <button type="button" value="plan" class="primary">撮像計画の作成</button>
       </div>`;
     document.body.append(this.dialog);
     this.form_ = this.dialog.querySelector('form')!;
@@ -161,7 +161,7 @@ export class MovingTargetDialog {
   /** The targets of the chosen layer (or its selected features); a reason when there are none. */
   targets(): ShipState[] | string {
     const layer = this.layer();
-    if (!layer) return '航跡のポイントレイヤーを開いてください';
+    if (!layer) return '航跡のポイントレイヤーを開く必要あり';
     const { fields, unit, model } = this.settings();
     const feed = this.options.feedTracks(layer);
     const selectedOnly = (this.form_.elements.namedItem('selectedOnly') as HTMLInputElement).checked;
@@ -173,18 +173,18 @@ export class MovingTargetDialog {
         const ship = shipOf(t);
         return ship ? [{ ...ship, model }] : [];
       });
-      return targets.length ? targets : '位置報告のある目標がありません';
+      return targets.length ? targets : '位置報告のある目標なし';
     }
-    if (!fields.id) return '目標ごとの ID になる属性を選んでください';
+    if (!fields.id) return '目標ごとの ID になる属性を選択';
     const projection = 'EPSG:3857';
     const reports: Report[] = (chosen ?? source.getFeatures()).flatMap((f) => {
       const g = f.getGeometry();
       if (!(g instanceof Point)) return [];
       return [{ attributes: f.getProperties(), lonLat: toLonLat(g.getCoordinates(), projection) as [number, number] }];
     });
-    if (!reports.length) return selectedOnly ? '選択中の地物にポイントがありません' : 'このレイヤーにポイントがありません（位置報告はポイントで読みます）';
+    if (!reports.length) return selectedOnly ? '選択中の地物にポイントなし' : 'このレイヤーにポイントなし（位置報告はポイントで読み込み）';
     const targets = targetsOf(reports, fields, unit, model);
-    return targets.length ? targets : 'ID のある報告がありません';
+    return targets.length ? targets : 'ID のある報告なし';
   }
 
   /** Says how many targets the form gives, and how many have no course or speed. */
@@ -193,7 +193,7 @@ export class MovingTargetDialog {
     if (typeof targets === 'string') return void (this.note_.textContent = targets);
     const still = targets.filter((t) => t.course === null || !t.speed).length;
     const latest = Math.max(...targets.map((t) => t.t));
-    this.note_.textContent = `目標 ${targets.length.toLocaleString()} 件（最新の報告 ${new Date(latest).toLocaleString('ja-JP')}）${still ? `。うち ${still} 件は針路・速力が分からず、その場に留まるとみなします` : ''}${targets.length > MAX_SHIPS ? `。撮像計画は最近報告のあった ${MAX_SHIPS} 件で立てます` : ''}`;
+    this.note_.textContent = `目標 ${targets.length.toLocaleString()} 件（最新の報告 ${new Date(latest).toLocaleString('ja-JP')}）${still ? `。うち ${still} 件は針路・速力が不明のため、その場に留まるとみなす` : ''}${targets.length > MAX_SHIPS ? `。撮像計画は最近報告のあった ${MAX_SHIPS} 件で作成` : ''}`;
   }
 
   /** The predicted places as a layer: a circle per target every few hours, and each target's predicted track. */
@@ -247,8 +247,8 @@ export class MovingTargetDialog {
     if (typeof result === 'string') return void (this.note_.textContent = result);
     const n = result.features.filter((f) => f.get('kind') === '存在予測').length;
     await this.options.onResult(result, `存在予測 ${this.layer()?.name ?? ''}（${this.settings().horizon} 時間先まで）`);
-    this.note_.textContent = `存在予測 ${n.toLocaleString()} 個の円と予測航跡をレイヤーに追加しました（時刻つき。タイムラインで時刻を合わせると、その時の存在予測だけを表示できます）`;
-    this.options.say('存在予測をレイヤーに追加しました');
+    this.note_.textContent = `存在予測 ${n.toLocaleString()} 個の円と予測航跡をレイヤーに追加（時刻つき。タイムラインで時刻を合わせると、その時の存在予測だけを表示可能）`;
+    this.options.say('存在予測をレイヤーに追加');
   }
 
   /** Hands the targets to the imaging plan. */

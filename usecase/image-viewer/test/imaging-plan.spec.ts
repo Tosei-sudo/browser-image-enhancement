@@ -60,7 +60,7 @@ test('plans the passes over a layer from a satellite catalog', async ({ page }) 
 
   const dialog = page.locator('.plan-dialog');
   await expect(dialog.locator('.service-status')).toContainText('テスト衛星: 2 機');
-  await expect(dialog.locator('.service-status')).toContainText('NO-TLE: TLE がありません');
+  await expect(dialog.locator('.service-status')).toContainText('NO-TLE: TLE なし');
   await expect(dialog.locator('select[name=target]')).toHaveValue('layer:0');
   await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
   await dialog.locator('select[name=days]').selectOption('14');
@@ -124,7 +124,7 @@ test('without a catalog, plans the samples and pasted TLEs over a clicked point'
   await expect(dialog.locator('.service-status')).toContainText('地図をクリック');
   await page.evaluate(() => window.viewer.map.getView().setCenter([15550000, 4250000]));
   await page.locator('#map').click({ position: { x: 80, y: 300 } });
-  await expect(dialog.locator('.service-status')).toContainText('を対象にしました');
+  await expect(dialog.locator('.service-status')).toContainText('を対象に設定');
   await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
   await dialog.locator('select[name=daylight]').selectOption('none');
   await dialog.getByRole('button', { name: '計算' }).click();
@@ -264,13 +264,13 @@ test('plans a point from the map\'s right-click menu', async ({ page }) => {
   await page.waitForFunction(() => window.viewer !== undefined);
   await page.evaluate(() => window.viewer.map.getView().setCenter([15550000, 4250000]));
   await page.locator('#map').click({ button: 'right', position: { x: 300, y: 300 } });
-  await page.locator('.coordinate-menu').getByRole('menuitem', { name: 'この地点で撮像計画を立てる' }).click();
+  await page.locator('.coordinate-menu').getByRole('menuitem', { name: 'この地点の撮像計画' }).click();
   const dialog = page.locator('.plan-dialog');
   await expect(dialog).toBeVisible();
   await expect(page.locator('.coordinate-menu')).toBeHidden();
   await expect(dialog.locator('select[name=target]')).toHaveValue('click');
   // Planned at once, for the point clicked.
-  await expect(dialog.locator('.service-status')).toContainText(/最短は|機会はありません/, { timeout: 30_000 });
+  await expect(dialog.locator('.service-status')).toContainText(/最短は|機会なし/, { timeout: 30_000 });
   const target = await page.evaluate(() => window.viewer.imagingPlan.targets());
   expect(typeof target).not.toBe('string');
   const clicked = await page.evaluate(() => {
@@ -323,7 +323,7 @@ test('ranks the targets by an attribute', async ({ page }) => {
   await dialog.locator('select[name=view]').selectOption('cover');
   await dialog.locator('input[name=share]').uncheck();
   await expect(dialog.locator('thead')).toContainText('優先度');
-  await expect(dialog.locator('.service-status')).toContainText('優先度の高い対象から撮像を割り当てました');
+  await expect(dialog.locator('.service-status')).toContainText('優先度の高い対象から撮像を割り当て');
   // Sorted by priority, the most important first.
   await dialog.locator('thead button', { hasText: '優先度' }).click();
   await expect(dialog.locator('tbody tr').first()).toContainText('神田');

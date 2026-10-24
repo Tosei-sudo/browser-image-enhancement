@@ -52,7 +52,7 @@ export interface CoveragePlan {
 export async function readWcs(url: string): Promise<ServiceCatalog> {
   const doc = await requestXml(withParams(url, { SERVICE: 'WCS', REQUEST: 'GetCapabilities', ACCEPTVERSIONS: '2.0.1,2.0.0' }));
   const root = doc.documentElement;
-  if (root.localName !== 'Capabilities' || !/\/wcs\/2\.0/.test(root.namespaceURI ?? '')) throw new ServiceError('WCS 2.0 の GetCapabilities ではありません');
+  if (root.localName !== 'Capabilities' || !/\/wcs\/2\.0/.test(root.namespaceURI ?? '')) throw new ServiceError('WCS 2.0 の GetCapabilities 以外');
   const version = root.getAttribute('version') ?? '2.0.1';
   const operation = (name: string) => descendants(doc, 'Operation').find((o) => o.getAttribute('name') === name);
   const href = (name: string) => (operation(name) ? descendants(operation(name)!, 'Get')[0]?.getAttributeNS(XLINK, 'href') : null) || url;
@@ -67,7 +67,7 @@ export async function readWcs(url: string): Promise<ServiceCatalog> {
       return { name: id, title: childText(s, 'Title') ?? id, abstract: childText(s, 'Abstract'), area: 'raster' as const };
     })
     .filter((c) => c.name);
-  if (choices.length === 0) throw new ServiceError('カバレッジがありません');
+  if (choices.length === 0) throw new ServiceError('カバレッジなし');
   const ep = { describe: href('DescribeCoverage'), get: href('GetCoverage'), version, format, scaling };
   return {
     kind: 'wcs',
@@ -82,16 +82,16 @@ export async function readWcs(url: string): Promise<ServiceCatalog> {
 }
 
 async function openCoverage(choice: LayerChoice, ep: { describe: string; get: string; version: string; format: string; scaling: boolean }, context: OpenContext, pick: OpenPick): Promise<void> {
-  if (!context.openRaster) throw new ServiceError('画像として開けません');
+  if (!context.openRaster) throw new ServiceError('画像として表示不可');
   const doc = await requestXml(withParams(ep.describe, { SERVICE: 'WCS', VERSION: ep.version, REQUEST: 'DescribeCoverage', COVERAGEID: choice.name }));
   const grid = coverageGrid(doc, choice.name);
   const projection = await projectionOf(grid.crs);
-  if (!projection) throw new ServiceError(`${grid.crs} に対応していません`);
+  if (!projection) throw new ServiceError(`${grid.crs} に非対応`);
   const degrees = areaInDegrees(context, pick);
   const area = degrees ? transformExtent(degrees, 'EPSG:4326', projection) : null;
   const plan = coveragePlan(grid, area, ep.scaling);
   const url = getCoverageUrl(ep.get, ep.version, grid.id, ep.format, plan);
-  context.say(`${choice.title} の画素値を読み込んでいます…${plan.width && plan.height ? `（${Math.round(plan.width * plan.scale)} × ${Math.round(plan.height * plan.scale)} 画素）` : ''}`);
+  context.say(`${choice.title} の画素値を読み込み中…${plan.width && plan.height ? `（${Math.round(plan.width * plan.scale)} × ${Math.round(plan.height * plan.scale)} 画素）` : ''}`);
   const file = await fetchGeoTiff(url, grid.id);
   await context.openRaster(file, withFileName(url, file.name));
 }
@@ -99,14 +99,14 @@ async function openCoverage(choice: LayerChoice, ep: { describe: string; get: st
 /** The grid of coverage `id` in a DescribeCoverage document. */
 export function coverageGrid(doc: Document, id: string): CoverageGrid {
   const description = descendants(doc, 'CoverageDescription').find((d) => childText(d, 'CoverageId') === id) ?? descendants(doc, 'CoverageDescription')[0];
-  if (!description) throw new ServiceError('DescribeCoverage を読めませんでした');
+  if (!description) throw new ServiceError('DescribeCoverage の読み込みに失敗');
   const envelope = descendants(description, 'Envelope')[0] ?? descendants(description, 'EnvelopeWithTimePeriod')[0];
-  if (!envelope) throw new ServiceError('カバレッジの範囲がわかりません');
+  if (!envelope) throw new ServiceError('カバレッジの範囲が不明');
   const numbers = (s: string | undefined) => (s ?? '').trim().split(/\s+/).filter(Boolean).map(Number);
   const lower = numbers(childText(envelope, 'lowerCorner'));
   const upper = numbers(childText(envelope, 'upperCorner'));
   const labels = (envelope.getAttribute('axisLabels') ?? '').trim().split(/\s+/).filter(Boolean);
-  if (lower.length < 2 || lower.length !== upper.length || lower.some((n) => !Number.isFinite(n))) throw new ServiceError('カバレッジの範囲を読めませんでした');
+  if (lower.length < 2 || lower.length !== upper.length || lower.some((n) => !Number.isFinite(n))) throw new ServiceError('カバレッジの範囲の読み込みに失敗');
   while (labels.length < lower.length) labels.push(['x', 'y', 'z', 't'][labels.length] ?? `a${labels.length}`);
   const crs = envelope.getAttribute('srsName') ?? '';
 
@@ -142,7 +142,7 @@ export function coverageGrid(doc: Document, id: string): CoverageGrid {
 export function coveragePlan(grid: CoverageGrid, area: Extent | null, scaling: boolean): CoveragePlan {
   const full: Extent = [grid.lower[grid.x], grid.lower[grid.y], grid.upper[grid.x], grid.upper[grid.y]];
   const box = area ? getIntersection(full, area) : full;
-  if (!(box[2] > box[0] && box[3] > box[1])) throw new ServiceError('範囲がカバレッジと重なりません');
+  if (!(box[2] > box[0] && box[3] > box[1])) throw new ServiceError('範囲とカバレッジの重なりなし');
   const cells = (axis: number, span: number) => {
     const n = grid.size[axis];
     const whole = grid.upper[axis] - grid.lower[axis];
@@ -152,7 +152,7 @@ export function coveragePlan(grid: CoverageGrid, area: Extent | null, scaling: b
   const height = cells(grid.y, box[3] - box[1]);
   const scale = width && height ? fitScale(width, height) : 1;
   if (scale < 1 && !scaling) {
-    throw new ServiceError(`範囲が大きすぎます（${width!.toLocaleString()} × ${height!.toLocaleString()} 画素）。サーバーが縮小に対応していないため、表示範囲を狭めてください`);
+    throw new ServiceError(`範囲が大きすぎ（${width!.toLocaleString()} × ${height!.toLocaleString()} 画素）。サーバーが縮小に対応していないため、表示範囲の縮小が必要`);
   }
   const subsets: CoveragePlan['subsets'] = area
     ? [

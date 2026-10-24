@@ -32,7 +32,7 @@
     }
   }
   addEventListener('DOMContentLoaded', function () {
-    document.getElementById('message').textContent = message.code ? 'サインインしました。このウィンドウは閉じてかまいません。' : 'サインインできませんでした。このウィンドウを閉じてください。';
+    document.getElementById('message').textContent = message.code ? 'サインイン完了。このウィンドウは閉じて問題なし。' : 'サインイン失敗。このウィンドウは閉じて問題なし。';
   });
   setTimeout(function () {
     window.close();

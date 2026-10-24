@@ -51,7 +51,7 @@ export const scaleChoices: Array<[ColorScaleName, string]> = [
 export const blendChoices: Array<[LayerBlendMode, string]> = [
   ['normal', '通常'],
   ['screen', 'スクリーン（明るさを足す・時期の比較に）'],
-  ['difference', '差（変わった所だけ明るく）'],
+  ['difference', '差（変化箇所のみ明るく）'],
   ['lighten', '比較（明）'],
   ['darken', '比較（暗）'],
   ['multiply', '乗算'],
@@ -213,19 +213,19 @@ export class ColorizeDialog {
         <label class="check colorize-fade"><input name="fade" type="checkbox" /><span>暗い所を透明に</span></label>
         <label class="wide">下のレイヤーとの重ね方<select name="blend" aria-label="重ね方">${blendChoices.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
         <details class="wide colorize-pair">
-          <summary>2 時期を色分けして重ねる</summary>
+          <summary>2 時期の色分け重ね合わせ</summary>
           <div class="service-form">
             <label>前の画像<select name="before" aria-label="前の画像"></select></label>
             <label>後の画像<select name="after" aria-label="後の画像"></select></label>
-            <p class="wide processing-hint">前を赤、後をシアンにして、後をスクリーンで重ねます。変わらない所は白黒、後で明るくなった所はシアン、暗くなった所は赤になります。</p>
-            <button type="button" value="pair" class="wide">赤とシアンで重ねる</button>
+            <p class="wide processing-hint">前を赤、後をシアンとし、後をスクリーンで重ね合わせ。変化なしの所は白黒、後で明るくなった所はシアン、暗くなった所は赤。</p>
+            <button type="button" value="pair" class="wide">赤とシアンで重ね合わせ</button>
           </div>
         </details>
-        <p class="wide processing-hint colorize-scale-hint">選ぶとすぐ地図に反映されます。補正パネルの明るさ・コントラストは色を付ける前に効きます。</p>
+        <p class="wide processing-hint colorize-scale-hint">選ぶとすぐ地図に反映。補正パネルの明るさ・コントラストは着色前に適用。</p>
       </form>
       <p class="service-status processing-note" role="status"></p>
       <div class="service-actions">
-        <button type="button" value="clear">着色をやめる</button>
+        <button type="button" value="clear">着色の解除</button>
         <button type="button" value="cancel" class="primary">閉じる</button>
       </div>`;
     document.body.append(this.dialog);
@@ -279,7 +279,7 @@ export class ColorizeDialog {
     if (pair[0]) this.before_.value = String(this.images_.indexOf(pair[0]));
     if (pair[1]) this.after_.value = String(this.images_.indexOf(pair[1]));
     (this.dialog.querySelector('.colorize-pair') as HTMLDetailsElement).hidden = this.images_.length < 2;
-    this.dialog.querySelector('.processing-note')!.textContent = this.images_.length ? '' : '画像を開いてください';
+    this.dialog.querySelector('.processing-note')!.textContent = this.images_.length ? '' : '画像なし（先に画像を開く）';
     this.show_();
     this.dialog.showModal();
   }
@@ -378,12 +378,12 @@ export class ColorizeDialog {
       return;
     }
     this.preview_(true);
-    hint.textContent = '画像の値を読んでいます…';
+    hint.textContent = '画像の値を読み込み中…';
     const method: ClassMethod = mode === 'unique' ? 'unique' : this.method_.value === 'quantile' ? 'quantile' : 'equal';
     const classes = await imageClassesFor(image, { method, count, scale, reverse }).catch(() => null);
     if (request !== this.request_) return;
     if (!classes) {
-      hint.textContent = mode === 'unique' ? '値の種類が多すぎます（64 種類まで）。「区分」で色分けしてください' : '画像の値を読めませんでした';
+      hint.textContent = mode === 'unique' ? '値の種類が多すぎ（64 種類まで）。「区分」で色分け' : '画像の値の読み込みに失敗';
       return;
     }
     this.classes_ = classes;
@@ -466,8 +466,8 @@ export class ColorizeDialog {
     this.shares_();
     hint.textContent =
       classes.kind === 'exact'
-        ? '選ぶとすぐ地図に反映されます。画像の値ごとに色を付け、名前を入れると凡例に出ます。'
-        : '色分けは画像の値で決まり、補正パネルの明るさ・コントラストは効きません。上限を書き換えると手動になります。';
+        ? '選ぶとすぐ地図に反映。画像の値ごとに着色、名前の入力で凡例に表示。'
+        : '色分けは画像の値で決定、補正パネルの明るさ・コントラストは適用外。上限の書き換えで手動に切り替え。';
   }
 
   /** Fills in the share of the image each class gets, once the image's values are read. */
@@ -502,7 +502,7 @@ export class ColorizeDialog {
     const after = this.images_[Number(this.after_.value)];
     const note = this.dialog.querySelector('.processing-note')!;
     if (!before || !after || before === after) {
-      note.textContent = '別々の画像を選んでください';
+      note.textContent = '別々の画像を選択';
       return;
     }
     // The later image goes right above the earlier one.
@@ -519,7 +519,7 @@ export class ColorizeDialog {
     this.image_.value = String(this.images_.indexOf(after));
     this.show_();
     note.textContent = '';
-    this.options.say(`${before.name} を赤、${after.name} をシアンで重ねました`);
+    this.options.say(`${before.name} を赤、${after.name} をシアンで重ね合わせ`);
   }
 }
 

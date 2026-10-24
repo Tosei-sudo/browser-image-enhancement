@@ -64,7 +64,7 @@ test('DTED level 0 to 2 open as elevation data', async ({ page }) => {
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, [{ name: 'n35_e139.dt1', bytes: dted({ west: 139, south: 35, spacing: [3, 3], elevation: (lon, lat) => Math.round((lon - 139) * 2000 + (lat - 35) * 500) }) }]);
-  await expect(page.locator('#status')).toContainText('n35_e139.dt1 を標高データ（DTED1）として開きました。標高 0〜2500 m');
+  await expect(page.locator('#status')).toContainText('n35_e139.dt1 を標高データ（DTED1）として表示。標高 0〜2500 m');
   expect(await names(page)).toEqual(['DEMn35_e139.dt1']);
   await expect(page.locator('#info')).toContainText('DTED1（3″ 間隔）');
   await expect(page.locator('#info')).toContainText('0〜2500 m');
@@ -76,7 +76,7 @@ test('DTED level 0 to 2 open as elevation data', async ({ page }) => {
   expect(extent[3]).toBeCloseTo(36 + 1.5 / 3600, 6);
 
   await choose(page, [{ name: 'e140/n35.dt0', bytes: dted({ west: 140, south: 35, spacing: [30, 30], elevation: () => 10 }) }]);
-  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として開きました');
+  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として表示');
   await expect(page.locator('#geometry')).toContainText('標高データ: DTED1、DTED0（2 枚）');
   // Closing a DEM stops using it.
   await page.locator('#images li').first().locator('[data-action=remove]').click();
@@ -91,7 +91,7 @@ test('a DEM shows contour lines when asked, at the interval chosen', async ({ pa
   // A hill 1990 m high in the middle of the cell.
   const hill = dted({ west: 139, south: 35, spacing: [30, 30], level: 'DTED0', elevation: (lon, lat) => Math.max(0, Math.round(1990 - Math.hypot(lon - 139.5, lat - 35.5) * 4000)) });
   await choose(page, [{ name: 'hill.dt0', bytes: hill }]);
-  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として開きました');
+  await expect(page.locator('#status')).toContainText('hill.dt0 を標高データ（DTED0）として表示');
   await page.evaluate(() => window.viewer.images.zoomTo(window.viewer.images.list()[0]));
   const levels = () =>
     page.evaluate(() => {
@@ -127,20 +127,20 @@ test('a satellite image is orthorectified onto the DEM, moved by hand and saved'
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, [{ name: 'plateau.dt0', bytes: plateau() }]);
-  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として開きました');
+  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として表示');
 
   // A level-1 image: no georeferencing, placed by its RPC model.
   await choose(page, [{ name: 'scene.tif', bytes: scene() }]);
   await expect.poll(() => names(page)).toEqual(['RPCscene.tif', 'DEMplateau.dt0']);
   await expect(page.locator('#info')).toContainText('RPC');
-  await expect(page.locator('#geometry')).toContainText('標高データ 1 枚の地形でオルソ補正します');
+  await expect(page.locator('#geometry')).toContainText('標高データ 1 枚の地形でオルソ補正');
   // The map was fitted to where the model puts it (0.1° around LON, LAT).
   const placed = lonLat(...(await page.evaluate(() => window.viewer.map.getView().getCenter()! as [number, number])));
   expect(placed[0]).toBeCloseTo(LON, 2);
   expect(placed[1]).toBeCloseTo(LAT, 2);
 
   await page.locator('#geometry [data-action=ortho]').click();
-  await expect(page.locator('#status')).toContainText('scene_ortho.tif を作りました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('scene_ortho.tif を作成', { timeout: 30_000 });
   expect(await names(page)).toEqual(['オルソscene_ortho.tif', 'RPCscene.tif', 'DEMplateau.dt0']);
   await expect(page.locator('#info')).toContainText('scene.tif から');
   await expect(page.locator('#info')).toContainText('EPSG:3857');
@@ -246,9 +246,9 @@ END;`;
     { name: 'P001.RPB', bytes: rpb },
   ]);
   await expect.poll(() => names(page)).toEqual(['RPCP001.TIF']);
-  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED・標高サービス）がありません');
+  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED・標高サービス）なし');
   await page.locator('#geometry [data-action=ortho]').click();
-  await expect(page.locator('#status')).toContainText('P001_ortho.tif を作りました（標高データがないため RPC の基準高 500 m で補正）', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('P001_ortho.tif を作成（標高データがないため RPC の基準高 500 m で補正）', { timeout: 30_000 });
 });
 
 test('an image with ground control points only (an ICEYE GRD) is placed by its RPC model, else by its points', async ({ page }) => {
@@ -332,7 +332,7 @@ test('a georeferenced image without RPC is orthorectified from the satellite dir
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, [{ name: 'plateau.dt0', bytes: plateau() }]);
-  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として開きました');
+  await expect(page.locator('#status')).toContainText('標高データ（DTED0）として表示');
 
   // Placed on a flat ground at sea level, seen from the east at 45°: the plateau (1500 m) shows 1500 m west of where it is.
   const geo = { west: 139.7, north: 35.7, step: 0.0001 };
@@ -343,7 +343,7 @@ test('a georeferenced image without RPC is orthorectified from the satellite dir
   ]);
   await expect.poll(() => names(page)).toEqual(['P002.TIF', 'DEMplateau.dt0']);
   await expect(page.locator('#info')).toContainText('方位角 90°、仰角 45°');
-  await expect(page.locator('#geometry')).toContainText('簡易オルソ補正できます');
+  await expect(page.locator('#geometry')).toContainText('簡易オルソ補正可能');
   await expect(page.locator('#geometry input[name="方位角 °"]')).toHaveValue('90');
   await expect(page.locator('#geometry input[name="仰角 °"]')).toHaveValue('45');
 
@@ -351,7 +351,7 @@ test('a georeferenced image without RPC is orthorectified from the satellite dir
   await page.locator('#geometry summary', { hasText: '詳細' }).click();
   await page.locator('#geometry input[name="基準高 m"]').fill('0');
   await page.locator('#geometry [data-action=simple-ortho]').click();
-  await expect(page.locator('#status')).toContainText('P002_ortho.tif を作りました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('P002_ortho.tif を作成', { timeout: 30_000 });
   expect(await names(page)).toEqual(['オルソP002_ortho.tif', 'P002.TIF', 'DEMplateau.dt0']);
 
   const spot = await page.evaluate(() => {
@@ -395,15 +395,15 @@ test('a satellite image is orthorectified onto the terrain of an Esri image serv
   await open(page);
   await choose(page, [{ name: 'scene.tif', bytes: scene() }]);
   await expect.poll(() => names(page)).toEqual(['RPCscene.tif']);
-  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED・標高サービス）がありません');
+  await expect(page.locator('#geometry')).toContainText('この範囲の標高データ（DTED・標高サービス）なし');
 
   await addElevationService(page, `${svc}/Elevation/ImageServer`);
-  await expect(page.locator('#status')).toContainText('Elevation を標高データとして使います（イメージサービス、最も細かい間隔 約 30 m）');
-  await expect(page.locator('#geometry')).toContainText('標高サービスの地形でオルソ補正します');
+  await expect(page.locator('#status')).toContainText('Elevation を標高データとして使用（イメージサービス、最も細かい間隔 約 30 m）');
+  await expect(page.locator('#geometry')).toContainText('標高サービスの地形でオルソ補正');
   await expect(page.locator('#geometry .geometry-dems')).toContainText('標高データ: Elevation（サービス）');
 
   await page.locator('#geometry [data-action=ortho]').click();
-  await expect(page.locator('#status')).toContainText('scene_ortho.tif を作りました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('scene_ortho.tif を作成', { timeout: 30_000 });
   // Read for the image's area only, in longitude / latitude, as floats.
   const asked = ((await (await page.request.get('http://localhost:4175/svc/raster-requests')).json()) as Array<Record<string, string>>).filter((r) => r.service === 'Elevation');
   expect(asked).toHaveLength(1);
@@ -445,7 +445,7 @@ test('an elevation tile service (LERC, as Terrain3D) gives the view as a DEM lay
   }, mercator(139.75, 35.65));
 
   await addElevationService(page, `${svc}/Terrain3D/ImageServer`);
-  await expect(page.locator('#status')).toContainText('Terrain3D を標高データとして使います（標高タイル');
+  await expect(page.locator('#status')).toContainText('Terrain3D を標高データとして使用（標高タイル');
   await expect(page.locator('#geometry summary', { hasText: '標高サービス' })).toHaveText('標高サービス（1）');
   // The same one again is not added twice.
   await page.locator('#geometry input[name=elevation-url]').fill(`${svc}/Terrain3D/ImageServer/`);
@@ -453,7 +453,7 @@ test('an elevation tile service (LERC, as Terrain3D) gives the view as a DEM lay
   await expect(page.locator('#geometry summary', { hasText: '標高サービス' })).toHaveText('標高サービス（1）');
 
   await page.locator('#geometry [data-action=import-elevation]').click();
-  await expect(page.locator('#status')).toContainText('Terrain3D_標高.tif を作りました', { timeout: 30_000 });
+  await expect(page.locator('#status')).toContainText('Terrain3D_標高.tif を作成', { timeout: 30_000 });
   expect(await names(page)).toEqual(['DEMTerrain3D_標高.tif']);
   // The tiles of one level only, near the view.
   const tiles = ((await (await page.request.get('http://localhost:4175/svc/raster-requests')).json()) as Array<{ service: string; level: number }>).filter((r) => r.service === 'Terrain3D');

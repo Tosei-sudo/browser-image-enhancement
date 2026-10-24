@@ -135,12 +135,12 @@ export class Bookmarks {
     const panel = element.querySelector<HTMLElement>('.menu-panel')!;
     const tools = document.createElement('div');
     tools.className = 'point-tools project-tools';
-    const add = button('現在の表示を追加', '今の表示範囲・回転・表示中のレイヤーを名前を付けて残します（M）');
+    const add = button('現在の表示を追加', '現在の表示範囲・回転・表示中のレイヤーを名前を付けて保存（M）');
     add.id = 'bookmark-add';
     add.dataset.key = 'M';
     add.dataset.keepOpen = '';
     add.addEventListener('click', () => this.add());
-    const copy = button('リンクをコピー', '今の表示範囲とサービスのレイヤーを開くリンクをコピーします');
+    const copy = button('リンクをコピー', '今の表示範囲とサービスのレイヤーを開くリンクをコピー');
     copy.id = 'bookmark-link';
     copy.addEventListener('click', () => void this.copyLink());
     tools.append(add, copy);
@@ -152,7 +152,7 @@ export class Bookmarks {
     this.list.setAttribute('aria-label', 'ブックマーク');
     this.empty = document.createElement('p');
     this.empty.className = 'bookmark-empty';
-    this.empty.textContent = 'まだありません';
+    this.empty.textContent = 'ブックマークなし';
     panel.append(tools, heading, this.list, this.empty);
     this.render_();
 
@@ -191,7 +191,7 @@ export class Bookmarks {
     };
     this.list_.push(bookmark);
     this.changed_();
-    this.options.say(`ブックマーク「${bookmark.name}」を追加しました`);
+    this.options.say(`ブックマーク「${bookmark.name}」を追加`);
     if (name === undefined) this.rename_(bookmark.id);
     return bookmark;
   }
@@ -206,13 +206,13 @@ export class Bookmarks {
     try {
       if (bookmark.view.projection !== code) center = transform(center, bookmark.view.projection, code) as [number, number];
     } catch {
-      this.options.say(`ブックマーク「${bookmark.name}」の座標系（${bookmark.view.projection}）に移動できませんでした`);
+      this.options.say(`ブックマーク「${bookmark.name}」の座標系（${bookmark.view.projection}）に移動失敗`);
       return false;
     }
     if (bookmark.layers) this.options.setVisibility(new Map(bookmark.layers));
     view.cancelAnimations();
     view.animate({ center, resolution: bookmark.view.resolution, rotation: bookmark.view.rotation, duration: 300 });
-    this.options.say(`ブックマーク「${bookmark.name}」へ移動しました`);
+    this.options.say(`ブックマーク「${bookmark.name}」へ移動`);
     return true;
   }
 
@@ -228,7 +228,7 @@ export class Bookmarks {
     if (!bookmark) return;
     this.list_ = this.list_.filter((b) => b !== bookmark);
     this.changed_();
-    this.options.say(`ブックマーク「${bookmark.name}」を削除しました`);
+    this.options.say(`ブックマーク「${bookmark.name}」を削除`);
   }
 
   /** Writes the view into the address's `#view=`. */
@@ -258,12 +258,12 @@ export class Bookmarks {
   async copyLink(): Promise<string> {
     this.updateHash();
     const link = location.href;
-    const note = this.options.hasLocalFiles?.() ? '（ローカルファイルのレイヤーはリンクに含まれません）' : '';
+    const note = this.options.hasLocalFiles?.() ? '（ローカルファイルのレイヤーはリンクの対象外）' : '';
     try {
       await navigator.clipboard.writeText(link);
-      this.options.say(`リンクをコピーしました${note}`);
+      this.options.say(`リンクをコピー${note}`);
     } catch {
-      this.options.say(`リンクをコピーできませんでした。アドレス欄からコピーしてください${note}`);
+      this.options.say(`リンクのコピーに失敗。アドレス欄からコピー${note}`);
     }
     return link;
   }
@@ -279,7 +279,7 @@ export class Bookmarks {
         const li = document.createElement('li');
         li.className = 'bookmark';
         li.dataset.id = b.id;
-        const go = button(b.name, `${b.name} へ移動します`);
+        const go = button(b.name, `${b.name} へ移動`);
         go.className = 'bookmark-go';
         go.addEventListener('click', () => this.go(b.id));
         const rename = button('✎', '名前を変更');

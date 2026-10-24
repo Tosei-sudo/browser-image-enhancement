@@ -74,7 +74,7 @@ test('a GeoTIFF DEM raises the relief, and distances are measured in 3D with a p
   await settled(page, 'with the GeoTIFF relief');
   expect(await page.evaluate(() => window.viewer.globe.globe()!.hasRelief())).toBe(true);
 
-  // 「距離を測る」 (D) measures on the globe while 3D is open.
+  // 「距離計測」 (D) measures on the globe while 3D is open.
   await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
   await page.keyboard.press('d');
   await expect(page.locator('#measure-distance')).toHaveAttribute('aria-pressed', 'true');
@@ -91,7 +91,7 @@ test('a GeoTIFF DEM raises the relief, and distances are measured in 3D with a p
     [hillHeight(139.4, 35.5), hillHeight(139.6, 35.5)],
   );
   await expect(page.locator('.globe-measure-lines')).toContainText('水平距離 18.');
-  await expect(page.locator('.globe-measure-lines')).toContainText('見通し: 見えません');
+  await expect(page.locator('.globe-measure-lines')).toContainText('見通し: 不可視');
   await expect(page.locator('.globe-profile svg.profile-chart')).toBeVisible();
   await expect(page.locator('.globe-profile .profile-sight.blocked')).toHaveCount(1);
   // The profile's top is the hill's.
@@ -107,7 +107,7 @@ test('a GeoTIFF DEM raises the relief, and distances are measured in 3D with a p
     globe.measure.addPoint({ lon: 139.55, lat: 35.5, height: 3000 });
     globe.measure.finish();
   });
-  await expect(page.locator('.globe-measure-lines')).toContainText('見通し: 始点から終点が見えます');
+  await expect(page.locator('.globe-measure-lines')).toContainText('見通し: 始点から終点が可視');
   await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.5, lat: 35.3, height: 9000, heading: 0, pitch: -20 }));
   await settled(page, 'with the measurement');
   await page.screenshot({ path: 'test-results/globe-measure.png' });
@@ -146,7 +146,7 @@ test('the viewshed counts buildings and 3D Tiles from a folder, and project file
   await open(page);
   // Flat ground 100 m below sea level (so the cube of the tileset, standing on the ellipsoid, rises 60 m or so above it).
   await choose(page, [{ name: 'flat.dt2', bytes: dted({ west: 139.74, south: 35.67, spacing: [0.5, 0.5], size: 0.02, level: 'DTED2', elevation: () => -100 }) }]);
-  await expect(page.locator('#status')).toContainText('flat.dt2 を標高データ（DTED2）として開きました');
+  await expect(page.locator('#status')).toContainText('flat.dt2 を標高データ（DTED2）として表示');
   // A 60 m building west of the observer, which stands between it and the cube.
   const observer = { lon: 139.7488, lat: 35.68 };
   await choose(page, [
@@ -161,7 +161,7 @@ test('the viewshed counts buildings and 3D Tiles from a folder, and project file
   mkdirSync(folder);
   for (const name of ['tileset.json', 'cube.glb']) writeFileSync(join(folder, name), await (await request.get(`/tiles/${name}`)).body());
   await page.locator('#globe [name=tiles-files]').setInputFiles(folder);
-  await expect(page.locator('#status')).toContainText('3D タイルを追加しました: cube-city');
+  await expect(page.locator('#status')).toContainText('3D タイルを追加: cube-city');
   await expect(page.locator('.globe-tilesets li')).toContainText('cube-city');
   await page.evaluate(({ lon, lat }) => window.viewer.globe.globe()!.setCamera({ lon, lat: lat - 0.003, height: 400, heading: 0, pitch: -35 }), observer);
   await settled(page, 'with the tiles and the building');
@@ -217,7 +217,7 @@ test('Esri multipatch layers stand as blocks, and scene services (I3S) open in 3
   await page.getByRole('button', { name: 'サービスを追加' }).click();
   const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill('http://localhost:4175/svc/arcgis/rest/services/Town/FeatureServer');
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await expect(dialog.locator('.service-layer')).toHaveCount(1);
   await dialog.locator('.service-layer input[type=checkbox]').first().check();
   await dialog.getByRole('button', { name: '追加', exact: true }).click();
@@ -237,7 +237,7 @@ test('Esri multipatch layers stand as blocks, and scene services (I3S) open in 3
   // A scene service, by URL in the 3D section, lifted from the geoid onto the ellipsoid.
   await page.locator('#globe [name=url]').fill('http://localhost:4175/i3s/SceneServer');
   await page.locator('#globe .globe-tileset button').click();
-  await expect(page.locator('#status')).toContainText('シーンサービスを追加しました: i3s');
+  await expect(page.locator('#status')).toContainText('シーンサービスを追加: i3s');
   await expect(page.locator('.globe-tilesets li')).toContainText('i3s');
   await page.evaluate(() => window.viewer.globe.globe()!.setCamera({ lon: 139.757, lat: 35.677, height: 300, heading: 40, pitch: -20 }));
   await settled(page, 'with the blocks and the scene layer');

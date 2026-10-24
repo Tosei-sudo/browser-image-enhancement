@@ -1,5 +1,5 @@
 /**
- * Measuring in the 3D view: the 2D view's 「距離を測る」 and 「面積を測る」
+ * Measuring in the 3D view: the 2D view's 「距離計測」 and 「面積計測」
  * pick points on whatever is under the cursor — the ground, 3D Tiles, or
  * multipatch shapes — at their heights.
  *
@@ -295,7 +295,7 @@ export class GlobeMeasure {
       this.label_(this.shown_[this.shown_.length - 1], `${formatLength(slant)}（水平 ${formatLength(horizontal)}、高低差 ${rise >= 0 ? '+' : '−'}${Math.abs(rise).toFixed(1)} m）`);
       if (this.finished_) {
         profile = this.profile_();
-        if (profile?.sight) lines.push(profile.blocked === null ? '見通し: 始点から終点が見えます' : `見通し: 見えません（始点から ${formatLength(profile.blocked)} で遮られます）`);
+        if (profile?.sight) lines.push(profile.blocked === null ? '見通し: 始点から終点が可視' : `見通し: 不可視（始点から ${formatLength(profile.blocked)} で遮蔽）`);
       }
     } else if (this.mode_ === 'area' && points.length >= 3) {
       const { area, perimeter } = geodesicArea(lonLat);

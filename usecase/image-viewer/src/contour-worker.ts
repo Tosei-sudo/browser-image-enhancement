@@ -14,7 +14,7 @@ self.onmessage = (e: MessageEvent<ContourMessage>) => {
   }
   const { id, request } = e.data;
   try {
-    if (!grid) throw new Error('標高データがありません');
+    if (!grid) throw new Error('標高データなし');
     const { lines, truncated } = traceContours(grid, request);
     const reply: ContourReply = { id, ok: true, lines, truncated };
     (self as unknown as Worker).postMessage(reply, lines.map((l) => l.coordinates.buffer as ArrayBuffer));

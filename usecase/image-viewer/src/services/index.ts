@@ -60,7 +60,7 @@ export async function readService(url: string, kind: ServiceKind | 'auto', token
       // next kind
     }
   }
-  throw new ServiceError('WMS・WMTS・WFS・WCS・OGC API・Esri のどれとしても読めませんでした。種類を選んでもう一度試してください');
+  throw new ServiceError('WMS・WMTS・WFS・WCS・OGC API・Esri のどれとしても読み込み失敗。種類を選んで再試行');
 }
 
 /** An OGC API: Features when it has feature collections, else Tiles, else Coverages (choose the kind to read another). */
@@ -70,5 +70,5 @@ async function readOgcApi(url: string): Promise<ServiceCatalog> {
   if (conformsTo(service.classes, conformance.featuresCore) || service.collections.some((c) => c.itemType === 'feature' || c.links.some((l) => l.rel === 'items'))) return readOgcFeatures(url);
   if (has(/tilesets-(vector|map)\]?$/)) return readOgcTiles(url);
   if (has(/(^|\/|:)coverage\]?$/) || conformsTo(service.classes, conformance.coverages)) return readOgcCoverage(url);
-  throw new ServiceError('OGC API ですが、地物・タイル・カバレッジのどれもありません');
+  throw new ServiceError('OGC API だが、地物・タイル・カバレッジのいずれもなし');
 }

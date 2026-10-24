@@ -35,20 +35,20 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 /** config.json's `embed`, checked: origins must be exact (scheme, host, port), never `*`. */
 export function embedConfigOf(value: unknown, problems: string[]): EmbedConfig {
-  if (!isRecord(value)) return (problems.push('embed がオブジェクトではありません'), defaultEmbed);
+  if (!isRecord(value)) return (problems.push('embed はオブジェクトで指定'), defaultEmbed);
   const origins: string[] = [];
   if (value.allowedOrigins !== undefined) {
-    if (!Array.isArray(value.allowedOrigins)) problems.push('embed.allowedOrigins が配列ではありません');
+    if (!Array.isArray(value.allowedOrigins)) problems.push('embed.allowedOrigins は配列で指定');
     else {
       value.allowedOrigins.forEach((o, i) => {
         const origin = exactOrigin(o);
-        if (!origin) problems.push(`embed.allowedOrigins[${i}]「${String(o).slice(0, 100)}」は https://app.example.com のようなオリジン（* は不可）にしてください`);
-        else if (origins.length >= MAX_ORIGINS) problems.push(`embed.allowedOrigins は ${MAX_ORIGINS} 個までです`);
+        if (!origin) problems.push(`embed.allowedOrigins[${i}]「${String(o).slice(0, 100)}」は https://app.example.com のようなオリジン（* は不可）で指定`);
+        else if (origins.length >= MAX_ORIGINS) problems.push(`embed.allowedOrigins は ${MAX_ORIGINS} 個まで`);
         else if (!origins.includes(origin)) origins.push(origin);
       });
     }
   }
-  if (value.readOnly !== undefined && typeof value.readOnly !== 'boolean') problems.push('embed.readOnly は true か false にしてください');
+  if (value.readOnly !== undefined && typeof value.readOnly !== 'boolean') problems.push('embed.readOnly は true か false で指定');
   return { allowedOrigins: origins, readOnly: value.readOnly === true };
 }
 
@@ -90,34 +90,34 @@ const bad = (message: string) => new EmbedError('bad-request', message);
 const str =
   (max: number, min = 1): Check =>
   (v, name) => {
-    if (typeof v !== 'string' || v.length < min || v.length > max) throw bad(`${name} は ${min}〜${max} 文字の文字列です`);
+    if (typeof v !== 'string' || v.length < min || v.length > max) throw bad(`${name} は ${min}〜${max} 文字の文字列で指定`);
     return v;
   };
 const num =
   (min: number, max: number): Check =>
   (v, name) => {
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) throw bad(`${name} は ${min}〜${max} の数値です`);
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) throw bad(`${name} は ${min}〜${max} の数値で指定`);
     return v;
   };
 const bool: Check = (v, name) => {
-  if (typeof v !== 'boolean') throw bad(`${name} は true か false です`);
+  if (typeof v !== 'boolean') throw bad(`${name} は true か false で指定`);
   return v;
 };
 const oneOf =
   (...choices: string[]): Check =>
   (v, name) => {
-    if (typeof v !== 'string' || !choices.includes(v)) throw bad(`${name} は ${choices.join(' / ')} のどれかです`);
+    if (typeof v !== 'string' || !choices.includes(v)) throw bad(`${name} は ${choices.join(' / ')} のいずれか`);
     return v;
   };
 const lonLat: Check = (v, name) => {
   if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === 'number' && Number.isFinite(n)) || Math.abs(v[0]) > 540 || Math.abs(v[1]) > 90) {
-    throw bad(`${name} は [経度, 緯度] です`);
+    throw bad(`${name} は [経度, 緯度] で指定`);
   }
   return v;
 };
 const bbox: Check = (v, name) => {
   if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === 'number' && Number.isFinite(n)) || v[0] > v[2] || v[1] > v[3] || Math.abs(v[1]) > 90 || Math.abs(v[3]) > 90) {
-    throw bad(`${name} は [西, 南, 東, 北]（経緯度）です`);
+    throw bad(`${name} は [西, 南, 東, 北]（経緯度）で指定`);
   }
   return v;
 };
@@ -126,16 +126,16 @@ const strList =
   (v, name) => {
     const list = typeof v === 'string' ? [v] : v;
     if (!Array.isArray(list) || list.length > maxItems || !list.every((s) => typeof s === 'string' && s.length <= maxLength)) {
-      throw bad(`${name} は文字列（${maxLength.toLocaleString()} 文字まで）の配列で、${maxItems} 個までです`);
+      throw bad(`${name} は文字列（${maxLength.toLocaleString()} 文字まで）の配列で、${maxItems} 個まで`);
     }
     return list;
   };
 const object: Check = (v, name) => {
-  if (!isRecord(v)) throw bad(`${name} はオブジェクトです`);
+  if (!isRecord(v)) throw bad(`${name} はオブジェクトで指定`);
   return v;
 };
 const color: Check = (v, name) => {
-  if (typeof v !== 'string' || !/^#[0-9a-f]{6}$/i.test(v)) throw bad(`${name} は #rrggbb の色です`);
+  if (typeof v !== 'string' || !/^#[0-9a-f]{6}$/i.test(v)) throw bad(`${name} は #rrggbb の色で指定`);
   return v;
 };
 /** A layer: its id from `listLayers` (or its name). */
@@ -224,28 +224,28 @@ export function readRequest(data: unknown, readOnly = false): ReadResult {
   if (!isPlain(data) || data.type !== PROTOCOL || 'event' in data || 'result' in data || 'error' in data) return null;
   const id = (typeof data.id === 'string' && data.id.length > 0 && data.id.length <= MAX_ID) || (typeof data.id === 'number' && Number.isSafeInteger(data.id)) ? (data.id as RequestId) : null;
   const fail = (error: EmbedError): ReadResult => ({ ok: false, id, error });
-  if (id === null) return fail(bad('id は文字列（100 文字まで）か整数です'));
-  if (data.v !== VERSION) return fail(bad(`v は ${VERSION} です（このビューアのプロトコルの版）`));
-  if (jsonLength(data, MAX_REQUEST) === Infinity) return fail(new EmbedError('too-large', `要求が大きすぎるか JSON にできません（${MAX_REQUEST.toLocaleString()} 文字まで）`));
+  if (id === null) return fail(bad('id は文字列（100 文字まで）か整数で指定'));
+  if (data.v !== VERSION) return fail(bad(`v は ${VERSION} で指定（このビューアのプロトコルの版）`));
+  if (jsonLength(data, MAX_REQUEST) === Infinity) return fail(new EmbedError('too-large', `要求が大きすぎ、または JSON 化不可（${MAX_REQUEST.toLocaleString()} 文字まで）`));
   const method = data.method;
-  if (typeof method !== 'string' || !Object.hasOwn(METHODS, method)) return fail(new EmbedError('unknown-method', `メソッド「${String(method).slice(0, 50)}」はありません。使えるもの: ${methodsFor(readOnly).join(', ')}`));
+  if (typeof method !== 'string' || !Object.hasOwn(METHODS, method)) return fail(new EmbedError('unknown-method', `メソッド「${String(method).slice(0, 50)}」なし。使えるもの: ${methodsFor(readOnly).join(', ')}`));
   const spec = METHODS[method];
-  if (readOnly && spec.mutating) return fail(new EmbedError('read-only', `読み取り専用の埋め込みでは ${method} は使えません`));
-  if (data.params !== undefined && data.params !== null && !isPlain(data.params)) return fail(bad('params はオブジェクトです'));
+  if (readOnly && spec.mutating) return fail(new EmbedError('read-only', `読み取り専用の埋め込みでは ${method} は使用不可`));
+  if (data.params !== undefined && data.params !== null && !isPlain(data.params)) return fail(bad('params はオブジェクトで指定'));
   const given = (data.params ?? {}) as Record<string, unknown>;
   const params: Record<string, unknown> = {};
   try {
-    for (const key of Object.keys(given)) if (!Object.hasOwn(spec.params, key)) throw bad(`${method} に ${key.slice(0, 50)} というパラメーターはありません（${Object.keys(spec.params).join(', ') || 'なし'}）`);
+    for (const key of Object.keys(given)) if (!Object.hasOwn(spec.params, key)) throw bad(`${method} に ${key.slice(0, 50)} というパラメーターなし（${Object.keys(spec.params).join(', ') || 'なし'}）`);
     for (const [key, [check, required]] of Object.entries(spec.params)) {
       if (given[key] === undefined) {
-        if (required) throw bad(`${method} には ${key} が要ります`);
+        if (required) throw bad(`${method} には ${key} が必要`);
         continue;
       }
       params[key] = check(given[key], key);
     }
-    if (method === 'addShapes' && params.wkt === undefined && params.geojson === undefined) throw bad('addShapes には wkt か geojson が要ります');
-    if (method === 'setView' && params.bbox !== undefined && (params.center !== undefined || params.zoom !== undefined || params.resolution !== undefined)) throw bad('bbox と center・zoom・resolution は一緒に指定できません');
-    if (method === 'hello' && Array.isArray(params.events) && !params.events.every((e) => (EVENTS as readonly string[]).includes(e as string))) throw bad(`events は ${EVENTS.join(' / ')} から選びます`);
+    if (method === 'addShapes' && params.wkt === undefined && params.geojson === undefined) throw bad('addShapes には wkt か geojson が必要');
+    if (method === 'setView' && params.bbox !== undefined && (params.center !== undefined || params.zoom !== undefined || params.resolution !== undefined)) throw bad('bbox と center・zoom・resolution は一緒に指定不可');
+    if (method === 'hello' && Array.isArray(params.events) && !params.events.every((e) => (EVENTS as readonly string[]).includes(e as string))) throw bad(`events は ${EVENTS.join(' / ')} から選択`);
   } catch (error) {
     return fail(error instanceof EmbedError ? error : bad(String(error)));
   }
@@ -255,7 +255,7 @@ export function readRequest(data: unknown, readOnly = false): ReadResult {
 /** An answer, made plain (JSON) so nothing but data leaves the viewer; too large an answer is an error. */
 export function answer(id: RequestId, result: unknown): Record<string, unknown> {
   const plain = result === undefined ? null : result;
-  if (jsonLength(plain, MAX_RESULT) === Infinity) return failure(id, new EmbedError('too-large', `結果が大きすぎます（${MAX_RESULT.toLocaleString()} 文字まで）`));
+  if (jsonLength(plain, MAX_RESULT) === Infinity) return failure(id, new EmbedError('too-large', `結果が大きすぎ（${MAX_RESULT.toLocaleString()} 文字まで）`));
   return { type: PROTOCOL, v: VERSION, id, result: JSON.parse(JSON.stringify(plain)) as unknown };
 }
 

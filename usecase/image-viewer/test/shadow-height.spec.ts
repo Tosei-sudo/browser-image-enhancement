@@ -46,12 +46,12 @@ test('measures a height from a shadow with the Sun of the time the image was tak
   await open(page);
   // Tokyo, taken on a June morning (the time is in the file name).
   await choose(page, 'WV3_20240621T090000_P001.tif', satelliteTiff(600, 600, (x, y) => 300 + ((x >> 4) + (y >> 4)) % 2 * 300, undefined, { west: 139.7, north: 35.7, step: 0.00005 }));
-  await expect(page.locator('#status')).toContainText('を開きました');
+  await expect(page.locator('#status')).toContainText('を表示');
   await page.evaluate(() => window.viewer.map.getView().setZoom(18));
 
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: '影から高さ' }).click();
-  const panel = page.getByRole('group', { name: '影から高さを測る' });
+  const panel = page.getByRole('group', { name: '影から高さを計測' });
   await expect(panel).toBeVisible();
   await expect(panel.locator('.shadow-origin')).toContainText('ファイル名');
   const elevation = Number(await panel.getByLabel('太陽高度（度）').inputValue());
@@ -78,7 +78,7 @@ test('measures a height from a shadow with the Sun of the time the image was tak
   await panel.getByLabel('太陽高度（度）').press('Enter');
   await panel.getByLabel('太陽高度（度）').blur();
   await expect(panel.locator('.shadow-origin')).toHaveText('手入力');
-  await panel.getByLabel('影の向きに合わせる').uncheck();
+  await panel.getByLabel('影の向きに吸着').uncheck();
   await clickAt(page, -50, 40);
   await clickAt(page, -50, 120);
   const second = (await page.evaluate(() => window.viewer.shadowHeight.list()))[1];
@@ -106,10 +106,10 @@ test('asks for the Sun when nothing says where it was, and computes it from a ty
     view.setZoom(17);
   });
   await page.keyboard.press('h');
-  const panel = page.getByRole('group', { name: '影から高さを測る' });
-  await expect(panel.locator('.shadow-origin')).toContainText('太陽高度が分かりません');
+  const panel = page.getByRole('group', { name: '影から高さを計測' });
+  await expect(panel.locator('.shadow-origin')).toContainText('太陽高度が不明');
   await clickAt(page, 0, 60);
-  await expect(page.locator('#status')).toContainText('太陽高度が分かりません');
+  await expect(page.locator('#status')).toContainText('太陽高度が不明');
   expect(await page.evaluate(() => window.viewer.shadowHeight.list().length)).toBe(0);
 
   await panel.getByText('撮影日時から計算').click();

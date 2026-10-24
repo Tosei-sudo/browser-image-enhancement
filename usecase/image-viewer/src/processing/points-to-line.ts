@@ -91,7 +91,7 @@ export function pointsToLine(input: ProcessingInput, options: PointsToLineOption
     const group = groupField ? (feature.get(groupField) ?? null) : null;
     for (const coordinate of coordinates) vertices.push({ coordinate, order, group });
   }
-  if (skipped) notes.push(`点でない地物 ${skipped} 件を飛ばしました`);
+  if (skipped) notes.push(`点でない地物 ${skipped} 件をスキップ`);
 
   const orderType = orderField ? input.fields.find((f) => f.name === orderField) : undefined;
   const groupType = groupField ? input.fields.find((f) => f.name === groupField) : undefined;
@@ -134,8 +134,8 @@ export function pointsToLine(input: ProcessingInput, options: PointsToLineOption
     line.setGeometry(new LineString(coordinates));
     features.push(line);
   }
-  if (short) notes.unshift(`点が 2 つ未満のグループ ${short} 件はラインにしませんでした`);
-  notes.unshift(`ライン ${features.length} 本を作成しました`);
+  if (short) notes.unshift(`点が 2 つ未満のグループ ${short} 件はライン化対象外`);
+  notes.unshift(`ライン ${features.length} 本を作成`);
 
   const fields: Field[] = [];
   if (groupField) fields.push(field(groupField, groupType && groupType.type !== 'other' ? (groupType.type === 'oid' ? 'integer' : groupType.type) : 'string', groupType?.alias ?? groupField));

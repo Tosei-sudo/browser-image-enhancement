@@ -79,14 +79,14 @@ export function tiffOf(image: ViewerImage): GeoTIFFImage | null {
 export function place(image: ViewerImage): Placed {
   const tiff = tiffOf(image);
   const projection = image.source.getProjection();
-  if (!tiff || !projection) throw new Error(`${image.name} を読み込み中です`);
+  if (!tiff || !projection) throw new Error(`${image.name} を読み込み中`);
   let origin: number[];
   let resolution: number[];
   try {
     origin = tiff.getOrigin();
     resolution = tiff.getResolution();
   } catch {
-    throw new Error(`${image.name} は回転した画像なので使えません`);
+    throw new Error(`${image.name} は回転した画像なので使用不可`);
   }
   return { image, tiff, projection, origin: [origin[0], origin[1]], resolution: [resolution[0], resolution[1]], shift: getShift(image.source) };
 }
@@ -166,7 +166,7 @@ const sensorPlaced = (p: Placed) => p.image.kind !== 'geotiff' || !/^(EPSG|urn|h
  */
 export function planComposite(channels: ReadonlyArray<Channel | null>, reference: ViewerImage, extent: 'intersection' | 'union'): CompositePlan {
   const used = [...new Set(channels.flatMap((c) => (c ? [c.image] : [])))];
-  if (!used.length) throw new Error('赤・緑・青のどれかに画像を選んでください');
+  if (!used.length) throw new Error('赤・緑・青のどれかに画像を選択');
   const placed = new Map(used.map((image) => [image, place(image)]));
   const ref = placed.get(reference) ?? place(reference);
   let projection: Projection;
@@ -188,19 +188,19 @@ export function planComposite(channels: ReadonlyArray<Channel | null>, reference
     const across = Math.hypot(xy[2] - xy[0], xy[3] - xy[1]);
     const down = Math.hypot(xy[4] - xy[0], xy[5] - xy[1]);
     const pixel = Math.sqrt(across * down);
-    if (!(pixel > 0) || !Number.isFinite(pixel)) throw new Error(`${ref.image.name} の位置を求められません`);
+    if (!(pixel > 0) || !Number.isFinite(pixel)) throw new Error(`${ref.image.name} の位置の算出不可`);
     origin = [0, 0];
     size = [pixel, -pixel];
   }
   const boxes = used.map((image) => {
     const box = footprint(placed.get(image)!, projection);
-    if (!box) throw new Error(`${image.name} の位置を求められません`);
+    if (!box) throw new Error(`${image.name} の位置の算出不可`);
     return box;
   });
   const box = combine(boxes, extent);
-  if (!box) throw new Error('画像が重なっていません。詳細設定の「範囲」を「すべてを含む範囲」にすると、重ならない所も含めて作れます');
+  if (!box) throw new Error('画像の重なりなし。詳細設定の「範囲」を「すべてを含む範囲」にすると、重ならない所も含めて作成可能');
   const grid = gridOver(box, origin, size);
-  if (grid.width * grid.height > MAX_PIXELS) throw new Error(`結果が大きすぎます（${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）。離れた画像を選んでいないか確かめてください`);
+  if (grid.width * grid.height > MAX_PIXELS) throw new Error(`結果が大きすぎ（${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）。離れた画像の選択がないか確認`);
   const types = used.map((image) => {
     const tiff = placed.get(image)!.tiff;
     return { format: tiff.getSampleFormat(), bits: tiff.getBitsPerSample() };
@@ -243,7 +243,7 @@ export class CompositeDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="composite-title">RGB 合成</h2>
-        <p class="wide processing-hint">単バンドの画像（白黒・SAR など）を赤・緑・青に割り当てて、1 枚のカラー画像にします。時期の違う画像を使うと、変化した所が色で分かります。</p>
+        <p class="wide processing-hint">単バンドの画像（白黒・SAR など）を赤・緑・青に割り当てて、1 枚のカラー画像を作成。時期の違う画像を使うと、変化箇所を色で識別可能。</p>
         ${CHANNELS.map((c) => `<label class="wide composite-channel composite-${c}">${channelNames[c]}<select name="${c}" aria-label="${channelNames[c]}"></select></label>`).join('')}
         <p class="wide processing-hint composite-legend"></p>
         <details class="wide composite-more">
@@ -251,7 +251,7 @@ export class CompositeDialog {
           <div class="service-form">
             <label class="wide">基準の画像（位置とピクセルの大きさ）<select name="reference" aria-label="基準の画像"></select></label>
             <label>範囲<select name="extent" aria-label="範囲"><option value="intersection">重なる範囲</option><option value="union">すべてを含む範囲</option></select></label>
-            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値を変えない）</option></select></label>
+            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値の変化なし）</option></select></label>
           </div>
         </details>
         <p class="wide processing-hint composite-plan"></p>
@@ -295,7 +295,7 @@ export class CompositeDialog {
       return Array.from({ length: bands }, (_, b) => new Option(label(`${image.name} ・ バンド ${b + 1}`), `${i}:${b}`));
     });
     for (const s of this.selects_) s.replaceChildren(new Option('（なし）', ''), ...options.map((o) => new Option(o.text, o.value)));
-    this.note_.textContent = this.images_.length ? '' : '画像を開いてください';
+    this.note_.textContent = this.images_.length ? '' : '画像なし（先に画像を開く）';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     if (!this.dialog.open) this.dialog.showModal();
@@ -353,7 +353,7 @@ export class CompositeDialog {
     const form = new FormData(this.form_);
     const reference = this.images_[Number(form.get('reference'))];
     if (!reference || channels.every((c) => !c)) {
-      this.note_.textContent = '赤・緑・青のどれかに画像を選んでください';
+      this.note_.textContent = '赤・緑・青のどれかに画像を選択';
       return null;
     }
     this.run_.disabled = true;
@@ -375,8 +375,8 @@ export class CompositeDialog {
       let done = 0;
       let failed = false;
       const stop = () => {
-        if (running.cancelled) throw new Error('中止しました');
-        if (failed) throw new Error('ほかのブロックで失敗しました');
+        if (running.cancelled) throw new Error('中止');
+        if (failed) throw new Error('ほかのブロックで失敗');
       };
       const note = this.note_;
       const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
@@ -396,10 +396,10 @@ export class CompositeDialog {
           }
           covered += block.covered;
           done++;
-          if (!running.cancelled) note.textContent = `合成しています… ${Math.floor((100 * done) / blocks.length)}%`;
+          if (!running.cancelled) note.textContent = `合成中… ${Math.floor((100 * done) / blocks.length)}%`;
         }
       };
-      note.textContent = '合成しています… 0%';
+      note.textContent = '合成中… 0%';
       await Promise.all(
         workers.map(async (worker) => {
           try {
@@ -411,10 +411,10 @@ export class CompositeDialog {
         }),
       );
       stop();
-      if (!covered) throw new Error('選んだ画像に重なる所がありませんでした');
+      if (!covered) throw new Error('選んだ画像に重なる所なし');
       const blob = await writer.finish(await tagsOf(plan, min, max), name);
 
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const image = source && this.images.find(source);
@@ -423,13 +423,13 @@ export class CompositeDialog {
       this.made_.set(image, { blob });
       this.images.setBadge(image, 'RGB 合成');
       this.dialog.close();
-      this.options.say(`${name} を作りました（${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）`);
+      this.options.say(`${name} を作成（${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px）`);
       return image;
     } catch (error) {
       await draft.discard();
       const message = error instanceof Error ? error.message : String(error);
-      if (running.cancelled) this.options.say('RGB 合成を中止しました');
-      else this.note_.textContent = `RGB 合成できませんでした: ${message}`;
+      if (running.cancelled) this.options.say('RGB 合成を中止');
+      else this.note_.textContent = `RGB 合成失敗: ${message}`;
       return null;
     } finally {
       for (const w of workers) w.terminate();
@@ -464,7 +464,7 @@ export class CompositeDialog {
       const kind = type.format === 3 ? `${type.bits} bit 浮動小数` : `${type.bits} bit`;
       out.textContent =
         `結果は ${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px、3 バンド（${kind}）、${plan.ownGrid ? `${reference.name} と同じ格子` : 'Web メルカトル'}` +
-        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、少し時間がかかります）` : '') +
+        (bytes >= 2 ** 30 ? `（約 ${(bytes / 2 ** 30).toFixed(1)} GB、時間がかかる場合あり）` : '') +
         '。';
     } catch (error) {
       out.textContent = error instanceof Error ? error.message : String(error);
@@ -477,8 +477,8 @@ export class CompositeDialog {
 export function legendOf(channels: ReadonlyArray<Channel | null>): string {
   const key = (c: Channel | null) => (c ? `${c.image.name}:${c.band}` : '');
   const [r, g, b] = channels.map(key);
-  if (r && g && r !== g && g === b) return '明るさの変わらない所は白黒、赤のほうだけ明るい所は赤、緑・青のほうだけ明るい所はシアン（水色）になります。';
-  if (r && g && b && r !== g && g !== b && r !== b) return '3 つとも同じ明るさの所は白黒、どれか 1 つだけ明るい所はその色（赤・緑・青）になります。';
+  if (r && g && r !== g && g === b) return '明るさの変化なしの所は白黒、赤のほうだけ明るい所は赤、緑・青のほうだけ明るい所はシアン（水色）。';
+  if (r && g && b && r !== g && g !== b && r !== b) return '3 つとも同じ明るさの所は白黒、どれか 1 つだけ明るい所はその色（赤・緑・青）。';
   return '';
 }
 
@@ -548,7 +548,7 @@ export async function readBlock(
 function call(worker: Worker, task: CompositeTask, transfer: Transferable[]): Promise<CompositeBlock> {
   return new Promise((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<CompositeReply>) => (e.data.ok ? resolve(e.data.block) : reject(new Error(e.data.message)));
-    worker.onerror = (e) => reject(new Error(e.message || 'RGB 合成の処理が止まりました'));
+    worker.onerror = (e) => reject(new Error(e.message || 'RGB 合成の処理が停止'));
     worker.postMessage(task, transfer);
   });
 }
@@ -580,7 +580,7 @@ export async function tagsOf(plan: CompositePlan, min: number[], max: number[]):
 /** A GeoKeyDirectory naming an EPSG CRS (projected, or geographic in degrees). */
 function geoKeysOf(projection: Projection): number[] {
   const code = Number(/(\d+)$/.exec(projection.getCode())?.[1]);
-  if (!Number.isInteger(code)) throw new Error(`座標系 ${projection.getCode()} を GeoTIFF に書けません`);
+  if (!Number.isInteger(code)) throw new Error(`座標系 ${projection.getCode()} を GeoTIFF への書き込み不可`);
   const geographic = projection.getUnits() === 'degrees';
   return [1, 1, 0, 3, 1024, 0, 1, geographic ? 2 : 1, 1025, 0, 1, 1, geographic ? 2048 : 3072, 0, 1, code];
 }

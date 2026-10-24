@@ -106,7 +106,7 @@ export function readWkb(bytes: Uint8Array, offset = 0): Geometry {
         return new GeometryCollection(parts);
       }
       default:
-        throw new Error(`WKB の図形の種類 ${type} は読めません`);
+        throw new Error(`WKB の図形の種類 ${type} は読み込み不可`);
     }
   };
   return geometry();
@@ -140,7 +140,7 @@ function sizeOf(g: Geometry): number {
       return 9 + endss.reduce((n, ends) => n + 9 + 4 * ends.length, 0) + coords;
     }
     default:
-      throw new Error(`${type} は WKB に書けません`);
+      throw new Error(`${type} は WKB への書き込み不可`);
   }
 }
 

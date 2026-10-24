@@ -111,7 +111,7 @@ test('writes FlatGeobuf, KML and GPX; the FlatGeobuf opens again the same', asyn
     await dialog.getByLabel('形式').selectOption(format);
     if (format !== 'fgb') await expect(dialog.getByLabel('座標系')).toBeDisabled();
     const downloading = page.waitForEvent('download');
-    await dialog.getByRole('button', { name: '書き出す' }).click();
+    await dialog.getByRole('button', { name: '書き出し' }).click();
     const download = await downloading;
     return { name: download.suggestedFilename(), bytes: await bytesOf(download) };
   };

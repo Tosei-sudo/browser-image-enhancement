@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 
 async function open(page: Page) {
   await page.goto('/index.html?url=/fixture.tif');
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   await page.waitForFunction(() => window.viewer.map.getView().getResolution() !== undefined);
 }
 
@@ -91,7 +91,7 @@ test('the print layout saves a PDF and a PNG of the sheet with the map and its p
   expect(pdfText.startsWith('%PDF-')).toBe(true);
   // A4 landscape in points.
   expect(pdfText).toContain('/MediaBox [0 0 841.89 595.28]');
-  await expect(page.locator('#status')).toContainText('survey.pdf を保存しました（A4 横、150 dpi）');
+  await expect(page.locator('#status')).toContainText('survey.pdf を保存（A4 横、150 dpi）');
 
   const png = await print({ format: 'png', paper: 'A3' });
   const base64 = (await readFile((await png.path())!)).toString('base64');

@@ -130,12 +130,12 @@ export function registerJapaneseCrs(): void {
 export async function targetCrs(code: string, lookup?: (code: string) => Promise<string | null>): Promise<TargetCrs> {
   const trimmed = code.trim();
   const epsg = epsgCode(/^\d+$/.test(trimmed) ? `EPSG:${trimmed}` : trimmed);
-  if (epsg === null) throw new Error(`「${code}」は EPSG コードではありません（例: EPSG:6677）`);
+  if (epsg === null) throw new Error(`「${code}」は EPSG コード以外（例: EPSG:6677）`);
   if (epsg === 4326) return wgs84;
   if (epsg === 3857) return webMercator;
   const full = `EPSG:${epsg}`;
   const projection = await projectionOf(full);
-  if (!projection) throw new Error(`${full} の座標系の定義が見つかりません`);
+  if (!projection) throw new Error(`${full} の座標系の定義なし`);
   const preset = presets.find((p) => p.code === full);
   let wkt = preset?.wkt ?? null;
   if (wkt === null && lookup) {
@@ -180,7 +180,7 @@ export function reproject(input: ProcessingInput, crs: TargetCrs): ProcessingRes
     features.push(feature.clone());
   }
   const short = crs.epsg !== null ? `EPSG${crs.epsg}` : crs.projection.replace(/[^A-Za-z0-9]+/g, '');
-  const notes = [`${features.length} 個の地物を ${crs.name} に変換しました`];
-  if (failed > 0) notes.push(`${crs.name} に変換できない地物 ${failed} 個を除きました`);
+  const notes = [`${features.length} 個の地物を ${crs.name} に変換`];
+  if (failed > 0) notes.push(`${crs.name} に変換できない地物 ${failed} 個を除外`);
   return { title: `${input.title}_${short}`, features, fields: copyFields(input.fields), crs, notes };
 }

@@ -62,9 +62,9 @@ for (const query of ['', '?vectorgl=always']) {
     page.on('pageerror', (e) => errors.push(e.message));
     await open(page, query);
     await choosePicture(page, 'scene_20240215.png');
-    await expect(page.locator('#status')).toContainText('scene_20240215.png を開きました');
+    await expect(page.locator('#status')).toContainText('scene_20240215.png を表示');
     await choose(page, 'observations.geojson', observations);
-    await expect(page.locator('#status')).toContainText('observations を開きました');
+    await expect(page.locator('#status')).toContainText('observations を表示');
     await expect(rows(page)).toHaveCount(4);
 
     // T opens it over everything: nothing is hidden yet.
@@ -106,9 +106,9 @@ for (const query of ['', '?vectorgl=always']) {
     await expect(timeline(page).getByLabel('開始の属性')).toHaveValue('observed');
     await expect(timeline(page).getByLabel('scene_20240215.png の撮影日時')).toHaveValue('2024-02-15T00:00');
     await expect(timeline(page).locator('.timeline-layers')).toContainText('ファイル名');
-    await timeline(page).getByLabel('observations を時間で絞り込む').uncheck();
+    await timeline(page).getByLabel('observations を時間で絞り込み').uncheck();
     await expect(rows(page)).toHaveCount(4);
-    await timeline(page).getByLabel('observations を時間で絞り込む').check();
+    await timeline(page).getByLabel('observations を時間で絞り込み').check();
     await expect(rows(page)).toHaveCount(3);
 
     // Closing shows everything again.
@@ -134,7 +134,7 @@ test('a WMS layer with a time dimension is drawn at the end of the window', asyn
   await page.getByRole('button', { name: 'サービスを追加' }).click();
   const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
   await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(`${base}/svc/wmstime`);
-  await dialog.getByRole('button', { name: '読み込む' }).click();
+  await dialog.getByRole('button', { name: '読み込み' }).click();
   await dialog.locator('.service-layer input[type=checkbox]').first().check();
   await dialog.getByRole('button', { name: '追加', exact: true }).click();
   await expect(page.locator('#info')).toContainText('2024-01-01 〜 2024-12-01（12 時点）');

@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * The docking layout (src/dock.ts): the panels move between the left, right
  * and bottom docks by their ◧ menu or by dragging their title or tab, share a
  * group as tabs, float over the map, and the layout is kept for the next
- * visit and in projects; 「レイアウトを元に戻す」 puts it back. Dialogs dock
+ * visit and in projects; 「レイアウトの初期化」 puts it back. Dialogs dock
  * by their ◧ too (src/dock-dialogs.ts), and attribute tables can be kept on
  * a layer each, several at once.
  */
@@ -116,7 +116,7 @@ test('panels move between the docks by the menu and by dragging, and the layout 
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(float.locator('#table')).toBeVisible();
   // × of the window: back where it belongs.
-  await float.getByRole('button', { name: '元の場所に戻す' }).click();
+  await float.getByRole('button', { name: '元の場所に復帰' }).click();
   await expect(dock(page, 'bottom').locator('#table')).toBeVisible();
   await expect(float).toHaveCount(0);
 
@@ -143,7 +143,7 @@ test('a dialog docks, opens there again, and becomes a dialog again', async ({ p
   expect(await dialog.evaluate((d) => d.matches(':modal'))).toBe(true);
 
   await dialog.locator('.dock-button').click();
-  await menuItem(page, '下に置く').click();
+  await menuItem(page, '下に配置').click();
   // Below, beside the attribute table; open but not holding the page.
   await expect(dock(page, 'bottom').locator('dialog.processing-dialog')).toBeVisible();
   expect(await dialog.evaluate((d: HTMLDialogElement) => [d.open, d.matches(':modal'), d.classList.contains('docked')])).toEqual([true, false, true]);
@@ -168,9 +168,9 @@ test('a dialog docks, opens there again, and becomes a dialog again', async ({ p
   await page.locator('#processing').click();
   await expect(dock(page, 'bottom').locator('dialog.processing-dialog')).toBeVisible();
 
-  // 「ウィンドウに戻す」: a modal dialog again.
+  // 「ウィンドウに復帰」: a modal dialog again.
   await dialog.locator('.dock-button').click();
-  await menuItem(page, 'ウィンドウに戻す').click();
+  await menuItem(page, 'ウィンドウに復帰').click();
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate((d: HTMLDialogElement) => [d.open, d.matches(':modal'), d.classList.contains('docked')])).toEqual([true, true, false]);
   await expect(dock(page, 'bottom').locator('dialog')).toHaveCount(0);
@@ -208,7 +208,7 @@ test('several attribute tables at once, kept in a project', async ({ page }) => 
 
   // A layer's menu opens its own too; side by side by dragging it to the right half.
   await name('schools').click({ button: 'right' });
-  await menuItem(page, '属性テーブルを開く').click();
+  await menuItem(page, '属性テーブルを表示').click();
   await expect(tabs).toHaveText(['属性テーブル', 'parks', 'schools']);
   const group = (await dock(page, 'bottom').locator('.dock-group').boundingBox())!;
   await drag(page, dock(page, 'bottom').getByRole('tab', { name: 'schools' }), { x: group.x + group.width - 30, y: group.y + group.height / 2 });
@@ -226,12 +226,12 @@ test('several attribute tables at once, kept in a project', async ({ page }) => 
 
   // Kept in a project, with where they are.
   await page.keyboard.press('Control+s');
-  await expect(page.locator('#status')).toHaveText('dock.ivproj に保存しました');
+  await expect(page.locator('#status')).toHaveText('dock.ivproj に保存');
   await page.reload();
   await page.waitForFunction(() => window.viewer !== undefined);
   await page.getByRole('button', { name: 'プロジェクト' }).click();
   await page.getByRole('button', { name: '開く…', exact: true }).click();
-  await expect(page.locator('#status')).toHaveText('プロジェクト「dock」を開きました');
+  await expect(page.locator('#status')).toHaveText('プロジェクト「dock」を表示');
   await expect(dock(page, 'bottom').locator('.dock-group')).toHaveCount(2);
   await expect(dock(page, 'bottom').locator('.dock-tab span')).toHaveText(['属性テーブル', 'parks']);
   await expect(dock(page, 'bottom').locator('.dock-group').nth(1).locator('.table-bar h2')).toHaveText('属性: schools');

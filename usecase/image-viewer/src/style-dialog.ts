@@ -79,7 +79,7 @@ export class StyleDialog {
   private othersCount_: HTMLElement | null = null;
 
   /**
-   * @param options.resolution The map's resolution now, for 「いまの縮尺」.
+   * @param options.resolution The map's resolution now, for 「現在の縮尺」.
    */
   constructor(private readonly options: { say: (message: string) => void; resolution?: () => number | undefined }) {
     this.dialog = document.createElement('dialog');
@@ -101,8 +101,8 @@ export class StyleDialog {
           <label data-for="graduated">分け方<select name="method" aria-label="分け方">${optionsHtml(classMethods)}</select></label>
           <label data-for="graduated">段階の数<input type="number" name="classCount" min="1" max="${MAX_CLASSES}" step="1" aria-label="段階の数" /></label>
           <label data-for="graduated">色<select name="ramp" aria-label="色">${optionsHtml(rampNames)}</select></label>
-          <label class="check" data-for="graduated"><input type="checkbox" name="reversed" /><span>色を逆順にする</span></label>
-          <label data-for="classed" title="分類・段階の色で塗るか、枠を描くか、両方か。各行の「枠」で 1 つずつ枠の色・太さ・線種を変えられます">色を付ける先<select name="colorTarget" aria-label="色を付ける先">${optionsHtml(colorTargets)}</select></label>
+          <label class="check" data-for="graduated"><input type="checkbox" name="reversed" /><span>色を逆順</span></label>
+          <label data-for="classed" title="分類・段階の色で塗るか、枠を描くか、両方か。各行の「枠」で 1 つずつ枠の色・太さ・線種を変更可能">色を付ける先<select name="colorTarget" aria-label="色を付ける先">${optionsHtml(colorTargets)}</select></label>
           <div class="style-categories wide" data-for="categorized" role="group" aria-label="分類"></div>
           <div class="style-categories style-classes wide" data-for="graduated" role="group" aria-label="段階"></div>
           <label data-for="symbol"><span data-text="fill">塗りの色</span><input type="color" name="fill" aria-label="塗りの色" /></label>
@@ -122,27 +122,27 @@ export class StyleDialog {
           <label data-for="label">縁取りの色<input type="color" name="halo" aria-label="縁取りの色" /></label>
           <label data-for="label">縁取りの幅（px）<input type="number" name="haloWidth" min="0" max="12" step="0.5" aria-label="縁取りの幅" /></label>
           <label class="check" data-for="label"><input type="checkbox" name="bold" /><span>太字</span></label>
-          <label class="check wide-2" data-for="label"><input type="checkbox" name="overlap" /><span>重なるラベルも全部表示する</span></label>
-          <label class="wide-2" data-for="label">これより縮小したらラベルを隠す<span class="style-scale">1 : <input type="number" name="labelMaxScale" min="1" step="any" placeholder="制限なし" aria-label="ラベルを隠す縮尺" /><button type="button" data-now="labelMaxScale">いまの縮尺</button></span></label>
+          <label class="check wide-2" data-for="label"><input type="checkbox" name="overlap" /><span>重なるラベルも全部表示</span></label>
+          <label class="wide-2" data-for="label">これより縮小時はラベルを非表示<span class="style-scale">1 : <input type="number" name="labelMaxScale" min="1" step="any" placeholder="制限なし" aria-label="ラベルを非表示にする縮尺" /><button type="button" data-now="labelMaxScale">現在の縮尺</button></span></label>
         </fieldset>
         <details class="style-scales">
-          <summary>縮尺で表示を切り替える</summary>
+          <summary>縮尺による表示切り替え</summary>
           <div class="style-scale-fields">
             <p class="style-now"></p>
-            <label>これより縮小したら隠す<span class="style-scale">1 : <input type="number" name="minScale" min="1" step="any" placeholder="制限なし" aria-label="縮小したら隠す縮尺" /><button type="button" data-now="minScale">いまの縮尺</button></span></label>
-            <label>これより拡大したら隠す<span class="style-scale">1 : <input type="number" name="maxScale" min="1" step="any" placeholder="制限なし" aria-label="拡大したら隠す縮尺" /><button type="button" data-now="maxScale">いまの縮尺</button></span></label>
+            <label>これより縮小時は非表示<span class="style-scale">1 : <input type="number" name="minScale" min="1" step="any" placeholder="制限なし" aria-label="縮小時に非表示にする縮尺" /><button type="button" data-now="minScale">現在の縮尺</button></span></label>
+            <label>これより拡大時は非表示<span class="style-scale">1 : <input type="number" name="maxScale" min="1" step="any" placeholder="制限なし" aria-label="拡大時に非表示にする縮尺" /><button type="button" data-now="maxScale">現在の縮尺</button></span></label>
           </div>
         </details>
       </form>
       <p class="service-status style-note" role="status"></p>
       <div class="style-export" hidden>
-        <label>形式<select name="styleFormat" aria-label="書き出す形式">${optionsHtml(styleFormats)}</select></label>
+        <label>形式<select name="styleFormat" aria-label="書き出し形式">${optionsHtml(styleFormats)}</select></label>
         <button type="button" value="save-style">保存</button>
       </div>
       <div class="service-actions">
-        <button type="button" value="import" title="QGIS などのスタイル（.sld・.qml）を読み込みます">読み込み…</button>
-        <button type="button" value="export" title="スタイルを SLD・QML に書き出します" aria-expanded="false">書き出し…</button>
-        <button type="button" value="reset" class="style-reset">初期設定に戻す</button>
+        <button type="button" value="import" title="QGIS などのスタイル（.sld・.qml）の読み込み">読み込み…</button>
+        <button type="button" value="export" title="スタイルを SLD・QML に書き出し" aria-expanded="false">書き出し…</button>
+        <button type="button" value="reset" class="style-reset">初期設定に復元</button>
         <button type="button" value="cancel">キャンセル</button>
         <button type="button" value="ok" class="primary">OK</button>
       </div>`;
@@ -257,7 +257,7 @@ export class StyleDialog {
     try {
       read = importStyle(await readStyleFile(file), this.read_());
     } catch (error) {
-      this.note_.textContent = `${file.name} を読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
     const fields = new Set([this.entry_, ...this.others_.map((o) => o.entry)].flatMap((e) => e?.service.vector?.fields.map((f) => f.name) ?? []));
@@ -269,9 +269,9 @@ export class StyleDialog {
       this.loadClasses_(false);
     }
     this.preview_();
-    const parts = [`${file.name}（${read.format === 'sld' ? 'SLD' : 'QML'}）を読み込みました。OK で確定します`];
+    const parts = [`${file.name}（${read.format === 'sld' ? 'SLD' : 'QML'}）を読み込み。OK で確定`];
     if (missing.length) parts.push(`レイヤーにない属性: ${[...new Set(missing)].join('、')}`);
-    if (read.unsupported.length) parts.push(`対応していないため省いたもの: ${read.unsupported.join('、')}`);
+    if (read.unsupported.length) parts.push(`非対応のため省略:  ${read.unsupported.join('、')}`);
     this.note_.textContent = parts.join('。');
   }
 
@@ -287,7 +287,7 @@ export class StyleDialog {
     a.download = `${name}${styleExtension[format]}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    this.note_.textContent = `${a.download} に書き出しました`;
+    this.note_.textContent = `${a.download} に書き出し`;
   }
 
   /** The kind of geometry of the layer: the most common among its features (polygons when it has none). */
@@ -339,7 +339,7 @@ export class StyleDialog {
     this.committed_ = true;
     this.end_();
     this.dialog.close();
-    this.options.say(group !== null ? `グループ「${group}」のベクターレイヤー ${n} 件のスタイルを変更しました` : `${entry.name} のスタイルを変更しました`);
+    this.options.say(group !== null ? `グループ「${group}」のベクターレイヤー ${n} 件のスタイルを変更` : `${entry.name} のスタイルを変更`);
   }
 
   private select_(name: string): HTMLSelectElement {
@@ -385,7 +385,7 @@ export class StyleDialog {
     this.input_('maxScale').value = spec.maxScale ? String(spec.maxScale) : '';
     this.scales_.open = !!(spec.minScale || spec.maxScale);
     const now = this.scaleNow_();
-    this.scales_.querySelector('.style-now')!.textContent = now ? `いまの縮尺はおよそ 1 : ${scaleText(now)} です` : '';
+    this.scales_.querySelector('.style-now')!.textContent = now ? `現在の縮尺: 約 1 : ${scaleText(now)}` : '';
     this.categoryList_ = spec.categories.map((c) => ({ ...c }));
     this.classList_ = spec.mode === 'graduated' && spec.field === gradField ? spec.classes.map((c) => ({ ...c })) : [];
     this.othersVisible_ = spec.othersVisible;
@@ -437,7 +437,7 @@ export class StyleDialog {
     check.addEventListener('change', () => (this.othersVisible_ = check.checked));
     const swatch = document.createElement('span');
     swatch.className = 'style-swatch';
-    swatch.title = '塗りの色で描きます';
+    swatch.title = '塗りの色で描画';
     const text = document.createElement('span');
     text.className = 'style-value';
     text.textContent = '値なし・範囲外';
@@ -446,7 +446,7 @@ export class StyleDialog {
     other.append(check, swatch, text, this.othersCount_, document.createElement('span'));
     this.classes_.replaceChildren(...rows, other);
     this.updateClassRows_();
-    this.note_.textContent = this.classList_.length ? '' : 'この属性には数値がありません';
+    this.note_.textContent = this.classList_.length ? '' : 'この属性には数値なし';
   }
 
   /** The rows' bounds, names and counts, after a bound moved (the rows stay, and so does the focus). */
@@ -536,21 +536,21 @@ export class StyleDialog {
     check.addEventListener('change', () => (this.othersVisible_ = check.checked));
     const swatch = document.createElement('span');
     swatch.className = 'style-swatch';
-    swatch.title = '塗りの色で描きます';
+    swatch.title = '塗りの色で描画';
     const otherText = document.createElement('span');
     otherText.className = 'style-value';
     otherText.textContent = `その他${others > 0 ? `（${others.toLocaleString()} 種類）` : ''}`;
     other.append(check, swatch, otherText, document.createElement('span'), document.createElement('span'));
     const recolor = document.createElement('button');
     recolor.type = 'button';
-    recolor.textContent = '色を振り直す';
+    recolor.textContent = '色の再割り当て';
     recolor.addEventListener('click', () => {
       this.categoryList_ = this.categoryList_.map((c, i) => ({ ...c, color: categoryColor(i) }));
       this.loadCategories_();
       this.preview_();
     });
     this.categories_.replaceChildren(...rows, other, recolor);
-    this.note_.textContent = others > 0 ? `値が ${MAX_CATEGORIES} 種類を超えるため、多い順に ${MAX_CATEGORIES} 種類を色分けし、残りは「その他」として描きます` : '';
+    this.note_.textContent = others > 0 ? `値が ${MAX_CATEGORIES} 種類を超えるため、多い順に ${MAX_CATEGORIES} 種類を色分けし、残りは「その他」として描画` : '';
   }
 
   private categoryRow_(category: Category, index: number): [HTMLLabelElement, HTMLElement] {
@@ -617,7 +617,7 @@ export class StyleDialog {
     dash.append(new Option('共通', ''), ...Object.entries(lineDashes).map(([value, text]) => new Option(text, value)));
     const reset = document.createElement('button');
     reset.type = 'button';
-    reset.textContent = '共通に戻す';
+    reset.textContent = '共通設定に復元';
     panel.append(colorField, field('幅（px）', width), field('線種', dash), reset);
     strokeColor.addEventListener('input', () => (item.stroke = strokeColor.value));
     width.addEventListener('input', () => {
@@ -726,7 +726,7 @@ export class StyleDialog {
       spec.mode === 'categorized' ? '塗りの色（その他）' : spec.mode === 'graduated' ? '塗りの色（値なし・範囲外）' : '塗りの色';
     if (spec.mode === 'single' || spec.mode === 'own') this.note_.textContent = '';
     for (const sync of spec.mode === 'categorized' ? this.categorySyncs_ : spec.mode === 'graduated' ? this.classSyncs_ : []) sync(spec);
-    if (spec.minScale && spec.maxScale && spec.maxScale >= spec.minScale) this.note_.textContent = '「拡大したら隠す」縮尺は「縮小したら隠す」縮尺より大きく（分母を小さく）してください';
+    if (spec.minScale && spec.maxScale && spec.maxScale >= spec.minScale) this.note_.textContent = '「拡大時は非表示」の縮尺は「縮小時は非表示」の縮尺より大きく（分母を小さく）指定';
     this.style_?.set(spec, false);
     this.setOthers_(spec, false);
   }

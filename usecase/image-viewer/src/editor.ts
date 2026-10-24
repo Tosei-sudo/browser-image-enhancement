@@ -184,14 +184,14 @@ export class Editor {
       b.setAttribute('role', 'menuitemcheckbox');
       b.setAttribute('aria-checked', 'false');
     };
-    check('numeric', '数値入力', () => this.setNumeric(!this.numeric_), '描くときに座標・長さ・方位・幅と高さ・半径を入力します');
-    check('snap', 'スナップ', () => this.setSnap(!this.snap_), '描くとき・形を変えるときに、表示中のレイヤーの頂点や辺に吸い付けます');
-    item('duplicate', '複製', () => this.duplicate(), '選んだ地物（ほかのレイヤーのものも）をこのレイヤーに複製します');
-    item('move', '移動…', () => this.openPanel_('move'), '選んだ地物を距離か座標で動かします');
-    item('rotate', '回転…', () => this.openPanel_('rotate'), '選んだ地物を角度で回します');
-    item('offset', '平行線…', () => this.openPanel_('offset'), '選んだ線や面から、距離を指定して平行な線・面を作ります');
-    item('split', '分割', () => this.setTool('split'), '選んだ線や面を、地図に描いた線で切り分けます');
-    item('merge', '結合', () => this.mergeSelected(), '選んだ地物を 1 つにまとめます');
+    check('numeric', '数値入力', () => this.setNumeric(!this.numeric_), '描くときに座標・長さ・方位・幅と高さ・半径を入力');
+    check('snap', 'スナップ', () => this.setSnap(!this.snap_), '作図・形状変更時に、表示中のレイヤーの頂点や辺へ吸着');
+    item('duplicate', '複製', () => this.duplicate(), '選んだ地物（ほかのレイヤーのものも）をこのレイヤーに複製');
+    item('move', '移動…', () => this.openPanel_('move'), '選択した地物を距離か座標で移動');
+    item('rotate', '回転…', () => this.openPanel_('rotate'), '選択した地物を角度で回転');
+    item('offset', '平行線…', () => this.openPanel_('offset'), '選択した線や面から、距離を指定して平行な線・面を作成');
+    item('split', '分割', () => this.setTool('split'), '選択した線や面を、地図に描いた線で分割');
+    item('merge', '結合', () => this.mergeSelected(), '選択した地物を 1 つに結合');
     moreButton.addEventListener('click', () => (this.menu_.hidden ? this.openMenu_() : this.closeMenu_()));
     this.more_.append(moreButton, this.menu_);
     this.bar_.append(this.more_);
@@ -303,7 +303,7 @@ export class Editor {
     entry.row.classList.add('editing');
     this.table.setSession(this.session_);
     this.setTool('select');
-    this.options.say(`${entry.name} を編集できます。変更は「保存」を押すまで${target.savedTo}に書き込まれません`);
+    this.options.say(`${entry.name} を編集可能。変更は「保存」まで${target.savedTo}に未反映`);
     return true;
   }
 
@@ -311,7 +311,7 @@ export class Editor {
   stop(): boolean {
     const session = this.session_;
     if (!session) return true;
-    if (session.count() > 0 && !confirm(`未保存の変更が ${session.count()} 件あります。破棄して編集を終了しますか？`)) return false;
+    if (session.count() > 0 && !confirm(`未保存の変更 ${session.count()} 件。破棄して編集を終了しますか？`)) return false;
     session.discard();
     this.setTool('select');
     this.panel_.show(null);
@@ -333,7 +333,7 @@ export class Editor {
     this.tool_ = tool;
     const session = this.session_;
     if (session && tool === 'split' && !this.splittable_()) {
-      this.options.say('分割する線か面を 1 つ選んでから「分割」を選んでください');
+      this.options.say('分割する線か面を 1 つ選んでから「分割」を選択');
       this.tool_ = tool = 'select';
     }
     if (session && tool === 'add') {
@@ -358,7 +358,7 @@ export class Editor {
         });
       });
       this.map.addInteraction(this.draw_);
-      this.options.say('切り分ける線を地図に描いてください（ダブルクリックか Enter で終わり、Esc でやめる）');
+      this.options.say('分割線を地図に作図（ダブルクリックか Enter で終了、Esc で取消）');
     } else if (session && tool === 'reshape') {
       // Drag a selected feature to move it; drag a vertex or an edge of any feature to reshape it.
       this.translate_ = new Translate({ features: this.selection.features });
@@ -422,14 +422,14 @@ export class Editor {
     const session = this.session_;
     const features = list.filter((f) => session?.source.hasFeature(f));
     if (!session || features.length === 0) {
-      this.options.say('削除する地物を地図か属性テーブルで選んでください');
+      this.options.say('削除する地物を地図か属性テーブルで選択');
       return false;
     }
     const to = session.target.savedTo;
-    if (!confirm(`${features.length} 件の地物を削除しますか？（「保存」を押すまで${to}からは消えません）`)) return false;
+    if (!confirm(`${features.length} 件の地物を削除しますか？（「保存」まで${to}からは削除されず）`)) return false;
     this.selection.remove(features);
     session.delete(features);
-    this.options.say(`${features.length} 件を削除しました。「保存」で${to}に反映します（「元に戻す」で戻せます）`);
+    this.options.say(`${features.length} 件を削除。「保存」で${to}に反映（「元に戻す」で復元可）`);
     return true;
   }
 
@@ -460,12 +460,12 @@ export class Editor {
       }
     });
     if (!copies.length) {
-      this.options.say(skipped ? 'このレイヤーの図形の種類に合わないため複製できません' : '複製する地物を地図か属性テーブルで選んでください');
+      this.options.say(skipped ? 'このレイヤーの図形の種類に合わないため複製不可' : '複製する地物を地図か属性テーブルで選択');
       return [];
     }
     this.selection.set(copies);
     this.table.setMode('selected');
-    this.options.say(`${copies.length} 件を複製しました（同じ位置にあります。「移動…」か「形状編集」でドラッグして動かせます）${skipped ? `。${skipped} 件は図形の種類が合わず複製していません` : ''}`);
+    this.options.say(`${copies.length} 件を複製（同じ位置に配置。「移動…」か「形状編集」のドラッグで移動可能）${skipped ? `。${skipped} 件は図形の種類が合わず複製対象外` : ''}`);
     return copies;
   }
 
@@ -488,12 +488,12 @@ export class Editor {
       }
     });
     if (!made.length) {
-      this.options.say('平行線を作る線か面を選んでください（縮めて消える面や、レイヤーに合わない図形は作れません）');
+      this.options.say('平行線を作る線か面を選択（縮めて消える面や、レイヤーに合わない図形は作成不可）');
       return [];
     }
     this.selection.set(made);
     this.table.setMode('selected');
-    this.options.say(`${made.length} 件の平行線（オフセット）を作りました`);
+    this.options.say(`${made.length} 件の平行線（オフセット）を作成`);
     return made;
   }
 
@@ -503,12 +503,12 @@ export class Editor {
     const [feature] = this.selection.list().filter((f) => session?.source.hasFeature(f));
     const geometry = feature?.getGeometry();
     if (!session || !feature || !geometry) {
-      this.options.say('分割する線か面を 1 つ選んでください');
+      this.options.say('分割する線か面を 1 つ選択');
       return [];
     }
     const pieces = splitGeometry(geometry, knife)?.map((g) => fitToType(g, session.target.geometryType));
     if (!pieces || pieces.some((p) => !p)) {
-      this.options.say('切り分けられませんでした。線か面を横切るように描いてください');
+      this.options.say('分割失敗。線か面を横切るように作図');
       return [];
     }
     const editable = new Set(session.fields.filter((f) => f.editable).map((f) => f.name));
@@ -526,7 +526,7 @@ export class Editor {
     });
     this.selection.set(result);
     this.table.setMode('selected');
-    this.options.say(`${result.length} つに分割しました（属性は元の地物から写しています）`);
+    this.options.say(`${result.length} つに分割（属性は元の地物から複写）`);
     return result;
   }
 
@@ -535,14 +535,14 @@ export class Editor {
     const session = this.session_;
     const features = this.selection.list().filter((f) => session?.source.hasFeature(f));
     if (!session || features.length < 2) {
-      this.options.say('結合する地物を 2 つ以上選んでください（Ctrl+クリックで追加）');
+      this.options.say('結合する地物を 2 つ以上選択（Ctrl+クリックで追加）');
       return null;
     }
     const merged = mergeGeometries(features.map((f) => f.getGeometry()!).filter(Boolean));
     const geometry = merged && fitToType(merged, session.target.geometryType);
     if (!geometry) {
       this.options.say(
-        merged ? '結合すると離れた複数の部分になり、このレイヤー（単一の図形）には入りません。マルチ型のレイヤーで結合してください' : '同じ種類（点・線・面）の地物だけ結合できます',
+        merged ? '結合結果が離れた複数の部分になるため、このレイヤー（単一の図形）には格納不可。マルチ型のレイヤーで結合' : '同じ種類（点・線・面）の地物だけ結合可能',
       );
       return null;
     }
@@ -554,7 +554,7 @@ export class Editor {
       session.delete(rest);
     });
     this.selection.set([keep]);
-    this.options.say(`${features.length} 件を 1 つに結合しました（属性は最初の地物のものです）`);
+    this.options.say(`${features.length} 件を 1 つに結合（属性は最初の地物のもの）`);
     return keep;
   }
 
@@ -563,7 +563,7 @@ export class Editor {
     if (!session || session.count() === 0) return;
     if (!confirm(`未保存の変更 ${session.count()} 件をすべて破棄しますか？`)) return;
     session.discard();
-    this.options.say('未保存の変更を破棄しました');
+    this.options.say('未保存の変更を破棄');
   }
 
   /** Saves the unsaved edits; returns what was saved (null when there was nothing to save, or a save is under way). */
@@ -572,19 +572,19 @@ export class Editor {
     if (!session || this.saving_ || session.count() === 0) return null;
     this.saving_ = true;
     this.update_();
-    this.options.say('保存しています…');
+    this.options.say('保存中…');
     try {
       const outcome = await session.save();
       const { saved, failed, note } = outcome;
       this.options.say(
         failed.length === 0
-          ? `${saved} 件の変更を保存しました${note ? `（${note}）` : ''}`
-          : `${saved} 件を保存し、${failed.length} 件は保存できませんでした（${failed[0].message}）。保存できなかった行は赤で示しています`,
+          ? `${saved} 件の変更を保存${note ? `（${note}）` : ''}`
+          : `${saved} 件を保存し、${failed.length} 件は保存失敗（${failed[0].message}）。保存失敗の行は赤で表示`,
       );
       return outcome;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.options.say(`保存できませんでした: ${message}`);
+      this.options.say(`保存失敗: ${message}`);
       return { saved: 0, failed: [{ feature: null, message }] };
     } finally {
       this.saving_ = false;
@@ -625,7 +625,7 @@ export class Editor {
     this.table.setMode('selected');
     this.table.focusRow(feature);
     this.panel_.setReadout('');
-    this.options.say(`地物を追加しました。属性テーブルで属性を入力し、「保存」で${session.target.savedTo}に書き込みます`);
+    this.options.say(`地物を追加。属性テーブルで属性を入力し、「保存」で${session.target.savedTo}に書き込み`);
   }
 
   /** A shape made from numbers (rectangle, circle): any drawing under way is given up for it. */
@@ -673,7 +673,7 @@ export class Editor {
   private extend_(length: number, bearing: number): void {
     const last = this.sketchCoordinates_().at(-1);
     if (!last) {
-      this.options.say('先に始点を地図のクリックか座標で置いてください');
+      this.options.say('始点が未配置（地図のクリックか座標で配置）');
       return;
     }
     const projection = this.map.getView().getProjection();
@@ -686,7 +686,7 @@ export class Editor {
     const placed = this.sketchCoordinates_().length;
     const need = this.kind() === 'Polygon' ? 3 : 2;
     if (!this.sketch_ || placed < need) {
-      this.options.say(`確定するには頂点を ${need} 点以上置いてください`);
+      this.options.say(`確定には頂点 ${need} 点以上が必要`);
       return;
     }
     // Draw drops the vertex under the pointer itself.
@@ -711,7 +711,7 @@ export class Editor {
     const session = this.session_;
     const features = this.selection.list().filter((f) => session?.source.hasFeature(f) && f.getGeometry());
     if (!session || !features.length) {
-      this.options.say(`${what}する地物を地図か属性テーブルで選んでください`);
+      this.options.say(`${what}する地物を地図か属性テーブルで選択`);
       return;
     }
     const before = new Map(features.map((f) => [f, f.getGeometry()!.clone()]));
@@ -719,7 +719,7 @@ export class Editor {
     change(geometries);
     features.forEach((f, i) => f.setGeometry(geometries[i]));
     session.reshaped(before);
-    this.options.say(`${features.length} 件を${what}しました`);
+    this.options.say(`${features.length} 件を${what}`);
   }
 
   private splittable_(): boolean {
@@ -732,7 +732,7 @@ export class Editor {
   private openPanel_(mode: PanelMode): void {
     if (this.tool_ === 'add' || this.tool_ === 'split') this.setTool('select');
     this.panel_.show(mode);
-    if (!this.selection.list().some((f) => this.session_?.source.hasFeature(f))) this.options.say('地図か属性テーブルで地物を選んでから実行してください');
+    if (!this.selection.list().some((f) => this.session_?.source.hasFeature(f))) this.options.say('地図か属性テーブルで地物を選んでから実行');
   }
 
   private openMenu_(): void {

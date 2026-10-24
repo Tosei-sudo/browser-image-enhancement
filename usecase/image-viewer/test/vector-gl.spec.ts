@@ -57,7 +57,7 @@ test('a vector layer drawn on the GPU shows, selects and hides like any other', 
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
   expect(await page.evaluate(() => (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!.onGpu())).toBe(true);
   await expect(glCanvases(page)).toHaveCount(1);
 
@@ -101,7 +101,7 @@ test('a vector layer drawn on the GPU shows, selects and hides like any other', 
 test('small layers stay on the canvas', async ({ page }) => {
   await open(page, '');
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
   expect(await page.evaluate(() => (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!.onGpu())).toBe(false);
   await expect(glCanvases(page)).toHaveCount(0);
 });
@@ -131,7 +131,7 @@ async function glColorAt(page: Page, name: string): Promise<number[]> {
 test('the WebGL layer draws features where they are, in their colors, and restyles without reshaping', async ({ page }) => {
   await open(page);
   await choose(page, 'landuse.geojson', landuse);
-  await expect(page.locator('#status')).toContainText('landuse を開きました');
+  await expect(page.locator('#status')).toContainText('landuse を表示');
   await expect(glCanvases(page)).toHaveCount(1);
   await page.evaluate(() => {
     const s = (window.viewer.images.layers()[0] as { service: import('../src/services/index.js').ServiceLayer }).service.style!;

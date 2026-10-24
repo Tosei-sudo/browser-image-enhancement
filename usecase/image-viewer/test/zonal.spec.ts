@@ -86,7 +86,7 @@ test('counts each polygon’s pixels per band into a temporary layer', async ({ 
   await dialog.getByText('最大', { exact: true }).click();
   await dialog.getByRole('button', { name: '実行' }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.locator('#status')).toContainText('_統計 を作成しました（3 件');
+  await expect(page.locator('#status')).toContainText('_統計 を作成（3 件');
   await expect(page.locator('#status')).toContainText('1 件は画像の外');
 
   const rows = await page.evaluate(() => {

@@ -32,11 +32,11 @@ export function importStyle(text: string, base: VectorStyleSpec): ImportedStyle 
   const root = parseXml(text, MAX_STYLE);
   const notes = new StyleNotes();
   if (root.name === 'qgis') {
-    if (!kid(root, 'renderer-v2')) throw new Error(path(root, 'pipe', 'rasterrenderer') ? 'ラスターの QML です。ベクターのスタイルではありません' : 'QML にシンボルの設定がありません');
+    if (!kid(root, 'renderer-v2')) throw new Error(path(root, 'pipe', 'rasterrenderer') ? 'ラスターの QML（ベクターのスタイル以外）' : 'QML にシンボルの設定なし');
     return { spec: readQgisLayerStyle(root, base, notes), format: 'qml', unsupported: notes.list() };
   }
   if (root.local === 'StyledLayerDescriptor' || root.local === 'UserStyle' || root.local === 'FeatureTypeStyle') return { spec: readSld(root, base, notes), format: 'sld', unsupported: notes.list() };
-  throw new Error('SLD でも QML でもありません');
+  throw new Error('SLD・QML 以外');
 }
 
 /** The text of a style in `format`, for a layer of `kind` named `name`. */
@@ -185,7 +185,7 @@ function readSymbolizers(rule: XmlElement, base: SymbolSpec, notes: StyleNotes):
   const lines = kids(rule, 'LineSymbolizer');
   const points = kids(rule, 'PointSymbolizer');
   if (!polygons.length && !lines.length && !points.length) return null;
-  if (polygons.length + lines.length + points.length > 1) notes.add('一つのルールに重ねたシンボル（最初のものを使います）');
+  if (polygons.length + lines.length + points.length > 1) notes.add('一つのルールに重ねたシンボル（最初のものを使用）');
   let color: string | null = null;
   if (polygons[0]) {
     const el = polygons[0];
@@ -299,10 +299,10 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
   const styles = root.local === 'UserStyle' ? [root] : descendants(root, 'UserStyle');
   if (styles.length > 1) notes.add('2 番目以降のスタイル');
   const style = root.local === 'FeatureTypeStyle' ? { children: [root] } : styles[0];
-  if (!style) throw new Error('SLD にスタイル（UserStyle）がありません');
+  if (!style) throw new Error('SLD にスタイル（UserStyle）なし');
   const types = style.children.filter((c) => c.local === 'FeatureTypeStyle' || c.local === 'CoverageStyle');
   if (types.some((t) => t.local === 'CoverageStyle') || descendants(root, 'RasterSymbolizer').length) notes.add('ラスターのスタイル');
-  if (types.filter((t) => t.local === 'FeatureTypeStyle').length > 1) notes.add('重ねた FeatureTypeStyle（まとめて読みます）');
+  if (types.filter((t) => t.local === 'FeatureTypeStyle').length > 1) notes.add('重ねた FeatureTypeStyle（一括読み込み）');
   const rules = types.flatMap((t) => kids(t, 'Rule'));
   const spec: VectorStyleSpec = structuredClone(base);
   spec.label = { ...spec.label, field: null };
@@ -312,7 +312,7 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
     const symbol = readSymbolizers(rule, spec.symbol, notes);
     const text = kid(rule, 'TextSymbolizer');
     if (text && !spec.label.field) {
-      if (filter.kind !== 'all') notes.add('条件付きのラベル（すべてに付けます）');
+      if (filter.kind !== 'all') notes.add('条件付きのラベル（すべてに付与）');
       readText(text, spec, notes);
       const max = numberOf(textOf(kid(rule, 'MaxScaleDenominator')));
       if (max !== null && (!symbol || filter.kind === 'all')) spec.label.maxScale = max > 0 && max < 1e8 ? max : null;
@@ -327,7 +327,7 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
     spec.maxScale = min !== null && min > 0 ? min : null;
     spec.minScale = max !== null && max > 0 && max < 1e8 ? max : null;
     const differ = symbolRules.some(({ rule }) => textOf(kid(rule, 'MinScaleDenominator')) !== textOf(kid(first, 'MinScaleDenominator')) || textOf(kid(rule, 'MaxScaleDenominator')) !== textOf(kid(first, 'MaxScaleDenominator')));
-    if (differ) notes.add('ルールごとに違う縮尺（最初のルールの縮尺を使います）');
+    if (differ) notes.add('ルールごとに違う縮尺（最初のルールの縮尺を使用）');
     // Labels hidden with the layer only: no limit of their own.
     if (spec.label.maxScale !== null && spec.minScale !== null && spec.label.maxScale >= spec.minScale) spec.label.maxScale = null;
   }
@@ -337,7 +337,7 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
   const others = symbolRules.find((r) => r.filter.kind === 'else');
   if (values.length) {
     const field = (values[0].filter as { field: string }).field;
-    if (ranges.length || values.some((r) => (r.filter as { field: string }).field !== field)) notes.add('複数の属性による分類（最初の属性で分類します）');
+    if (ranges.length || values.some((r) => (r.filter as { field: string }).field !== field)) notes.add('複数の属性による分類（最初の属性で分類）');
     spec.mode = 'categorized';
     spec.field = field;
     spec.symbol = values[0].symbol.symbol;
@@ -356,7 +356,7 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
     if (others?.symbol.color && !kid(others.rule, 'LineSymbolizer')) spec.symbol = { ...spec.symbol, fill: others.symbol.color };
   } else if (ranges.length) {
     const field = (ranges[0].filter as { field: string }).field;
-    if (ranges.some((r) => (r.filter as { field: string }).field !== field)) notes.add('複数の属性による段階（最初の属性で分けます）');
+    if (ranges.some((r) => (r.filter as { field: string }).field !== field)) notes.add('複数の属性による段階（最初の属性で区分）');
     spec.mode = 'graduated';
     spec.field = field;
     spec.symbol = ranges[0].symbol.symbol;
@@ -376,7 +376,7 @@ export function readSld(root: XmlElement, base: VectorStyleSpec, notes = new Sty
     spec.symbol = plain.symbol.symbol;
     if (symbolRules.length > 1) notes.add('2 つ目以降のルール');
   } else if (!spec.label.field) {
-    throw new Error('SLD に点・線・面のシンボルがありません');
+    throw new Error('SLD に点・線・面のシンボルなし');
   }
   return normalizeSpec(spec, base);
 }
@@ -409,12 +409,12 @@ export function readRasterRenderer(renderer: XmlElement, notes: StyleNotes): Ras
     const [r, g, b] = [band('redBand'), band('greenBand'), band('blueBand')];
     if (r !== null && g !== null && b !== null) out.bands = [r, g, b];
     else notes.add('一部のバンドが空の RGB 表示');
-    if (['redContrastEnhancement', 'greenContrastEnhancement', 'blueContrastEnhancement'].some((n) => minMax(kid(renderer, n)))) notes.add('RGB の最小値・最大値（ビューアの自動調整で表示します）');
+    if (['redContrastEnhancement', 'greenContrastEnhancement', 'blueContrastEnhancement'].some((n) => minMax(kid(renderer, n)))) notes.add('RGB の最小値・最大値（ビューアの自動調整で表示）');
   } else if (type === 'singlebandgray') {
     const gray = band('grayBand');
     if (gray !== null && gray > 0) out.bands = [gray, gray, gray];
     if (attr(renderer, 'gradient') === 'WhiteToBlack') out.colorScale = { scale: 'gray', reverse: true };
-    if (minMax(kid(renderer, 'contrastEnhancement'))) notes.add('グレーの最小値・最大値（ビューアの自動調整で表示します）');
+    if (minMax(kid(renderer, 'contrastEnhancement'))) notes.add('グレーの最小値・最大値（ビューアの自動調整で表示）');
   } else if (type === 'singlebandpseudocolor') {
     const b = band('band');
     if (b !== null && b > 0) out.bands = [b, b, b];
@@ -436,7 +436,7 @@ export function readRasterRenderer(renderer: XmlElement, notes: StyleNotes): Ras
         const list = items.map((i) => classOf(i.value, i.color, i.alpha, i.label));
         if (rampType === 'DISCRETE' && open) list.push(classOf(Math.max(max, ...items.map((i) => i.value)), open.color!, open.alpha, open.label));
         out.colorScale.classes = { kind: rampType === 'EXACT' ? 'exact' : 'range', method: 'manual', classes: list, ...(rampType === 'DISCRETE' ? { min } : {}) };
-      } else notes.add(`擬似カラーの値の範囲（${min} – ${max}）は表示中の明るさの範囲に置き換えます`);
+      } else notes.add(`擬似カラーの値の範囲（${min} – ${max}）は表示中の明るさの範囲で置き換え`);
     } else notes.add('擬似カラーの色');
   } else if (type === 'paletted') {
     // A color per value (a classified image): exact classes.
@@ -461,6 +461,6 @@ function classOf(value: number, color: { hex: string; opacity: number }, alpha: 
 
 /** The text of a style file chosen by the person: refused when it is too large to be a style. */
 export async function readStyleFile(file: File): Promise<string> {
-  if (file.size > MAX_STYLE) throw new Error(`${file.name} は大きすぎます（スタイルは 5 MB まで）`);
+  if (file.size > MAX_STYLE) throw new Error(`${file.name} は大きすぎ（スタイルは 5 MB まで）`);
   return file.text();
 }

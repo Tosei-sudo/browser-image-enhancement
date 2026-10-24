@@ -22,7 +22,7 @@ test('two panes share the view, each showing its own layer', async ({ page }) =>
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html?url=/fixture.tif&url=/fixture16.tif');
-  await expect(page.locator('#status')).toContainText('fixture16.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture16.tif を表示');
   await expect.poll(() => page.evaluate(() => window.viewer.images.list().length)).toBe(2);
   const mapBox = (await page.locator('#map').boundingBox())!;
 

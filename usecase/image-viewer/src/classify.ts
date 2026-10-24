@@ -124,7 +124,7 @@ export function trainModel(stats: ClassStats, kind: ClassifierKind, names: reado
   const { dims, counts } = stats;
   const classes = counts.length;
   const few = names.filter((_, c) => counts[c] < minPixels(kind, dims));
-  if (few.length) throw new Error(`学習用の画素が足りないクラスがあります: ${few.join('、')}（${minPixels(kind, dims)} 画素以上必要です）`);
+  if (few.length) throw new Error(`学習用の画素が不足のクラス: ${few.join('、')}（${minPixels(kind, dims)} 画素以上必要）`);
   const means = new Float64Array(classes * dims);
   for (let c = 0; c < classes; c++) for (let d = 0; d < dims; d++) means[c * dims + d] = stats.sums[c * dims + d] / counts[c];
   if (kind === 'distance') return { kind, dims, means };
@@ -144,7 +144,7 @@ export function trainModel(stats: ClassStats, kind: ClassifierKind, names: reado
     const ridge = Math.max(1e-9, (1e-4 * trace) / dims);
     for (let a = 0; a < dims; a++) cov[a * dims + a] += ridge;
     const inv = invertSpd(cov, dims);
-    if (!inv) throw new Error(`クラス「${names[c]}」の分散を求められませんでした（学習用の画素の値がそろいすぎています）`);
+    if (!inv) throw new Error(`クラス「${names[c]}」の分散の算出に失敗（学習用の画素の値がそろいすぎ）`);
     inverses.set(inv.inverse, c * dims * dims);
     constants[c] = -0.5 * inv.logDet;
   }
@@ -230,7 +230,7 @@ export function samplePixels(values: ReadonlyArray<ArrayLike<number>>, n: number
  */
 export function kMeans(samples: Float32Array, dims: number, k: number, iterations = 30, seed = 1): Float64Array {
   const n = samples.length / dims;
-  if (n < k) throw new Error(`値のある画素が ${n} しかなく、${k} クラスに分けられません`);
+  if (n < k) throw new Error(`値のある画素が ${n} のみのため、${k} クラスへの分類不可`);
   const rand = random(seed);
   const means = new Float64Array(k * dims);
   const dist2 = (i: number, c: number) => {

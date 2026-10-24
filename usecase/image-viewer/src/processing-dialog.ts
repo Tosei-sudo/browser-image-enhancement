@@ -54,7 +54,7 @@ function crsSetting(label: string, hint: string): string {
 /** The CRS chosen in {@link crsSetting}. */
 async function chosenCrs(form: FormData) {
   const code = ((form.get('preset') as string) || (form.get('code') as string) || '').trim();
-  if (!code) throw new Error('EPSG コードを入れてください');
+  if (!code) throw new Error('EPSG コードを入力');
   return targetCrs(code);
 }
 
@@ -69,10 +69,10 @@ export const tools: Tool[] = [
       <label>円弧の細かさ（90° あたりの分割数）<input name="segments" type="number" min="1" max="90" value="16" aria-label="分割数" /></label>
       <label>線の端<select name="cap" aria-label="線の端"><option value="round">丸</option><option value="flat">平ら</option><option value="square">四角</option></select></label>
       <label class="wide check"><input name="dissolve" type="checkbox" /><span>結果を1つに融合（ディゾルブ）</span></label>
-      <p class="wide processing-hint">WGS 84 楕円体上の距離で広げます（負の距離でポリゴンを縮めます）。</p>`,
+      <p class="wide processing-hint">WGS 84 楕円体上の距離で拡張（負の距離でポリゴンを縮小）。</p>`,
     run: async (input, form) => {
       const distance = Number(form.get('distance')) * Number(form.get('unit'));
-      if (!Number.isFinite(distance) || distance === 0) throw new Error('距離を入れてください');
+      if (!Number.isFinite(distance) || distance === 0) throw new Error('距離を入力');
       const result = geodesicBuffer(input, {
         distance,
         segments: Number(form.get('segments')) || 16,
@@ -87,8 +87,8 @@ export const tools: Tool[] = [
     label: 'ポイント→ライン',
     takes: ['point'],
     settings: (fields) => `
-      ${fieldSelect('order', '並べ替える属性（時刻など）', fields, '（並べ替えない：レイヤーの順）')}
-      ${fieldSelect('group', 'ラインを分ける属性', fields, '（分けない：1本）')}`,
+      ${fieldSelect('order', '並べ替える属性（時刻など）', fields, '（並べ替えなし：レイヤーの順）')}
+      ${fieldSelect('group', 'ラインを分ける属性', fields, '（分割なし：1本）')}`,
     run: async (input, form) => {
       const orderField = (form.get('order') as string) || null;
       const groupField = (form.get('group') as string) || null;
@@ -102,8 +102,8 @@ export const tools: Tool[] = [
     label: 'ポリゴンの重心',
     takes: ['polygon', 'line', 'point'],
     settings: () => `
-      <label class="wide check"><input name="perPart" type="checkbox" /><span>マルチポリゴンはパートごとに作る</span></label>
-      <label class="wide check"><input name="inside" type="checkbox" /><span>重心が外に出る形は内側の点にする</span></label>`,
+      <label class="wide check"><input name="perPart" type="checkbox" /><span>マルチポリゴンはパートごとに作成</span></label>
+      <label class="wide check"><input name="inside" type="checkbox" /><span>重心が外に出る形は内側の点を使用</span></label>`,
     run: async (input, form) => ({
       result: centroids(input, { perPart: form.has('perPart'), inside: form.has('inside') }),
       made: `重心${form.has('perPart') ? '（パートごと）' : ''}（${input.title}）`,
@@ -113,7 +113,7 @@ export const tools: Tool[] = [
     id: 'voronoi',
     label: 'ボロノイ分割',
     takes: ['point'],
-    settings: () => `${marginSetting}<p class="wide processing-hint">点ごとの領域（id 付き）を作ります。点の属性を引き継ぐときは「ティーセンポリゴン」を使ってください。</p>`,
+    settings: () => `${marginSetting}<p class="wide processing-hint">点ごとの領域（id 付き）を作成。点の属性を引き継ぐときは「ティーセンポリゴン」を使用。</p>`,
     run: async (input, form) => ({
       result: voronoi(input, { margin: Number(form.get('margin')), keepAttributes: false }),
       made: `ボロノイ分割（${input.title}）`,
@@ -125,10 +125,10 @@ export const tools: Tool[] = [
     takes: ['point'],
     settings: (_fields, layers) => `
       ${marginSetting}
-      <label>切り抜くポリゴンレイヤー<select name="clip" aria-label="切り抜くポリゴンレイヤー"><option value="">（切り抜かない）</option>${layers
+      <label>切り抜くポリゴンレイヤー<select name="clip" aria-label="切り抜くポリゴンレイヤー"><option value="">（切り抜きなし）</option>${layers
         .map((l, i) => (kindsOf(l).has('polygon') ? `<option value="${i}">${escape(l.name)}</option>` : ''))
         .join('')}</select></label>
-      <p class="wide processing-hint">ボロノイ分割と同じ領域に、それぞれの点の属性を引き継ぎます。行政界などで切り抜けます。</p>`,
+      <p class="wide processing-hint">ボロノイ分割と同じ領域に、それぞれの点の属性を継承。行政界などで切り抜き可能。</p>`,
     run: async (input, form, layers) => {
       const clipLayer = form.get('clip') ? layers[Number(form.get('clip'))] : null;
       const clip = clipLayer?.service.vector?.source.getFeatures() ?? null;
@@ -142,7 +142,7 @@ export const tools: Tool[] = [
     id: 'reproject',
     label: 'ベクター投影変換',
     takes: ['point', 'line', 'polygon'],
-    settings: () => crsSetting('変換先の座標系', '結果のレイヤーはこの座標系で書き出されます（地図には重ねて表示します）。'),
+    settings: () => crsSetting('変換先の座標系', '結果のレイヤーはこの座標系で書き出し（地図には重ねて表示）。'),
     run: async (input, form) => {
       const crs = await chosenCrs(form);
       return { result: reproject(input, crs), made: `投影変換 → ${crs.name}（${input.title}）` };
@@ -163,13 +163,13 @@ export const tools: Tool[] = [
       return `
       ${select('x', 'X（経度・東西）の列', pick(/^(x|lon|lng|long|longitude|経度|東経|x座標|easting)$/i))}
       ${select('y', 'Y（緯度・南北）の列', pick(/^(y|lat|latitude|緯度|北緯|y座標|northing)$/i))}
-      ${crsSetting('値の座標系', 'X は経度または東向き（平面直角座標系の Y）、Y は緯度または北向き（平面直角座標系の X）です。結果はこの座標系で書き出されます。')}`;
+      ${crsSetting('値の座標系', 'X は経度または東向き（平面直角座標系の Y）、Y は緯度または北向き（平面直角座標系の X）。結果はこの座標系で書き出し。')}`;
     },
     run: async (input, form) => {
       const crs = await chosenCrs(form);
       const xField = form.get('x') as string;
       const yField = form.get('y') as string;
-      if (!xField || !yField) throw new Error('X と Y の列を選んでください');
+      if (!xField || !yField) throw new Error('X と Y の列を選択');
       return { result: xyToPoints(input, { xField, yField, crs }), made: `XY 座標からポイント（${xField}・${yField}、${crs.name}）（${input.title}）` };
     },
   },
@@ -317,26 +317,26 @@ export class ProcessingDialog {
     const entry = this.layers_[Number(this.input_.value)];
     const vector = entry?.service.vector;
     if (!entry || !vector) {
-      this.note_.textContent = `${tool.label}に使えるベクターレイヤーがありません`;
+      this.note_.textContent = `${tool.label}に使えるベクターレイヤーなし`;
       return;
     }
     const features: Feature[] = this.selected_.checked ? this.selection.list().filter((f) => vector.source.hasFeature(f)) : vector.source.getFeatures();
     const input: ProcessingInput = { title: entry.name, features, fields: vector.fields, crs: entry.service.fileCrs };
     const form = new FormData(this.dialog.querySelector('form')!);
     this.run_.disabled = true;
-    this.note_.textContent = `${tool.label}を実行しています…`;
+    this.note_.textContent = `${tool.label}を実行中…`;
     // Let the message show before a long computation holds the page.
     await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
     try {
       const { result, made } = await tool.run(input, form, this.layers_);
-      if (!result.features.length) throw new Error(['結果が空でした', ...(result.notes ?? [])].join('。'));
+      if (!result.features.length) throw new Error(['結果なし', ...(result.notes ?? [])].join('。'));
       await this.options.onResult(result, made);
       this.dialog.close();
       // The tools' own "made N" notes repeat the count.
-      const notes = (result.notes ?? []).filter((n) => !n.endsWith('作成しました'));
-      this.options.say([`${result.title} を作成しました（${result.features.length.toLocaleString()} 件、一時レイヤー）`, ...notes].join('。'));
+      const notes = (result.notes ?? []).filter((n) => !n.endsWith('作成'));
+      this.options.say([`${result.title} を作成（${result.features.length.toLocaleString()} 件、一時レイヤー）`, ...notes].join('。'));
     } catch (error) {
-      this.note_.textContent = `${tool.label}できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `${tool.label}に失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.run_.disabled = false;
     }
@@ -372,6 +372,6 @@ export class ProcessingDialog {
     this.selected_.disabled = selected === 0;
     this.selected_.nextElementSibling!.textContent = `選択中の地物だけ（${selected.toLocaleString()} 件）`;
     this.run_.disabled = !this.input_.options.length;
-    this.note_.textContent = this.input_.options.length ? '' : `${chosen.label}に使える${chosen.takes.includes('line') ? '' : chosen.takes[0] === 'point' ? 'ポイントの' : ''}ベクターレイヤーを開いてください${this.options.sources ? '（📂 でファイルを直接選べます）' : ''}`;
+    this.note_.textContent = this.input_.options.length ? '' : `${chosen.label}に使える${chosen.takes.includes('line') ? '' : chosen.takes[0] === 'point' ? 'ポイントの' : ''}ベクターレイヤーを開く必要あり${this.options.sources ? '（📂 でファイルを直接選択可能）' : ''}`;
   }
 }

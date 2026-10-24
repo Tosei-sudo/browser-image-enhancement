@@ -59,7 +59,7 @@ const call = (method, args) =>
       send({ type: 'call', id, method, args });
     } catch (error) {
       pending.delete(id);
-      reject(new TypeError(method + ': 引数を渡せません（関数や DOM は渡せません）: ' + (error && error.message)));
+      reject(new TypeError(method + ': 引数の受け渡し不可（関数や DOM は不可）: ' + (error && error.message)));
     }
   });
 self.onmessage = (event) => {
@@ -127,16 +127,16 @@ addEventListener('message', (event) => {
   try {
     worker = new Worker(URL.createObjectURL(new Blob([event.data.source], { type: 'text/javascript' })));
   } catch (error) {
-    port.postMessage({ type: 'end', error: 'スクリプトを開始できませんでした: ' + error.message });
+    port.postMessage({ type: 'end', error: 'スクリプトの開始に失敗: ' + error.message });
     return;
   }
   worker.onmessage = (e) => port.postMessage(e.data);
   worker.onerror = (e) => {
     e.preventDefault();
     const line = e.lineno - event.data.offset;
-    port.postMessage({ type: 'end', error: (e.message || 'スクリプトを読めませんでした') + (line > 0 ? '（行 ' + line + (e.colno ? ':' + e.colno : '') + '）' : '') });
+    port.postMessage({ type: 'end', error: (e.message || 'スクリプトの読み込みに失敗') + (line > 0 ? '（行 ' + line + (e.colno ? ':' + e.colno : '') + '）' : '') });
   };
-  worker.onmessageerror = () => port.postMessage({ type: 'end', error: '受け渡せない値を送りました' });
+  worker.onmessageerror = () => port.postMessage({ type: 'end', error: '受け渡し不可の値を送信' });
   port.onmessage = (e) => worker.postMessage(e.data);
 }, { once: true });
 </script>`;
@@ -190,7 +190,7 @@ export class ScriptRun {
   }
 
   /** Stops the script at once (its worker goes with the frame). */
-  stop(reason = '停止しました'): void {
+  stop(reason = '停止'): void {
     this.end_(reason);
   }
 
@@ -210,7 +210,7 @@ export class ScriptRun {
     switch (m.type) {
       case 'log': {
         if (this.lines_++ >= MAX_LOG_LINES) {
-          if (this.lines_ === MAX_LOG_LINES + 1) this.events.onLog?.(`出力が ${MAX_LOG_LINES} 行を超えたので、以降は表示しません`, 'warn');
+          if (this.lines_ === MAX_LOG_LINES + 1) this.events.onLog?.(`出力が ${MAX_LOG_LINES} 行を超えたため、以降は非表示`, 'warn');
           return;
         }
         const level = m.level === 'warn' || m.level === 'error' ? m.level : 'log';
@@ -232,7 +232,7 @@ export class ScriptRun {
         const handler = this.handlers.get(method);
         let reply: { type: 'reply'; id: number; ok: boolean; value?: unknown; error?: string };
         try {
-          if (!handler) throw new Error(`${method} という関数はありません`);
+          if (!handler) throw new Error(`${method} という関数なし`);
           const value = await handler(...(Array.isArray(m.args) ? m.args : []));
           reply = { type: 'reply', id, ok: true, value };
         } catch (error) {
@@ -242,7 +242,7 @@ export class ScriptRun {
         try {
           this.port_.postMessage(reply);
         } catch (error) {
-          this.port_.postMessage({ type: 'reply', id, ok: false, error: `結果を渡せませんでした: ${error instanceof Error ? error.message : String(error)}` });
+          this.port_.postMessage({ type: 'reply', id, ok: false, error: `結果の受け渡しに失敗: ${error instanceof Error ? error.message : String(error)}` });
         }
         return;
       }

@@ -73,7 +73,7 @@ export class GeorefDialog {
       <form method="dialog" class="service-form">
         <h2 id="georef-title">投影を設定</h2>
         <label class="wide">画像<select name="image" aria-label="画像"></select></label>
-        <label class="wide">座標系<input name="crs" type="text" list="georef-crs-list" placeholder="EPSG:6677 など（コードか名前で選ぶ）" aria-label="座標系" autocomplete="off" /></label>
+        <label class="wide">座標系<input name="crs" type="text" list="georef-crs-list" placeholder="EPSG:6677 など（コードか名前で選択）" aria-label="座標系" autocomplete="off" /></label>
         <datalist id="georef-crs-list">${crsPresets.map((p) => `<option value="${p.code}" label="${p.name}">${p.name}</option>`).join('')}</datalist>
         <p class="wide processing-hint georef-crs-note"></p>
         <label class="wide">配置<select name="method" aria-label="配置">${methods.map((m) => `<option value="${m.value}">${m.label}</option>`).join('')}</select></label>
@@ -89,7 +89,7 @@ export class GeorefDialog {
         </div>
         <div class="wide georef-part" data-method="corners">
           ${xy('tl', '左上')}${xy('tr', '右上')}${xy('br', '右下')}${xy('bl', '左下')}
-          <p class="processing-hint">画像の四隅が来る座標です。3 点以上あれば配置できます（4 点なら最小二乗で合わせます）。</p>
+          <p class="processing-hint">画像の四隅が来る座標。3 点以上で配置可能（4 点なら最小二乗で調整）。</p>
         </div>
         <div class="wide georef-part" data-method="keep">
           <p class="processing-hint georef-own"></p>
@@ -97,7 +97,7 @@ export class GeorefDialog {
       </form>
       <p class="service-status processing-note" role="status"></p>
       <div class="service-actions">
-        <button type="button" value="clear">投影を外す</button>
+        <button type="button" value="clear">投影の解除</button>
         <button type="button" value="cancel">閉じる</button>
         <button type="button" value="apply" class="primary">適用</button>
       </div>`;
@@ -136,7 +136,7 @@ export class GeorefDialog {
     const chosen = image && this.images_.includes(image) ? image : (this.images_.find((i) => originOf(i.source)?.unplaced) ?? this.images_[0]);
     if (chosen) this.image_.value = String(this.images_.indexOf(chosen));
     this.show_(side);
-    this.note_.textContent = this.images_.length ? '' : 'ファイルから開いた画像がありません';
+    this.note_.textContent = this.images_.length ? '' : 'ファイルから開いた画像なし';
     if (!this.dialog.open) this.dialog.showModal();
   }
 
@@ -202,7 +202,7 @@ export class GeorefDialog {
     const w = this.world_;
     this.dialog.querySelector('.georef-world')!.textContent = w
       ? `${w.from}: 左上 ${number(w.transform[0])}, ${number(w.transform[3])}、画素の大きさ ${number(w.transform[1])} × ${number(-w.transform[5])}${w.transform[2] || w.transform[4] ? '（回転あり）' : ''}`
-      : 'ワールドファイルを選んでください';
+      : 'ワールドファイルを選択';
   }
 
   /** Reads a chosen world file (or .aux.xml, which may also give the CRS). */
@@ -212,7 +212,7 @@ export class GeorefDialog {
       const text = await file.text();
       if (isAuxXmlName(file.name) || /\.xml$/i.test(file.name)) {
         const aux = parseAuxXml(text);
-        if (!aux.transform) throw new Error('GeoTransform がありません');
+        if (!aux.transform) throw new Error('GeoTransform なし');
         this.world_ = { transform: aux.transform, from: file.name, method: 'aux' };
         const crs = aux.crs && normalizeCrs(aux.crs);
         if (crs) this.crs_.value = crs;
@@ -224,7 +224,7 @@ export class GeorefDialog {
       if (!this.crs_.value && origin?.width && looksLikeDegrees(this.world_.transform, origin.width, origin.height)) this.crs_.value = 'EPSG:4326';
     } catch (error) {
       this.world_ = null;
-      this.note_.textContent = `${file.name} を読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
     this.showWorld_();
     void this.checkCrs_();
@@ -235,41 +235,41 @@ export class GeorefDialog {
     const crs = normalizeCrs(this.crs_.value);
     const note = this.crsNote_;
     if (!crs) {
-      note.textContent = this.crs_.value.trim() ? 'EPSG コード（例: EPSG:6677）か WKT を入れてください' : '画像の座標の座標系を選んでください';
+      note.textContent = this.crs_.value.trim() ? 'EPSG コード（例: EPSG:6677）か WKT を入力' : '画像の座標の座標系を選択';
       return null;
     }
     const projection = await crsProjection(crs).catch(() => null);
     if (normalizeCrs(this.crs_.value) !== crs) return null;
-    note.textContent = projection ? `${crsLabel(crs)}（単位: ${projection.getUnits() === 'degrees' ? '度' : 'm'}）` : `${crs} の定義が見つかりません`;
+    note.textContent = projection ? `${crsLabel(crs)}（単位: ${projection.getUnits() === 'degrees' ? '度' : 'm'}）` : `${crs} の定義なし`;
     return projection ? crs : null;
   }
 
   /** The placement the form describes; throws with a message for the person. */
   private async georef_(image: ViewerImage): Promise<Georef> {
     const origin = originOf(image.source);
-    if (!origin) throw new Error('この画像には投影を設定できません');
+    if (!origin) throw new Error('この画像には投影の設定不可');
     const crs = await this.checkCrs_();
-    if (!crs) throw new Error(this.crsNote_.textContent || '座標系を選んでください');
+    if (!crs) throw new Error(this.crsNote_.textContent || '座標系を選択');
     const method = this.method_.value as GeorefMethod;
     const value = (name: string) => {
       const text = (this.form_.elements.namedItem(name) as HTMLInputElement).value.trim().replace(/[−－]/g, '-').replace(/,/g, '');
       return text === '' ? NaN : Number(text);
     };
     const size = (): [number, number] => {
-      if (!origin.width) throw new Error('画像の大きさが分かりません');
+      if (!origin.width) throw new Error('画像の大きさが不明');
       return [origin.width, origin.height];
     };
     if (method === 'worldfile') {
-      if (!this.world_) throw new Error('ワールドファイルを選んでください');
+      if (!this.world_) throw new Error('ワールドファイルを選択');
       return { crs, transform: this.world_.transform, method: this.world_.method, from: this.world_.from };
     }
     if (method === 'keep') {
-      if (!origin.own) throw new Error('この画像には座標がありません');
+      if (!origin.own) throw new Error('この画像には座標なし');
       return { crs, transform: origin.own, method: 'keep' };
     }
     if (method === 'extent') {
       const extent = ['west', 'south', 'east', 'north'].map(value);
-      if (!extent.every(Number.isFinite)) throw new Error('左・下・右・上の座標を数字で入れてください');
+      if (!extent.every(Number.isFinite)) throw new Error('左・下・右・上の座標を数字で入力');
       return { crs, transform: extentTransform(extent, ...size()), method: 'extent' };
     }
     const points = ['tl', 'tr', 'br', 'bl'].map((c): [number, number] | null => {
@@ -284,7 +284,7 @@ export class GeorefDialog {
     if (!image || this.busy_) return;
     this.busy_ = true;
     this.apply_.disabled = this.clear_.disabled = true;
-    this.note_.textContent = clear ? '投影を外しています…' : '配置しています…';
+    this.note_.textContent = clear ? '投影を解除中…' : '配置中…';
     try {
       const georef = clear ? null : await this.georef_(image);
       await this.options.apply(image, georef);
@@ -295,7 +295,7 @@ export class GeorefDialog {
           // Not kept: the next image starts with an empty box.
         }
       }
-      this.note_.textContent = georef ? `${crsLabel(georef.crs)} で配置しました` : '投影を外しました';
+      this.note_.textContent = georef ? `${crsLabel(georef.crs)} で配置` : '投影を解除';
       this.clear_.hidden = !georef;
     } catch (error) {
       this.note_.textContent = error instanceof Error ? error.message : String(error);

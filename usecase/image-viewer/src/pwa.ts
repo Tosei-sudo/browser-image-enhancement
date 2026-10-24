@@ -47,7 +47,7 @@ export async function registerServiceWorker(url = './sw.js'): Promise<ServiceWor
     registration = await navigator.serviceWorker.register(url, { scope: './' });
   } catch (error) {
     // Not over HTTPS, or blocked: the site works as before, without being installable.
-    console.warn('Service Worker を登録できませんでした', error);
+    console.warn('Service Worker の登録に失敗', error);
     return null;
   }
   // Service workers turned off (as the browser tests do).
@@ -91,6 +91,6 @@ function showUpdate(worker: ServiceWorker): void {
   later.type = 'button';
   later.textContent = '後で';
   later.addEventListener('click', () => bar.remove());
-  bar.append('新しいバージョンがあります（開いているレイヤーは閉じます）', reload, later);
+  bar.append('新しいバージョンあり（開いているレイヤーは閉じる）', reload, later);
   document.body.append(bar);
 }

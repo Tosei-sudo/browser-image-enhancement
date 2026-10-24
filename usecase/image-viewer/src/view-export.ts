@@ -232,7 +232,7 @@ export async function drawView(map: OlMap, scale = 1, only?: BaseLayer, part?: r
   const view = map.getView();
   const resolution = view.getResolution();
   const center = view.getCenterInternal();
-  if (!size || !resolution || !center) throw new Error('地図が表示されていません');
+  if (!size || !resolution || !center) throw new Error('地図が非表示');
   const ratio = pixelRatioOf(map);
   const big = part ? [part[2], part[3]] : [Math.round(size[0] * scale), Math.round(size[1] * scale)];
   // The centre of the block, from where it is in the view as shown now.
@@ -248,7 +248,7 @@ export async function drawView(map: OlMap, scale = 1, only?: BaseLayer, part?: r
       if (partCenter) view.setCenterInternal(partCenter);
       view.setResolution(resolution / scale);
       if (Math.abs(view.getResolution()! * scale - resolution) > resolution * 1e-6) {
-        throw new Error(`この表示からは ${scale} 倍に拡大できません（ズームの上限です）`);
+        throw new Error(`この表示からは ${scale} 倍に拡大不可（ズームの上限）`);
       }
     }
     await rendered(map);
@@ -329,14 +329,14 @@ export async function clipImage(map: OlMap, image: ViewerImage): Promise<Clip> {
   const full = levels[0];
   const size = map.getSize();
   const projection = image.source.getProjection();
-  if (!full || !size || !projection) throw new Error('画像を読み込み中です');
+  if (!full || !size || !projection) throw new Error('画像を読み込み中');
   let origin: number[];
   let resolution: number[];
   try {
     origin = full.getOrigin();
     resolution = full.getResolution();
   } catch {
-    throw new Error('この画像の位置情報（回転付きの変換など）からは切り出せません');
+    throw new Error('この画像の位置情報（回転付きの変換など）からは切り出力不可');
   }
   const view = map.getView();
   let extent = view.calculateExtent(size);
@@ -345,7 +345,7 @@ export async function clipImage(map: OlMap, image: ViewerImage): Promise<Clip> {
   const [sx, sy] = getShift(image.source);
   extent = [extent[0] - sx, extent[1] - sy, extent[2] - sx, extent[3] - sy];
   const window = pixelWindow(extent, origin, resolution, full.getWidth(), full.getHeight());
-  if (!window) throw new Error('表示範囲に画像がありません');
+  if (!window) throw new Error('表示範囲に画像なし');
   const bands = full.getSamplesPerPixel();
   const sizes = levels.map((l) => ({ width: l.getWidth(), height: l.getHeight() }));
   const picked = pickLevel(sizes, window, bands);
@@ -392,7 +392,7 @@ export async function clipImage(map: OlMap, image: ViewerImage): Promise<Clip> {
 
 /** A canvas as a PNG. */
 function toPng(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG にできませんでした'))), 'image/png'));
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG 化に失敗'))), 'image/png'));
 }
 
 /** A file name without its folders and extension. */
@@ -484,13 +484,13 @@ export class ViewExportDialog {
     this.field_('scale').disabled = content === 'data';
     const notes: string[] = [];
     if (content === 'view') {
-      notes.push('地図に見えているとおり（補正・ベクターのスタイルとラベル・背景地図）を保存します。画像のない部分は透明です');
-      if (format.value === 'geotiff') notes.push(`8bit の RGBA で、地図の座標系（${this.map.getView().getProjection().getCode()}）の位置情報を付けます`);
-      if (this.map.getView().getRotation() && format.value === 'geotiff') notes.push('地図が回転しているので、回転付きの変換（ModelTransformation）で書きます');
+      notes.push('地図の表示どおり（補正・ベクターのスタイルとラベル・背景地図）に保存。画像のない部分は透明');
+      if (format.value === 'geotiff') notes.push(`8bit の RGBA で、地図の座標系（${this.map.getView().getProjection().getCode()}）の位置情報付き`);
+      if (this.map.getView().getRotation() && format.value === 'geotiff') notes.push('地図が回転しているため、回転付きの変換（ModelTransformation）で書き込み');
     } else {
       const image = this.clippable_();
-      notes.push(`${image ? stem(image.name) : '画像'} の表示範囲を、補正をかけない元の値のまま全バンド切り出します（座標系・データ型・nodata もそのまま）`);
-      notes.push(`大きすぎるときは RSET（縮小版）から読みます`);
+      notes.push(`${image ? stem(image.name) : '画像'} の表示範囲を、補正なしの元の値のまま全バンド切り出し（座標系・データ型・nodata もそのまま）`);
+      notes.push(`大きすぎる場合は RSET（縮小版）から読み込み`);
     }
     this.note_.textContent = notes.join('。');
   }
@@ -507,21 +507,21 @@ export class ViewExportDialog {
     try {
       if (content === 'data') {
         const image = this.clippable_();
-        if (!image) throw new Error('GeoTIFF の画像を選んでください');
-        say(`${stem(image.name)} の表示範囲を切り出しています…`);
+        if (!image) throw new Error('GeoTIFF の画像を選択');
+        say(`${stem(image.name)} の表示範囲を切り出し中…`);
         const clip = await clipImage(this.map, image);
         const name = `${stem(image.name)}_clip.tif`;
         await saveFile(name, clip.blob, say, `（${clip.width} × ${clip.height} px、${clip.bands} バンド${clip.reduced > 1 ? `、大きいため RSET 1/${clip.reduced} から` : ''}）`);
         return;
       }
-      say('表示範囲を描いています…');
+      say('表示範囲を描画中…');
       const drawn = await drawView(this.map, scale);
       const selected = this.images.selectedLayer();
       const base = `${selected ? stem(selected.name) : 'view'}_view`;
       let name: string;
       let blob: Blob;
       if (format === 'geotiff') {
-        if (!drawn.geo) throw new Error(`地図の座標系（${this.map.getView().getProjection().getCode()}）を GeoTIFF に書けません`);
+        if (!drawn.geo) throw new Error(`地図の座標系（${this.map.getView().getProjection().getCode()}）を GeoTIFF への書き込み不可`);
         name = `${base}.tif`;
         blob = canvasToGeoTIFF(drawn.canvas, drawn.geo);
       } else {
@@ -533,10 +533,10 @@ export class ViewExportDialog {
         blob,
         say,
         `（${drawn.canvas.width} × ${drawn.canvas.height} px）` +
-          (drawn.skipped ? `。読み取りを許可していないサーバーのレイヤー ${drawn.skipped} 件は含めていません` : ''),
+          (drawn.skipped ? `。読み取り不許可のサーバーのレイヤー ${drawn.skipped} 件は対象外` : ''),
       );
     } catch (error) {
-      say(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`保存失敗: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.busy_ = false;
     }

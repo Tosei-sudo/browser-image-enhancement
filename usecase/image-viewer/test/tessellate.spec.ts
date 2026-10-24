@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /*
- * 格子を敷き詰める: the person draws an area and gets hexagons over it as a
+ * 格子の敷き詰め: the person draws an area and gets hexagons over it as a
  * temporary layer; the view and a projection work too, and a script can run it.
  */
 
@@ -13,7 +13,7 @@ async function open(page: Page) {
   await page.waitForFunction(() => !window.viewer.map.getView().getAnimating());
 }
 
-const dialog = (page: Page) => page.getByRole('dialog', { name: '格子を敷き詰める' });
+const dialog = (page: Page) => page.getByRole('dialog', { name: '格子の敷き詰め' });
 const cellCount = (page: Page) =>
   page.evaluate(() => {
     const layers = window.viewer.images.layers();
@@ -26,14 +26,14 @@ test('hexagons over a drawn box, cut to it, as a temporary layer', async ({ page
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await page.getByRole('button', { name: 'ツール' }).click();
-  await page.getByRole('button', { name: '格子を敷き詰める…' }).click();
+  await page.getByRole('button', { name: '格子の敷き詰め…' }).click();
   const d = dialog(page);
   await expect(d).toBeVisible();
   await d.getByRole('radio', { name: '六角形' }).check();
   await d.getByLabel('大きさ', { exact: true }).fill('300');
   await expect(d.locator('.tessellate-size-note')).toContainText('面積 23.38 ha');
   await d.getByLabel('範囲の端のセル').selectOption('clip');
-  await d.getByRole('button', { name: '□ 四角を描く' }).click();
+  await d.getByRole('button', { name: '□ 四角を作図' }).click();
   await expect(d).toBeHidden();
   const box = (await page.locator('#map').boundingBox())!;
   const x = box.x + box.width / 2;
@@ -93,7 +93,7 @@ test('triangles from a script, and a clear message when nothing was drawn', asyn
   const d = dialog(page);
   await page.evaluate(() => window.viewer.tessellate.open());
   await d.getByRole('button', { name: '実行' }).click();
-  await expect(d.locator('.processing-note')).toContainText('地図に範囲を描いてください');
+  await expect(d.locator('.processing-note')).toContainText('地図に範囲を作図');
   await d.getByRole('button', { name: '閉じる' }).click();
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.getByRole('button', { name: 'スクリプト…' }).click();

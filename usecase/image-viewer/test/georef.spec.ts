@@ -55,7 +55,7 @@ test('a picture with its world file and .prj opens in place', async ({ page }) =
   const errors = await open(page);
   // 0.5 m pixels near Tokyo Station in JGD2011 zone IX.
   await openFiles(page, { png: 'scan.png', texts: { 'scan.pgw': '0.5\n0\n0\n-0.5\n-5999.75\n-35000.25\n', 'scan.prj': zone9 } });
-  await expect(page.locator('#status')).toContainText('scan.png を開きました');
+  await expect(page.locator('#status')).toContainText('scan.png を表示');
   const got = await placed(page);
   expect(got.kind).toBe('geotiff');
   expect(got.code).toBe('EPSG:6677');
@@ -76,7 +76,7 @@ test('a world file without a CRS asks for one, filled in', async ({ page }) => {
   // Longitude and latitude by the look of them.
   await expect(dialog.getByLabel('座標系', { exact: true })).toHaveValue('EPSG:4326');
   await dialog.getByRole('button', { name: '適用' }).click();
-  await expect(dialog.locator('.processing-note')).toContainText('で配置しました');
+  await expect(dialog.locator('.processing-note')).toContainText('で配置');
   const got = await placed(page);
   expect(got.kind).toBe('geotiff');
   expect(got.code).toBe('EPSG:4326');
@@ -87,7 +87,7 @@ test('a world file without a CRS asks for one, filled in', async ({ page }) => {
 test('a TIFF without georeferencing gets an extent from its ⌖ button, kept in the project', async ({ page }) => {
   const errors = await open(page);
   await openFiles(page, { tiff: { name: 'plain.tif', bytes: plainGeoTiff(300, 200, { geo: 'none' }) } });
-  await expect(page.locator('#status')).toContainText('plain.tif を開きました（投影の情報がありません');
+  await expect(page.locator('#status')).toContainText('plain.tif を表示（投影の情報なし');
   let got = await placed(page);
   expect(got.kind).toBe('image');
   await expect(page.locator('#info')).toContainText('なし（レイヤーの ⌖ で設定）');
@@ -104,7 +104,7 @@ test('a TIFF without georeferencing gets an extent from its ⌖ button, kept in 
   await dialog.getByLabel('右', { exact: true }).fill('-5700');
   await dialog.getByLabel('上', { exact: true }).fill('-35000');
   await dialog.getByRole('button', { name: '適用' }).click();
-  await expect(dialog.locator('.processing-note')).toContainText('で配置しました');
+  await expect(dialog.locator('.processing-note')).toContainText('で配置');
   got = await placed(page);
   expect(got.kind).toBe('geotiff');
   expect(got.code).toBe('EPSG:6677');
@@ -123,10 +123,10 @@ test('a TIFF without georeferencing gets an extent from its ⌖ button, kept in 
   expect(got.code).toBe('EPSG:6677');
   expect(got.extent).toEqual([-6000, -35200, -5700, -35000]);
 
-  // 「投影を外す」 goes back to where pictures go.
+  // 「投影の解除」 goes back to where pictures go.
   await page.evaluate(() => window.viewer.georef.open());
-  await dialog.getByRole('button', { name: '投影を外す' }).click();
-  await expect(dialog.locator('.processing-note')).toHaveText('投影を外しました');
+  await dialog.getByRole('button', { name: '投影の解除' }).click();
+  await expect(dialog.locator('.processing-note')).toHaveText('投影を解除');
   expect((await placed(page)).kind).toBe('image');
   expect(errors).toEqual([]);
 });
@@ -134,7 +134,7 @@ test('a TIFF without georeferencing gets an extent from its ⌖ button, kept in 
 test('coordinates in no CRS are kept, and four corners place a rotated image', async ({ page }) => {
   const errors = await open(page);
   await openFiles(page, { tiff: { name: 'nocrs.tif', bytes: plainGeoTiff(300, 200, { geo: 'no-crs' }) } });
-  await expect(page.locator('#status')).toContainText('nocrs.tif を開きました（投影の情報がありません');
+  await expect(page.locator('#status')).toContainText('nocrs.tif を表示（投影の情報なし');
   await page.locator('#images button[data-action=georef]').click();
   const dialog = page.locator('dialog.georef-dialog');
   // Its own coordinates are offered first.
@@ -142,7 +142,7 @@ test('coordinates in no CRS are kept, and four corners place a rotated image', a
   await expect(dialog.locator('.georef-own')).toContainText('画像の左上 500000, 4000000、画素の大きさ 10 × 10');
   await dialog.getByLabel('座標系', { exact: true }).fill('EPSG:32654');
   await dialog.getByRole('button', { name: '適用' }).click();
-  await expect(dialog.locator('.processing-note')).toContainText('で配置しました');
+  await expect(dialog.locator('.processing-note')).toContainText('で配置');
   let got = await placed(page);
   expect(got.code).toBe('EPSG:32654');
   expect(got.extent).toEqual([500000, 3998000, 503000, 4000000]);
@@ -158,7 +158,7 @@ test('coordinates in no CRS are kept, and four corners place a rotated image', a
     await dialog.getByLabel(`${name} Y`).fill(String(cy));
   }
   await dialog.getByRole('button', { name: '適用' }).click();
-  await expect(dialog.locator('.processing-note')).toContainText('で配置しました');
+  await expect(dialog.locator('.processing-note')).toContainText('で配置');
   got = await placed(page);
   expect(got.code).toMatch(/^SENSOR:/);
   await dialog.getByRole('button', { name: '閉じる' }).click();

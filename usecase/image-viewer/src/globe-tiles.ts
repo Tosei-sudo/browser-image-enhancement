@@ -192,7 +192,7 @@ export class MapTileRenderer {
   }
 
   private async draw_(extent: Extent, width: number, height: number, timeout: number): Promise<HTMLCanvasElement> {
-    if (!this.saved_) throw new Error('3D 表示が閉じられました');
+    if (!this.saved_) throw new Error('3D 表示の終了');
     const map = this.map;
     const view = map.getView();
     map.setSize([width, height]);

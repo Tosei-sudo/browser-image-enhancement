@@ -77,15 +77,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 /** The store of one `planStores` entry; null (with the reason in `problems`) when it cannot be used. */
 export function planStoreOf(value: unknown, problems: string[], index: number): PlanStoreConfig | null {
   const at = `planStores[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, token, fields, catalog, matchMinutes, missAfterDays } = value;
-  if (typeof url !== 'string' || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) return (problems.push(`${at} の url は編集できる …/FeatureServer/0 のようなレイヤーの URL にしてください`), null);
+  if (typeof url !== 'string' || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) return (problems.push(`${at} の url は編集できる …/FeatureServer/0 のようなレイヤーの URL で指定`), null);
   const mapped = { ...defaultPlanFields };
   if (isRecord(fields)) {
     for (const key of Object.keys(defaultPlanFields) as Array<keyof PlanStoreFields>) {
       const v = fields[key];
       if (typeof v === 'string' && /^[\w.]+$/.test(v)) mapped[key] = v;
-      else if (v !== undefined) problems.push(`${at} の fields.${key} は属性名にしてください`);
+      else if (v !== undefined) problems.push(`${at} の fields.${key} は属性名で指定`);
     }
   }
   const number = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback);
@@ -142,7 +142,7 @@ export async function layerOf(store: PlanStoreConfig, ask: StoreAsk): Promise<{ 
   for (const f of json.fields ?? []) types[f.name] = f.type;
   const oid = json.objectIdField ?? json.fields?.find((f) => f.type === 'esriFieldTypeOID')?.name ?? 'OBJECTID';
   const names = new Set(Object.keys(types));
-  for (const role of ['planId', 'shotTime'] as const) if (!names.has(store.fields[role])) throw new Error(`${store.label} に属性 ${store.fields[role]} がありません`);
+  for (const role of ['planId', 'shotTime'] as const) if (!names.has(store.fields[role])) throw new Error(`${store.label} に属性 ${store.fields[role]} なし`);
   return { names, types, oid };
 }
 
@@ -205,7 +205,7 @@ export async function addShots(store: PlanStoreConfig, ask: StoreAsk, features: 
     const json = (await ask(`${store.url}/applyEdits`, { adds: JSON.stringify(batch), rollbackOnFailure: 'false' }, store.token)) as { addResults?: Array<{ success: boolean; error?: { description?: string } | null }> };
     for (const r of json.addResults ?? []) {
       if (r.success) saved++;
-      else failed.push(r.error?.description ?? '保存できませんでした');
+      else failed.push(r.error?.description ?? '保存失敗');
     }
   }
   return { saved, failed };
@@ -333,7 +333,7 @@ export async function trackShots(
   now = Date.now(),
 ): Promise<ShotCheck[]> {
   const acquired = catalog.fields.acquired;
-  if (!acquired) throw new Error(`${catalog.label} に撮像日時の属性（fields.acquired）がありません`);
+  if (!acquired) throw new Error(`${catalog.label} に撮像日時の属性（fields.acquired）なし`);
   const changes: ShotCheck[] = [];
   const window = store.matchMinutes * 60000;
   for (const shot of shots) {

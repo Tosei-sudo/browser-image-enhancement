@@ -11,7 +11,7 @@ import { fromArrayBuffer } from 'geotiff';
 
 async function open(page: Page) {
   await page.goto('/index.html?url=/fixture.tif');
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   await page.waitForFunction(() => window.viewer.map.getView().getResolution() !== undefined);
 }
 
@@ -42,7 +42,7 @@ test('the view saves as a PNG and as a georeferenced GeoTIFF, at the screen size
 
   const png = await save(page, { format: 'png' });
   expect(png.suggestedFilename()).toBe('fixture_view.png');
-  await expect(page.locator('#status')).toHaveText(`fixture_view.png を保存しました（${width} × ${height} px）`);
+  await expect(page.locator('#status')).toHaveText(`fixture_view.png を保存（${width} × ${height} px）`);
   // The image is drawn in the middle (corrected on the GPU), nothing at the corner of the checkerboard.
   const base64 = (await readFile((await png.path())!)).toString('base64');
   const [middle, corner, size] = await page.evaluate(async (base64) => {
@@ -114,7 +114,7 @@ test("the selected GeoTIFF's samples under the view save with its bands, values 
     expect(data[i + 1]).toBe(Math.round(((Math.round(row) + y) / 255) * 200));
     expect(data[i + 2]).toBe(120);
   }
-  await expect(page.locator('#status')).toContainText(`fixture_clip.tif を保存しました（${w} × ${tif.getHeight()} px、3 バンド）`);
+  await expect(page.locator('#status')).toContainText(`fixture_clip.tif を保存（${w} × ${tif.getHeight()} px、3 バンド）`);
   expect(errors).toEqual([]);
 });
 

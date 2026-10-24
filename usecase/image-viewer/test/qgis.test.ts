@@ -51,7 +51,7 @@ describe('safe XML', () => {
 
   it('refuses entity declarations, oversized and broken documents', () => {
     expect(() => parseXml('<!DOCTYPE a [<!ENTITY x SYSTEM "file:///etc/passwd">]><a>&x;</a>')).toThrow(XmlError);
-    expect(() => parseXml('<a>' + 'x'.repeat(100) + '</a>', 50)).toThrow(/大きすぎます/);
+    expect(() => parseXml('<a>' + 'x'.repeat(100) + '</a>', 50)).toThrow(/大きすぎ/);
     expect(() => parseXml('<a><b></a>')).toThrow(XmlError);
     // Undeclared entities stay as written (never expanded).
     expect(parseXml('<a>&foo;</a>').text).toBe('&foo;');
@@ -274,7 +274,7 @@ describe('QGIS projects', () => {
     ]);
     expect(p.layers[5]).toMatchObject({ source: { url: 'https://example.com/scene.tif' }, bands: [3, 2, 1] });
     expect(read.unsupported).toEqual(['建物（データベース）', 'ベクタータイル（ベクタータイル）']);
-    expect(read.notes).toContain('roads: 絞り込み（サブセット）は使わず、すべての地物を開きます');
+    expect(read.notes).toContain('roads: 絞り込み（サブセット）は使わず、すべての地物を表示');
     expect(read.notes).toContain('parks: 表示方法「ルールによる表示」');
     expect(read.extent).toEqual({ crs: 'EPSG:3857', extent: [15545000, 4250000, 15565000, 4265000] });
   });

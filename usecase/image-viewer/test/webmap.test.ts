@@ -131,7 +131,7 @@ describe('planWebMap', () => {
     const features = collectionFeatures(notes.parts[0], 'EPSG:3857');
     expect(features).toHaveLength(1);
     expect(features[0].get('NAME')).toBe('東京');
-    expect(plan.unsupported).toEqual([{ title: 'KML', reason: 'KML レイヤーには対応していません' }]);
+    expect(plan.unsupported).toEqual([{ title: 'KML', reason: 'KML レイヤーには非対応' }]);
   });
   it('reads the base map, the extent and the bookmarks', () => {
     expect(plan.basemap.title).toBe('Topographic');
@@ -227,7 +227,7 @@ describe('buildWebMap', () => {
         { type: 'ref', title: '地図', visible: false, opacity: 1, ref: { kind: 'esri', url: 'https://e.com/MapServer', layer: 'map', settings: { layers: [1], layerDefs: { '1': 'A = 1' } } } },
         { type: 'ref', title: 'WMS', visible: true, opacity: 1, ref: { kind: 'wms', url: 'https://e.com/wms?SERVICE=WMS&map=x', layer: 'roads' } },
         { type: 'features', title: '一時', visible: true, opacity: 1, features, fields: [{ name: 'NAME', alias: '名前', type: 'string', editable: true, nullable: true }] },
-        { type: 'none', title: '画像.tif', visible: true, opacity: 1, reason: '画像は書けません' },
+        { type: 'none', title: '画像.tif', visible: true, opacity: 1, reason: '画像は書き込み不可' },
       ],
       extent: [0, 0, 100, 100],
       basemap: { config: { id: 'gsi', label: '地理院', type: 'xyz', url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', attributions: '<a href="x">国土地理院</a>', maxZoom: 18 } },
@@ -239,7 +239,7 @@ describe('buildWebMap', () => {
     const json = JSON.parse(JSON.stringify(result.json)) as { operationalLayers: Array<Record<string, any>>; baseMap: any; initialState: any; bookmarks: any[]; version: string };
     expect(json.version).toMatch(/^2\./);
     expect(result.included).toEqual(['公園', '地図', 'WMS', '一時']);
-    expect(result.skipped).toEqual([{ title: '画像.tif', reason: '画像は書けません' }]);
+    expect(result.skipped).toEqual([{ title: '画像.tif', reason: '画像は書き込み不可' }]);
     const [parks, map, wms, temp] = json.operationalLayers;
     expect(parks).toMatchObject({ layerType: 'ArcGISFeatureLayer', url: 'https://e.com/FeatureServer/0', visibility: true, opacity: 0.7, minScale: 100000, showLabels: true });
     expect(parks.layerDefinition.definitionExpression).toBe('KIND = 1');

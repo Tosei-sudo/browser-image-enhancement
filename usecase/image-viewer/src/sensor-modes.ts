@@ -116,14 +116,14 @@ function modeFrom(get: (role: (typeof roles)[number]) => unknown, scale: number,
 /** The catalog of one `sensorCatalogs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function sensorCatalogOf(value: unknown, problems: string[], index: number): SensorCatalogConfig | null {
   const at = `sensorCatalogs[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, token, fields, where, swathUnit, sarPattern, sensors } = value;
   let sar = defaultSar;
   if (typeof sarPattern === 'string' && sarPattern) {
     try {
       sar = new RegExp(sarPattern, 'i');
     } catch {
-      problems.push(`${at} の sarPattern は正規表現として読めません`);
+      problems.push(`${at} の sarPattern は正規表現として読み込み不可`);
     }
   }
   const scale = swathUnit === 'm' ? 0.001 : 1;
@@ -133,10 +133,10 @@ export function sensorCatalogOf(value: unknown, problems: string[], index: numbe
     // Written here: each sensor with its modes; what a sensor says holds for all its modes unless a mode says otherwise.
     const modes: SensorMode[] = [];
     sensors.forEach((s, i) => {
-      if (!isRecord(s) || typeof s.sensor !== 'string' || !s.sensor.trim()) return void problems.push(`${at}.sensors[${i}] に sensor（センサー名）がありません`);
+      if (!isRecord(s) || typeof s.sensor !== 'string' || !s.sensor.trim()) return void problems.push(`${at}.sensors[${i}] に sensor（センサー名）なし`);
       const list = Array.isArray(s.modes) && s.modes.length ? s.modes : [{}];
       list.forEach((m, j) => {
-        if (!isRecord(m)) return void problems.push(`${at}.sensors[${i}].modes[${j}] がオブジェクトではありません`);
+        if (!isRecord(m)) return void problems.push(`${at}.sensors[${i}].modes[${j}] はオブジェクトで指定`);
         const get = (role: (typeof roles)[number]) => (role === 'sensor' ? s.sensor : role === 'mode' ? (m.mode ?? m.name) : (m[role] ?? s[role]));
         const mode = modeFrom(get, scale, sar);
         if (mode) modes.push(mode);
@@ -146,17 +146,17 @@ export function sensorCatalogOf(value: unknown, problems: string[], index: numbe
   }
 
   if (typeof url !== 'string' || !/\/(FeatureServer|MapServer)\/\d+\/?$/i.test(url.split('?', 1)[0])) {
-    return (problems.push(`${at} は sensors（モードの一覧）か、…/FeatureServer/1 のようなテーブルの url を書いてください`), null);
+    return (problems.push(`${at} は sensors（モードの一覧）か、…/FeatureServer/1 のようなテーブルの url を記述`), null);
   }
-  if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）がありません`), null);
+  if (!isRecord(fields)) return (problems.push(`${at} に fields（属性名の対応）なし`), null);
   const mapped: SensorFields = {};
   for (const role of roles) {
     const name = fields[role];
     if (name === undefined || name === '') continue;
     if (isName(name)) mapped[role] = name;
-    else problems.push(`${at} の fields.${role} は属性名（英数字と _）にしてください`);
+    else problems.push(`${at} の fields.${role} は属性名（英数字と _）で指定`);
   }
-  if (!mapped.sensor) return (problems.push(`${at} に fields.sensor（センサー名の属性）がありません`), null);
+  if (!mapped.sensor) return (problems.push(`${at} に fields.sensor（センサー名の属性）なし`), null);
   return {
     ...base,
     url: url.split('?', 1)[0].replace(/\/+$/, ''),

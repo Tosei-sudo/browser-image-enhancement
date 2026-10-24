@@ -123,34 +123,34 @@ const geojson = new GeoJSON();
 /** A number option, checked. */
 function num(value: unknown, name: string, fallback?: number, min = -Infinity, max = Infinity): number {
   if (value === undefined || value === null) {
-    if (fallback === undefined) throw new TypeError(`${name} を数値で指定してください`);
+    if (fallback === undefined) throw new TypeError(`${name} を数値で指定`);
     return fallback;
   }
   const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-  if (typeof n !== 'number' || !Number.isFinite(n)) throw new TypeError(`${name} は数値で指定してください`);
-  if (n < min || n > max) throw new RangeError(`${name} は ${min}〜${max} の範囲で指定してください`);
+  if (typeof n !== 'number' || !Number.isFinite(n)) throw new TypeError(`${name} は数値で指定`);
+  if (n < min || n > max) throw new RangeError(`${name} は ${min}〜${max} の範囲で指定`);
   return n;
 }
 
 /** An options object (empty when none). */
 function opts(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('オプションはオブジェクトで指定してください');
+  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('オプションはオブジェクトで指定');
   return value as Record<string, unknown>;
 }
 
 /** A time from a script: a Date, milliseconds or text. */
 function time(value: unknown, name: string): number {
   const ms = value instanceof Date ? value.getTime() : typeof value === 'number' ? value : typeof value === 'string' ? new Date(value).getTime() : NaN;
-  if (!Number.isFinite(ms)) throw new TypeError(`${name} は日時（Date、ミリ秒、または "2026-10-20T09:00" のような文字列）で指定してください`);
+  if (!Number.isFinite(ms)) throw new TypeError(`${name} は日時（Date、ミリ秒、または "2026-10-20T09:00" のような文字列）で指定`);
   return ms;
 }
 
 /** `[west, south, east, north]` in longitude / latitude. */
 function lonLatBox(value: unknown, name = 'bbox'): [number, number, number, number] {
-  if (!Array.isArray(value) || value.length !== 4 || !value.every((v) => typeof v === 'number' && Number.isFinite(v))) throw new TypeError(`${name} は [西, 南, 東, 北]（経緯度）で指定してください`);
+  if (!Array.isArray(value) || value.length !== 4 || !value.every((v) => typeof v === 'number' && Number.isFinite(v))) throw new TypeError(`${name} は [西, 南, 東, 北]（経緯度）で指定`);
   const [w, s, e, n] = value as number[];
-  if (w > e || s > n) throw new RangeError(`${name} は [西, 南, 東, 北] の順です`);
+  if (w > e || s > n) throw new RangeError(`${name} は [西, 南, 東, 北] の順で指定`);
   return [w, s, e, n];
 }
 
@@ -198,29 +198,29 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
   const projection = () => ctx.map.getView().getProjection().getCode();
   let downloads = 0;
   const count = () => {
-    if (++downloads > MAX_DOWNLOADS) throw new Error(`1 回の実行で保存できるファイルは ${MAX_DOWNLOADS} 個までです`);
+    if (++downloads > MAX_DOWNLOADS) throw new Error(`1 回の実行で保存できるファイルは ${MAX_DOWNLOADS} 個まで`);
   };
 
   /** A layer named by its id, its name or its info object. */
   const layerOf = (ref: unknown): ViewerLayer => {
     const key = typeof ref === 'object' && ref !== null && 'id' in ref ? (ref as { id: unknown }).id : ref;
-    if (typeof key !== 'string' || !key) throw new TypeError('レイヤーを id か名前で指定してください（viewer.layers() で一覧できます）');
+    if (typeof key !== 'string' || !key) throw new TypeError('レイヤーを id か名前で指定（viewer.layers() で一覧可能）');
     const list = ctx.layers();
     const byId = list.find((l) => layerId(l) === key);
     if (byId) return byId;
     const byName = list.filter((l) => l.name === key);
     if (byName.length === 1) return byName[0];
-    if (byName.length > 1) throw new Error(`「${key}」という名前のレイヤーが ${byName.length} 個あります。id で指定してください`);
-    throw new Error(`レイヤー「${key}」が見つかりません`);
+    if (byName.length > 1) throw new Error(`「${key}」という名前のレイヤーが ${byName.length} 個。id で指定`);
+    throw new Error(`レイヤー「${key}」なし`);
   };
   const vectorOf = (ref: unknown): ViewerService & { service: { vector: NonNullable<ViewerService['service']['vector']> } } => {
     const layer = layerOf(ref);
-    if (layer.type !== 'service' || !layer.service.vector) throw new Error(`${layer.name} はベクターレイヤーではありません`);
+    if (layer.type !== 'service' || !layer.service.vector) throw new Error(`${layer.name} はベクターレイヤー以外`);
     return layer as never;
   };
   const imageOf = (ref: unknown): ViewerImage => {
     const layer = layerOf(ref);
-    if (layer.type !== 'image') throw new Error(`${layer.name} は画像（ラスター）レイヤーではありません`);
+    if (layer.type !== 'image') throw new Error(`${layer.name} は画像（ラスター）レイヤー以外`);
     return layer;
   };
 
@@ -249,19 +249,19 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
   const featuresById = (layer: ViewerService, ids: unknown): Feature[] => {
     if (!Array.isArray(ids)) ids = [ids];
     const wanted = (ids as unknown[]).map((v) => (typeof v === 'object' && v !== null && 'id' in v ? (v as { id: unknown }).id : v));
-    if (wanted.length > MAX_FEATURES) throw new RangeError(`一度に ${MAX_FEATURES.toLocaleString()} 件までです`);
+    if (wanted.length > MAX_FEATURES) throw new RangeError(`一度に ${MAX_FEATURES.toLocaleString()} 件まで`);
     const index = new Map(layer.service.vector!.source.getFeatures().map((f) => [scriptId(f), f]));
     return wanted.map((id) => {
       const f = typeof id === 'string' ? index.get(id) : undefined;
-      if (!f) throw new Error(`${layer.name} に id「${String(id)}」の地物がありません（viewer.features() の id を使ってください）`);
+      if (!f) throw new Error(`${layer.name} に id「${String(id)}」の地物なし（viewer.features() の id を使用）`);
       return f;
     });
   };
 
   /** Starts editing `layer` (the edit toolbar shows it) and returns its session. */
   const sessionOf = (layer: ViewerService) => {
-    if (!editTargetOf(layer.service)) throw new Error(`${layer.name} は編集できません`);
-    if (!ctx.editor.start(layer)) throw new Error(`${layer.name} の編集を始められませんでした（別のレイヤーの未保存の変更を残しました）`);
+    if (!editTargetOf(layer.service)) throw new Error(`${layer.name} は編集不可`);
+    if (!ctx.editor.start(layer)) throw new Error(`${layer.name} の編集開始に失敗（別のレイヤーの未保存の変更あり）`);
     const session = ctx.editor.session()!;
     if (!marks.has(session)) marks.set(session, session.steps());
     return session;
@@ -338,7 +338,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
         });
       }
       const limit = num(o.limit, 'limit', MAX_FEATURES, 0, MAX_FEATURES);
-      if (list.length > limit && o.limit === undefined) throw new RangeError(`${layer.name} は ${list.length.toLocaleString()} 件あります。limit か bbox で ${MAX_FEATURES.toLocaleString()} 件以下にしてください`);
+      if (list.length > limit && o.limit === undefined) throw new RangeError(`${layer.name} は ${list.length.toLocaleString()} 件。limit か bbox で ${MAX_FEATURES.toLocaleString()} 件以下で指定`);
       const fields = Array.isArray(o.fields) ? o.fields.filter((f): f is string => typeof f === 'string') : undefined;
       return writeFeatures(list.slice(0, limit), projection(), fields);
     },
@@ -363,7 +363,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       } else {
         const extent = createEmpty();
         for (const { geometry } of readFeatures(target, projection())) if (geometry) extend(extent, geometry.getExtent());
-        if (isEmpty(extent)) throw new Error('移動先の図形がありません');
+        if (isEmpty(extent)) throw new Error('移動先の図形なし');
         view.fit(extent, { padding: [40, 40, 40, 40], maxZoom: 19 });
       }
       return true;
@@ -386,18 +386,18 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       const items = readFeatures(value, projection());
       const session = sessionOf(layer);
       const target = session.target;
-      if (!target.canCreate) throw new Error(`${layer.name} には地物を追加できません`);
+      if (!target.canCreate) throw new Error(`${layer.name} には地物の追加不可`);
       const fields = layer.service.vector.fields;
       const ignored = new Set<string>();
       // Everything checked first: a refused feature adds nothing.
       const prepared = items.map((item, i) => {
-        if (!item.geometry && !layer.service.tableOnly) throw new Error(`${i + 1} 件目にジオメトリがありません`);
+        if (!item.geometry && !layer.service.tableOnly) throw new Error(`${i + 1} 件目にジオメトリなし`);
         let geometry = item.geometry;
         if (geometry && target.geometryType) {
           geometry = asLayerType(geometry, target.geometryType);
-          if (geometry.getType() !== target.geometryType) throw new Error(`${i + 1} 件目: ${layer.name} には ${target.geometryType} しか追加できません（${item.geometry!.getType()} です）`);
+          if (geometry.getType() !== target.geometryType) throw new Error(`${i + 1} 件目: ${layer.name} には ${target.geometryType} のみ追加可能（指定は ${item.geometry!.getType()}）`);
         } else if (geometry && !['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon'].includes(geometry.getType())) {
-          throw new Error(`${i + 1} 件目: ${geometry.getType()} は追加できません`);
+          throw new Error(`${i + 1} 件目: ${geometry.getType()} は追加不可`);
         }
         const values: Array<[string, unknown]> = [];
         for (const [name, v] of Object.entries(item.properties)) {
@@ -429,7 +429,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
     updateFeatures: (ref: unknown, updates: unknown) => {
       const layer = vectorOf(ref);
       const list = Array.isArray(updates) ? updates : [updates];
-      if (list.length > MAX_FEATURES) throw new RangeError(`一度に ${MAX_FEATURES.toLocaleString()} 件までです`);
+      if (list.length > MAX_FEATURES) throw new RangeError(`一度に ${MAX_FEATURES.toLocaleString()} 件まで`);
       const features = featuresById(layer, list.map((u) => (u as { id?: unknown })?.id));
       const session = sessionOf(layer);
       const fields = layer.service.vector.fields;
@@ -445,17 +445,17 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
             ignored.add(name);
             continue;
           }
-          if (!session.canEdit(f, field)) throw new Error(`${layer.name} の ${field.alias} は変更できません`);
+          if (!session.canEdit(f, field)) throw new Error(`${layer.name} の ${field.alias} は変更不可`);
           values.push([field, v]);
         }
         let g: Geometry | null = null;
         if (geometry !== undefined && geometry !== null) {
-          if (!session.isAdded(f) && !session.target.canUpdate) throw new Error(`${layer.name} の形状は変更できません`);
+          if (!session.isAdded(f) && !session.target.canUpdate) throw new Error(`${layer.name} の形状は変更不可`);
           g = geom(geometry);
           const type = session.target.geometryType;
           if (type) {
             g = asLayerType(g, type);
-            if (g.getType() !== type) throw new Error(`${i + 1} 件目: ${layer.name} の形状は ${type} です（${g.getType()} は使えません）`);
+            if (g.getType() !== type) throw new Error(`${i + 1} 件目: ${layer.name} の形状は ${type}（${g.getType()} は使用不可）`);
           }
         }
         return { f, values, g };
@@ -474,14 +474,14 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
           }
         }
       });
-      if (problems.length) throw new Error(`${problems.length} 件の値を設定できませんでした: ${problems[0]}（設定できたものは未保存の変更に入っています）`);
+      if (problems.length) throw new Error(`${problems.length} 件の値の設定に失敗: ${problems[0]}（設定済みの値は未保存の変更に保持）`);
       return { updated: prepared.length, pending: session.count(), ...(ignored.size ? { ignored: [...ignored] } : {}) };
     },
     deleteFeatures: (ref: unknown, ids: unknown) => {
       const layer = vectorOf(ref);
       const features = featuresById(layer, ids);
       const session = sessionOf(layer);
-      if (!session.target.canDelete && features.some((f) => !session.isAdded(f))) throw new Error(`${layer.name} の地物は削除できません`);
+      if (!session.target.canDelete && features.some((f) => !session.isAdded(f))) throw new Error(`${layer.name} の地物は削除不可`);
       ctx.selection.remove(features);
       session.group(() => session.delete(features));
       return { deleted: features.length, pending: session.count() };
@@ -499,21 +499,21 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       if (!layer || !session || count === 0) return { saved: 0, failed: [] };
       // A person agrees to every write a script asks for, with what and where it goes.
       if (!confirm(`スクリプトが「${layer.name}」の未保存の変更 ${count} 件を${session.target.savedTo}に保存しようとしています。保存しますか？`)) {
-        throw new Error('保存は取り消されました（変更は未保存のまま残っています）');
+        throw new Error('保存を取り消し（変更は未保存のまま保持）');
       }
       const outcome = await ctx.editor.save();
-      if (!outcome) throw new Error('ほかの保存が進行中です');
+      if (!outcome) throw new Error('ほかの保存が進行中');
       return { saved: outcome.saved, failed: outcome.failed.map((f) => ({ id: f.feature ? scriptId(f.feature) : null, message: f.message })), ...(outcome.note ? { note: outcome.note } : {}) };
     },
 
     // --- New layers -------------------------------------------------------------------------------------------
     createLayer: async (name: unknown, value: unknown, options?: unknown) => {
       const o = opts(options);
-      if (typeof name !== 'string' || !name.trim()) throw new TypeError('レイヤーの名前を指定してください');
+      if (typeof name !== 'string' || !name.trim()) throw new TypeError('レイヤーの名前を指定');
       const features = toOlFeatures(readFeatures(value ?? [], projection()));
       const fields = o.fields !== undefined ? readFields(o.fields) : inferFields(features);
       const row = await ctx.addTempLayer({ title: name.trim().slice(0, 200), features, fields, crs: wgs84 }, `スクリプトで作成（${features.length.toLocaleString()} 件）`);
-      if (!row) throw new Error('レイヤーを追加できませんでした');
+      if (!row) throw new Error('レイヤーの追加に失敗');
       return layerId(row);
     },
 
@@ -554,7 +554,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       let win: [number, number, number, number];
       if (o.window !== undefined) {
         const v = o.window;
-        if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => Number.isInteger(n))) throw new TypeError('window は [x0, y0, x1, y1]（画素、整数）で指定してください');
+        if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => Number.isInteger(n))) throw new TypeError('window は [x0, y0, x1, y1]（画素、整数）で指定');
         win = [Math.max(0, v[0]), Math.max(0, v[1]), Math.min(W, v[2]), Math.min(H, v[3])];
       } else if (o.bbox !== undefined) {
         const box = lonLatBox(o.bbox);
@@ -567,9 +567,9 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       }
       const ww = win[2] - win[0];
       const wh = win[3] - win[1];
-      if (ww <= 0 || wh <= 0) throw new RangeError('範囲が画像の外です');
+      if (ww <= 0 || wh <= 0) throw new RangeError('範囲が画像の外');
       const bands = o.bands === undefined ? Array.from({ length: spp }, (_, i) => i) : (Array.isArray(o.bands) ? o.bands : [o.bands]).map((b) => num(b, 'bands', undefined, 0, spp - 1));
-      if (!bands.every(Number.isInteger) || bands.length === 0) throw new TypeError('bands は 0 から始まるバンド番号の配列です');
+      if (!bands.every(Number.isInteger) || bands.length === 0) throw new TypeError('bands は 0 から始まるバンド番号の配列で指定');
       let width = o.width === undefined ? ww : Math.round(num(o.width, 'width', undefined, 1, 65536));
       let height = o.height === undefined ? wh : Math.round(num(o.height, 'height', undefined, 1, 65536));
       if (o.width !== undefined && o.height === undefined) height = Math.max(1, Math.round((wh * width) / ww));
@@ -612,14 +612,14 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       const o = opts(options);
       const image = imageOf(ref);
       const p = place(image);
-      if (!Array.isArray(points)) throw new TypeError('点は [[経度, 緯度], …] で指定してください');
-      if (points.length > MAX_POINTS) throw new RangeError(`一度に ${MAX_POINTS.toLocaleString()} 点までです`);
+      if (!Array.isArray(points)) throw new TypeError('点は [[経度, 緯度], …] で指定');
+      if (points.length > MAX_POINTS) throw new RangeError(`一度に ${MAX_POINTS.toLocaleString()} 点まで`);
       const spp = p.tiff.getSamplesPerPixel();
       const bands = o.bands === undefined ? Array.from({ length: spp }, (_, i) => i) : (Array.isArray(o.bands) ? o.bands : [o.bands]).map((b) => num(b, 'bands', undefined, 0, spp - 1));
       const values: Array<number[] | null> = [];
       for (const point of points) {
         const lonLat = Array.isArray(point) ? point : (point as { coordinates?: unknown })?.coordinates;
-        if (!Array.isArray(lonLat) || typeof lonLat[0] !== 'number' || typeof lonLat[1] !== 'number') throw new TypeError('点は [経度, 緯度] で指定してください');
+        if (!Array.isArray(lonLat) || typeof lonLat[0] !== 'number' || typeof lonLat[1] !== 'number') throw new TypeError('点は [経度, 緯度] で指定');
         const [x, y] = transform([lonLat[0], lonLat[1]], 'EPSG:4326', p.projection);
         const px = Math.floor((x - p.shift[0] - p.origin[0]) / p.resolution[0]);
         const py = Math.floor((y - p.shift[1] - p.origin[1]) / p.resolution[1]);
@@ -633,17 +633,17 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       return values;
     },
     createRaster: async (name: unknown, raster: unknown) => {
-      if (typeof name !== 'string' || !name.trim()) throw new TypeError('ラスターの名前を指定してください');
+      if (typeof name !== 'string' || !name.trim()) throw new TypeError('ラスターの名前を指定');
       const r = opts(raster);
       const width = Math.round(num(r.width, 'width', undefined, 1, 65536));
       const height = Math.round(num(r.height, 'height', undefined, 1, 65536));
       const raw = r.data;
       const bandList: ArrayLike<number>[] = Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'object' ? (raw as ArrayLike<number>[]) : [raw as ArrayLike<number>];
-      if (!bandList.every((b) => b && typeof b === 'object' && typeof b.length === 'number')) throw new TypeError('data はバンドごとの配列（Float32Array など）か、その配列です');
+      if (!bandList.every((b) => b && typeof b === 'object' && typeof b.length === 'number')) throw new TypeError('data はバンドごとの配列（Float32Array など）か、その配列で指定');
       const n = width * height;
-      if (n * bandList.length > MAX_SAMPLES) throw new RangeError(`画素が多すぎます（width × height × バンド数 が ${MAX_SAMPLES.toLocaleString()} まで）`);
+      if (n * bandList.length > MAX_SAMPLES) throw new RangeError(`画素が多すぎ（width × height × バンド数 が ${MAX_SAMPLES.toLocaleString()} まで）`);
       bandList.forEach((b, i) => {
-        if (b.length !== n) throw new RangeError(`バンド ${i} の値の数が ${b.length} です（width × height = ${n}）`);
+        if (b.length !== n) throw new RangeError(`バンド ${i} の値の数が ${b.length}（width × height = ${n}）`);
       });
       const first = bandList[0];
       const Type = (ArrayBuffer.isView(first) && !(first instanceof DataView) ? first.constructor : Float32Array) as new (n: number) => GeoTIFFSamples;
@@ -657,10 +657,10 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       const crs = typeof r.crs === 'string' ? r.crs : 'EPSG:4326';
       const proj = getProjection(crs);
       const code = Number(/^EPSG:(\d+)$/i.exec(crs)?.[1]);
-      if (!proj || !Number.isInteger(code)) throw new Error(`座標系 ${crs} は使えません（EPSG:4326 や、読み込んだ画像の crs を指定してください）`);
+      if (!proj || !Number.isInteger(code)) throw new Error(`座標系 ${crs} は使用不可（EPSG:4326 や、読み込んだ画像の crs を指定）`);
       const box = r.extent ?? r.bbox;
       if (!Array.isArray(box) || box.length !== 4 || !box.every((v) => typeof v === 'number' && Number.isFinite(v)) || box[0] >= box[2] || box[1] >= box[3]) {
-        throw new TypeError('extent（または bbox）は [最小X, 最小Y, 最大X, 最大Y]（crs の座標）で指定してください');
+        throw new TypeError('extent（または bbox）は [最小X, 最小Y, 最大X, 最大Y]（crs の座標）で指定');
       }
       const [x0, y0, x1, y1] = box as number[];
       const geographic = proj.getUnits() === 'degrees';
@@ -691,7 +691,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
     runTool: async (name: unknown, input: unknown, options?: unknown) => {
       const o = opts(options);
       const data = inputOf(input, Boolean(o.selected));
-      if (data.features.length === 0) throw new Error('入力の地物がありません');
+      if (data.features.length === 0) throw new Error('入力の地物なし');
       let result: ProcessingResult;
       let made: string;
       switch (name) {
@@ -717,7 +717,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
           break;
         }
         default:
-          throw new Error(`ツール「${String(name)}」はありません（buffer・centroid・pointsToLine・voronoi）`);
+          throw new Error(`ツール「${String(name)}」なし（buffer・centroid・pointsToLine・voronoi）`);
       }
       return resultOut(result, o.addLayer, `${made}・スクリプト`);
     },
@@ -730,7 +730,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
         const names = (Array.isArray(o.satellites) ? o.satellites : [o.satellites]).map(String);
         sats = sats.filter((s) => names.some((n) => s.name === n || s.id === n || s.name.toLowerCase().includes(n.toLowerCase())));
       }
-      if (!sats.length) throw new Error('計算する衛星がありません（viewer.satellites() で一覧できます）');
+      if (!sats.length) throw new Error('計算する衛星なし（viewer.satellites() で一覧可能）');
       const proj = projection();
       let targets: PlanTarget[];
       const t = o.target;
@@ -739,24 +739,24 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       } else {
         const data = inputOf(t, Boolean(o.selected));
         const features = data.features.filter((f) => f.getGeometry());
-        if (!features.length) throw new Error('対象に図形がありません');
+        if (!features.length) throw new Error('対象に図形なし');
         const labelField = typeof o.labelField === 'string' ? o.labelField : null;
         const label = (f: Feature, i: number) => String((labelField ? f.get(labelField) : null) ?? f.get('name') ?? f.get('名称') ?? `${data.title} ${i + 1}`);
         if (o.each === false || features.length === 1) {
           const one = targetOf(features, proj, features.length === 1 ? label(features[0], 0) : data.title);
           targets = one ? [one] : [];
         } else {
-          if (features.length > MAX_TARGETS) throw new RangeError(`対象が ${features.length} 件あります。${MAX_TARGETS} 件以下にするか each: false でまとめて計算してください`);
+          if (features.length > MAX_TARGETS) throw new RangeError(`対象 ${features.length} 件。${MAX_TARGETS} 件以下にするか each: false で一括計算`);
           targets = features.flatMap((f, i) => {
             const one = targetOf([f], proj, label(f, i));
             return one ? [one] : [];
           });
         }
       }
-      if (!targets.length) throw new Error('対象に図形がありません');
+      if (!targets.length) throw new Error('対象に図形なし');
       const start = o.start === undefined ? Date.now() : time(o.start, 'start');
       const end = o.end !== undefined ? time(o.end, 'end') : start + num(o.days, 'days', 7, 0.01, 60) * 86400000;
-      if (end <= start || end - start > 60 * 86400000) throw new RangeError('期間は 60 日以内で、end は start より後にしてください');
+      if (end <= start || end - start > 60 * 86400000) throw new RangeError('期間は 60 日以内で、end は start より後で指定');
       const planOptions: PlanOptions = {
         start,
         end,
@@ -771,7 +771,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       };
       const { result: planned } = startPlan(sats, targets, planOptions);
       const result = await planned;
-      if (typeof result === 'string') throw new Error(`撮像計画を計算できませんでした: ${result}`);
+      if (typeof result === 'string') throw new Error(`撮像計画の計算に失敗: ${result}`);
       let ops = result.opportunities;
       if (o.firstOnly) {
         const seen = new Set<string>();
@@ -819,7 +819,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       const ext = typeof o.name === 'string' ? /\.([a-z]+)$/i.exec(o.name)?.[1]?.toLowerCase() : undefined;
       const formatOf: Record<string, ExportFormat | 'csv'> = { geojson: 'geojson', json: 'geojson', csv: 'csv', shapefile: 'shapefile', shp: 'shapefile', zip: 'shapefile', geopackage: 'geopackage', gpkg: 'geopackage' };
       const format = formatOf[requested ?? ext ?? 'geojson'];
-      if (!format) throw new Error(`形式「${requested ?? ext}」には書き出せません（geojson・csv・shapefile・geopackage）`);
+      if (!format) throw new Error(`形式「${requested ?? ext}」には書き出し不可（geojson・csv・shapefile・geopackage）`);
       const data = inputOf(target, Boolean(o.selected));
       const layer = typeof target === 'string' || (typeof target === 'object' && target !== null && 'id' in target && !('type' in target)) ? vectorOf(target) : null;
       count();
@@ -837,8 +837,8 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       return file.name;
     },
     saveText: (name: unknown, text: unknown) => {
-      if (typeof text !== 'string') throw new TypeError('保存する内容は文字列で渡してください（JSON は JSON.stringify で）');
-      if (text.length > MAX_TEXT_FILE) throw new RangeError('内容が大きすぎます（64 MB まで）');
+      if (typeof text !== 'string') throw new TypeError('保存する内容は文字列で指定（JSON は JSON.stringify で）');
+      if (text.length > MAX_TEXT_FILE) throw new RangeError('内容が大きすぎ（64 MB まで）');
       const file = fileName(name, 'script', Object.keys(TEXT_TYPES));
       count();
       download(file, text, TEXT_TYPES[file.slice(file.lastIndexOf('.') + 1).toLowerCase()]);
@@ -866,13 +866,13 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
     },
     'geo.inverse': (a: unknown, b: unknown) => {
       const point = (v: unknown) => {
-        if (!Array.isArray(v) || typeof v[0] !== 'number' || typeof v[1] !== 'number') throw new TypeError('点は [経度, 緯度] で指定してください');
+        if (!Array.isArray(v) || typeof v[0] !== 'number' || typeof v[1] !== 'number') throw new TypeError('点は [経度, 緯度] で指定');
         return [v[0], v[1]] as LonLat;
       };
       return inverse(point(a), point(b));
     },
     'geo.direct': (from: unknown, azimuth: unknown, distance: unknown) => {
-      if (!Array.isArray(from) || typeof from[0] !== 'number' || typeof from[1] !== 'number') throw new TypeError('点は [経度, 緯度] で指定してください');
+      if (!Array.isArray(from) || typeof from[0] !== 'number' || typeof from[1] !== 'number') throw new TypeError('点は [経度, 緯度] で指定');
       return direct([from[0], from[1]], num(azimuth, '方位角'), num(distance, '距離'));
     },
     'geo.buffer': (g: unknown, distance: unknown, options?: unknown) => {
@@ -893,7 +893,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
     'geo.bbox': (g: unknown) => transformExtent(geom(g).getExtent(), projection(), 'EPSG:4326'),
     'geo.union': (...gs: unknown[]) => {
       const list = gs.length === 1 && Array.isArray(gs[0]) ? (gs[0] as unknown[]) : gs;
-      if (list.length > MAX_FEATURES) throw new RangeError('多すぎます');
+      if (list.length > MAX_FEATURES) throw new RangeError('多すぎ');
       return out(fromJsts(union(list.map((g) => toJsts(geom(g))))));
     },
     'geo.intersection': (a: unknown, b: unknown) => overlay(a, b, 'intersection'),
@@ -908,10 +908,10 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
     'geo.disjoint': predicate('disjoint'),
     'geo.equals': predicate('equals'),
     'geo.transform': (g: unknown, from: unknown, to: unknown) => {
-      if (typeof from !== 'string' || typeof to !== 'string') throw new TypeError('座標系を "EPSG:6677" のように指定してください');
-      if (!getProjection(from) || !getProjection(to)) throw new Error(`座標系 ${getProjection(from) ? to : from} が登録されていません`);
+      if (typeof from !== 'string' || typeof to !== 'string') throw new TypeError('座標系を "EPSG:6677" のように指定');
+      if (!getProjection(from) || !getProjection(to)) throw new Error(`座標系 ${getProjection(from) ? to : from} が未登録`);
       const o = g as { type?: string };
-      if (!o || typeof o !== 'object' || typeof o.type !== 'string') throw new TypeError('GeoJSON のジオメトリを指定してください');
+      if (!o || typeof o !== 'object' || typeof o.type !== 'string') throw new TypeError('GeoJSON のジオメトリを指定');
       const geometry = geojson.readGeometry(o.type === 'Feature' ? (g as { geometry: unknown }).geometry : g);
       return geojson.writeGeometryObject(geometry.transform(from, to));
     },

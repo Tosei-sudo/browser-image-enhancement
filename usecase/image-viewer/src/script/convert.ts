@@ -66,9 +66,9 @@ export function cleanValue(value: unknown): string | number | boolean | null {
 /** The attributes of an object from a script (at most {@link MAX_PROPERTIES}). */
 export function cleanProperties(value: unknown): Record<string, string | number | boolean | null> {
   if (value === null || value === undefined) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('properties はオブジェクトで指定してください');
+  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('properties はオブジェクトで指定');
   const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length > MAX_PROPERTIES) throw new RangeError(`属性が多すぎます（${MAX_PROPERTIES} 個まで）`);
+  if (entries.length > MAX_PROPERTIES) throw new RangeError(`属性が多すぎ（${MAX_PROPERTIES} 個まで）`);
   const out: Record<string, string | number | boolean | null> = {};
   for (const [key, v] of entries) {
     if (key === '' || key === 'geometry' || key.length > 255 || key === '__proto__') continue;
@@ -84,15 +84,15 @@ export function readGeometry(value: unknown, projection: string): Geometry {
   const g = value as { type?: unknown; geometry?: unknown } | null;
   // A feature given where a geometry is asked: its geometry.
   if (g && typeof g === 'object' && g.type === 'Feature') return readGeometry(g.geometry, projection);
-  if (!g || typeof g !== 'object' || typeof g.type !== 'string' || !geometryTypes.has(g.type)) throw new TypeError('GeoJSON のジオメトリ（type と coordinates）を指定してください');
+  if (!g || typeof g !== 'object' || typeof g.type !== 'string' || !geometryTypes.has(g.type)) throw new TypeError('GeoJSON のジオメトリ（type と coordinates）を指定');
   let geometry: Geometry;
   try {
     geometry = format.readGeometry(g, { dataProjection: 'EPSG:4326', featureProjection: projection });
   } catch (error) {
-    throw new TypeError(`${g.type} の座標を読めません`, { cause: error });
+    throw new TypeError(`${g.type} の座標の読み込み不可`, { cause: error });
   }
   const flat = (geometry as Geometry & { getFlatCoordinates?: () => number[] }).getFlatCoordinates?.() ?? [];
-  if (flat.some((v) => !Number.isFinite(v))) throw new TypeError(`${g.type} の座標に数値でないものがあります`);
+  if (flat.some((v) => !Number.isFinite(v))) throw new TypeError(`${g.type} の座標に数値以外の値あり`);
   return geometry;
 }
 
@@ -108,10 +108,10 @@ export function writeGeometry(geometry: Geometry, projection: string): object {
 export function readFeatures(value: unknown, projection: string): Array<{ geometry: Geometry | null; properties: Record<string, string | number | boolean | null>; id?: string }> {
   const v = value as { type?: unknown; features?: unknown } | null;
   const list: unknown[] = Array.isArray(value) ? value : v && typeof v === 'object' && v.type === 'FeatureCollection' && Array.isArray(v.features) ? v.features : [value];
-  if (list.length > MAX_FEATURES) throw new RangeError(`地物が多すぎます（一度に ${MAX_FEATURES.toLocaleString()} 件まで）`);
+  if (list.length > MAX_FEATURES) throw new RangeError(`地物が多すぎ（一度に ${MAX_FEATURES.toLocaleString()} 件まで）`);
   return list.map((item, i) => {
     const f = item as { type?: unknown; geometry?: unknown; properties?: unknown; id?: unknown } | null;
-    if (!f || typeof f !== 'object') throw new TypeError(`${i + 1} 件目が地物ではありません`);
+    if (!f || typeof f !== 'object') throw new TypeError(`${i + 1} 件目が地物以外`);
     try {
       if (f.type === 'Feature') {
         return {
@@ -178,17 +178,17 @@ export function inferFields(features: readonly Feature[]): Field[] {
 
 /** Fields a script described (`{ name, type, alias }`), checked. */
 export function readFields(value: unknown): Field[] {
-  if (!Array.isArray(value)) throw new TypeError('fields は配列で指定してください');
+  if (!Array.isArray(value)) throw new TypeError('fields は配列で指定');
   const types = new Set(['string', 'integer', 'double', 'date']);
   const seen = new Set<string>();
   return value.map((item, i) => {
     const f = item as { name?: unknown; type?: unknown; alias?: unknown } | null;
     const name = typeof f === 'string' ? f : f?.name;
-    if (typeof name !== 'string' || !name || name.length > 255) throw new TypeError(`fields の ${i + 1} 番目に name がありません`);
-    if (seen.has(name)) throw new TypeError(`fields の ${name} が重複しています`);
+    if (typeof name !== 'string' || !name || name.length > 255) throw new TypeError(`fields の ${i + 1} 番目に name なし`);
+    if (seen.has(name)) throw new TypeError(`fields の ${name} が重複`);
     seen.add(name);
     const type = typeof f === 'object' && f && typeof f.type === 'string' ? f.type : 'string';
-    if (!types.has(type)) throw new TypeError(`fields の ${name}: type は string・integer・double・date のどれかです`);
+    if (!types.has(type)) throw new TypeError(`fields の ${name}: type は string・integer・double・date のいずれか`);
     const alias = typeof f === 'object' && f && typeof f.alias === 'string' ? f.alias.slice(0, 255) : name;
     return { name, alias, type: type as Field['type'], editable: true, nullable: true };
   });

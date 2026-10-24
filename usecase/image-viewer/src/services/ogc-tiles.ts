@@ -43,7 +43,7 @@ export async function readOgcTiles(url: string): Promise<ServiceCatalog> {
     const formats = formatsOf(c.links);
     if (formats.length) choices.push({ name: c.id, title: c.title, abstract: c.description, formats });
   }
-  if (choices.length === 0) throw new ServiceError('タイルを持つコレクションがありません');
+  if (choices.length === 0) throw new ServiceError('タイルを持つコレクションなし');
   return {
     kind: 'ogc-tiles',
     url,
@@ -94,10 +94,10 @@ async function openTiles(service: OgcService, url: string, choice: LayerChoice, 
   const collection = service.collections.find((c) => c.id === choice.name);
   const links = choice.name === DATASET ? service.links : collection?.links ?? [];
   const listLink = findLink(links, vector ? VECTOR_RELS : MAP_RELS, [/json/]);
-  if (!listLink) throw new ServiceError(vector ? 'ベクタータイルがありません' : '地図タイルがありません');
+  if (!listLink) throw new ServiceError(vector ? 'ベクタータイルなし' : '地図タイルなし');
   const tilesets = parseTilesets(await fetchJson(listLink.href), listLink.href).filter((t) => !t.dataType || t.dataType === (vector ? 'vector' : 'map'));
   let tileset = tilesets.find(isWebMercatorQuad);
-  if (!tileset) throw new ServiceError('WebMercatorQuad のタイルがありません');
+  if (!tileset) throw new ServiceError('WebMercatorQuad のタイルなし');
   let template = itemTemplate(tileset, format);
   if (!template || tileset.maxZoom === undefined) {
     // The list may leave the templates and limits to each tileset's own document.
@@ -110,7 +110,7 @@ async function openTiles(service: OgcService, url: string, choice: LayerChoice, 
       }
     }
   }
-  if (!template) throw new ServiceError('タイルの URL がわかりません');
+  if (!template) throw new ServiceError('タイルの URL が不明');
   const maxZoom = Math.min(tileset.maxZoom ?? 22, 24);
   const minZoom = Math.max(tileset.minZoom ?? 0, 0);
   const tileGrid = createXYZ({ maxZoom, minZoom });
@@ -147,7 +147,7 @@ async function openTiles(service: OgcService, url: string, choice: LayerChoice, 
     tileGrid,
     projection: 'EPSG:3857',
     gpu: context.gpu,
-    onNoCors: () => context.say(`${choice.title}: サーバーが CORS を許可していないため、補正せずに表示します`),
+    onNoCors: () => context.say(`${choice.title}: サーバーが CORS 非許可のため、補正なしで表示`),
   });
   service_.layer = tiles.layer;
   Object.defineProperty(service_, 'correction', { get: tiles.correction });

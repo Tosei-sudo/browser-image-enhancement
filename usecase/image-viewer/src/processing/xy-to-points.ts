@@ -31,7 +31,7 @@ export function coordinateValue(value: unknown): number | null {
 }
 
 export function xyToPoints(input: ProcessingInput, { xField, yField, crs }: XyOptions): ProcessingResult {
-  if (!getProjection(crs.projection)) throw new Error(`${crs.name} の座標系の定義がありません`);
+  if (!getProjection(crs.projection)) throw new Error(`${crs.name} の座標系の定義なし`);
   const geographic = getProjection(crs.projection)!.getUnits() === 'degrees';
   const features: Feature[] = [];
   let missing = 0;
@@ -57,8 +57,8 @@ export function xyToPoints(input: ProcessingInput, { xField, yField, crs }: XyOp
     const feature = new Feature({ ...attributesOf(row), geometry: new Point(at) });
     features.push(feature);
   }
-  const notes = [`ポイント ${features.length.toLocaleString()} 点を作成しました`];
-  if (missing) notes.push(`X・Y が数値でない行 ${missing.toLocaleString()} 件を飛ばしました`);
-  if (outside) notes.push(`座標系の範囲外の行 ${outside.toLocaleString()} 件を飛ばしました${swapped ? '（X と Y が逆かもしれません。X が経度、Y が緯度です）' : ''}`);
+  const notes = [`ポイント ${features.length.toLocaleString()} 点を作成`];
+  if (missing) notes.push(`X・Y が数値でない行 ${missing.toLocaleString()} 件をスキップ`);
+  if (outside) notes.push(`座標系の範囲外の行 ${outside.toLocaleString()} 件をスキップ${swapped ? '（X と Y が逆の可能性あり。X が経度、Y が緯度）' : ''}`);
   return { title: `${input.title}_ポイント`, features, fields: copyFields(input.fields), crs, notes };
 }

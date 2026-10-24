@@ -86,7 +86,7 @@ test('finds how far an image is off its reference, and makes an aligned copy', a
   await dialog.getByRole('button', { name: '実行' }).click();
   await expect(dialog).toBeHidden();
   // Where a point is → where drone.tif shows it: 10 m west, 6 m south.
-  await expect(page.locator('#status')).toContainText(/drone_aligned\.tif を作りました（ずれ 東 -\d+\.\d m・北 -\d\.\d m、照合 \d+\/\d+ か所/);
+  await expect(page.locator('#status')).toContainText(/drone_aligned\.tif を作成（ずれ 東 -\d+\.\d m・北 -\d\.\d m、照合 \d+\/\d+ か所/);
   const shift = /東 (-?[\d.]+) m・北 (-?[\d.]+) m/.exec((await page.locator('#status').textContent())!)!;
   expect(Math.abs(Number(shift[1]) + 10)).toBeLessThan(0.3);
   expect(Math.abs(Number(shift[2]) + 6)).toBeLessThan(0.3);

@@ -69,17 +69,17 @@ export class ResultSaveDialog {
         <label class="result-save-name">ファイル名 <input name="name" type="text" required spellcheck="false" autocomplete="off"></label>
         <fieldset class="result-save-format">
           <legend>形式</legend>
-          <label class="check"><input type="radio" name="format" value="cog" checked> COG（概要画像つき・圧縮。QGIS・GDAL・Web で速く開けます）</label>
-          <label class="check"><input type="radio" name="format" value="raw"> GeoTIFF（作ったまま・圧縮なし。すぐ保存できます）</label>
+          <label class="check"><input type="radio" name="format" value="cog" checked> COG（概要画像付き・圧縮。QGIS・GDAL・Web で高速表示）</label>
+          <label class="check"><input type="radio" name="format" value="raw"> GeoTIFF（作ったまま・圧縮なし。すぐ保存可能）</label>
         </fieldset>
         <details class="result-save-details">
           <summary>詳細設定</summary>
           <label>圧縮 <select name="compression"><option value="deflate">Deflate（予測子つき）</option><option value="none">なし</option></select></label>
-          <label>概要画像 <select name="resampling"><option value="average">平均</option><option value="nearest">最近傍（分類など）</option><option value="off">付けない</option></select></label>
+          <label>概要画像 <select name="resampling"><option value="average">平均</option><option value="nearest">最近傍（分類など）</option><option value="off">なし</option></select></label>
         </details>
         <label class="check result-save-shift" hidden><input type="checkbox" name="shift" checked> <span></span></label>
         <fieldset class="result-save-extras" hidden><legend>一緒に保存</legend></fieldset>
-        <p class="hint result-save-where"><span></span> <button type="button" value="folder" hidden>保存先を変える…</button></p>
+        <p class="hint result-save-where"><span></span> <button type="button" value="folder" hidden>保存先の変更…</button></p>
         <p class="note" role="status"></p>
         <div class="service-actions">
           <button type="button" value="cancel">閉じる</button>
@@ -121,7 +121,7 @@ export class ResultSaveDialog {
     (this.form_.querySelector('input[value=cog]') as HTMLInputElement).checked = true;
     field('compression').value = 'deflate';
     field('resampling').value = info.categorical ? 'nearest' : 'average';
-    const kept = info.kept ? 'ブラウザ内に保存済み' : 'このページの中だけ（再読み込みで消えます）';
+    const kept = info.kept ? 'ブラウザ内に保存済み' : 'このページ内のみ（再読み込みで消去）';
     this.what_.textContent = `「${main.name}」（${info.tool}、${formatBytes(main.size)}、${kept}）`;
     // A layer moved on the map (manual shift): saved where it is shown, if wanted.
     const [dx, dy] = image ? getShift(image.source) : [0, 0];
@@ -173,14 +173,14 @@ export class ResultSaveDialog {
     try {
       let saved: Saved;
       if (form.get('format') === 'raw') {
-        this.note_.textContent = '保存しています…';
+        this.note_.textContent = '保存中…';
         saved = await saveFolder.save(name, main);
       } else {
         const resampling = String(form.get('resampling'));
         const [dx, dy] = target.image && form.has('shift') ? getShift(target.image.source) : [0, 0];
         const opened = await saveFolder.open(name);
         const sink = opened.sink ?? results.scratch(name);
-        this.note_.textContent = 'COG を作っています… 0%';
+        this.note_.textContent = 'COG を作成中… 0%';
         const file = await writeCog(main, sink, opened.sink ? opened.saved.name : name, {
           compression: form.get('compression') === 'none' ? 'none' : 'deflate',
           overviews: resampling !== 'off',
@@ -189,7 +189,7 @@ export class ResultSaveDialog {
           scratch: () => (results.kept ? results.scratch('work') : new MemorySink()),
           control,
           onProgress: (done) => {
-            if (!control.cancelled) this.note_.textContent = `COG を作っています… ${Math.floor(done * 100)}%`;
+            if (!control.cancelled) this.note_.textContent = `COG を作成中… ${Math.floor(done * 100)}%`;
           },
         });
         if (opened.sink) saved = opened.saved;
@@ -207,8 +207,8 @@ export class ResultSaveDialog {
       this.options.say(savedMessage(saved, more));
       this.dialog.close();
     } catch (error) {
-      if (control.cancelled) this.options.say('保存を中止しました');
-      else this.note_.textContent = `保存できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      if (control.cancelled) this.options.say('保存を中止');
+      else this.note_.textContent = `保存失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.running_ = null;
       this.save_.disabled = false;

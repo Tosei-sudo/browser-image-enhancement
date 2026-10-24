@@ -40,20 +40,20 @@ describe('designed temporary layers', () => {
       ],
     });
     expect('errors' in result && result.errors).toEqual([
-      'レイヤーの名前を入れてください',
-      '属性「a」が重複しています（大文字・小文字は区別しません）',
-      '3 番目の属性の名前を入れてください',
-      '属性「fid」は書き出しで使う名前なので、別の名前にしてください',
-      '既定値: n は整数で入力してください',
-      '属性「c」: 候補値「x」は整数にしてください',
-      '属性「r」の範囲は 最小 ≦ 最大 にしてください',
-      '属性「k」の既定値は候補値から選んでください',
+      'レイヤーの名前を入力',
+      '属性「a」が重複（大文字・小文字の区別なし）',
+      '3 番目の属性の名前を入力',
+      '属性「fid」は書き出しで使う名前なので、別の名前で指定',
+      '既定値: n は整数で入力',
+      '属性「c」: 候補値「x」は整数で指定',
+      '属性「r」の範囲は 最小 ≦ 最大 で指定',
+      '属性「k」の既定値は候補値から選択',
     ]);
   });
 
   it('reads allowed values with or without names, and refuses duplicates', () => {
     expect(parseCodes('赤、青=ブルー', 'string')).toEqual([{ code: '赤', name: '赤' }, { code: '青', name: 'ブルー' }]);
-    expect(parseCodes('1, 1', 'integer')).toEqual({ error: '候補値「1」が重複しています' });
+    expect(parseCodes('1, 1', 'integer')).toEqual({ error: '候補値「1」が重複' });
   });
 
   it('opens empty, draws the chosen geometry type and starts new features with the defaults', () => {
@@ -65,7 +65,7 @@ describe('designed temporary layers', () => {
     expect(layer.info).toContainEqual(['ジオメトリ', 'ライン']);
     // "Any": the toolbar asks for each new feature.
     expect(tempLayer(designRecord({ title: 'x', geometryType: null, fields: [] }), memoryStore()).editTarget!.geometryType).toBeNull();
-    expect(() => designRecord({ title: '', geometryType: 'Point', fields: [] })).toThrow('レイヤーの名前を入れてください');
+    expect(() => designRecord({ title: '', geometryType: 'Point', fields: [] })).toThrow('レイヤーの名前を入力');
   });
 
   it('copies the design of another layer\'s fields', () => {

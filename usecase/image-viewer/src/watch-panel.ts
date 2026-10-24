@@ -123,8 +123,8 @@ export class WatchPanel {
       <p class="service-status" role="status"></p>
       <div class="watch-notices catalog-results"><ul class="watch-list"></ul></div>
       <div class="service-actions catalog-actions">
-        <button type="button" value="check" title="監視条件に合う新着画像を、いま画像カタログに問い合わせます">今すぐ確認</button>
-        <button type="button" value="clear" title="通知をすべて消します（監視条件は残ります）">通知を消去</button>
+        <button type="button" value="check" title="監視条件に合う新着画像を、即時に画像カタログへ問い合わせ">今すぐ確認</button>
+        <button type="button" value="clear" title="通知をすべて消去（監視条件は保持）">通知を消去</button>
         <button type="button" value="read" class="primary">すべて既読</button>
       </div>
       <details class="watch-more">
@@ -158,13 +158,13 @@ export class WatchPanel {
           <label class="check watch-point" hidden><input type="radio" name="area" value="point" /><span></span></label>
           <label class="check"><input type="radio" name="area" value="view" checked />いまの表示範囲</label>
           <label class="check watch-selected"><input type="radio" name="area" value="selected" /><span>選択中の地物</span></label>
-          <label class="check"><input type="radio" name="area" value="none" />指定しない</label>
+          <label class="check"><input type="radio" name="area" value="none" />指定なし</label>
         </fieldset>
         <p class="wide watch-conditions"></p>
-        <p class="wide watch-note">登録したときにある画像は通知せず、これから入る画像だけを知らせます。</p>
+        <p class="wide watch-note">登録したときにある画像は通知せず、これから入る画像だけを通知。</p>
         <div class="service-actions wide">
           <button type="button" value="cancel">キャンセル</button>
-          <button type="submit" value="ok" class="primary">監視を始める</button>
+          <button type="submit" value="ok" class="primary">監視開始</button>
         </div>
       </form>`;
     document.body.append(this.create_);
@@ -220,17 +220,17 @@ export class WatchPanel {
 
   /** Checks the watches that are due (all of them when `force`). */
   async check(force = false): Promise<void> {
-    if (force) this.status_.textContent = '確認しています…';
+    if (force) this.status_.textContent = '確認中…';
     let added: number | null;
     try {
       added = await checkDue(this.options.ask, this.options.interval * MINUTE, force);
     } catch (error) {
-      this.status_.textContent = `確認できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `確認失敗: ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
     await this.refresh();
-    if (added) this.options.say(`監視条件に合う新着画像が ${added} 件あります（「通知」）`);
-    if (force) this.status_.textContent = added === null ? 'ほかのウィンドウが確認しています' : added ? `新着 ${added} 件` : '新着はありません';
+    if (added) this.options.say(`監視条件に合う新着画像 ${added} 件（「通知」）`);
+    if (force) this.status_.textContent = added === null ? 'ほかのウィンドウが確認中' : added ? `新着 ${added} 件` : '新着なし';
   }
 
   /** Reads the watches and notices again and shows them. */
@@ -238,13 +238,13 @@ export class WatchPanel {
     try {
       [this.watchList_, this.notices_] = await Promise.all([listWatches(), listNotices()]);
     } catch {
-      this.status_.textContent = 'ブラウザの保存領域（IndexedDB）が使えないため、監視できません';
+      this.status_.textContent = 'ブラウザの保存領域（IndexedDB）が使えないため、監視不可';
       return;
     }
     const unread = this.notices_.filter((n) => !n.read).length;
     this.count_.hidden = unread === 0;
     this.count_.textContent = unread > 99 ? '99+' : String(unread);
-    this.button.title = unread ? `未読の通知が ${unread} 件あります` : '画像カタログの新着画像・撮像予定の通知と監視条件';
+    this.button.title = unread ? `未読の通知 ${unread} 件` : '画像カタログの新着画像・撮像予定の通知と監視条件';
     this.button.hidden = this.options.catalogs.length === 0 && !this.notices_.some((n) => n.kind === 'plan');
     void updateBadge();
     this.renderNotices();
@@ -257,8 +257,8 @@ export class WatchPanel {
       const empty = document.createElement('li');
       empty.className = 'watch-empty';
       empty.textContent = this.watchList_.length
-        ? '新着画像はまだありません'
-        : '監視条件がありません。「画像カタログ」で条件を決めて「この条件で監視…」を押すか、地図を右クリックして「この地点の新着画像を監視…」を選びます';
+        ? '新着画像なし'
+        : '監視条件なし。「画像カタログ」で条件を決めて「この条件で監視…」を押すか、地図を右クリックして「この地点の新着画像を監視…」を選択';
       this.list_.replaceChildren(empty);
       return;
     }
@@ -301,8 +301,8 @@ export class WatchPanel {
         const on = document.createElement('input');
         on.type = 'checkbox';
         on.checked = watch.enabled;
-        on.title = '監視する';
-        on.setAttribute('aria-label', `${watch.name} を監視する`);
+        on.title = '監視';
+        on.setAttribute('aria-label', `${watch.name} を監視`);
         on.addEventListener('change', () => void putWatch({ ...watch, enabled: on.checked }));
         const text = document.createElement('div');
         text.className = 'watch-text';
@@ -313,15 +313,15 @@ export class WatchPanel {
         const state = document.createElement('span');
         state.className = watch.lastError ? 'watch-error' : 'watch-state';
         state.textContent = watch.lastError
-          ? `確認できませんでした: ${watch.lastError}`
+          ? `確認失敗: ${watch.lastError}`
           : watch.lastChecked
             ? `最終確認 ${timeText(watch.lastChecked)}`
-            : 'まだ確認していません';
+            : '未確認';
         text.append(name, detail, state);
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.textContent = '削除';
-        remove.title = 'この監視条件とその通知を消します';
+        remove.title = 'この監視条件とその通知を削除';
         remove.addEventListener('click', () => void deleteWatch(watch.id));
         li.append(on, text, remove);
         return li;
@@ -331,7 +331,7 @@ export class WatchPanel {
 
   /** Registers (or drops) the installed app's Periodic Background Sync and says what checks when. */
   private async syncBackground(): Promise<void> {
-    const every = `開いている間は ${this.options.interval} 分ごとと起動したときに確認します`;
+    const every = `開いている間は ${this.options.interval} 分ごとと起動時に確認`;
     let state: BackgroundState = 'unsupported';
     try {
       const registration = await this.options.registration();
@@ -351,10 +351,10 @@ export class WatchPanel {
     this.backgroundState_ = state;
     this.background_.textContent =
       state === 'on'
-        ? `${every}。アプリを閉じていても、ブラウザが動いていればブラウザが決める間隔（半日ほど）で確認し、アプリのアイコンのバッジで知らせます。`
+        ? `${every}。アプリを閉じていても、ブラウザが動いていればブラウザが決める間隔（半日ほど）で確認し、アプリのアイコンのバッジで通知。`
         : state === 'off'
-          ? `${every}。インストールしたアプリとして使うと、閉じている間もブラウザが決める間隔で確認できることがあります。`
-          : `${every}。このブラウザは閉じている間の確認に対応していません（Chrome・Edge のインストールしたアプリのみ）。`;
+          ? `${every}。インストールしたアプリとしての利用時は、閉じている間もブラウザが決める間隔で確認できる場合あり。`
+          : `${every}。このブラウザは閉じている間の確認に非対応（Chrome・Edge のインストールしたアプリのみ）。`;
   }
 
   /** Fits the view to a notice's footprint and outlines it. */
@@ -363,7 +363,7 @@ export class WatchPanel {
     const source = this.footprint.getSource()!;
     source.clear();
     const geometry = feature?.getGeometry();
-    if (!feature || !geometry) return void this.options.say('この画像には範囲がありません');
+    if (!feature || !geometry) return void this.options.say('この画像には範囲なし');
     if (!this.map.getLayers().getArray().includes(this.footprint)) this.map.addLayer(this.footprint);
     source.addFeature(feature);
     this.map.getView().fit(geometry.getExtent(), { padding: [40, 40, 40, 40], maxZoom: 18, duration: 250 });
@@ -374,11 +374,11 @@ export class WatchPanel {
   async openNotice(notice: WatchNotice): Promise<void> {
     const catalog = this.catalogOf(notice);
     const feature = this.featureOf(notice);
-    if (!catalog || !feature) return void this.options.say('この通知の画像カタログが見つかりません');
+    if (!catalog || !feature) return void this.options.say('この通知の画像カタログなし');
     const record = recordOf(feature, catalog.fields);
-    if (!record.source) return void this.options.say(`${notice.imageId} には画像の場所がありません`);
+    if (!record.source) return void this.options.say(`${notice.imageId} には画像の場所なし`);
     if (!notice.read) await markRead([notice.id]);
-    this.options.say(`${notice.imageId} を開いています…`);
+    this.options.say(`${notice.imageId} を読み込み中…`);
     await this.options.open(record, catalog).catch(() => undefined);
   }
 
@@ -410,7 +410,7 @@ export class WatchPanel {
     const selected = this.options.selected().filter((f) => f.getGeometry()).length;
     const selectedRow = form.querySelector<HTMLElement>('.watch-selected')!;
     selectedRow.hidden = selected === 0;
-    selectedRow.querySelector('span')!.textContent = `選択中の地物（${selected} 件。複数の地点・範囲のどれかに写れば知らせます）`;
+    selectedRow.querySelector('span')!.textContent = `選択中の地物（${selected} 件。複数の地点・範囲のどれかに写れば通知）`;
     (form.querySelector(`input[value=${point ? 'point' : 'view'}]`) as HTMLInputElement).checked = true;
     form.querySelector('.watch-conditions')!.textContent = `条件: ${conditionsText({ catalog, conditions, areas: [] }).split(' ・ ').filter((p) => p !== '範囲なし').join(' ・ ')}`;
     // A point can join a watch that already has points or areas (several POIs in one watch).
@@ -430,7 +430,7 @@ export class WatchPanel {
     const adding = (form.elements.namedItem('target') as HTMLSelectElement).value !== '';
     for (const selector of ['.watch-name', '.watch-areas', '.watch-conditions']) form.querySelector<HTMLElement>(selector)!.hidden = adding;
     (form.elements.namedItem('name') as HTMLInputElement).required = !adding;
-    form.querySelector<HTMLButtonElement>('button[value=ok]')!.textContent = adding ? '地点を追加' : '監視を始める';
+    form.querySelector<HTMLButtonElement>('button[value=ok]')!.textContent = adding ? '地点を追加' : '監視開始';
   }
 
   /** Makes the watch of the create dialog (or adds its point to a watch) and checks it once (which notes the images already there). */
@@ -445,9 +445,9 @@ export class WatchPanel {
       try {
         await putWatch(await addAreas(target, [pending.point], this.options.ask));
       } catch (error) {
-        return void this.options.say(`地点を追加できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+        return void this.options.say(`地点の追加に失敗: ${error instanceof Error ? error.message : String(error)}`);
       }
-      return void this.options.say(`「${target.name}」に地点を追加しました`);
+      return void this.options.say(`「${target.name}」に地点を追加`);
     }
     const choice = (form.querySelector('input[name=area]:checked') as HTMLInputElement | null)?.value ?? 'view';
     const projection = this.map.getView().getProjection().getCode();
@@ -476,9 +476,9 @@ export class WatchPanel {
     try {
       await putWatch(watch);
     } catch (error) {
-      return void this.options.say(`監視条件を保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return void this.options.say(`監視条件の保存に失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
-    this.options.say(`「${name}」を監視します。新着画像は「通知」に出ます`);
+    this.options.say(`「${name}」を監視。新着画像は「通知」に表示`);
     await this.check();
   }
 }

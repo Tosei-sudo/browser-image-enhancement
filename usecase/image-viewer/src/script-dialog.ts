@@ -95,8 +95,8 @@ export class ScriptDialog {
       </div>
       <div class="script-bar">
         <select name="choice" aria-label="スクリプトを開く"></select>
-        <button type="button" value="save" title="この内容を名前を付けてブラウザに保存します">保存</button>
-        <button type="button" value="delete" title="選んでいる保存済みのスクリプトを削除します">削除</button>
+        <button type="button" value="save" title="この内容を名前を付けてブラウザに保存">保存</button>
+        <button type="button" value="delete" title="選択中の保存済みスクリプトを削除">削除</button>
         <details class="script-more">
           <summary title="ファイル">…</summary>
           <div class="script-menu">
@@ -108,13 +108,13 @@ export class ScriptDialog {
       <div class="script-editor"><pre class="script-highlight" aria-hidden="true"></pre><textarea class="script-code" spellcheck="false" autocomplete="off" aria-label="スクリプト（JavaScript）"></textarea></div>
       <div class="script-ask" role="group" aria-label="スクリプトからの確認" hidden>
         <span></span>
-        <button type="button" value="pick" class="primary">ファイルを選ぶ…</button>
-        <button type="button" value="decline">やめる</button>
+        <button type="button" value="pick" class="primary">ファイルを選択…</button>
+        <button type="button" value="decline">取消</button>
       </div>
       <div class="service-actions script-actions">
         <progress max="1" hidden></progress>
         <span class="script-status" role="status"></span>
-        <select name="repeat" aria-label="繰り返し" title="繰り返し：選ぶと「実行」から、このページを開いている間その間隔で実行し続けます（「停止」まで）"></select>
+        <select name="repeat" aria-label="繰り返し" title="繰り返し：選択すると「実行」から、このページを開いている間その間隔で実行を継続（「停止」まで）"></select>
         <button type="button" value="stop" disabled>停止</button>
         <button type="button" value="run" class="primary" title="実行（Ctrl+Enter）">実行</button>
       </div>
@@ -122,11 +122,11 @@ export class ScriptDialog {
       <details class="script-log">
         <summary>実行の記録</summary>
         <ol aria-label="実行の記録"></ol>
-        <p class="script-note">繰り返しはこのページを開いている間だけ動きます（ページやブラウザを閉じると止まります）。裏のタブでは、ブラウザが間隔を少し延ばすことがあります。</p>
+        <p class="script-note">繰り返しはこのページを開いている間のみ動作（ページやブラウザを閉じると停止）。裏のタブでは、ブラウザが間隔を少し延ばす場合あり。</p>
       </details>
       <details class="script-reference">
         <summary>使える関数</summary>
-        <p class="script-note">スクリプトはページから切り離された環境で動き、通信・保存領域・画面には触れません。ビューアの関数だけを <code>await</code> で呼べます。編集は編集バーの「保存」か <code>viewer.saveEdits()</code>（確認が出ます）まで、サーバーやファイルに書き込まれません。<code>viewer.</code> と打つと候補が出ます（Ctrl+Space でも）。座標は経緯度（WGS 84）です。</p>
+        <p class="script-note">スクリプトはページから切り離された環境で動作し、通信・保存領域・画面には非接触。ビューアの関数のみ <code>await</code> で呼び出し可能。編集は編集バーの「保存」か <code>viewer.saveEdits()</code>（確認あり）まで、サーバーやファイルに未反映。<code>viewer.</code> の入力で候補を表示（Ctrl+Space でも）。座標は経緯度（WGS 84）。</p>
         <dl></dl>
       </details>`;
     document.body.append(this.dialog);
@@ -324,7 +324,7 @@ export class ScriptDialog {
     this.current_?.stop();
     this.output_.textContent = '';
     this.setRunning(true);
-    this.status_.textContent = '実行しています…';
+    this.status_.textContent = '実行中…';
     const started = performance.now();
     const startedAt = new Date();
     const repeat = this.repeating_;
@@ -336,7 +336,7 @@ export class ScriptDialog {
         if (run !== this.current_) return;
         this.progress_.hidden = fraction === null;
         if (fraction !== null) this.progress_.value = fraction;
-        this.status_.textContent = message || '実行しています…';
+        this.status_.textContent = message || '実行中…';
       },
       onEnd: (error, value) => {
         finish();
@@ -346,11 +346,11 @@ export class ScriptDialog {
         if (value !== undefined) this.print(value, 'log');
         if (error) this.print(`エラー: ${error}`, 'error');
         const pending = this.context.editor.session()?.count() ?? 0;
-        const edits = pending ? `。未保存の変更が ${pending} 件あります（${this.context.editor.editing()?.name}）。確かめて編集バーの「保存」を押してください` : '';
-        const result = error ? (error === '停止しました' ? '停止しました' : 'エラーで止まりました') : '完了';
-        this.addLog_(startedAt, `${result}（${seconds} 秒）${error && error !== '停止しました' ? `: ${error}` : ''}`, !!error, repeat?.name ?? '');
+        const edits = pending ? `。未保存の変更 ${pending} 件（${this.context.editor.editing()?.name}）。確認して編集バーの「保存」で確定` : '';
+        const result = error ? (error === '停止' ? '停止' : 'エラーで停止') : '完了';
+        this.addLog_(startedAt, `${result}（${seconds} 秒）${error && error !== '停止' ? `: ${error}` : ''}`, !!error, repeat?.name ?? '');
         // A repeat goes on after an error too (the next run may well work); 「停止」 ends it.
-        if (repeat && repeat === this.repeating_ && error !== '停止しました') this.scheduleNext_(startedAt.getTime());
+        if (repeat && repeat === this.repeating_ && error !== '停止') this.scheduleNext_(startedAt.getTime());
         this.setRunning(false);
         const next = this.repeating_?.next;
         this.status_.textContent = `${result}（${seconds} 秒）${edits}${next ? `。次は ${clock(next)}（${REPEATS.find(([s]) => s === this.repeating_!.seconds)?.[1]}）` : ''}`;
@@ -370,8 +370,8 @@ export class ScriptDialog {
     this.current_?.stop();
     if (waiting) {
       this.setRunning(false);
-      this.status_.textContent = '繰り返しを止めました';
-      this.context.say('スクリプト: 繰り返しを止めました');
+      this.status_.textContent = '繰り返しを停止';
+      this.context.say('スクリプト: 繰り返しを停止');
     }
   }
 
@@ -423,7 +423,7 @@ export class ScriptDialog {
   }
 
   private listChoices(selected = ''): void {
-    this.choice_.replaceChildren(new Option('サンプル・保存したスクリプトを開く…', ''));
+    this.choice_.replaceChildren(new Option('サンプル・保存済みスクリプトを開く…', ''));
     const samples = document.createElement('optgroup');
     samples.label = 'サンプル';
     SAMPLES.forEach((s, i) => samples.append(new Option(s.name, `sample:${i}`)));
@@ -445,7 +445,7 @@ export class ScriptDialog {
     this.delete_.disabled = kind !== 'saved';
     if (!script) return;
     this.setCode(script.code);
-    this.status_.textContent = `「${script.name}」を開きました。「実行」で動かします`;
+    this.status_.textContent = `「${script.name}」を表示。「実行」で実行`;
   }
 
   private save(): void {
@@ -456,9 +456,9 @@ export class ScriptDialog {
     const at = list.findIndex((s) => s.name === name);
     if (at >= 0) list[at] = { name, code: this.code_.value };
     else list.push({ name, code: this.code_.value });
-    if (!writeSaved(list)) return void (this.status_.textContent = 'ブラウザに保存できませんでした（「.js に保存」でファイルにできます）');
+    if (!writeSaved(list)) return void (this.status_.textContent = 'ブラウザへの保存に失敗（「.js に保存」でファイル化可能）');
     this.listChoices(`saved:${at >= 0 ? at : list.length - 1}`);
-    this.status_.textContent = `「${name}」をこのブラウザに保存しました`;
+    this.status_.textContent = `「${name}」をこのブラウザに保存`;
   }
 
   private remove(): void {
@@ -470,7 +470,7 @@ export class ScriptDialog {
     list.splice(Number(index), 1);
     writeSaved(list);
     this.listChoices();
-    this.status_.textContent = `「${script.name}」を削除しました`;
+    this.status_.textContent = `「${script.name}」を削除`;
   }
 
   /**
@@ -518,9 +518,9 @@ export class ScriptDialog {
       input.click();
     });
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return void (this.status_.textContent = 'ファイルが大きすぎます（2 MB まで）');
+    if (file.size > 2 * 1024 * 1024) return void (this.status_.textContent = 'ファイルが大きすぎ（2 MB まで）');
     this.setCode(await file.text());
     this.choice_.value = '';
-    this.status_.textContent = `${file.name} を開きました。内容を確かめてから「実行」を押してください`;
+    this.status_.textContent = `${file.name} を表示。内容を確認してから「実行」`;
   }
 }

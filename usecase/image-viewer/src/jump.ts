@@ -103,11 +103,11 @@ export class JumpTo {
   jump(text: string): LonLat | null {
     const lonLat = parseCoordinate(text);
     if (!lonLat) {
-      this.options.say(`座標として読めませんでした: ${text}（緯度経度・MGRS・UTM に対応）`);
+      this.options.say(`座標として読み込み失敗: ${text}（緯度経度・MGRS・UTM に対応）`);
       return null;
     }
     this.goTo_(lonLat);
-    this.options.say(`移動しました: ${formatLatLon(lonLat)}`);
+    this.options.say(`移動: ${formatLatLon(lonLat)}`);
     return lonLat;
   }
 
@@ -117,14 +117,14 @@ export class JumpTo {
     this.goTo_(place.lonLat, place.extent);
     this.input_.value = place.name;
     this.input_.select();
-    this.options.say(`移動しました: ${place.name}（${place.source}）`);
+    this.options.say(`移動: ${place.name}（${place.source}）`);
   }
 
   /** Looks up `text` as a place (for tests and the console). */
   async findPlaces(text: string): Promise<Place[]> {
     if (!this.options.places?.enabled) return [];
     const { places, errors } = await this.options.places.search(text);
-    if (!places.length && errors.length) this.options.say(`地名を検索できませんでした（${errors.join('、')}）`);
+    if (!places.length && errors.length) this.options.say(`地名の検索に失敗（${errors.join('、')}）`);
     return places;
   }
 
@@ -153,7 +153,7 @@ export class JumpTo {
     clearTimeout(this.timer_);
     const places = this.shownFor_ === text && this.places_.length ? this.places_ : await this.findPlaces(text);
     if (places[0]) this.goToPlace(places[0]);
-    else this.options.say(`見つかりませんでした: ${text}（緯度経度・MGRS・UTM・地名・住所に対応）`);
+    else this.options.say(`該当なし: ${text}（緯度経度・MGRS・UTM・地名・住所に対応）`);
   }
 
   /** While typing a name: look it up once typing pauses. */
@@ -200,7 +200,7 @@ export class JumpTo {
     if (!places.length) {
       const li = document.createElement('li');
       li.className = 'jump-place-none';
-      li.textContent = '見つかりませんでした';
+      li.textContent = '該当なし';
       this.list_.append(li);
     }
     this.active_ = -1;

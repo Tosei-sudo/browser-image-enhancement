@@ -51,7 +51,7 @@ export class ByteReader {
     while (filled < n) {
       if (this.at_ >= this.chunk_.length && !(await this.more_())) {
         if (filled === 0) return null;
-        throw new Error('ファイルが途中で終わっています');
+        throw new Error('ファイルが途中で途切れ');
       }
       const take = Math.min(n - filled, this.chunk_.length - this.at_);
       out.set(this.chunk_.subarray(this.at_, this.at_ + take), filled);
@@ -66,7 +66,7 @@ export class ByteReader {
   async skip(n: number): Promise<void> {
     let left = n;
     while (left > 0) {
-      if (this.at_ >= this.chunk_.length && !(await this.more_())) throw new Error('ファイルが途中で終わっています');
+      if (this.at_ >= this.chunk_.length && !(await this.more_())) throw new Error('ファイルが途中で途切れ');
       const take = Math.min(left, this.chunk_.length - this.at_);
       this.at_ += take;
       left -= take;
@@ -117,7 +117,7 @@ export async function listZip(zip: Blob): Promise<ZipEntry[]> {
       break;
     }
   }
-  if (eocd < 0) throw new Error('.zip として読めませんでした');
+  if (eocd < 0) throw new Error('.zip として読み込み失敗');
   let count = tail.getUint16(eocd + 10, true);
   let size = tail.getUint32(eocd + 12, true);
   let start = tail.getUint32(eocd + 16, true);
@@ -182,11 +182,11 @@ function zipName(bytes: Uint8Array, utf8: boolean): string {
 /** The bytes of a .zip entry, decompressed as they are read. */
 export async function zipEntryChunks(zip: Blob, entry: ZipEntry): Promise<Chunks> {
   const header = await bytesAt(zip, entry.offset, entry.offset + 30);
-  if (header.getUint32(0, true) !== 0x04034b50) throw new Error(`${entry.name} を .zip から読めませんでした`);
+  if (header.getUint32(0, true) !== 0x04034b50) throw new Error(`${entry.name} を .zip から読み込み失敗`);
   const start = entry.offset + 30 + header.getUint16(26, true) + header.getUint16(28, true);
   const data = zip.slice(start, start + entry.compressedSize);
   if (entry.method === 0) return blobChunks(data);
-  if (entry.method !== 8) throw new Error(`${entry.name} の圧縮形式（${entry.method}）は読めません`);
+  if (entry.method !== 8) throw new Error(`${entry.name} の圧縮形式（${entry.method}）は読み込み不可`);
   return streamChunks(data.stream().pipeThrough(new DecompressionStream('deflate-raw')));
 }
 
@@ -216,7 +216,7 @@ export interface ShpHeader {
 
 export function readShpHeader(bytes: Uint8Array): ShpHeader {
   const view = new DataView(bytes.buffer, bytes.byteOffset, 100);
-  if (view.getInt32(0) !== 9994) throw new Error('.shp ではありません');
+  if (view.getInt32(0) !== 9994) throw new Error('.shp 以外');
   return {
     length: view.getInt32(24) * 2,
     shapeType: view.getInt32(32, true),
@@ -259,7 +259,7 @@ const emptyShape: Shape = { kind: 0, coords: new Float64Array(0), ends: [] };
  */
 export async function forEachShpRecord(reader: ByteReader, each: (index: number, content: DataView) => void | Promise<void>, boxesOnly = false): Promise<void> {
   const header = await reader.read(100);
-  if (!header) throw new Error('.shp が空です');
+  if (!header) throw new Error('.shp が空');
   readShpHeader(header);
   for (let index = 0; ; index++) {
     const head = await reader.read(8);
@@ -272,7 +272,7 @@ export async function forEachShpRecord(reader: ByteReader, each: (index: number,
     }
     const keep = boxesOnly ? Math.min(length, 36) : length;
     const content = await reader.read(keep);
-    if (!content) throw new Error('.shp が途中で終わっています');
+    if (!content) throw new Error('.shp が途中で途切れ');
     if (keep < length) await reader.skip(length - keep);
     await each(index, new DataView(content.buffer, content.byteOffset, content.byteLength));
   }

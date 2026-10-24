@@ -82,12 +82,12 @@ export class ExportDialog {
         </select></label>
         <label>座標系<select name="crs" aria-label="座標系"></select></label>
         <label class="wide check"><input name="selected" type="checkbox" /><span>選択中の地物だけ</span></label>
-        <label class="wide check"><input name="withStyle" type="checkbox" checked /><span>スタイルも保存する（QGIS でも同じ見た目で開けます）</span></label>
+        <label class="wide check"><input name="withStyle" type="checkbox" checked /><span>スタイルも保存（QGIS でも同じ見た目で表示可能）</span></label>
       </form>
       <p class="service-status export-note" role="status"></p>
       <div class="service-actions">
         <button type="button" value="cancel">キャンセル</button>
-        <button type="button" value="export" class="primary">書き出す</button>
+        <button type="button" value="export" class="primary">書き出し</button>
       </div>`;
     document.body.append(this.dialog);
     this.form_ = this.dialog.querySelector('form')!;
@@ -127,14 +127,14 @@ export class ExportDialog {
     const crs = this.choices_[Number(this.crs_.value)] ?? wgs84;
     const features = this.selected_.checked ? this.selectedOf_(entry) : vector.source.getFeatures();
     this.dialog.close();
-    this.options.say(`${entry.name} を書き出しています…`);
+    this.options.say(`${entry.name} を書き出し中…`);
     try {
       const style = this.withStyle_.checked ? exportStyle(entry) : undefined;
       const file = await exportFile(entry.name, features, vector.fields, format, crs, style);
       download(file.name, file.bytes, file.type);
-      this.options.say(`${features.length.toLocaleString()} 件を ${file.name} に書き出しました`);
+      this.options.say(`${features.length.toLocaleString()} 件を ${file.name} に書き出し`);
     } catch (error) {
-      this.options.say(`書き出せませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.options.say(`書き出し失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -151,12 +151,12 @@ export class ExportDialog {
     if (LON_LAT_ONLY.includes(format)) this.crs_.value = '0';
     this.crs_.disabled = LON_LAT_ONLY.includes(format);
     const notes: string[] = [];
-    if (this.entry_?.service.vector?.truncated) notes.push('このレイヤーは先頭 5 万件だけ読み込んでいます。書き出すのも読み込んだ地物だけです');
-    if (this.entry_?.service.vector?.note) notes.push('このレイヤーは表示範囲の地物だけを（縮小時は間引いて）読み込んでいます。書き出すのも読み込んだ地物だけです');
-    if (format === 'shapefile') notes.push('属性名は 10 バイトまでに切り詰め、文字は UTF-8（.cpg 付き）で書きます。点・線・面が混ざっていると種類ごとに別の Shapefile にします');
-    if (format === 'geojson' && this.crs_.value !== '0') notes.push('WGS 84 以外の GeoJSON は標準外です（古い crs 指定を付けます）');
-    if (format === 'kml' || format === 'kmz') notes.push('KML は WGS 84 で書きます。name・description は KML の名前・説明に、ほかの属性は ExtendedData に入ります');
-    if (format === 'gpx') notes.push('GPX は WGS 84 で、点はウェイポイント、線はトラックになります（面は書けないので除きます）。属性は name・desc・ele・time だけが残ります');
+    if (this.entry_?.service.vector?.truncated) notes.push('このレイヤーは先頭 5 万件だけ読み込み中。書き出し対象も読み込んだ地物のみ');
+    if (this.entry_?.service.vector?.note) notes.push('このレイヤーは表示範囲の地物だけを（縮小時は間引いて）読み込み中。書き出し対象も読み込んだ地物のみ');
+    if (format === 'shapefile') notes.push('属性名は 10 バイトまでに切り詰め、文字は UTF-8（.cpg 付き）で書き込み。点・線・面が混在する場合は種類ごとに別の Shapefile');
+    if (format === 'geojson' && this.crs_.value !== '0') notes.push('WGS 84 以外の GeoJSON は標準外（古い crs 指定を付与）');
+    if (format === 'kml' || format === 'kmz') notes.push('KML は WGS 84 で書き込み。name・description は KML の名前・説明に、ほかの属性は ExtendedData に格納');
+    if (format === 'gpx') notes.push('GPX は WGS 84 で、点はウェイポイント、線はトラック（面は書き込み不可のため除外）。属性は name・desc・ele・time のみ保持');
     this.note_.textContent = notes.join('。');
   }
 }

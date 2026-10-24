@@ -77,7 +77,7 @@ test('makes NDVI of a four-band image, its bands guessed, in vegetation colors',
   await expect(dialog.locator('.composite-plan')).toContainText('32 × 32 px');
   await dialog.getByRole('button', { name: '実行' }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.locator('#status')).toContainText('field_ndvi.tif を作りました');
+  await expect(page.locator('#status')).toContainText('field_ndvi.tif を作成');
 
   const row = await firstRow(page);
   expect(row.name).toBe('field_ndvi.tif');
@@ -102,7 +102,7 @@ test('takes an expression of its own, and says what is wrong with one', async ({
   await expect(dialog.getByRole('button', { name: '実行' })).toBeDisabled();
   await expression.fill('if(B4 > 200, 1, 0)');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('field_calc.tif を作りました');
+  await expect(page.locator('#status')).toContainText('field_calc.tif を作成');
   const row = await firstRow(page);
   row.values.forEach((v, x) => expect(v).toBe(100 + 10 * x > 200 ? 1 : 0));
 });

@@ -249,6 +249,6 @@ describe('compressed NITF', () => {
 
 describe('NITF that cannot be read', () => {
   it('says which compression is not read', async () => {
-    await expect(nitfAsTiff(fixture('lossless-jpeg.ntf'))).rejects.toThrow(/には対応していません/);
+    await expect(nitfAsTiff(fixture('lossless-jpeg.ntf'))).rejects.toThrow(/には非対応/);
   });
 });

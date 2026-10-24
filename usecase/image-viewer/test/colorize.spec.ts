@@ -154,8 +154,8 @@ test('colors a one-band image in a scale, and lays two dates over each other in 
   await dialog.locator('.colorize-pair summary').click();
   await dialog.getByLabel('前の画像').selectOption({ label: 'scene_2024.tif' });
   await dialog.getByLabel('後の画像').selectOption({ label: 'scene_2025.tif' });
-  await dialog.getByRole('button', { name: '赤とシアンで重ねる' }).click();
-  await expect(page.locator('#status')).toContainText('scene_2024.tif を赤、scene_2025.tif をシアンで重ねました');
+  await dialog.getByRole('button', { name: '赤とシアンで重ね合わせ' }).click();
+  await expect(page.locator('#status')).toContainText('scene_2024.tif を赤、scene_2025.tif をシアンで重ね合わせ');
   // The canvas takes its CSS blend mode when the layer next draws.
   const state = () =>
     page.evaluate(() =>
@@ -179,7 +179,7 @@ test('colors a one-band image in a scale, and lays two dates over each other in 
 
   // No coloring any more.
   await dialog.getByLabel('画像', { exact: true }).selectOption({ label: 'scene_2025.tif' });
-  await dialog.getByRole('button', { name: '着色をやめる' }).click();
+  await dialog.getByRole('button', { name: '着色の解除' }).click();
   expect(await page.evaluate(() => [window.viewer.images.list()[0].layer.getColorScale(), window.viewer.images.list()[0].layer.getBlendMode()])).toEqual([null, 'normal']);
   await expect(page.locator('#images .image').first().locator('.color-swatch')).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -205,7 +205,7 @@ test('makes an RGB composite of two dates on different grids, and saves it', asy
   await expect(dialog.locator('.composite-plan')).toContainText('結果は 54 × 54 px、3 バンド（16 bit）、scene_2025.tif と同じ格子');
 
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('scene_2024_scene_2025_rgb.tif を作りました（54 × 54 px）');
+  await expect(page.locator('#status')).toContainText('scene_2024_scene_2025_rgb.tif を作成（54 × 54 px）');
   await expect(page.locator('#images .name').first()).toHaveText('RGB 合成scene_2024_scene_2025_rgb.tif');
 
   await processing(page, 'composite');

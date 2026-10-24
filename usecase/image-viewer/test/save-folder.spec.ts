@@ -35,21 +35,21 @@ test('files are written into the chosen folder, numbered when the name is taken,
   let downloads = 0;
   page.on('download', () => downloads++);
   await page.goto('/index.html?url=/fixture.tif');
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
 
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#save-folder').click();
   const dialog = page.locator('dialog.save-folder');
   await expect(dialog).toContainText('いまの保存先: ダウンロード');
-  await dialog.getByRole('button', { name: 'フォルダを選ぶ…' }).click();
+  await dialog.getByRole('button', { name: 'フォルダを選択…' }).click();
   await expect(dialog).toContainText('いまの保存先: フォルダ「out」');
   await dialog.getByRole('button', { name: '閉じる' }).click();
   await expect(page.locator('#save-folder')).toHaveText('保存先: out…');
 
   await saveView(page);
-  await expect(page.locator('#status')).toContainText('フォルダ「out」に fixture_view.png を保存しました');
+  await expect(page.locator('#status')).toContainText('フォルダ「out」に fixture_view.png を保存');
   await saveView(page);
-  await expect(page.locator('#status')).toContainText('フォルダ「out」に fixture_view (1).png を保存しました');
+  await expect(page.locator('#status')).toContainText('フォルダ「out」に fixture_view (1).png を保存');
   const files = await filesIn(page, 'out');
   expect(Object.keys(files).sort()).toEqual(['fixture_view (1).png', 'fixture_view.png']);
   expect(files['fixture_view.png']).toBeGreaterThan(1000);
@@ -61,7 +61,7 @@ test('files are written into the chosen folder, numbered when the name is taken,
 
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#save-folder').click();
-  await dialog.getByRole('button', { name: 'ダウンロードに戻す' }).click();
+  await dialog.getByRole('button', { name: 'ダウンロードに復帰' }).click();
   await expect(dialog).toContainText('いまの保存先: ダウンロード');
   await dialog.getByRole('button', { name: '閉じる' }).click();
   await expect(page.locator('#save-folder')).toHaveText('保存先…');

@@ -59,7 +59,7 @@ async function openCogAndStations(page: Page) {
   await page.getByRole('button', { name: 'URL を開く（COG・Esri ImageServer）' }).click();
   await page.getByRole('textbox', { name: 'URL を開く（COG・Esri ImageServer）' }).fill(new URL('/fixture.tif', page.url()).href);
   await page.getByRole('button', { name: '開く', exact: true }).click();
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   await page.locator('#open .ol-load-image button').first().click();
   await expect(page.locator('#images .name')).toHaveCount(2);
 }
@@ -93,7 +93,7 @@ test('a project saves the layers, their styles and corrections and the view, and
 
   await page.getByRole('button', { name: 'プロジェクト' }).click();
   await page.getByRole('button', { name: '保存', exact: true }).click();
-  await expect(page.locator('#status')).toHaveText('survey.ivproj に保存しました');
+  await expect(page.locator('#status')).toHaveText('survey.ivproj に保存');
   await expect(page).toHaveTitle('survey - 画像ビューア');
   const saved = JSON.parse(
     await page.evaluate(async () => (await (await (await navigator.storage.getDirectory()).getFileHandle('survey.ivproj')).getFile()).text()),
@@ -108,7 +108,7 @@ test('a project saves the layers, their styles and corrections and the view, and
   await expect(page.locator('#images .name')).toHaveCount(0);
   await page.getByRole('button', { name: 'プロジェクト' }).click();
   await page.getByRole('button', { name: '開く…', exact: true }).click();
-  await expect(page.locator('#status')).toHaveText('プロジェクト「survey」を開きました');
+  await expect(page.locator('#status')).toHaveText('プロジェクト「survey」を表示');
   expect(await state(page)).toEqual(before);
   expect(await page.locator('#images input[type=checkbox]').evaluateAll((boxes) => boxes.map((b) => (b as HTMLInputElement).checked))).toEqual([true, false]);
   const view = await page.evaluate(() => ({ center: window.viewer.map.getView().getCenter(), resolution: window.viewer.map.getView().getResolution(), base: window.viewer.baseMap.get() }));
@@ -116,7 +116,7 @@ test('a project saves the layers, their styles and corrections and the view, and
 
   // Saved again it goes to the same file, without asking where.
   await page.keyboard.press('Control+s');
-  await expect(page.locator('#status')).toHaveText('survey.ivproj に保存しました');
+  await expect(page.locator('#status')).toHaveText('survey.ivproj に保存');
   expect(errors).toEqual([]);
 });
 
@@ -154,15 +154,15 @@ test('files a project cannot find are asked for, and can be left out', async ({ 
   const dialog = page.getByRole('dialog', { name: 'プロジェクトのファイル' });
   await expect(dialog).toContainText('stations.geojson');
   await expect(dialog).toContainText('場所が不明');
-  await dialog.getByRole('button', { name: 'これらを省いて開く' }).click();
+  await dialog.getByRole('button', { name: 'これらを除外して開く' }).click();
   await expect(page.locator('#status')).toContainText('開けなかったもの: stations');
   await expect(page.locator('#images .name')).toHaveCount(0);
 
   // Again, choosing the file in the dialog: the picker finds it by name.
   await writeOpfs(page, 'stations.geojson', JSON.stringify(stations));
   await choose('survey.ivproj', text);
-  await dialog.getByRole('button', { name: 'ファイルを選ぶ…' }).click();
-  await expect(page.locator('#status')).toHaveText('プロジェクト「survey」を開きました');
+  await dialog.getByRole('button', { name: 'ファイルを選択…' }).click();
+  await expect(page.locator('#status')).toHaveText('プロジェクト「survey」を表示');
   expect(await names(page)).toEqual(['stations']);
 });
 
@@ -175,5 +175,5 @@ test('a file that is not a project says so', async ({ page }) => {
     input.files = list.files;
     input.dispatchEvent(new Event('change'));
   });
-  await expect(page.locator('#status')).toHaveText('other.ivproj を開けませんでした: 画像ビューアのプロジェクトファイルではありません');
+  await expect(page.locator('#status')).toHaveText('other.ivproj の読み込みに失敗: 画像ビューアのプロジェクトファイル以外');
 });

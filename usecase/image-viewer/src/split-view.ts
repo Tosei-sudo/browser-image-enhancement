@@ -188,7 +188,7 @@ export class SplitView {
     this.refresh();
     if (count > 1) {
       const empty = this.panes_.every((p) => !p.layer);
-      this.options.say(empty ? '並べて比較: 各画面の上で表示するレイヤーを選べます（画像を2枚以上開くと自動で並びます）' : `${count} 画面で並べて表示しています。どの画面を動かしても連動します`);
+      this.options.say(empty ? '並べて比較: 各画面の上で表示するレイヤーを選択可能（画像を2枚以上開くと自動で配置）' : `${count} 画面で並べて表示中。どの画面の操作も連動`);
     }
   }
 

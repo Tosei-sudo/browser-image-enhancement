@@ -37,7 +37,7 @@ test('files dropped together come in a group that folds, hides, moves and closes
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await drop(page, [tiff('scene_b4.tif'), tiff('scene_b3.tif'), tiff('scene_b2.tif')]);
-  await expect(page.locator('#status')).toContainText('3 件のレイヤーをグループ「scene」にまとめて開きました');
+  await expect(page.locator('#status')).toContainText('3 件のレイヤーをグループ「scene」にまとめて表示');
   // The last file on top, as files opened one after another are.
   expect(await groups(page)).toEqual([{ name: 'scene', layers: ['scene_b2.tif', 'scene_b3.tif', 'scene_b4.tif'] }]);
   const group = page.locator('#images > li.layer-group');
@@ -65,7 +65,7 @@ test('files dropped together come in a group that folds, hides, moves and closes
 
   // Another file: on top, outside the group; moving it down goes past the whole group.
   await drop(page, [tiff('other.tif')]);
-  await expect(page.locator('#status')).toContainText('other.tif を開きました');
+  await expect(page.locator('#status')).toContainText('other.tif を表示');
   expect(await page.evaluate(() => window.viewer.images.layers().map((l) => l.name))).toEqual(['other.tif', 'scene_b2.tif', 'scene_b3.tif', 'scene_b4.tif']);
   await page.locator('#images > li.image').getByRole('button', { name: '下へ' }).click();
   expect(await page.evaluate(() => window.viewer.images.layers().map((l) => l.name))).toEqual(['scene_b2.tif', 'scene_b3.tif', 'scene_b4.tif', 'other.tif']);
@@ -79,10 +79,10 @@ test('files dropped together come in a group that folds, hides, moves and closes
 
   // From the right-click menu, a layer goes into the group, and out of it.
   await page.locator('#images > li.image .name').click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'グループ「scene」に入れる' }).click();
+  await page.getByRole('menuitem', { name: 'グループ「scene」に追加' }).click();
   expect((await groups(page))[0].layers).toEqual(['other.tif', 'scene_b3.tif', 'scene_b2.tif', 'scene_b4.tif']);
   await group.locator('.group-layers li.image').first().locator('.name').click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'グループ「scene」から出す' }).click();
+  await page.getByRole('menuitem', { name: 'グループ「scene」から除外' }).click();
   expect(await page.evaluate(() => window.viewer.images.layers().map((l) => l.name))).toEqual(['other.tif', 'scene_b3.tif', 'scene_b2.tif', 'scene_b4.tif']);
   expect((await groups(page))[0].layers).toEqual(['scene_b3.tif', 'scene_b2.tif', 'scene_b4.tif']);
 
@@ -92,7 +92,7 @@ test('files dropped together come in a group that folds, hides, moves and closes
   await page.getByRole('menuitem', { name: '名前を変更…' }).click();
   await expect(group.locator('.group-label')).toHaveText('バンド');
   page.once('dialog', (d) => void d.accept());
-  await group.getByRole('button', { name: 'グループを閉じる（中のレイヤーもすべて閉じます）' }).click();
+  await group.getByRole('button', { name: 'グループを閉じる（中のレイヤーもすべて閉じる）' }).click();
   expect(await page.evaluate(() => window.viewer.images.layers().map((l) => l.name))).toEqual(['other.tif']);
   await expect(page.locator('#images li.layer-group')).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -101,7 +101,7 @@ test('files dropped together come in a group that folds, hides, moves and closes
 test('one file, or one image with the files that go with it, makes no group', async ({ page }) => {
   await open(page);
   await drop(page, [tiff('single.tif')]);
-  await expect(page.locator('#status')).toContainText('single.tif を開きました');
+  await expect(page.locator('#status')).toContainText('single.tif を表示');
   await expect(page.locator('#images li.layer-group')).toHaveCount(0);
   expect(await groups(page)).toEqual([]);
 });
@@ -155,7 +155,7 @@ test('a project keeps the groups, their names, folding and visibility', async ({
   expect(saved.layers.map((l) => l.group)).toEqual([0, 0, undefined]);
   page.once('dialog', (d) => void d.accept());
   await page.evaluate((project) => window.viewer.project.open(project, 'groups'), saved);
-  await expect(page.locator('#status')).toContainText('プロジェクト「groups」を開きました');
+  await expect(page.locator('#status')).toContainText('プロジェクト「groups」を表示');
   const opened = await page.evaluate(() => {
     const { images } = window.viewer;
     return images.groups().map((g) => ({ name: g.name, collapsed: g.collapsed, visible: g.visible, count: images.members(g).length, drawn: images.members(g).map((l) => l.layer.getVisible()) }));

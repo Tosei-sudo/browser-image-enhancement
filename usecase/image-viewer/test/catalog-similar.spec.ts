@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /*
- * 「似た画像を探す」 against a stand-in Esri catalog: from the layer of an
+ * 「類似画像の検索」 against a stand-in Esri catalog: from the layer of an
  * image opened from the catalog, the panel lists the images of the same
  * sensor with near angles over the same ground, the most alike first.
  */
@@ -80,9 +80,9 @@ test('finds images taken like one opened from the catalog', async ({ page }) => 
   await expect(page.locator('#images li.image')).toHaveCount(1);
   await dialog.locator('.catalog-close').click();
 
-  // The layer's menu: 「似た画像を探す…」.
+  // The layer's menu: 「類似画像の検索…」.
   await page.locator('#images li.image .name').click({ button: 'right' });
-  await page.getByRole('menuitem', { name: '似た画像を探す…' }).click();
+  await page.getByRole('menuitem', { name: '類似画像の検索…' }).click();
   await expect(dialog).toBeVisible();
   const box = dialog.locator('.catalog-similar');
   await expect(box).toBeVisible();
@@ -122,15 +122,15 @@ test('finds images taken like one opened from the catalog', async ({ page }) => 
   await expect(rows).toHaveCount(6);
   await expect(dialog.locator('input[name=sameSensor]')).not.toBeChecked();
 
-  // From the list: one image chosen, 「似た画像を探す」; back to the everyday search.
+  // From the list: one image chosen, 「類似画像の検索」; back to the everyday search.
   await rows.filter({ hasText: 'IMG-B' }).click();
-  await dialog.getByRole('button', { name: '似た画像を探す' }).click();
+  await dialog.getByRole('button', { name: '類似画像の検索' }).click();
   await expect(box).toContainText('IMG-B');
   await expect(rows.locator('td:nth-child(6)')).toHaveText(['IMG-A', 'IMG-C', 'IMG-E']);
   await box.locator('input[name=sameSensor]').check();
   await dialog.locator('button.catalog-search').click();
   await expect(rows.locator('td:nth-child(6)')).toHaveText(['IMG-A', 'IMG-C']);
-  await box.getByRole('button', { name: 'ふつうの検索に戻る' }).click();
+  await box.getByRole('button', { name: '通常の検索に復帰' }).click();
   await expect(box).toBeHidden();
   await expect(rows).toHaveCount(6);
   await expect(dialog.locator('thead')).not.toContainText('重なり');

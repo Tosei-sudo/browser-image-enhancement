@@ -163,7 +163,7 @@ export class ProjectControl {
       this.opening_ = opening.catch(() => {});
       await opening;
     }
-    if (projects.length > 1) this.options.say('プロジェクトは一度に一つだけ開けます。最初の一つを開きます');
+    if (projects.length > 1) this.options.say('プロジェクトは一度に一つのみ。最初の一つを表示');
     if (projects[0]) await this.openFile(projects[0], handleOf(projects[0]) ?? null);
   }
 
@@ -197,7 +197,7 @@ export class ProjectControl {
         const { group, added } = images.endBatch();
         if (many && group) void images.zoomToGroup(group);
         else if (many && added[0]) void images.zoomTo(added[0]);
-        if (group && added.length > 2) said = `${added.length} 件のレイヤーをグループ「${group.name}」にまとめて開きました`;
+        if (group && added.length > 2) said = `${added.length} 件のレイヤーをグループ「${group.name}」にまとめて表示`;
       }
       if (status) status.end(said);
       else if (said) this.options.say(said);
@@ -237,7 +237,7 @@ export class ProjectControl {
     try {
       read = readQgs(await qgisText(file));
     } catch (error) {
-      say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
     read.project.baseMap = this.options.baseMap.get();
@@ -252,10 +252,10 @@ export class ProjectControl {
         if (!projection) throw new Error();
         view.fit(transformExtent(read.extent.extent, projection, view.getProjection()), { size: map.getSize() });
       } catch {
-        read.notes.push(`表示範囲: 座標系 ${read.extent.crs} を読めませんでした`);
+        read.notes.push(`表示範囲: 座標系 ${read.extent.crs} の読み込みに失敗`);
       }
     }
-    const parts = [`QGIS プロジェクト「${name}」を開きました`];
+    const parts = [`QGIS プロジェクト「${name}」を表示`];
     if (read.unsupported.length) parts.push(`開けないレイヤー: ${read.unsupported.join('、')}`);
     if (read.notes.length) parts.push(`省いた設定: ${read.notes.join('、')}`);
     say(parts.join('。'));
@@ -290,7 +290,7 @@ export class ProjectControl {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     const files = project.fileSets.some((s) => !s.url);
-    say(`${title}.qgs を書き出しました${files ? '（手元のファイルは .qgs と同じフォルダーに置いてください）' : ''}${left.length ? `。QGIS で開けないもの: ${left.join('、')}` : ''}`);
+    say(`${title}.qgs を書き出し${files ? '（手元のファイルは .qgs と同じフォルダーに配置）' : ''}${left.length ? `。QGIS で開けないもの: ${left.join('、')}` : ''}`);
   }
 
   /** What is open now, as a project; `left` names the layers a project cannot open again, `listed` the layers of the project's. */
@@ -416,7 +416,7 @@ export class ProjectControl {
         savedAs = suggested;
       }
     } catch (error) {
-      say(`プロジェクトを保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`プロジェクトの保存に失敗: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     this.setName_(projectName(savedAs));
@@ -424,7 +424,7 @@ export class ProjectControl {
     const sets = this.options.images.layers().map((l) => this.sets_.get(l)).filter((s): s is OpenedSet => !!s);
     const kept = sets.flatMap((s) => s.files.map((f) => ({ name: f.name, size: f.size, handle: handleOf(f) }))).filter((h): h is KeptHandle => !!h.handle);
     await this.handles_.put(project.id, kept).catch(() => {});
-    say(left.length ? `${savedAs} に保存しました（${left.join('、')} は保存できません。このブラウザに保存されていない処理結果の画像は GeoTIFF に書き出してから開いてください）` : `${savedAs} に保存しました`);
+    say(left.length ? `${savedAs} に保存（${left.join('、')} は保存不可。このブラウザに未保存の処理結果の画像は GeoTIFF に書き出してから開く）` : `${savedAs} に保存`);
   }
 
   /** Chooses a project file and opens it. */
@@ -453,7 +453,7 @@ export class ProjectControl {
     try {
       read = readProject(await file.text());
     } catch (error) {
-      this.options.say(`${file.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.options.say(`${file.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     if (handle) this.options.remember?.([handle]);
@@ -468,7 +468,7 @@ export class ProjectControl {
   async open(project: Project, name: string, handle: FileSystemFileHandle | null = null, skipped = 0): Promise<boolean> {
     const { images, say } = this.options;
     if (this.busy_) {
-      say('プロジェクトを開いている途中です');
+      say('プロジェクトを読み込み中');
       return false;
     }
     this.busy_ = true;
@@ -478,16 +478,16 @@ export class ProjectControl {
       const keepTemp = new Set(project.layers.flatMap((l) => (l.source.kind === 'temp' ? [l.source.layer.id] : [])));
       const closing = images.layers().filter((l) => !(l.type === 'service' && l.service.temp && keepTemp.has(l.service.temp.id)));
       const temps = closing.filter((l) => l.type === 'service' && l.service.temp).length;
-      if (closing.length && !confirm(`開いているレイヤーを閉じて、プロジェクト「${name}」を開きますか？${temps ? `\n（一時レイヤー ${temps} 件はブラウザからも消えます）` : ''}`)) return false;
+      if (closing.length && !confirm(`開いているレイヤーを閉じて、プロジェクト「${name}」を開きますか？${temps ? `\n（一時レイヤー ${temps} 件はブラウザからも削除）` : ''}`)) return false;
       for (const l of closing) images.remove(l);
 
       this.id_ = project.id;
       this.handle_ = handle;
       this.setName_(name);
       this.options.baseMap.set(project.baseMap);
-      say(`プロジェクト「${name}」を開いています…`);
+      say(`プロジェクト「${name}」を読み込み中…`);
       // Messages of the files opening are summed up on the status line, with the problems below.
-      status = this.options.beginStatus?.(project.layers.length, `プロジェクト「${name}」を開いています…`);
+      status = this.options.beginStatus?.(project.layers.length, `プロジェクト「${name}」を読み込み中…`);
 
       const files = await this.findFiles_(project, handle);
       const problems: string[] = [];
@@ -580,8 +580,8 @@ export class ProjectControl {
       const missing = project.layers.filter((_, i) => !found[i]).map((l) => l.name);
       if (skipped) problems.push(`読めないレイヤー ${skipped} 件`);
       if (missing.length) problems.unshift(...missing);
-      if (status) status.end(`プロジェクト「${name}」を開きました`, problems);
-      else say(problems.length ? `プロジェクト「${name}」を開きました（開けなかったもの: ${nameList(problems)}）` : `プロジェクト「${name}」を開きました`);
+      if (status) status.end(`プロジェクト「${name}」を表示`, problems);
+      else say(problems.length ? `プロジェクト「${name}」を表示（開けなかったもの: ${nameList(problems)}）` : `プロジェクト「${name}」を表示`);
       status = undefined;
       return true;
     } finally {
@@ -631,7 +631,7 @@ export class ProjectControl {
         }
       } catch (error) {
         problems.push(`${saved.name}（${error instanceof Error ? error.message : String(error)}）`);
-        say(`${saved.name} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+        say(`${saved.name} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     return found;
@@ -670,7 +670,7 @@ export class ProjectControl {
           result[s] = set.files.map(() => null);
           result[s][0] = file;
         } catch (error) {
-          this.options.say(`${set.url} を取得できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+          this.options.say(`${set.url} の取得に失敗: ${error instanceof Error ? error.message : String(error)}`);
         }
         continue;
       }
@@ -741,14 +741,14 @@ class FilesDialog {
     title.textContent = 'プロジェクトのファイル';
     const note = document.createElement('p');
     note.className = 'project-files-note';
-    note.textContent = '次のファイルを開くには、読み取りの許可か、ファイルの場所が必要です。';
+    note.textContent = '次のファイルを開くには、読み取りの許可か、ファイルの場所が必要。';
     this.list.className = 'project-files-list';
     const actions = document.createElement('div');
     actions.className = 'service-actions';
     for (const [b, text] of [
       [this.allow, '許可して開く'],
-      [this.pick, 'ファイルを選ぶ…'],
-      [this.skip, 'これらを省いて開く'],
+      [this.pick, 'ファイルを選択…'],
+      [this.skip, 'これらを除外して開く'],
     ] as const) {
       b.type = 'button';
       b.textContent = text;

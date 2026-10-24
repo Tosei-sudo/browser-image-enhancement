@@ -1,5 +1,5 @@
 /**
- * 「格子を敷き詰める」: squares, hexagons or triangles of any size over an
+ * 「格子の敷き詰め」: squares, hexagons or triangles of any size over an
  * area, as a temporary polygon layer (see processing/tessellate.ts).
  *
  * The everyday choices are up front: the shape, its size, geodesic (metres
@@ -78,7 +78,7 @@ export class TessellateDialog {
     this.dialog.setAttribute('aria-labelledby', 'tessellate-title');
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
-        <h2 id="tessellate-title">格子を敷き詰める</h2>
+        <h2 id="tessellate-title">格子の敷き詰め</h2>
         <fieldset class="wide tessellate-shapes"><legend>形</legend>${(Object.keys(shapeNames) as CellShape[])
           .map(
             (s, i) =>
@@ -90,14 +90,14 @@ export class TessellateDialog {
         <p class="wide processing-hint tessellate-size-note"></p>
         <label class="wide">敷き詰め方<select name="method" aria-label="敷き詰め方">
           <option value="geodesic">測地線（地表の距離、WGS 84 楕円体）</option>
-          <option value="crs">投影法（座標系を選ぶ）</option>
+          <option value="crs">投影法（座標系を選択）</option>
         </select></label>
         <div class="wide service-form tessellate-crs" hidden>
           <label class="wide">座標系<select name="preset" aria-label="座標系">${crsPresets
             .map((p) => `<option value="${escape(p.code)}"${p.code === 'EPSG:6677' ? ' selected' : ''}>${escape(p.name)}</option>`)
             .join('')}<option value="">その他（EPSG コードを入力）</option></select></label>
           <label class="wide tessellate-code" hidden>EPSG コード<input name="code" type="text" placeholder="例: 32654" aria-label="EPSG コード" /></label>
-          <p class="wide processing-hint">その座標系の平面に、その単位（経緯度なら度）で並べます。結果もこの座標系で書き出されます。</p>
+          <p class="wide processing-hint">その座標系の平面に、その単位（経緯度なら度）で配置。結果もこの座標系で書き出し。</p>
         </div>
         <label class="wide">範囲<select name="area" aria-label="範囲">
           <option value="drawn">地図に描いた範囲（四角・多角形）</option>
@@ -106,8 +106,8 @@ export class TessellateDialog {
           <option value="bbox">座標で指定（経緯度）</option>
         </select></label>
         <div class="wide tessellate-draw">
-          <button type="button" value="box">□ 四角を描く</button>
-          <button type="button" value="polygon">⬠ 多角形を描く</button>
+          <button type="button" value="box">□ 四角を作図</button>
+          <button type="button" value="polygon">⬠ 多角形を作図</button>
           <span class="tessellate-drawn"></span>
         </div>
         <div class="wide service-form tessellate-layer" hidden>
@@ -116,10 +116,10 @@ export class TessellateDialog {
         </div>
         <label class="wide tessellate-bbox" hidden>西, 南, 東, 北（経度・緯度）<input name="bbox" type="text" placeholder="例: 139.70, 35.65, 139.80, 35.72" aria-label="範囲の座標" /></label>
         <label class="wide">範囲の端のセル<select name="clip" aria-label="範囲の端のセル">
-          <option value="intersects">範囲にかかるセルを、形を保って残す</option>
-          <option value="clip">範囲の形で切り取る</option>
-          <option value="center">中心が範囲内のセルだけ残す</option>
-          <option value="within">範囲に収まるセルだけ残す</option>
+          <option value="intersects">範囲にかかるセル（形を維持）</option>
+          <option value="clip">範囲の形で切り取り</option>
+          <option value="center">中心が範囲内のセルのみ</option>
+          <option value="within">範囲に収まるセルのみ</option>
         </select></label>
         <details class="wide pansharpen-more">
           <summary>詳細設定</summary>
@@ -133,15 +133,15 @@ export class TessellateDialog {
             <label>六角形の向き<select name="orientation" aria-label="六角形の向き"><option value="flat">辺が上（横に並ぶ）</option><option value="pointy">角が上（縦に並ぶ）</option></select></label>
             <label>格子の基準<select name="origin" aria-label="格子の基準">
               <option value="corner">範囲の左下</option>
-              <option value="center">範囲の中心にセルを置く</option>
+              <option value="center">範囲の中心にセルを配置</option>
               <option value="crs">座標系の原点（投影法のとき）</option>
               <option value="point">指定した点</option>
             </select></label>
             <label class="wide tessellate-point" hidden>基準点（緯度経度・MGRS など）<input name="point" type="text" placeholder="例: 35.681, 139.767" aria-label="基準点" /></label>
-            <label class="wide check"><input name="envelope" type="checkbox" /><span>範囲を外接する四角にする</span></label>
+            <label class="wide check"><input name="envelope" type="checkbox" /><span>範囲を外接する四角に変更</span></label>
             <label>レイヤー名<input name="title" type="text" placeholder="格子_正方形" aria-label="レイヤー名" /></label>
             <label>セルの上限<input name="maxCells" type="number" min="1" max="1000000" step="1" value="200000" aria-label="セルの上限" /></label>
-            <p class="wide processing-hint">属性は id・行（row）・列（col）・ラベル（A1 など、左上から）・面積（m²、楕円体上）です。「座標系の原点」や「指定した点」を基準にすると、別の範囲で作った格子とも継ぎ目が揃います。</p>
+            <p class="wide processing-hint">属性は id・行（row）・列（col）・ラベル（A1 など、左上から）・面積（m²、楕円体上）。「座標系の原点」や「指定した点」を基準にすると、別の範囲で作った格子とも継ぎ目が一致。</p>
           </div>
         </details>
       </form>
@@ -241,7 +241,7 @@ export class TessellateDialog {
     const sizeLabel = this.control_('size').closest('label')!.firstChild!;
     sizeLabel.textContent = `大きさ（${{ side: '辺の長さ', width: '幅', area: '面積' }[this.value_('sizeBy') as 'side' | 'width' | 'area']}）`;
     this.control_('title').placeholder = `格子_${shapeNames[this.value_('shape') as CellShape]}`;
-    this.drawn_.textContent = this.area_ ? `描いた範囲: ${formatArea(this.areaOfDrawn_())}` : 'まだ描いていません';
+    this.drawn_.textContent = this.area_ ? `描いた範囲: ${formatArea(this.areaOfDrawn_())}` : '範囲の作図なし';
     this.describeSize_();
   }
 
@@ -311,7 +311,7 @@ export class TessellateDialog {
     this.dialog.close();
     this.overlay_.setVisible(true);
     this.options.map.addInteraction(draw);
-    this.options.say(kind === 'box' ? '地図で四角の角を 2 か所クリックしてください（Esc でやめます）' : '地図をクリックして範囲の多角形を描き、最後の点をダブルクリックしてください（Esc でやめます）');
+    this.options.say(kind === 'box' ? '地図で四角の角を 2 か所クリック（Esc で取消）' : '地図をクリックして範囲の多角形を描き、最後の点をダブルクリック（Esc で取消）');
     const esc = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && this.draw_ === draw) {
         e.stopPropagation();
@@ -348,7 +348,7 @@ export class TessellateDialog {
   private area(): { geometries: Geometry[]; what: string } {
     const how = this.value_('area');
     if (how === 'drawn') {
-      if (!this.area_) throw new Error('地図に範囲を描いてください（「四角を描く」「多角形を描く」）');
+      if (!this.area_) throw new Error('地図に範囲を作図（「四角を作図」「多角形を作図」）');
       return { geometries: [this.area_], what: '描いた範囲' };
     }
     if (how === 'view') {
@@ -357,19 +357,19 @@ export class TessellateDialog {
     }
     if (how === 'bbox') {
       const numbers = this.value_('bbox').split(/[\s,，、]+/).filter(Boolean).map(Number);
-      if (numbers.length !== 4 || !numbers.every(Number.isFinite)) throw new Error('範囲の座標は「西, 南, 東, 北」の 4 つの数（経度・緯度）で入れてください');
+      if (numbers.length !== 4 || !numbers.every(Number.isFinite)) throw new Error('範囲の座標は「西, 南, 東, 北」の 4 つの数（経度・緯度）で入力');
       const [w, s, e, n] = numbers;
-      if (!(e > w && n > s) || s < -90 || n > 90) throw new Error('範囲の座標は 西 < 東、南 < 北 で、緯度は −90〜90 です');
+      if (!(e > w && n > s) || s < -90 || n > 90) throw new Error('範囲の座標は 西 < 東、南 < 北 、緯度は −90〜90 で指定');
       return { geometries: [fromExtent(transformExtent([w, s, e, n], 'EPSG:4326', 'EPSG:3857'))], what: `${w}, ${s}, ${e}, ${n}` };
     }
     const entry = this.layers_[Number(this.value_('layer'))];
-    if (!entry) throw new Error('範囲に使うレイヤーを開いてください');
+    if (!entry) throw new Error('範囲に使うレイヤーを開く必要あり');
     const features = this.control_('selectedOnly').checked ? this.selectedOf_(entry) : entry.service.vector!.source.getFeatures();
     const geometries = features.flatMap((f) => {
       const g = f.getGeometry();
       return g ? [g] : [];
     });
-    if (!geometries.length) throw new Error(`${entry.name} に形のある地物がありません`);
+    if (!geometries.length) throw new Error(`${entry.name} に形のある地物なし`);
     return { geometries, what: entry.name };
   }
 
@@ -377,7 +377,7 @@ export class TessellateDialog {
   async run(): Promise<void> {
     const shape = this.value_('shape') as CellShape;
     this.run_.disabled = true;
-    this.note_.textContent = '格子を作っています…';
+    this.note_.textContent = '格子を作成中…';
     // Let the message show before a long computation holds the page.
     await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
     try {
@@ -396,7 +396,7 @@ export class TessellateDialog {
       let point: LonLat | undefined;
       if (origin === 'point') {
         point = parseCoordinate(this.value_('point')) ?? undefined;
-        if (!point) throw new Error('基準点を読めませんでした（例: 35.681, 139.767）');
+        if (!point) throw new Error('基準点の読み込みに失敗（例: 35.681, 139.767）');
       }
       const side = this.side_(shape);
       const clip = this.value_('clip') as ClipMode;
@@ -412,16 +412,16 @@ export class TessellateDialog {
         maxCells: Number(this.value_('maxCells')) || 200_000,
         title: this.value_('title').trim() || undefined,
       });
-      if (!result.features.length) throw new Error('範囲にかかるセルがありませんでした');
+      if (!result.features.length) throw new Error('範囲にかかるセルなし');
       const size = crs && isDegrees(crs.projection) ? `${+side.toPrecision(6)} 度` : formatLength(side);
       const clipWords: Record<ClipMode, string> = { intersects: '', clip: '・切り取り', center: '・中心が範囲内', within: '・範囲内のみ' };
       const made = `格子（${shapeNames[shape]}、辺 ${size}、${crs ? crs.name : '測地線'}${clipWords[clip]}）（${what}）`;
       await this.options.onResult(result, made);
       this.dialog.close();
-      const notes = (result.notes ?? []).filter((n) => !n.endsWith('作成しました'));
-      this.options.say([`${result.title} を作成しました（${result.features.length.toLocaleString()} 個のセル、一時レイヤー）`, ...notes].join('。'));
+      const notes = (result.notes ?? []).filter((n) => !n.endsWith('作成'));
+      this.options.say([`${result.title} を作成（${result.features.length.toLocaleString()} 個のセル、一時レイヤー）`, ...notes].join('。'));
     } catch (error) {
-      this.note_.textContent = `格子を作れませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.textContent = `格子の作成に失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.run_.disabled = false;
     }

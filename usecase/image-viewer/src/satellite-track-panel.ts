@@ -121,7 +121,7 @@ export class SatelliteTrackPanel {
           <div class="plan-sats-list track-list"></div>
         </fieldset>
         <label>表示<select name="mode"><option value="at">時点</option><option value="range">期間</option></select></label>
-        <label class="track-at">時刻<span class="track-time"><input name="at" type="datetime-local" step="60" /><button type="button" value="now" title="現在時刻にします">今</button></span></label>
+        <label class="track-at">時刻<span class="track-time"><input name="at" type="datetime-local" step="60" /><button type="button" value="now" title="現在時刻に設定">今</button></span></label>
         <label class="track-range" hidden>開始<input name="from" type="datetime-local" step="60" /></label>
         <label class="track-range" hidden>終了<input name="to" type="datetime-local" step="60" /></label>
         <details class="catalog-more wide track-more">
@@ -129,7 +129,7 @@ export class SatelliteTrackPanel {
           <div class="track-more-body">
             <label class="track-at">前後の時間<select name="window"><option value="5">5 分</option><option value="15" selected>15 分</option><option value="50">50 分（約半周）</option><option value="100">100 分（約 1 周）</option></select></label>
             <label title="空欄は各衛星の最大オフナディア角">オフナディア角（以下）<input name="maxOffNadir" type="number" min="0" max="80" step="any" placeholder="衛星の上限" /></label>
-            <label title="光学衛星の撮像可能範囲を、衛星直下の太陽高度がこの値以上の所だけにします（SAR は常に表示）">日照条件<select name="daylight"><option value="">考慮しない</option><option value="10">光学衛星は日中のみ（太陽高度 10° 以上）</option><option value="0">光学衛星は日中のみ（太陽高度 0° 以上）</option></select></label>
+            <label title="光学衛星の撮像可能範囲を、衛星直下の太陽高度がこの値以上の所のみに限定（SAR は常に表示）">日照条件<select name="daylight"><option value="">考慮なし</option><option value="10">光学衛星は日中のみ（太陽高度 10° 以上）</option><option value="0">光学衛星は日中のみ（太陽高度 0° 以上）</option></select></label>
             <label class="check"><input name="ticks" type="checkbox" checked />軌跡に時刻を表示</label>
             <label class="check track-at"><input name="live" type="checkbox" />現在時刻に合わせ続ける（30 秒ごと）</label>
             <label class="wide">TLE を貼り付けて追加<textarea name="tle" rows="3" placeholder="ISS (ZARYA)&#10;1 25544U 98067A   …&#10;2 25544  51.6416 …" spellcheck="false"></textarea></label>
@@ -145,7 +145,7 @@ export class SatelliteTrackPanel {
       <p class="service-status" role="status"></p>
       <div class="catalog-results track-results" hidden><table class="catalog-table track-table"><thead><tr><th></th><th>衛星</th><th class="track-pos-head">位置</th><th>高度</th><th>軌道</th><th>撮像可能範囲</th></tr></thead><tbody></tbody></table></div>
       <div class="service-actions catalog-actions">
-        <button type="button" value="layer" disabled title="軌跡と撮像可能範囲をレイヤーとして追加します">レイヤーとして追加</button>
+        <button type="button" value="layer" disabled title="軌跡と撮像可能範囲をレイヤーとして追加">レイヤーとして追加</button>
         <button type="button" value="zoom" class="primary" disabled>範囲へ移動</button>
       </div>`;
     document.body.append(this.dialog);
@@ -287,13 +287,13 @@ export class SatelliteTrackPanel {
 
   private async load(): Promise<void> {
     this.loaded_ ??= (async () => {
-      this.status_.textContent = '衛星を読んでいます…';
+      this.status_.textContent = '衛星を読み込み中…';
       try {
         this.catalog_ = await this.options.satellites();
         this.listSats();
       } catch (error) {
         this.loaded_ = null;
-        this.status_.textContent = `衛星を読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+        this.status_.textContent = `衛星の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
       }
     })();
     return this.loaded_;
@@ -348,14 +348,14 @@ export class SatelliteTrackPanel {
   private period(): { from: number; to: number; note: string; at: number | null } | string {
     const at = this.moment();
     if ((this.form_.elements.namedItem('mode') as HTMLSelectElement).value === 'at') {
-      if (at === null) return '時刻を入れてください';
+      if (at === null) return '時刻を入力';
       const minutes = Number((this.form_.elements.namedItem('window') as HTMLSelectElement).value) || 15;
       return { from: at - minutes * 60000, to: at + minutes * 60000, note: '', at };
     }
     const from = new Date(this.input('from').value).getTime();
     let to = new Date(this.input('to').value).getTime();
-    if (!Number.isFinite(from) || !Number.isFinite(to)) return '開始と終了を入れてください';
-    if (to <= from) return '終了は開始より後にしてください';
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return '開始と終了を入力';
+    if (to <= from) return '終了は開始より後で指定';
     let note = '';
     if (to - from > MAX_DAYS * 86400000) {
       to = from + MAX_DAYS * 86400000;
@@ -373,9 +373,9 @@ export class SatelliteTrackPanel {
     const chosen = this.tree_.items().filter((l) => l.box.checked);
     const period = this.period();
     if (!this.tree_.items().length) {
-      this.status_.textContent = '衛星がありません。「詳細」で TLE を貼り付けて追加できます';
+      this.status_.textContent = '衛星なし。「詳細」で TLE を貼り付けて追加可能';
     } else if (!chosen.length) {
-      this.status_.textContent = '表示する衛星を選んでください（複数選べます）';
+      this.status_.textContent = '表示する衛星を選択（複数可）';
     } else if (typeof period === 'string') {
       this.status_.textContent = period;
     } else {

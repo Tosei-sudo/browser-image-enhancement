@@ -39,7 +39,7 @@ test('the swipe line shows the selected image on one side, and moves', async ({ 
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html?url=/fixture.tif&url=/fixture16.tif');
-  await expect(page.locator('#status')).toContainText('fixture16.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture16.tif を表示');
   await expect.poll(() => page.evaluate(() => window.viewer.images.list().length)).toBe(2);
   // Fill the map with the images, so both sides of the line are over them.
   await page.evaluate(async () => {
@@ -53,7 +53,7 @@ test('the swipe line shows the selected image on one side, and moves', async ({ 
 
   await page.getByRole('button', { name: 'スワイプ比較' }).click();
   await expect(page.locator('#swipe')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#status')).toContainText('fixture16.tif を線の左側だけに表示しています');
+  await expect(page.locator('#status')).toContainText('fixture16.tif を線の左側のみに表示中');
   await rendered(page);
   expect(await alphaAt(page, [0.4, 0.6])).toEqual([255, 0]);
 
@@ -85,7 +85,7 @@ test('the histogram counts the selected image as shown, before or after its corr
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html?url=/fixture.tif');
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
   await rendered(page);
 
   await page.getByRole('button', { name: 'ヒストグラム' }).click();

@@ -205,11 +205,11 @@ export class Timeline extends Observable {
             <div class="timeline-layers"></div>
           </div>
         </details>
-        <button type="button" data-action="close" class="timeline-close" title="タイムラインを閉じる（T）。すべて表示に戻ります" aria-label="タイムラインを閉じる">×</button>
+        <button type="button" data-action="close" class="timeline-close" title="タイムラインを閉じる（T）。すべて表示に復帰" aria-label="タイムラインを閉じる">×</button>
       </div>
       <div class="timeline-chart">
-        <canvas tabindex="0" aria-label="時間軸。ドラッグで期間を選び、矢印キーで送ります"></canvas>
-        <p class="timeline-empty">時間を持つレイヤーがありません。日時の属性を持つベクターレイヤー、撮影日時の分かる画像、時間次元を持つ WMS を開くと表示されます。</p>
+        <canvas tabindex="0" aria-label="時間軸。ドラッグで期間を選択、矢印キーで移動"></canvas>
+        <p class="timeline-empty">時間を持つレイヤーなし。日時の属性を持つベクターレイヤー、撮影日時の分かる画像、時間次元を持つ WMS を開くと表示。</p>
       </div>`;
     const q = <T extends HTMLElement>(s: string) => this.element.querySelector<T>(s)!;
     this.canvas_ = q('canvas');
@@ -635,7 +635,7 @@ export class Timeline extends Observable {
       const on = document.createElement('input');
       on.type = 'checkbox';
       on.checked = t.on;
-      on.setAttribute('aria-label', `${layer.name} を時間で絞り込む`);
+      on.setAttribute('aria-label', `${layer.name} を時間で絞り込み`);
       on.addEventListener('change', () => {
         t.on = on.checked;
         this.apply_();
@@ -648,7 +648,7 @@ export class Timeline extends Observable {
       if (layer.type === 'service' && t.fields) {
         if (!t.fields.length) {
           on.disabled = true;
-          row.append(this.note_('時間の属性がありません'));
+          row.append(this.note_('時間の属性なし'));
         } else row.append(this.fieldSelect_(t, 'start', '開始'), this.fieldSelect_(t, 'end', '終了'));
       } else if (layer.type === 'service' && layer.service.time) {
         row.append(this.note_(`WMS の時間（${layer.service.time.values.length} 時点）`));
@@ -671,7 +671,7 @@ export class Timeline extends Observable {
       }
       rows.push(row);
     }
-    this.layersList_.replaceChildren(...(rows.length ? rows : [this.note_('時間を持つレイヤーはありません')]));
+    this.layersList_.replaceChildren(...(rows.length ? rows : [this.note_('時間を持つレイヤーなし')]));
   }
 
   private note_(text: string): HTMLElement {

@@ -50,13 +50,13 @@ test('runs GP tasks (sync and as jobs) and OGC processes, opening their results 
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, 'stations.geojson', points);
-  await expect(page.locator('#status')).toContainText('stations を開きました');
+  await expect(page.locator('#status')).toContainText('stations を表示');
 
   // The GPServer: its tasks, the first one's form.
   await openDialog(page);
   const d = dialog(page);
   await d.getByLabel('処理サービスの URL').fill(GP);
-  await d.getByRole('button', { name: '読み込む' }).click();
+  await d.getByRole('button', { name: '読み込み' }).click();
   await expect(d.getByRole('status')).toContainText('「バッファ」: 入力 3 件（うち任意 1 件は「詳細」）');
   await expect(d.getByLabel('処理', { exact: true }).locator('option')).toHaveText(['バッファ（Buffer）', 'Slow']);
   await expect(d.getByLabel('距離', { exact: true })).toHaveValue('100');
@@ -70,7 +70,7 @@ test('runs GP tasks (sync and as jobs) and OGC processes, opening their results 
   await d.getByLabel('距離', { exact: true }).fill('1');
   await d.getByLabel('距離の単位').selectOption('esriKilometers');
   await d.getByRole('button', { name: '実行' }).click();
-  await expect(d.getByRole('status')).toContainText('「バッファ」を実行しました（1 件をレイヤーに追加）');
+  await expect(d.getByRole('status')).toContainText('「バッファ」を実行（1 件をレイヤーに追加）');
   const results = d.getByLabel('処理の結果');
   await expect(results).toContainText('件数: 2');
   await expect(results).toContainText('一時レイヤー「バッファ バッファ結果」（2 件）');
@@ -89,15 +89,15 @@ test('runs GP tasks (sync and as jobs) and OGC processes, opening their results 
   await d.getByLabel('処理', { exact: true }).selectOption({ label: 'Slow' });
   await expect(d.getByRole('status')).toContainText('「時間のかかる処理」（ジョブで実行）');
   await d.getByRole('button', { name: '実行' }).click();
-  await expect(d.getByRole('status')).toContainText('「名前」を入れてください');
+  await expect(d.getByRole('status')).toContainText('「名前」を入力');
   await d.getByLabel('名前', { exact: true }).fill('皇居');
   await d.getByRole('button', { name: '実行' }).click();
-  await expect(d.getByRole('status')).toContainText('このサービスにはトークンが必要です');
+  await expect(d.getByRole('status')).toContainText('このサービスにはトークンが必要');
   await d.getByLabel('トークン', { exact: true }).fill('secret');
   await d.getByRole('button', { name: '実行' }).click();
   await expect(d.getByRole('status')).toContainText(/ジョブ (待機中|実行中)/);
   await expect(d.getByRole('button', { name: '取り消し' })).toBeVisible();
-  await expect(d.getByRole('status')).toContainText('「時間のかかる処理」を実行しました', { timeout: 15_000 });
+  await expect(d.getByRole('status')).toContainText('「時間のかかる処理」を実行', { timeout: 15_000 });
   await expect(results).toContainText('一時レイヤー「時間のかかる処理 地点」（1 件）');
   await expect(results.getByRole('link', { name: 'https://example.com/report.pdf' })).toHaveAttribute('rel', 'noopener noreferrer');
   // Reprojected from the result's WGS 84.
@@ -116,17 +116,17 @@ test('runs GP tasks (sync and as jobs) and OGC processes, opening their results 
   await d.getByRole('button', { name: '実行' }).click();
   await expect(d.getByRole('status')).toContainText('ジョブ');
   await d.getByRole('button', { name: '取り消し' }).click();
-  await expect(d.getByRole('status')).toHaveText('取り消しました');
+  await expect(d.getByRole('status')).toHaveText('取り消し');
   await expect(d.getByRole('button', { name: '取り消し' })).toBeHidden();
 
   // OGC API – Processes from its landing page: a polygon drawn on the map, run as a job.
   await d.getByLabel('処理サービスの URL').fill(OGC);
   await d.getByLabel('トークン', { exact: true }).fill('');
-  await d.getByRole('button', { name: '読み込む' }).click();
+  await d.getByRole('button', { name: '読み込み' }).click();
   await expect(d.getByRole('status')).toContainText('「重心」（ジョブで実行）: 入力 2 件');
-  await d.getByRole('button', { name: '地図に描く' }).click();
+  await d.getByRole('button', { name: '地図に作図' }).click();
   await expect(d).toBeHidden();
-  await expect(page.locator('#status')).toContainText('「図形」のポリゴンを地図に描いてください');
+  await expect(page.locator('#status')).toContainText('「図形」のポリゴンを地図に作図');
   const box = (await page.locator('#map').boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
@@ -138,7 +138,7 @@ test('runs GP tasks (sync and as jobs) and OGC processes, opening their results 
   await expect(d.getByLabel('図形', { exact: true }).locator('option:checked')).toHaveText('地図に描いた図形（1 個）');
   await d.getByLabel('ラベル', { exact: true }).selectOption('B');
   await d.getByRole('button', { name: '実行' }).click();
-  await expect(d.getByRole('status')).toContainText('「重心」を実行しました（1 件をレイヤーに追加）', { timeout: 15_000 });
+  await expect(d.getByRole('status')).toContainText('「重心」を実行（1 件をレイヤーに追加）', { timeout: 15_000 });
   await expect(results).toContainText('頂点数: 4');
   await expect(results).toContainText('一時レイヤー「重心 重心点」（1 件）');
   const centroid = await page.evaluate(() => {

@@ -21,7 +21,7 @@ export function areaInDegrees(context: OpenContext, pick: OpenPick): Extent | nu
   const which = pick.area ?? 'all';
   if (which === 'all') return null;
   const area = context.area?.(which);
-  if (!area) throw new ServiceError(which === 'selection' ? '地物が選択されていません' : '表示範囲を取得できませんでした');
+  if (!area) throw new ServiceError(which === 'selection' ? '地物が未選択' : '表示範囲の取得に失敗');
   return transformExtent(area, 'EPSG:3857', 'EPSG:4326');
 }
 
@@ -47,7 +47,7 @@ export function tiffName(name: string): string {
  */
 export async function fetchGeoTiff(url: string, name: string, init?: RequestInit): Promise<File> {
   const response = await request(url, init);
-  if (Number(response.headers.get('content-length') ?? 0) > MAX_BYTES) throw new ServiceError('画像が大きすぎます。範囲を狭めてください');
+  if (Number(response.headers.get('content-length') ?? 0) > MAX_BYTES) throw new ServiceError('画像が大きすぎ。範囲の縮小が必要');
   const chunks: Uint8Array[] = [];
   let size = 0;
   const reader = response.body?.getReader();
@@ -58,7 +58,7 @@ export async function fetchGeoTiff(url: string, name: string, init?: RequestInit
       size += value.byteLength;
       if (size > MAX_BYTES) {
         await reader.cancel();
-        throw new ServiceError('画像が大きすぎます。範囲を狭めてください');
+        throw new ServiceError('画像が大きすぎ。範囲の縮小が必要');
       }
       chunks.push(value);
     }
@@ -70,7 +70,7 @@ export async function fetchGeoTiff(url: string, name: string, init?: RequestInit
   if (!tiff) {
     const text = new TextDecoder().decode(head.slice(0, 2000));
     const exception = /<(?:\w+:)?ExceptionText>([\s\S]*?)<\//.exec(text)?.[1] ?? (/"(?:description|detail|title)"\s*:\s*"([^"]*)"/.exec(text)?.[1]);
-    throw new ServiceError(exception ? `サービスがエラーを返しました: ${exception.trim().slice(0, 200)}` : '応答が GeoTIFF ではありません');
+    throw new ServiceError(exception ? `サービスからエラー応答: ${exception.trim().slice(0, 200)}` : '応答が GeoTIFF 以外');
   }
   return new File(chunks as BlobPart[], tiffName(name), { type: 'image/tiff' });
 }

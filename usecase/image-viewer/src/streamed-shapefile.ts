@@ -177,7 +177,7 @@ export async function openStreamedShapefile(source: StreamedParts, progress: (me
         else if (reply.type === 'imported') resolve(reply.info);
         else if (reply.type === 'error') reject(new Error(reply.message));
       };
-      worker.onerror = (event) => reject(new Error(event.message || 'ワーカーが止まりました'));
+      worker.onerror = (event) => reject(new Error(event.message || 'ワーカーが停止'));
       worker.postMessage({ type: 'import', db, shp: source.shp, dbf: source.dbf, prj: source.prj, cpg: source.cpg } satisfies ShpRequest);
     });
   } catch (error) {
@@ -195,7 +195,7 @@ export async function openStreamedShapefile(source: StreamedParts, progress: (me
     ['座標系', crs],
     ['地物数', info.count.toLocaleString()],
     ['頂点数', info.vertices.toLocaleString()],
-    ['表示', '表示範囲の地物だけを読み込み、縮小時は頂点と小さな地物を間引いています（ブラウザに一時保存、閉じると削除）'],
+    ['表示', '表示範囲の地物のみ読み込み、縮小時は頂点と小さな地物を間引き（ブラウザに一時保存、閉じると削除）'],
   ];
   if (info.encoding) info_.push(['文字コード', info.encoding === 'shift_jis' ? 'Shift_JIS' : info.encoding.toUpperCase()]);
   return {

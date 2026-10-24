@@ -75,7 +75,7 @@ describe('targetCrs', () => {
   });
 
   it('rejects unknown codes and non-codes in Japanese', async () => {
-    await expect(targetCrs('EPSG:999999')).rejects.toThrow('見つかりません');
+    await expect(targetCrs('EPSG:999999')).rejects.toThrow('定義なし');
     await expect(targetCrs('Tokyo')).rejects.toThrow('EPSG コード');
   });
 

@@ -85,9 +85,9 @@ test('classifies automatically into the classes asked for, with their areas and 
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('.composite-plan')).toContainText('40 × 40 px（3 バンド）を 6 クラス');
   await dialog.getByRole('spinbutton', { name: 'クラスの数' }).fill('3');
-  await dialog.getByText('クラスごとにポリゴンにする').click();
+  await dialog.getByText('クラスごとにポリゴン化').click();
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(dialog.locator('.processing-note')).toContainText('scene_分類.tif を作りました、ポリゴン 3 個');
+  await expect(dialog.locator('.processing-note')).toContainText('scene_分類.tif を作成、ポリゴン 3 個');
   expect(await counts(page)).toEqual([
     ['クラス 1', '600'],
     ['クラス 2', '600'],
@@ -156,7 +156,7 @@ test('classifies from training polygons named by an attribute', async ({ page })
   for (const method of ['likelihood', 'distance']) {
     await dialog.getByLabel('分類方法').selectOption(method);
     await dialog.getByRole('button', { name: '実行' }).click();
-    await expect(dialog.locator('.processing-note')).toContainText('を作りました');
+    await expect(dialog.locator('.processing-note')).toContainText('を作成');
     expect(await counts(page)).toEqual([
       ['水', '600'],
       ['植生', '600'],

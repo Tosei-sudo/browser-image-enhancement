@@ -64,8 +64,8 @@ export async function runCalc(request: CalcRequest): Promise<CalcResult> {
   let done = 0;
   let failed = false;
   const stop = () => {
-    if (control.cancelled) throw new Error('中止しました');
-    if (failed) throw new Error('ほかのブロックで失敗しました');
+    if (control.cancelled) throw new Error('中止');
+    if (failed) throw new Error('ほかのブロックで失敗');
   };
   const workers: Worker[] = [];
   const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
@@ -99,7 +99,7 @@ export async function runCalc(request: CalcRequest): Promise<CalcResult> {
       }),
     );
     stop();
-    if (!covered) throw new Error('値のある画素がありませんでした（画像が重なっていないか、すべてノーデータです）');
+    if (!covered) throw new Error('値のある画素なし（画像の重なりなし、またはすべてノーデータ）');
     const blob = await writer.finish(await tagsOf(plan, [min], [max]), request.name);
     return { blob, plan, min, max };
   } catch (error) {
@@ -113,7 +113,7 @@ export async function runCalc(request: CalcRequest): Promise<CalcResult> {
 function call(worker: Worker, task: CalcTask, transfer: Transferable[]): Promise<CalcBlock> {
   return new Promise((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<CalcReply>) => (e.data.ok ? resolve(e.data.block) : reject(new Error(e.data.message)));
-    worker.onerror = (e) => reject(new Error(e.message || '計算が止まりました'));
+    worker.onerror = (e) => reject(new Error(e.message || '計算が停止'));
     worker.postMessage(task, transfer);
   });
 }
@@ -143,8 +143,8 @@ export async function runResample(
   let done = 0;
   let failed = false;
   const stop = () => {
-    if (control.cancelled) throw new Error('中止しました');
-    if (failed) throw new Error('ほかのブロックで失敗しました');
+    if (control.cancelled) throw new Error('中止');
+    if (failed) throw new Error('ほかのブロックで失敗');
   };
   const workers: Worker[] = [];
   const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
@@ -159,7 +159,7 @@ export async function runResample(
         const buffers = [...new Set(task.channels.flatMap((c) => (c ? [(c.data as unknown as { buffer: ArrayBuffer }).buffer] : [])))];
         const block = await new Promise<CompositeBlock>((resolve, reject) => {
           worker.onmessage = (e: MessageEvent<CompositeReply>) => (e.data.ok ? resolve(e.data.block) : reject(new Error(e.data.message)));
-          worker.onerror = (e) => reject(new Error(e.message || '処理が止まりました'));
+          worker.onerror = (e) => reject(new Error(e.message || '処理が停止'));
           worker.postMessage(task, buffers);
         });
         await writer.add(block.tiles);
@@ -183,7 +183,7 @@ export async function runResample(
       }),
     );
     stop();
-    if (!covered) throw new Error('値のある画素がありませんでした');
+    if (!covered) throw new Error('値のある画素なし');
     return await writer.finish(await tagsOf(plan, min, max), options.name);
   } catch (error) {
     await writer.abort();

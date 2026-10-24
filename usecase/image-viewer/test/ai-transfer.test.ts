@@ -34,10 +34,10 @@ describe('detection outputs', () => {
     expect(detectionOutputOf({ url: 'https://x/arcgis/rest/services/D/MapServer', fields: { class: 'C' } }, problems, 0)).toBeNull();
     expect(detectionOutputOf({ url: 'https://x/rest/services/D/FeatureServer/1', fields: { colour: 'C', class: 'C-1' } }, problems, 1)).toBeNull();
     expect(problems).toEqual([
-      'detectionOutputs[0] の url は …/FeatureServer/0 のようなレイヤーの URL にしてください',
-      'detectionOutputs[1] の fields.colour は使えない役割です',
-      'detectionOutputs[1] の fields.class は属性名（英数字と _）にしてください',
-      'detectionOutputs[1] の fields に書き込む属性がありません',
+      'detectionOutputs[0] の url は …/FeatureServer/0 のようなレイヤーの URL で指定',
+      'detectionOutputs[1] の fields.colour は使用不可の役割',
+      'detectionOutputs[1] の fields.class は属性名（英数字と _）で指定',
+      'detectionOutputs[1] の fields に書き込む属性なし',
     ]);
     expect(output.statusValues).toEqual({ ai: 'AI', corrected: 9, manual: '手動' });
     expect(missingFields(output, fields)).toEqual(['LEN']);

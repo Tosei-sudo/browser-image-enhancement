@@ -50,14 +50,14 @@ export class NoDataDialog {
         <h2 id="nodata-title">ノーデータの透明化</h2>
         <label class="wide">画像<select name="image" aria-label="画像"></select></label>
         <p class="wide processing-hint nodata-file"></p>
-        <label class="check wide"><input name="zero" type="checkbox" /><span>黒い縁（すべてのバンドが 0 の画素）を透明にする</span></label>
-        <label class="check wide"><input name="auto" type="checkbox" checked /><span>ファイルのノーデータ値と、よく使われる埋め値（-9999・-32768・NaN など）を透明にする</span></label>
+        <label class="check wide"><input name="zero" type="checkbox" /><span>黒い縁（すべてのバンドが 0 の画素）を透明化</span></label>
+        <label class="check wide"><input name="auto" type="checkbox" checked /><span>ファイルのノーデータ値と、よく使われる埋め値（-9999・-32768・NaN など）を透明化</span></label>
         <label class="wide">ほかに透明にする値<input name="values" type="text" inputmode="decimal" placeholder="例: 255, 65535" aria-label="ほかに透明にする値" /></label>
-        <p class="wide processing-hint">すべてのバンドがこれらの値の画素を透明にします。16 bit・浮動小数点の画像は元の値、8 bit の画像は 0〜255 で書きます。選ぶとすぐ地図に反映され、DRA の統計からも外れます。</p>
+        <p class="wide processing-hint">すべてのバンドがこれらの値の画素を透明化。16 bit・浮動小数点の画像は元の値、8 bit の画像は 0〜255 で記述。選択後すぐ地図に反映、DRA の統計からも除外。</p>
       </form>
       <p class="service-status processing-note" role="status"></p>
       <div class="service-actions">
-        <button type="button" value="reset">既定に戻す</button>
+        <button type="button" value="reset">既定に復元</button>
         <button type="button" value="cancel" class="primary">閉じる</button>
       </div>`;
     document.body.append(this.dialog);
@@ -88,13 +88,13 @@ export class NoDataDialog {
     const chosen = image && this.images_.includes(image) ? image : this.images_[0];
     if (chosen) this.image_.value = String(this.images_.indexOf(chosen));
     this.show_();
-    this.note_.textContent = this.images_.length ? '' : '画像を開いてください';
+    this.note_.textContent = this.images_.length ? '' : '画像なし（先に画像を開く）';
     this.dialog.showModal();
   }
 
   /** Makes `noData` the transparent pixels of `image`. */
   set(image: ViewerImage, noData: { auto: boolean; values: number[] }): void {
-    void image.source.setNoData(noData).catch((error: unknown) => this.options.say(`ノーデータを変えられませんでした: ${error instanceof Error ? error.message : String(error)}`));
+    void image.source.setNoData(noData).catch((error: unknown) => this.options.say(`ノーデータの変更に失敗: ${error instanceof Error ? error.message : String(error)}`));
     this.options.onChange?.(image);
   }
 
@@ -116,7 +116,7 @@ export class NoDataDialog {
     if (!image) return;
     const typed = parseValues(this.values_.value);
     if (!typed) {
-      this.note_.textContent = '値は数字をカンマで区切って書いてください';
+      this.note_.textContent = '値は数字をカンマ区切りで入力';
       return;
     }
     this.note_.textContent = '';

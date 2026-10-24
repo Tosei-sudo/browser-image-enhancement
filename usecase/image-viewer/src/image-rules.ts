@@ -33,7 +33,7 @@ export function applyImageRule(rules: readonly ImageRule[], name: string, source
   if (rule.pipeline) source.setPipeline(rule.pipeline);
   if (rule.noData) void source.setNoData(rule.noData).catch(() => {});
   if (rule.bands) {
-    void showBands(source, rule, rule.bands).catch((error: unknown) => onProblem(`設定「${rule.label}」のバンド割り当てを使えませんでした（${error instanceof Error ? error.message : String(error)}）`));
+    void showBands(source, rule, rule.bands).catch((error: unknown) => onProblem(`設定「${rule.label}」のバンド割り当ての使用に失敗（${error instanceof Error ? error.message : String(error)}）`));
   }
   return rule;
 }
@@ -54,18 +54,18 @@ export function fileNameOf(name: string): string {
 /** Shows `bands` (1-based numbers or band names) as R, G and B, or one band in gray. */
 async function showBands(source: EnhancedGeoTIFF, rule: ImageRule, bands: ReadonlyArray<number | string>): Promise<void> {
   const count = source.getValueBandCount();
-  if (count < 3) throw new Error(`バンドが ${count} つしかありません`);
+  if (count < 3) throw new Error(`バンドが ${count} つのみ`);
   const names = bands.some((b) => typeof b === 'string') ? await source.getBandNames() : [];
   // A project file being restored sets the bands instead.
   if (applied.get(source) !== rule) return;
   const select = bands.map((band) => {
     if (typeof band === 'number') {
-      if (band > count) throw new Error(`バンド ${band} はありません（${count} バンドの画像です）`);
+      if (band > count) throw new Error(`バンド ${band} なし（${count} バンドの画像）`);
       return band - 1;
     }
     const wanted = band.trim().toLowerCase();
     const found = names.findIndex((n) => n?.trim().toLowerCase() === wanted);
-    if (found < 0) throw new Error(`「${band}」という名前のバンドがありません`);
+    if (found < 0) throw new Error(`「${band}」という名前のバンドなし`);
     return found;
   });
   await source.setSelect(select as [number] | [number, number, number]);

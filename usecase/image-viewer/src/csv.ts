@@ -83,7 +83,7 @@ export function readCsv(bytes: Uint8Array, title: string): CsvTable {
   const { text, encoding } = decodeCsv(bytes);
   const delimiter = delimiterOf(text);
   const [header, ...rows] = parseCsv(text, delimiter);
-  if (!header) throw new Error('CSV が空です');
+  if (!header) throw new Error('CSV が空');
   const width = Math.max(header.length, ...rows.map((r) => r.length));
   const seen = new Set<string>();
   const names = Array.from({ length: width }, (_, i) => {

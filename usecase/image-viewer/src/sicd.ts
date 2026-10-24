@@ -61,7 +61,7 @@ const KINDS: Record<string, ComplexKind> = {
 export function parseSicd(xml: string): SicdInfo {
   const pixelType = text(xml, 'ImageData', 'PixelType') ?? '';
   const kind = KINDS[pixelType];
-  if (!kind) throw new Error(`SICD の画素形式 ${pixelType || '（不明）'} には対応していません`);
+  if (!kind) throw new Error(`SICD の画素形式 ${pixelType || '（不明）'} には非対応`);
   const imageData = element(xml, 'ImageData');
   let ampTable: number[] | null = null;
   const amps = elements(element(imageData, 'AmpTable'), 'Amplitude');

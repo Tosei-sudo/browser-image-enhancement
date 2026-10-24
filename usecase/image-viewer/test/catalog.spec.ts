@@ -184,7 +184,7 @@ test('local paths open from a folder allowed once, or through a URL', async ({ p
   await dialog.locator('button[value=open]').click();
   const ask = page.locator('dialog.folder-ask');
   await expect(ask).toContainText('「画像NAS」のフォルダ');
-  await ask.getByRole('button', { name: 'フォルダを選ぶ…' }).click();
+  await ask.getByRole('button', { name: 'フォルダを選択…' }).click();
   await expect(page.locator('#images .name')).toHaveText(['scene.tif', 'fixture16.tif']);
   await page.locator('#images .name', { hasText: 'scene.tif' }).click();
   await expect(page.locator('#info')).toContainText('IMG-L');
@@ -203,7 +203,7 @@ test('local paths open from a folder allowed once, or through a URL', async ({ p
   await dialog.getByRole('button', { name: 'フォルダの許可を消去' }).click();
   await rows.filter({ hasText: 'IMG-L' }).dblclick();
   await ask.getByRole('button', { name: 'キャンセル' }).click();
-  await expect(page.locator('#status')).toHaveText('キャンセルしました');
+  await expect(page.locator('#status')).toHaveText('キャンセル');
   await expect(page.locator('#images .name')).toHaveCount(1);
   expect(errors).toEqual([]);
 });

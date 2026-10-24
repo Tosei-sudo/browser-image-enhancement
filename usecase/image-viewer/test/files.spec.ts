@@ -35,7 +35,7 @@ test('a GeoTIFF without overviews gets them, so it is not sampled sparsely when 
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await choose(page, [{ name: 'stripes.tif', bytes: plainGeoTiff(1100, 700), type: 'image/tiff' }]);
-  await expect(page.locator('#status')).toContainText('stripes.tif を開きました');
+  await expect(page.locator('#status')).toContainText('stripes.tif を表示');
   await expect(page.locator('#info')).toContainText('1,100 × 700 px');
   const levels = await page.evaluate(() => window.viewer.images.list()[0].source.getTileGrid()!.getResolutions().length);
   expect(levels).toBeGreaterThan(1);
@@ -60,7 +60,7 @@ test('a large GeoTIFF without overviews is on the map at once, drawn zoomed in o
     window.viewer.rset.hold = new Promise((resolve) => ((window as unknown as { release: () => void }).release = () => resolve(null)));
   });
   await choose(page, [{ name: 'stripes.tif', bytes: plainGeoTiff(1100, 700), type: 'image/tiff' }]);
-  await expect(page.locator('#status')).toContainText('stripes.tif を開きました');
+  await expect(page.locator('#status')).toContainText('stripes.tif を表示');
   await expect(page.locator('#images .tag')).toHaveText('RSET生成中');
   await expect(page.locator('.rset-progress')).toContainText('stripes.tif の RSET を生成中');
   await expect(page.locator('#info')).toContainText('生成中');
@@ -73,7 +73,7 @@ test('a large GeoTIFF without overviews is on the map at once, drawn zoomed in o
   expect(first.max).toBeLessThan(Infinity);
   const raw = first.max / 2 / 1.01; // a raw pixel, in the view's units
   await page.evaluate((raw) => window.viewer.map.getView().setResolution(raw * 4), raw);
-  await expect(page.locator('.rset-shown')).toHaveText(/RSET 生成中: 1\/2 以上に拡大すると表示します/);
+  await expect(page.locator('.rset-shown')).toHaveText(/RSET 生成中: 1\/2 以上に拡大すると表示/);
   await expect(page.locator('#images li').first()).toHaveClass(/out-of-scale/);
   await page.evaluate((raw) => window.viewer.map.getView().setResolution(raw * 1.5), raw);
   await expect(page.locator('.rset-shown')).toHaveText('表示: 生画素');
@@ -115,7 +115,7 @@ test('a GeoTIFF chosen with its GDAL .ovr uses its levels as the RSET instead of
     { name: 'rgb.tif', bytes: data('rgb.tif'), type: 'image/tiff' },
     { name: 'rgb.tif.ovr', bytes: data('rgb.tif.ovr') },
   ]);
-  await expect(page.locator('#status')).toContainText('rgb.tif を開きました');
+  await expect(page.locator('#status')).toContainText('rgb.tif を表示');
   expect(await names(page)).toEqual(['rgb.tif']); // the .ovr is no layer of its own
   await expect(page.locator('#images .tag')).toHaveText('RSET (OVR)');
   await expect(page.locator('#info')).toContainText('外部 OVR（rgb.tif.ovr）・1/2〜1/8、3 レベル');
@@ -143,7 +143,7 @@ test('Shapefiles and GeoJSON open with their attributes in the table, editable',
     { name: 'sites.shp', bytes: shp([[139.7, 35.7], [135.5, 34.7]]) },
     { name: 'sites.dbf', bytes: dbf([{ name: 'NAME', length: 10 }, { name: 'POP', type: 'N', length: 8 }], [[tokyoSjis, ascii('100')], [ascii('Osaka'), ascii('20')]]) },
   ]);
-  await expect(page.locator('#status')).toContainText('sites を開きました（✎ で編集できます）');
+  await expect(page.locator('#status')).toContainText('sites を表示（✎ で編集可能）');
   expect(await names(page)).toEqual(['SHPsites']);
   await expect(page.locator('#info')).toContainText('Shapefile');
   await expect(page.locator('#info')).toContainText('Shift_JIS');
@@ -160,7 +160,7 @@ test('Shapefiles and GeoJSON open with their attributes in the table, editable',
     features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: [[139, 35], [140, 36]] }, properties: { route: '国道1号', lanes: 4 } }],
   });
   await choose(page, [{ name: 'roads.geojson', bytes: geojson, type: 'application/geo+json' }]);
-  await expect(page.locator('#status')).toContainText('roads を開きました');
+  await expect(page.locator('#status')).toContainText('roads を表示');
   expect(await names(page)).toEqual(['GeoJSONroads', 'SHPsites']);
   await expect(page.locator('.table-count')).toContainText('全 1 件');
   await expect(rows(page).first()).toContainText('国道1号');
@@ -185,7 +185,7 @@ test('Shapefiles and GeoJSON open with their attributes in the table, editable',
 
   // A .dbf without its .shp says what is missing.
   await choose(page, [{ name: 'lonely.dbf', bytes: dbf([{ name: 'ID', length: 4 }], []) }]);
-  await expect(page.locator('#status')).toContainText('lonely.shp がありません');
+  await expect(page.locator('#status')).toContainText('lonely.shp なし');
   expect(errors).toEqual([]);
 });
 
@@ -199,7 +199,7 @@ test('a GeoPackage opens with its features and attributes', async ({ page }) => 
     [encodeGeometry(new Point([135.5, 34.7]), 4326), '大阪', 20, null],
   ]);
   await choose(page, [{ name: 'stations.gpkg', bytes }]);
-  await expect(page.locator('#status')).toContainText('stations を開きました');
+  await expect(page.locator('#status')).toContainText('stations を表示');
   expect(await names(page)).toEqual(['GPKGstations']);
   await expect(page.locator('#info')).toContainText('GeoPackage');
   await expect(page.locator('.table-count')).toContainText('全 2 件');
@@ -212,7 +212,7 @@ test('DRA can be locked per image: the range then stays while the view moves', a
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page, '?url=/fixture.tif');
-  await expect(page.locator('#status')).toContainText('fixture.tif を開きました');
+  await expect(page.locator('#status')).toContainText('fixture.tif を表示');
 
   const dra = page.locator('.ol-enhance fieldset', { hasText: 'DRA' });
   await dra.getByRole('checkbox', { name: 'オン' }).check();
@@ -239,7 +239,7 @@ test('DRA can be locked per image: the range then stays while the view moves', a
 
   // Another image has its own lock, off.
   await choose(page, [{ name: 'small.tif', bytes: plainGeoTiff(64, 64), type: 'image/tiff' }]);
-  await expect(page.locator('#status')).toContainText('small.tif を開きました');
+  await expect(page.locator('#status')).toContainText('small.tif を表示');
   await expect(lock).not.toBeChecked();
   await page.locator('#images .name', { hasText: 'fixture.tif' }).click();
   await expect(lock).toBeChecked();

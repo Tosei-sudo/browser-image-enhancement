@@ -112,21 +112,21 @@ export class ClassifyDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="classify-title">土地被覆分類</h2>
-        <p class="wide processing-hint">画像の画素を、色（バンドの値）の似たものどうしのクラスに分けて色分けし、クラスごとの面積を求めます。</p>
+        <p class="wide processing-hint">画像の画素を、色（バンドの値）の似たものどうしのクラスに分けて色分けし、クラスごとの面積を算出。</p>
         <label class="wide">画像<select name="image" aria-label="分類する画像"></select></label>
         <fieldset class="wide classify-method">
           <legend>分け方</legend>
-          <label class="check"><input type="radio" name="method" value="kmeans" checked /><span>自動（教師なし）: クラスの数だけ決める</span></label>
-          <label class="check"><input type="radio" name="method" value="supervised" /><span>学習ポリゴン（教師あり）: 描いた見本に合わせる</span></label>
+          <label class="check"><input type="radio" name="method" value="kmeans" checked /><span>自動（教師なし）: クラスの数のみ指定</span></label>
+          <label class="check"><input type="radio" name="method" value="supervised" /><span>学習ポリゴン（教師あり）: 作図した見本に準拠</span></label>
         </fieldset>
         <label class="wide classify-kmeans">クラスの数<input name="classes" type="number" min="2" max="${MAX_CLASSES}" step="1" value="6" aria-label="クラスの数" /></label>
         <div class="wide classify-supervised service-form" hidden>
           <label class="wide">学習用のレイヤー<select name="layer" aria-label="学習用のレイヤー"></select></label>
           <label class="wide">クラス名の属性<select name="field" aria-label="クラス名の属性"></select></label>
-          <label class="wide">分類方法<select name="classifier" aria-label="分類方法"><option value="likelihood">最尤法（ばらつきも見る・おすすめ）</option><option value="distance">最短距離法（平均だけを見る）</option></select></label>
-          <p class="wide processing-hint">見本のポリゴンは「ツール → 新規レイヤー…」で描けます。クラス名を入れる属性を作り、クラスごとに数か所ずつ囲んでください。</p>
+          <label class="wide">分類方法<select name="classifier" aria-label="分類方法"><option value="likelihood">最尤法（ばらつきも考慮・推奨）</option><option value="distance">最短距離法（平均のみ考慮）</option></select></label>
+          <p class="wide processing-hint">見本のポリゴンは「ツール → 新規レイヤー…」で作図。クラス名を入れる属性を作り、クラスごとに数か所ずつ囲む。</p>
         </div>
-        <label class="wide check"><input name="outline" type="checkbox" /><span>クラスごとにポリゴンにする</span></label>
+        <label class="wide check"><input name="outline" type="checkbox" /><span>クラスごとにポリゴン化</span></label>
         <details class="wide composite-more">
           <summary>詳細設定</summary>
           <div class="service-form">
@@ -188,7 +188,7 @@ export class ClassifyDialog {
     this.image_.value = String(Math.max(0, at));
     this.layers_ = polygonLayers(this.images);
     this.layer_.replaceChildren(...this.layers_.map((l, i) => new Option(label(l), String(i))));
-    this.note_.textContent = this.images_.length ? '' : '分類する画像（GeoTIFF）を開いてください';
+    this.note_.textContent = this.images_.length ? '' : '分類する画像（GeoTIFF）を開く必要あり';
     this.showResult_(selected && this.made_.has(selected) ? { image: selected, output: this.made_.get(selected)! } : null);
     this.showBands_();
     this.showFields_();
@@ -278,14 +278,14 @@ export class ClassifyDialog {
       const { grid } = planClassify(image, bands);
       let what = `${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px（${bands.length} バンド）を`;
       if (this.method_() === 'supervised') {
-        if (!this.layers_.length) throw new Error('学習用のポリゴンのレイヤーがありません（「ツール → 新規レイヤー…」で描けます）');
-        if (!this.field_.value) throw new Error('クラス名を入れた属性（文字か整数）がありません');
+        if (!this.layers_.length) throw new Error('学習用のポリゴンのレイヤーなし（「ツール → 新規レイヤー…」で作図可能）');
+        if (!this.field_.value) throw new Error('クラス名を入れた属性（文字か整数）なし');
         const training = this.training_(image);
-        if (training.length < 2) throw new Error(`クラスが ${training.length} つしかありません（属性の値が 2 種類以上必要です）`);
-        if (training.length > MAX_CLASSES) throw new Error(`クラスが ${training.length} あります（${MAX_CLASSES} までです）`);
-        what += ` ${training.map((t) => t.name).join('・')} の ${training.length} クラスに分けます。`;
+        if (training.length < 2) throw new Error(`クラスが ${training.length} つのみ（属性の値が 2 種類以上必要）`);
+        if (training.length > MAX_CLASSES) throw new Error(`クラス数 ${training.length}（${MAX_CLASSES} まで）`);
+        what += ` ${training.map((t) => t.name).join('・')} の ${training.length} クラスに分類。`;
       } else {
-        what += ` ${Number(new FormData(this.form_).get('classes')) || 6} クラスに自動で分けます。`;
+        what += ` ${Number(new FormData(this.form_).get('classes')) || 6} クラスに自動分類。`;
       }
       this.plan_.textContent = what;
       this.run_.disabled = false;
@@ -307,7 +307,7 @@ export class ClassifyDialog {
     const name = `${baseName(image.name)}_分類.tif`.slice(-120);
     const draft = results.begin('分類');
     try {
-      this.note_.textContent = '分類しています… 0%';
+      this.note_.textContent = '分類中… 0%';
       const numbers = `${baseName(name)}_番号.tif`;
       const output = await runClassify({
         output: { classes: { sink: draft.sink(numbers), name: numbers }, colors: { sink: draft.sink(name), name } },
@@ -320,10 +320,10 @@ export class ClassifyDialog {
         onProgress: (pass, done) => {
           if (control.cancelled) return;
           // The first pass reads a sample (or only the training areas): a third of the work.
-          this.note_.textContent = `分類しています… ${Math.floor(pass === 1 ? done * 33 : 33 + done * 67)}%`;
+          this.note_.textContent = `分類中… ${Math.floor(pass === 1 ? done * 33 : 33 + done * 67)}%`;
         },
       });
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = output.colorBlob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
@@ -338,13 +338,13 @@ export class ClassifyDialog {
         outlined = `、ポリゴン ${count.toLocaleString()} 個`;
       }
       this.showResult_({ image: made, output });
-      this.note_.textContent = `${name} を作りました${outlined}`;
-      this.options.say(`${name} を作りました（${output.classes.length} クラス）${outlined}`);
+      this.note_.textContent = `${name} を作成${outlined}`;
+      this.options.say(`${name} を作成（${output.classes.length} クラス）${outlined}`);
       return made;
     } catch (error) {
       await draft.discard();
-      if (control.cancelled) this.options.say('分類を中止しました');
-      else this.note_.textContent = `分類できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      if (control.cancelled) this.options.say('分類を中止');
+      else this.note_.textContent = `分類失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     } finally {
       this.running_ = null;

@@ -107,7 +107,7 @@ export function localTarget(file: VectorFile, source: VectorSource<Feature>, fie
       } else {
         saved = await saveShapefile(file, source.getFeatures(), fields, crs);
       }
-      return { note: saved === 'overwritten' ? '元のファイルに上書きしました' : 'ファイルをダウンロードしました' };
+      return { note: saved === 'overwritten' ? '元のファイルに上書き' : 'ファイルをダウンロード' };
     },
   };
   return target;

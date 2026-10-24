@@ -140,7 +140,7 @@ export class AttributeTable {
       this.pin_.type = 'button';
       this.pin_.className = 'table-pin';
       this.pin_.textContent = '固定';
-      this.pin_.title = 'このレイヤーの属性テーブルをもう1つ開きます。別のレイヤーを選んでも残るので、いくつも並べて見比べられます';
+      this.pin_.title = 'このレイヤーの属性テーブルをもう1つ表示。別のレイヤーを選んでも残るため、複数並べて比較可能';
       this.pin_.addEventListener('click', () => options.onPin!());
       bar.append(this.pin_);
     }
@@ -173,7 +173,7 @@ export class AttributeTable {
       this.updateCount_();
     });
     this.setMode('all');
-    this.show(null, 'WFS・Esri のレイヤーを選ぶと属性を表示します');
+    this.show(null, 'WFS・Esri のレイヤーを選ぶと属性を表示');
   }
 
   /** The table's title (「属性テーブル: レイヤー名」), which also drags it to another place (dock.ts). */
@@ -285,14 +285,14 @@ export class AttributeTable {
   async copyShapeLink(features: Feature[]): Promise<void> {
     const link = this.options.shapeLink?.(features);
     if (!link) {
-      this.options.say('図形が大きすぎてリンクにできません（頂点を減らすか、ファイルに書き出してください）');
+      this.options.say('図形が大きすぎてリンク化不可（頂点の削減か、ファイルへの書き出しが必要）');
       return;
     }
     try {
       await navigator.clipboard.writeText(link);
-      this.options.say(`図形 ${features.length.toLocaleString()} 個を表示するリンクをコピーしました`);
+      this.options.say(`図形 ${features.length.toLocaleString()} 個を表示するリンクをコピー`);
     } catch {
-      this.options.say(`リンクをコピーできませんでした: ${link.length > 200 ? `${link.slice(0, 200)}…` : link}`);
+      this.options.say(`リンクのコピーに失敗: ${link.length > 200 ? `${link.slice(0, 200)}…` : link}`);
     }
   }
 
@@ -311,11 +311,11 @@ export class AttributeTable {
       const ok = document.execCommand('copy');
       area.remove();
       if (!ok) {
-        this.options.say('コピーできませんでした');
+        this.options.say('コピー失敗');
         return;
       }
     }
-    this.options.say(`${features.length} 行をコピーしました（タブ区切り）`);
+    this.options.say(`${features.length} 行をコピー（タブ区切り）`);
   }
 
   /** Opens the row menu for `feature` at the page point (`x`, `y`); a row not selected becomes the selection first. */
@@ -389,7 +389,7 @@ export class AttributeTable {
     a.download = `${data.title.replace(/[\\/:*?"<>|]/g, '_')}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 0);
-    this.options.say(`${this.rows_.length} 行を CSV に保存しました`);
+    this.options.say(`${this.rows_.length} 行を CSV に保存`);
   }
 
   private hiddenFields_(): Set<string> {
@@ -506,7 +506,7 @@ export class AttributeTable {
   private renderRows_(force = false): void {
     const body = this.table_.tBodies[0];
     const data = this.data_;
-    const empty = !data ? this.message_ : this.rows_.length === 0 ? (this.mode_ === 'selected' ? '選択中の地物はありません。地図か「全件」の行をクリックして選んでください' : '該当する地物はありません') : '';
+    const empty = !data ? this.message_ : this.rows_.length === 0 ? (this.mode_ === 'selected' ? '選択中の地物なし。地図か「全件」の行をクリックして選択' : '該当する地物なし') : '';
     this.empty_.textContent = empty;
     this.empty_.hidden = !empty;
     if (!data || this.isCollapsed()) {
@@ -563,7 +563,7 @@ export class AttributeTable {
     const error = session?.errorOf(feature);
     if (error) {
       tr.classList.add('failed');
-      tr.title = `保存できませんでした: ${error}`;
+      tr.title = `保存失敗: ${error}`;
     }
     tr.addEventListener('mousedown', (e) => {
       // Shift click selects rows, not text.

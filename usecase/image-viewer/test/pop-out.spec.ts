@@ -132,7 +132,7 @@ test('a window dragged onto the tab docks where it is dropped, or floats over th
 
   // Back into a window of its own (its menu), out again, then dropped mid-map: a window over the map there.
   await page.locator('.plan-dialog .dock-button').click();
-  await page.getByRole('menuitem', { name: 'ウィンドウに戻す' }).click();
+  await page.getByRole('menuitem', { name: 'ウィンドウに復帰' }).click();
   await expect(page.locator('.plan-dialog')).not.toHaveClass(/docked/);
   const [again] = await Promise.all([page.waitForEvent('popup'), dialog.locator('.pop-out-button').click()]);
   await expect(again.locator('dialog.plan-dialog')).toBeVisible();
@@ -155,7 +155,7 @@ test('the dock menu of a window of its own docks it in the tab', async ({ page }
   const out = popup.locator('dialog.plan-dialog');
   await expect(out.locator('.dock-button')).toBeVisible();
   await out.locator('.dock-button').click();
-  await popup.getByRole('menuitem', { name: '下に置く' }).click();
+  await popup.getByRole('menuitem', { name: '下に配置' }).click();
   await expect.poll(() => popup.isClosed()).toBe(true);
   await expect(page.locator('.dock-bottom dialog.plan-dialog.docked')).toBeVisible();
 });

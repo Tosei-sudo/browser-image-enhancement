@@ -137,7 +137,7 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
   }
   for (const [key, { parts, zip }] of byStem) {
     if (!parts['.shp']) {
-      if (parts['.dbf']) throw new Error(`${stem(key + '.x')}.shp がありません（.shp・.dbf・.prj を一緒に選んでください）`);
+      if (parts['.dbf']) throw new Error(`${stem(key + '.x')}.shp なし（.shp・.dbf・.prj を一緒に選択）`);
       continue;
     }
     const decode = (b?: NamedBytes) => (b ? new TextDecoder().decode(b.bytes) : undefined);
@@ -145,7 +145,7 @@ export async function readVectorFiles(files: NamedBytes[], projectionOf?: Projec
     const styleQml = decode(parts['.qml']);
     out.push({ ...file, origin: { files: parts, zip }, ...(styleQml ? { styleQml } : {}) });
   }
-  if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage・KML・GPX・FlatGeobuf のどれも見つかりませんでした');
+  if (!out.length) throw new Error('Shapefile（.shp）・GeoJSON・GeoPackage・KML・GPX・FlatGeobuf のどれも該当なし');
   return out;
 }
 
@@ -166,9 +166,9 @@ export function dbfEncoding(dbf: Uint8Array, cpg?: string): string {
  */
 export function readShpGeometries(shp: Uint8Array, title = ''): Array<Geometry | null> {
   const view = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
-  if (shp.length < 100) throw new Error(`${title}.shp が短すぎます`);
+  if (shp.length < 100) throw new Error(`${title}.shp が短すぎ`);
   const fileType = view.getInt32(32, true);
-  if (fileType !== 0 && kindOfShapeType(fileType) === 0) throw new Error(`${title}.shp の図形の種類（${fileType}）は読めません`);
+  if (fileType !== 0 && kindOfShapeType(fileType) === 0) throw new Error(`${title}.shp の図形の種類（${fileType}）は読み込み不可`);
   const out: Array<Geometry | null> = [];
   for (let at = 100; at + 8 <= shp.length; ) {
     const length = view.getInt32(at + 4) * 2;
@@ -248,7 +248,7 @@ export function readShapefile(title: string, parts: { shp: Uint8Array; dbf?: Uin
       toLonLat = proj4(parts.prj, 'EPSG:4326').forward;
       crs = /^\s*\w+\["([^"]+)"/.exec(parts.prj)?.[1] ?? '.prj';
     } catch {
-      throw new Error(`${title}.prj の座標系を読めませんでした`);
+      throw new Error(`${title}.prj の座標系の読み込みに失敗`);
     }
   }
   const rawType = new DataView(parts.shp.buffer, parts.shp.byteOffset, parts.shp.byteLength).getInt32(32, true);
@@ -275,7 +275,7 @@ export function readShapefile(title: string, parts: { shp: Uint8Array; dbf?: Uin
     }
   }
   if (!parts.prj && !inLonLat(geometries)) {
-    throw new Error(`${title}.prj（座標系）がありません。.shp と一緒に .prj も選んでください`);
+    throw new Error(`${title}.prj（座標系）なし。.shp と一緒に .prj も選択`);
   }
   const encoding = parts.dbf ? dbfEncoding(parts.dbf, parts.cpg) : undefined;
   const table = parts.dbf ? readDbf(parts.dbf, encoding!) : null;
@@ -310,14 +310,14 @@ export async function readGeoJson(text: string, title: string, projectionOf?: Pr
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error(`${title} は JSON として読めませんでした`);
+    throw new Error(`${title} は JSON として読み込み失敗`);
   }
-  if (typeof json?.type !== 'string') throw new Error(`${title} は GeoJSON ではありません`);
+  if (typeof json?.type !== 'string') throw new Error(`${title} は GeoJSON 以外`);
   const named = json.crs?.properties?.name;
   let dataProjection = 'EPSG:4326';
   if (named && !/CRS:?84$|EPSG::?4326$/i.test(named)) {
     const projection = projectionOf ? await projectionOf(named) : null;
-    if (!projection) throw new Error(`${title} の座標系 ${named} を読めませんでした`);
+    if (!projection) throw new Error(`${title} の座標系 ${named} の読み込みに失敗`);
     dataProjection = projection.getCode();
   }
   const features = format.readFeatures(json, { dataProjection, featureProjection: 'EPSG:3857' }) as Feature[];

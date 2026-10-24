@@ -74,7 +74,7 @@ export function centroids(input: ProcessingInput, options: CentroidOptions = {})
     }
     if (!made) skipped++;
   }
-  const notes = [`重心 ${features.length} 点を作成しました`];
-  if (skipped) notes.push(`形状のない地物 ${skipped} 件を飛ばしました`);
+  const notes = [`重心 ${features.length} 点を作成`];
+  if (skipped) notes.push(`形状のない地物 ${skipped} 件をスキップ`);
   return { title: `${input.title}_重心`, features, fields: copyFields(input.fields), crs: input.crs, notes };
 }

@@ -30,7 +30,7 @@ const GEOJSON = 'application/geo+json, application/json;q=0.9';
 export async function readOgcFeatures(url: string): Promise<ServiceCatalog> {
   const service = await readOgcService(url);
   const collections = service.collections.filter((c) => !c.itemType || c.itemType === 'feature');
-  if (collections.length === 0) throw new ServiceError('地物のコレクションがありません');
+  if (collections.length === 0) throw new ServiceError('地物のコレクションなし');
   const cql2 = conformsTo(service.classes, conformance.filter) && conformsTo(service.classes, conformance.cql2Text);
   const choices: LayerChoice[] = collections.map((c) => ({ name: c.id, title: c.title, abstract: c.description, area: 'vector', filter: cql2 ? 'cql2' : 'simple' }));
   return {
@@ -76,8 +76,8 @@ export function simpleFilter(text: string): Array<[string, string]> {
   for (const part of text.split(/\s*&\s*|\s+AND\s+/i)) {
     if (!part.trim()) continue;
     const m = /^\s*([^=\s]+)\s*=\s*(.*?)\s*$/.exec(part);
-    if (!m) throw new ServiceError(`条件「${part}」は 属性=値 の形で書いてください`);
-    if (/^(limit|bbox|bbox-crs|crs|f|filter|filter-lang|filter-crs|datetime|offset|sortby|properties)$/i.test(m[1])) throw new ServiceError(`条件に ${m[1]} は使えません`);
+    if (!m) throw new ServiceError(`条件「${part}」は 属性=値 の形で記述`);
+    if (/^(limit|bbox|bbox-crs|crs|f|filter|filter-lang|filter-crs|datetime|offset|sortby|properties)$/i.test(m[1])) throw new ServiceError(`条件に ${m[1]} は使用不可`);
     pairs.push([m[1], m[2].replace(/^'(.*)'$|^"(.*)"$/, '$1$2')]);
   }
   return pairs;
@@ -119,7 +119,7 @@ export async function readPages(first: string, max: number, fetchPage: (url: str
   for (let page = 0; url && page < MAX_PAGES; page++) {
     seen.add(url);
     const json = await fetchPage(url);
-    if (!isRecord(json) || !Array.isArray(json.features)) throw new ServiceError('GeoJSON の FeatureCollection ではありません');
+    if (!isRecord(json) || !Array.isArray(json.features)) throw new ServiceError('GeoJSON の FeatureCollection 以外');
     features.push(...json.features);
     if (features.length > max) return { features: features.slice(0, max), more: true };
     const next = findLink(linksOf(json.links, url), ['next'], [/geo\+json/, /json/]);
@@ -142,7 +142,7 @@ async function openCollection(
   let bbox: Extent | undefined = pick.bbox;
   if (!bbox && pick.area && pick.area !== 'all') {
     const area = context.area?.(pick.area);
-    if (!area) throw new ServiceError(pick.area === 'selection' ? '地物が選択されていません' : '表示範囲を取得できませんでした');
+    if (!area) throw new ServiceError(pick.area === 'selection' ? '地物が未選択' : '表示範囲の取得に失敗');
     bbox = transformExtent(area, 'EPSG:3857', 'EPSG:4326');
   }
   const href = itemsHref(service, collection);
@@ -158,7 +158,7 @@ async function openCollection(
   try {
     features = new GeoJSON().readFeatures({ type: 'FeatureCollection', features: items }, { dataProjection: mercator ? 'EPSG:3857' : 'EPSG:4326', featureProjection: 'EPSG:3857' }) as Feature[];
   } catch {
-    throw new ServiceError('地物を読めませんでした');
+    throw new ServiceError('地物の読み込みに失敗');
   }
   const found = fieldsOf(features);
   const fields: Field[] = [...queryables, ...found.filter((f) => !queryables.some((q) => q.name === f.name))];
@@ -238,11 +238,11 @@ export function ogcFeaturesTarget(items: string, fields: Field[], geometryType: 
         }
       }
       for (const { feature: f } of updates) {
-        if (f.getId() === undefined) refused.set(f, 'ID がない地物は更新できません');
+        if (f.getId() === undefined) refused.set(f, 'ID がない地物は更新不可');
         else await send(itemUrl(f), 'PUT', body(f)).catch((error: Error) => refused.set(f, error.message));
       }
       for (const f of deletes) {
-        if (f.getId() === undefined) refused.set(f, 'ID がない地物は削除できません');
+        if (f.getId() === undefined) refused.set(f, 'ID がない地物は削除不可');
         else await send(itemUrl(f), 'DELETE').catch((error: Error) => refused.set(f, error.message));
       }
       return { refused };

@@ -27,11 +27,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 /** The mapping of one `pathMappings` entry; null (with the reason in `problems`) when it cannot be used. */
 export function pathMappingOf(value: unknown, problems: string[], index: number): PathMapping | null {
   const at = `pathMappings[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { prefix, label, url } = value;
-  if (typeof prefix !== 'string' || pathParts(prefix).length === 0) return (problems.push(`${at} に prefix（パスの先頭）がありません`), null);
+  if (typeof prefix !== 'string' || pathParts(prefix).length === 0) return (problems.push(`${at} に prefix（パスの先頭）なし`), null);
   if (url !== undefined && (typeof url !== 'string' || !/^(https?:)?\/\/|^\.{0,2}\//.test(url))) {
-    return (problems.push(`${at} の url は http(s) か相対パスの URL にしてください`), null);
+    return (problems.push(`${at} の url は http(s) か相対パスの URL で指定`), null);
   }
   return {
     prefix,
@@ -212,15 +212,15 @@ export class LocalPaths {
   /** Where `path` leads; throws with a message for the status line when it cannot be opened, null when the person cancelled. */
   async resolve(path: string): Promise<Resolved | null> {
     const found = mappingFor(this.mappings, path);
-    if (!found) throw new Error(`config.json の pathMappings に「${path}」の先頭に合う prefix がありません`);
+    if (!found) throw new Error(`config.json の pathMappings に「${path}」の先頭に合う prefix なし`);
     const { mapping, rest } = found;
     if (mapping.url !== undefined) return { kind: 'url', url: urlFor(mapping as PathMapping & { url: string }, rest) };
-    if (!hasFolderAccess()) throw new Error('このブラウザではフォルダを開けません。Chrome か Edge で開いてください');
+    if (!hasFolderAccess()) throw new Error('このブラウザではフォルダの読み込み不可。Chrome か Edge で利用');
 
     const root = await this.folder(mapping);
     if (!root) return null;
     const hit = await findFile(root, rest);
-    if (!hit) throw new Error(`「${mapping.label}」に選んだフォルダ「${root.name}」の中に ${rest.join('/')} がありません（フォルダを選び直すには、カタログの「フォルダの許可を消去」を使ってください）`);
+    if (!hit) throw new Error(`「${mapping.label}」に選んだフォルダ「${root.name}」の中に ${rest.join('/')} なし（フォルダを選び直すには、カタログの「フォルダの許可を消去」を使用）`);
     return { kind: 'files', handles: [hit.file, ...hit.sidecars] };
   }
 
@@ -229,17 +229,17 @@ export class LocalPaths {
     const kept = (await this.store_.get(mapping.prefix).catch(() => undefined)) as PermissionHandle | undefined;
     if (kept) {
       if ((await kept.queryPermission?.({ mode: 'read' })) === 'granted') return kept;
-      const state = await this.options.ask(`「${mapping.label}」（${mapping.prefix}）のフォルダ「${kept.name}」を読む許可が必要です`, '許可する', async () =>
+      const state = await this.options.ask(`「${mapping.label}」（${mapping.prefix}）のフォルダ「${kept.name}」を読む許可が必要`, '許可', async () =>
         kept.requestPermission ? kept.requestPermission({ mode: 'read' }) : ('granted' as PermissionState),
       );
       if (state === null) return null;
       if (state === 'granted') return kept;
-      throw new Error(`「${mapping.label}」のフォルダを読む許可がありません`);
+      throw new Error(`「${mapping.label}」のフォルダを読む許可なし`);
     }
     const picker = (window as unknown as { showDirectoryPicker: DirectoryPicker }).showDirectoryPicker;
     const chosen = await this.options.ask(
-      `「${mapping.label}」のフォルダ（${mapping.prefix}）を選んでください。一度選ぶと、次からは選ばずに開けます`,
-      'フォルダを選ぶ…',
+      `「${mapping.label}」のフォルダ（${mapping.prefix}）を選択。一度選ぶと、次回からは選択不要`,
+      'フォルダを選択…',
       async () => {
         try {
           return await picker({ id: 'image-catalog', mode: 'read' });

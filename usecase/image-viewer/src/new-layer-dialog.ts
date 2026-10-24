@@ -87,7 +87,7 @@ class FieldRow {
     const required = document.createElement('label');
     required.className = 'check';
     required.append(this.required_, '必須');
-    required.title = '値を空にできない属性にします';
+    required.title = '値の空欄を不可に';
     this.more_ = document.createElement('button');
     this.more_.type = 'button';
     this.more_.className = 'new-layer-more';
@@ -202,11 +202,11 @@ export class NewLayerDialog {
       <form method="dialog" class="service-form">
         <h2 id="new-layer-title">新規レイヤー</h2>
         <label>名前<input name="title" type="text" value="新規レイヤー" aria-label="レイヤーの名前" /></label>
-        <label>ジオメトリ<select name="geometry" aria-label="ジオメトリ">${geometry}<option value="">指定しない（描くたびに選ぶ）</option></select></label>
+        <label>ジオメトリ<select name="geometry" aria-label="ジオメトリ">${geometry}<option value="">指定なし（作図ごとに選択）</option></select></label>
         <fieldset class="wide new-layer-fields">
           <legend>属性</legend>
           <ol class="new-layer-list"></ol>
-          <p class="new-layer-empty">属性はまだありません（なくても作れます）</p>
+          <p class="new-layer-empty">属性なし（属性なしでも作成可能）</p>
           <div class="new-layer-field-actions">
             <button type="button" value="add-field">＋ 属性を追加</button>
             <select name="copy" aria-label="ほかのレイヤーの属性をコピー"></select>
@@ -221,7 +221,7 @@ export class NewLayerDialog {
             <label class="wide" hidden>EPSG コード<input name="code" type="text" placeholder="例: 6677" aria-label="EPSG コード" /></label>
           </div>
         </details>
-        <label class="wide check"><input name="draw" type="checkbox" checked /><span>作成したらすぐ地図に描き始める</span></label>
+        <label class="wide check"><input name="draw" type="checkbox" checked /><span>作成後すぐ地図に作図開始</span></label>
       </form>
       <p class="service-status new-layer-note" role="status"></p>
       <div class="service-actions">
@@ -293,7 +293,7 @@ export class NewLayerDialog {
     let record: TempRecord;
     try {
       const code = (this.crs_.value || this.code_.value).trim();
-      if (!code) throw new Error('EPSG コードを入れてください');
+      if (!code) throw new Error('EPSG コードを入力');
       const crs = code === wgs84.projection ? wgs84 : await targetCrs(code);
       const design = { ...this.design(), crs };
       const kind = design.geometryType ? geometryNames[design.geometryType] : 'ジオメトリ指定なし';
@@ -323,7 +323,7 @@ export class NewLayerDialog {
     const crs = layer.service.exportCrs ?? layer.service.fileCrs;
     if (crs && crsPresets.some((p) => p.code === crs.projection)) this.crs_.value = crs.projection;
     this.note_.classList.remove('error');
-    this.note_.textContent = `「${layer.name}」の属性 ${fields.length} 個をコピーしました（地物はコピーしません）`;
+    this.note_.textContent = `「${layer.name}」の属性 ${fields.length} 個をコピー（地物はコピー対象外）`;
   }
 
   private update_(): void {

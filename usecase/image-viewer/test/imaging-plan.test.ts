@@ -76,7 +76,7 @@ describe('TLE and catalog attributes', () => {
     // Empty specifications fall back to the defaults (in km).
     const plain = satelliteOf({ SAT_NAME: 'OPT-1', L1: line1, L2: line2, MAX_ANGLE: null, SWATH_M: '' }, catalog) as SatelliteSpec;
     expect(plain).toMatchObject({ maxOffNadir: 25, swath: 10, lookSide: 'both', sar: false, minInterval: 0, maxPerDay: 0, leadTime: 0, series: 'OPT' });
-    expect(satelliteOf({ SAT_NAME: 'X' }, catalog)).toBe('X: TLE がありません');
+    expect(satelliteOf({ SAT_NAME: 'X' }, catalog)).toBe('X: TLE なし');
   });
 
   it('reads one field holding both lines', () => {
@@ -94,7 +94,7 @@ describe('TLE and catalog attributes', () => {
   it('is read from config.json', () => {
     const { config, problems } = parseConfig({ satelliteCatalogs: [{ url: 'https://e.com/a/FeatureServer/0', fields: { tle: 'TLE', name: 'NAME' } }, 'bad'] });
     expect(config.satelliteCatalogs).toHaveLength(1);
-    expect(problems).toEqual(['satelliteCatalogs[1] がオブジェクトではありません']);
+    expect(problems).toEqual(['satelliteCatalogs[1] はオブジェクトで指定']);
   });
 
   it('reads the look side in English, letters and Japanese', () => {
@@ -206,7 +206,7 @@ describe('planning', () => {
 
   it('reports satellites whose TLE does not read', () => {
     const bad = iss({ name: 'BAD', tle1: '1 garbage', tle2: '2 garbage' });
-    expect(planAccess([bad], [{ label: 'a', center: below, points: [] }], around(T)).problems).toEqual(['BAD: TLE を読めません']);
+    expect(planAccess([bad], [{ label: 'a', center: below, points: [] }], around(T)).problems).toEqual(['BAD: TLE の読み込み不可']);
   });
 
   it('knows how far a satellite reaches', () => {

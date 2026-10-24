@@ -93,7 +93,7 @@ test('pan-sharpens a multispectral image with a panchromatic one and saves the r
   await expect(dialog.locator('.pansharpen-plan')).toContainText('解像度の比 1 : 4.00。結果は 256 × 256 px、4 バンド');
 
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('scene_ms_pansharpen.tif を作りました（256 × 256 px）');
+  await expect(page.locator('#status')).toContainText('scene_ms_pansharpen.tif を作成（256 × 256 px）');
   await expect(dialog).toBeHidden();
   await expect(page.locator('#images .name').first()).toHaveText('パンシャープンscene_ms_pansharpen.tif');
 
@@ -176,7 +176,7 @@ test('makes a large result at full resolution, in blocks that join without seams
   await expect(dialog.locator('.pansharpen-plan')).toContainText('結果は 2,400 × 2,200 px、4 バンド');
   await expect(dialog.locator('.pansharpen-plan')).not.toContainText('縮小');
   await dialog.getByRole('button', { name: '実行' }).click();
-  await expect(page.locator('#status')).toContainText('big_ms_pansharpen.tif を作りました（2,400 × 2,200 px）', { timeout: 90_000 });
+  await expect(page.locator('#status')).toContainText('big_ms_pansharpen.tif を作成（2,400 × 2,200 px）', { timeout: 90_000 });
   // It opened like a chosen file: with an RSET made for it.
   await expect(page.locator('#images li').first()).toContainText('RSET');
 

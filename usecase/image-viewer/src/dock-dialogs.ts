@@ -2,7 +2,7 @@
  * Dialogs in the docking layout (src/dock.ts): every dialog gets a ◧ button
  * at its title whose menu puts it in the left, right or bottom dock, where it
  * stays open beside the map as a panel (a tab when it shares a group), and
- * where it opens again the next time, also after a reload. 「ウィンドウに戻す」
+ * where it opens again the next time, also after a reload. 「ウィンドウに復帰」
  * (or dragging its title onto the map) makes it a dialog again.
  *
  * The dialog itself moves (as with ⧉, pop-out.ts), so what it shows and what
@@ -36,8 +36,8 @@ const docked = new Map<HTMLDialogElement, Docked>();
 
 /**
  * A dialog with `data-dock-home="bottom"` (left, right) opens docked there
- * until it is put back in a window (「ウィンドウに戻す」); the ids of those
- * put back are kept here, and forgotten by 「レイアウトを元に戻す」.
+ * until it is put back in a window (「ウィンドウに復帰」); the ids of those
+ * put back are kept here, and forgotten by 「レイアウトの初期化」.
  */
 const FLOATED = 'image-viewer.dock-floated';
 function floated(): Set<string> {
@@ -59,7 +59,7 @@ function setFloated(id: string, on: boolean): void {
     // No storage: it docks at home again next time.
   }
 }
-/** Dialogs with a home dock open there again (「レイアウトを元に戻す」). */
+/** Dialogs with a home dock open there again (「レイアウトの初期化」). */
 export function forgetFloated(): void {
   try {
     localStorage.removeItem(FLOATED);
@@ -118,7 +118,7 @@ function addButton(dialog: HTMLDialogElement, layout: DockLayout): void {
   button.className = BUTTON;
   button.textContent = '◧';
   button.title = '画面の端に組み込む（ドッキング）';
-  button.setAttribute('aria-label', '画面の端に組み込む');
+  button.setAttribute('aria-label', '画面の端に組み込み');
   button.setAttribute('aria-haspopup', 'menu');
   button.addEventListener('click', () => {
     const id = dockIdOf(dialog);
@@ -137,7 +137,7 @@ function openUndockedMenu(dialog: HTMLDialogElement, layout: DockLayout, x: numb
   // Inside the dialog, so that it shows (and takes clicks) above a modal one.
   undockedMenu.element.style.position = 'fixed';
   dialog.append(undockedMenu.element);
-  const sides: Array<[DockSide, string]> = [['left', '左に置く'], ['right', '右に置く'], ['bottom', '下に置く']];
+  const sides: Array<[DockSide, string]> = [['left', '左に配置'], ['right', '右に配置'], ['bottom', '下に配置']];
   undockedMenu.open(sides.map(([side, label]) => ({ label, run: () => dockDialog(dialog, layout, side) })), x, y);
 }
 

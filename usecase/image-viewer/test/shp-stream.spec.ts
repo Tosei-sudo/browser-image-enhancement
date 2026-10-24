@@ -65,7 +65,7 @@ test('a large Shapefile is read into the browser and shown a view at a time', as
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
   await page.setInputFiles('#open input[type=file]', circles(30, 400));
-  await expect(page.locator('#status')).toContainText('circles を開きました（900 件。大容量のため');
+  await expect(page.locator('#status')).toContainText('circles を表示（900 件。大容量のため');
   await expect(page.locator('#info')).toContainText('大容量・読み取り専用');
   await expect(page.locator('#info')).toContainText('360,900');
   // Read-only: no edit button.
@@ -129,7 +129,7 @@ test('a large Shapefile in a .zip is streamed from the .zip, without unpacking i
   const zipPath = join(mkdtempSync(join(tmpdir(), 'shpzip-')), 'circles.zip');
   writeFileSync(zipPath, zipFiles(files));
   await page.setInputFiles('#open input[type=file]', zipPath);
-  await expect(page.locator('#status')).toContainText('circles を開きました（25 件。大容量のため');
+  await expect(page.locator('#status')).toContainText('circles を表示（25 件。大容量のため');
   await expect.poll(() => featureCount(page)).toBe(25);
   await expect(page.locator('.attributes tbody tr[data-index]').first()).toContainText('円');
   expect(errors).toEqual([]);
@@ -141,7 +141,7 @@ test('on the GPU, a large Shapefile hides with its layer and is not drawn afresh
   await page.goto('/index.html?shpstream=always&vectorgl=always');
   await page.waitForFunction(() => window.viewer !== undefined);
   await page.setInputFiles('#open input[type=file]', circles(30, 40));
-  await expect(page.locator('#status')).toContainText('circles を開きました');
+  await expect(page.locator('#status')).toContainText('circles を表示');
   await expect.poll(() => featureCount(page)).toBe(900);
   await expect(page.locator('#map .gl-vector')).toHaveCount(1);
   // The WebGL layer keeps its GPU state while the map moves and features load (new state would be blank until built).

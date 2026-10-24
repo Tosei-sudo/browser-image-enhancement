@@ -133,11 +133,11 @@ export class Annotations {
     bar.setAttribute('aria-label', '注記');
     bar.hidden = true;
     const kinds: Array<[NoteKind | 'select', string, string]> = [
-      ['arrow', '矢印', 'クリックで点を置き、ダブルクリックした所が矢印の先になります'],
-      ['line', '線', 'クリックで点を置き、ダブルクリックで終わります'],
-      ['box', '四角', '2 か所のクリックで四角を描きます'],
-      ['text', '文字', 'クリックした所に文字を置きます'],
-      ['select', '選択・移動', '注記をクリックで選び、ドラッグで動かします。Delete で削除'],
+      ['arrow', '矢印', 'クリックで点を配置、ダブルクリックした所が矢印の先'],
+      ['line', '線', 'クリックで点を置き、ダブルクリックで終了'],
+      ['box', '四角', '2 か所のクリックで四角を描画'],
+      ['text', '文字', 'クリック地点に文字を配置'],
+      ['select', '選択・移動', '注記をクリックで選択、ドラッグで移動。Delete で削除'],
     ];
     for (const [kind, label, title] of kinds) {
       const b = document.createElement('button');
@@ -275,7 +275,7 @@ export class Annotations {
     this.select_.getFeatures().clear();
     this.source.clear();
     this.store_();
-    this.options.say('注記をすべて消去しました');
+    this.options.say('注記をすべて消去');
   }
 
   /** The notes, for a project. */

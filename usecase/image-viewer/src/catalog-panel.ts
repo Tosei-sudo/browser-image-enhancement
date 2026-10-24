@@ -7,7 +7,7 @@
  *
  * The everyday search is the first lines of the form; registration dates and
  * a free SQL condition wait under 「詳細条件」, and the list sorts by any column.
- * 「似た画像を探す」 (catalog-similar.ts) lists the images taken like a given one
+ * 「類似画像の検索」 (catalog-similar.ts) lists the images taken like a given one
  * (same sensor, near angles, the same ground) for comparison.
  */
 import type OlMap from 'ol/Map.js';
@@ -129,8 +129,8 @@ export class CatalogPanel {
           <label class="check catalog-similar-sensor"><input name="sameSensor" type="checkbox" checked />同じセンサー<span></span></label>
           <label class="catalog-similar-angle"><span>角度</span> ±<input name="angleTolerance" type="number" min="0" max="90" step="any" placeholder="制限なし" />°</label>
           <label class="catalog-similar-azimuth"><span>方位角</span> ±<input name="azimuthTolerance" type="number" min="0" max="180" step="any" placeholder="制限なし" />°</label>
-          <label class="catalog-similar-overlap" title="比べる画像の範囲のうち、何 % 以上を写している画像にするか（0: 少しでも重なれば）">重なり<input name="minOverlap" type="number" min="0" max="100" step="any" value="0" />% 以上</label>
-          <button type="button" class="catalog-similar-off" title="似た画像の条件をやめて、ふつうの検索に戻ります">ふつうの検索に戻る</button>
+          <label class="catalog-similar-overlap" title="比べる画像の範囲を写す割合の下限（%。0: 少しでも重なれば対象）">重なり<input name="minOverlap" type="number" min="0" max="100" step="any" value="0" />% 以上</label>
+          <button type="button" class="catalog-similar-off" title="似た画像の条件を解除し、通常の検索に復帰">通常の検索に復帰</button>
         </fieldset>
         <label class="catalog-days">撮像日<span><input name="acquiredFrom" type="date" aria-label="撮像日（から）" /> 〜 <input name="acquiredTo" type="date" aria-label="撮像日（まで）" /></span></label>
         <label class="catalog-sensor">センサー<select name="sensor"><option value="">すべて</option></select><input name="sensorText" type="text" placeholder="すべて" hidden /></label>
@@ -143,7 +143,7 @@ export class CatalogPanel {
             <label class="catalog-days catalog-system">システム登録日<span><input name="systemRegisteredFrom" type="date" aria-label="システム登録日（から）" /> 〜 <input name="systemRegisteredTo" type="date" aria-label="システム登録日（まで）" /></span></label>
             <label class="catalog-days catalog-azimuth">方位角<span><input name="azimuthFrom" type="number" min="0" max="360" step="any" placeholder="0" aria-label="方位角（から）" /> 〜 <input name="azimuthTo" type="number" min="0" max="360" step="any" placeholder="360" aria-label="方位角（まで）" /> °</span></label>
             <label class="wide">条件（SQL）<input name="where" type="text" placeholder="例: CLOUD &lt; 20" autocomplete="off" /></label>
-            <button type="button" class="catalog-forget" hidden title="ローカルパスの画像のために許可したフォルダを忘れます。次に開くときに選び直します">フォルダの許可を消去</button>
+            <button type="button" class="catalog-forget" hidden title="ローカルパスの画像のために許可したフォルダの消去。次に開くときに再選択">フォルダの許可を消去</button>
           </div>
         </details>
         <button type="submit" class="primary catalog-search">検索</button>
@@ -151,9 +151,9 @@ export class CatalogPanel {
       <p class="service-status" role="status"></p>
       <div class="catalog-results"><table class="catalog-table"><thead></thead><tbody></tbody></table></div>
       <div class="service-actions catalog-actions">
-        <button type="button" value="watch" class="catalog-watch" hidden title="この条件（センサー・角度・方位角・SQL）に合う画像が新しく入ったら、バッジと「通知」で知らせます">この条件で監視…</button>
-        <button type="button" value="similar" disabled title="選んだ画像と同じセンサー・近い角度で同じ範囲を撮った画像を探します（比較用）">似た画像を探す</button>
-        <button type="button" value="copy" disabled title="選んだ画像のローカルパスをコピーします">パスをコピー</button>
+        <button type="button" value="watch" class="catalog-watch" hidden title="この条件（センサー・角度・方位角・SQL）に合う画像が新しく入ったら、バッジと「通知」で通知">この条件で監視…</button>
+        <button type="button" value="similar" disabled title="選択した画像と同じセンサー・近い角度で同じ範囲を撮った画像の検索（比較用）">類似画像の検索</button>
+        <button type="button" value="copy" disabled title="選んだ画像のローカルパスをコピー">パスをコピー</button>
         <button type="button" value="zoom" disabled>範囲へ移動</button>
         <button type="button" value="open" class="primary" disabled>開く</button>
       </div>`;
@@ -197,7 +197,7 @@ export class CatalogPanel {
     const forget = this.dialog.querySelector<HTMLButtonElement>('.catalog-forget')!;
     forget.hidden = !options.forgetFolders;
     forget.addEventListener('click', () => {
-      void options.forgetFolders?.().then(() => options.say('フォルダの許可を消去しました。次にローカルパスの画像を開くときに選び直します'));
+      void options.forgetFolders?.().then(() => options.say('フォルダの許可を消去。次にローカルパスの画像を開くときに再選択'));
     });
     this.table_.tBodies[0].addEventListener('keydown', (e) => {
       if (e.key === 'Enter') void this.openChosen();
@@ -309,7 +309,7 @@ export class CatalogPanel {
     const turn = ++this.searching_;
     const inView = (this.form_.elements.namedItem('inView') as HTMLInputElement).checked;
     const view = this.map.getView();
-    this.status_.textContent = '検索しています…';
+    this.status_.textContent = '検索中…';
     try {
       this.layer_ ??= readCatalogLayer(catalog);
       const layer = await this.layer_;
@@ -327,14 +327,14 @@ export class CatalogPanel {
       const shown = result.records.length;
       this.status_.textContent =
         shown === 0
-          ? '条件に合う画像はありません'
+          ? '条件に合う画像なし'
           : `${result.total !== null && result.total > shown ? `${result.total.toLocaleString()} 件中 新しい ${shown.toLocaleString()} 件` : `${shown.toLocaleString()} 件`}${
               local ? `（うちローカルパスのみ ${local} 件）` : ''
-            }。行を選んで「開く」（ダブルクリックでも開きます）`;
+            }。行を選んで「開く」（ダブルクリックでも可）`;
     } catch (error) {
       if (turn !== this.searching_) return;
       this.layer_ = null;
-      this.status_.textContent = `検索できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `検索失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       if (turn === this.searching_) this.searching_ = 0;
     }
@@ -470,8 +470,8 @@ export class CatalogPanel {
     const more = result.total !== null && result.total > result.records.length;
     this.status_.textContent =
       shown === 0
-        ? '似た画像は見つかりませんでした。許容幅を広げてみてください'
-        : `似た画像 ${shown.toLocaleString()} 件${more ? `（条件に合う ${result.total!.toLocaleString()} 件のうち新しい ${result.records.length.toLocaleString()} 件から）` : ''}。似ている順です。行を選んで「開く」`;
+        ? '類似画像なし。許容幅の拡大を推奨'
+        : `似た画像 ${shown.toLocaleString()} 件${more ? `（条件に合う ${result.total!.toLocaleString()} 件のうち新しい ${result.records.length.toLocaleString()} 件から）` : ''}。類似度順。行を選んで「開く」`;
   }
 
   /** The records in the list's order (「似た画像」's own orders included). */
@@ -573,7 +573,7 @@ export class CatalogPanel {
         const badge = document.createElement('span');
         badge.className = `catalog-kind ${record.source?.kind ?? 'none'}`;
         badge.textContent = record.source?.kind === 'url' ? 'COG' : record.source?.kind === 'path' ? 'ローカル' : 'なし';
-        badge.title = record.source?.kind === 'url' ? record.source.url : record.source?.kind === 'path' ? `${record.source.path}${this.options.openPath ? '' : '（ローカルパスは開けません。パスをコピーできます）'}` : '画像の場所がありません';
+        badge.title = record.source?.kind === 'url' ? record.source.url : record.source?.kind === 'path' ? `${record.source.path}${this.options.openPath ? '' : '（ローカルパスは表示不可。パスをコピー可能）'}` : '画像の場所なし';
         kind.append(badge);
         row.append(kind);
         row.addEventListener('click', (e) => {
@@ -639,20 +639,20 @@ export class CatalogPanel {
     let failed = '';
     for (const record of chosen) {
       const source = record.source!;
-      this.options.say(`${record.id || '画像'} を開いています…`);
+      this.options.say(`${record.id || '画像'} を読み込み中…`);
       try {
         if (source.kind === 'url') await this.options.openUrl(source.url, record, this.catalog_);
         else if (!(await this.options.openPath!(source.path, record, this.catalog_))) {
-          this.options.say('キャンセルしました');
+          this.options.say('キャンセル');
           return;
         }
         opened++;
       } catch (error) {
         // openUrl has said why; a local path says it here.
-        if (source.kind === 'path') this.options.say((failed = `${record.id || source.path} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`));
+        if (source.kind === 'path') this.options.say((failed = `${record.id || source.path} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`));
       }
     }
-    if (failed && chosen.length > 1) this.options.say(`${opened} / ${chosen.length} 件を開きました。${failed}`);
+    if (failed && chosen.length > 1) this.options.say(`${opened} / ${chosen.length} 件を表示。${failed}`);
   }
 
   /** Fits the view to the chosen footprints. */
@@ -671,9 +671,9 @@ export class CatalogPanel {
     if (!paths.length) return;
     try {
       await navigator.clipboard.writeText(paths.join('\n'));
-      this.options.say(`ローカルパス ${paths.length} 件をコピーしました`);
+      this.options.say(`ローカルパス ${paths.length} 件をコピー`);
     } catch {
-      this.options.say(`コピーできませんでした: ${paths.join(' ')}`);
+      this.options.say(`コピー失敗: ${paths.join(' ')}`);
     }
   }
 }

@@ -445,22 +445,22 @@ function sameCoordinates(a: Geometry, b: Geometry): boolean {
 /** The value for a field from the text typed in its cell, or why it is not allowed. */
 export function parseValue(field: Field, text: string): string | number | null | { error: string } {
   const trimmed = text.trim();
-  if (trimmed === '') return field.nullable ? null : field.type === 'string' ? '' : { error: `${field.alias} は空にできません` };
+  if (trimmed === '') return field.nullable ? null : field.type === 'string' ? '' : { error: `${field.alias} は空欄不可` };
   switch (field.type) {
     case 'integer':
     case 'double': {
       const n = Number(trimmed);
-      if (!Number.isFinite(n)) return { error: `${field.alias} は数値で入力してください` };
-      if (field.type === 'integer' && !Number.isInteger(n)) return { error: `${field.alias} は整数で入力してください` };
-      if (field.range && (n < field.range[0] || n > field.range[1])) return { error: `${field.alias} は ${field.range[0]}〜${field.range[1]} の範囲で入力してください` };
+      if (!Number.isFinite(n)) return { error: `${field.alias} は数値で入力` };
+      if (field.type === 'integer' && !Number.isInteger(n)) return { error: `${field.alias} は整数で入力` };
+      if (field.range && (n < field.range[0] || n > field.range[1])) return { error: `${field.alias} は ${field.range[0]}〜${field.range[1]} の範囲で入力` };
       return field.codes ? (field.codes.find((c) => String(c.code) === trimmed)?.code ?? n) : n;
     }
     case 'date': {
       const ms = new Date(trimmed).getTime();
-      return Number.isFinite(ms) ? ms : { error: `${field.alias} は日時で入力してください` };
+      return Number.isFinite(ms) ? ms : { error: `${field.alias} は日時で入力` };
     }
     default: {
-      if (field.length && trimmed.length > field.length) return { error: `${field.alias} は ${field.length} 文字以内で入力してください` };
+      if (field.length && trimmed.length > field.length) return { error: `${field.alias} は ${field.length} 文字以内で入力` };
       return field.codes ? (field.codes.find((c) => String(c.code) === trimmed)?.code ?? trimmed) : trimmed;
     }
   }

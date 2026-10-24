@@ -125,7 +125,7 @@ export function classifyUrl(url: string): { kind: 'esri-service'; root: string }
 
 /** The tasks of a GPServer (`{ tasks: ['Buffer', …] }`). */
 export function parseEsriService(root: string, json: unknown): GpService {
-  if (!isRecord(json) || !Array.isArray(json.tasks)) throw new Error('GPServer の応答に tasks がありません');
+  if (!isRecord(json) || !Array.isArray(json.tasks)) throw new Error('GPServer の応答に tasks なし');
   const tasks = json.tasks
     .map((t) => (typeof t === 'string' ? t : isRecord(t) ? text(t.name, 200) : undefined))
     .filter((t): t is string => !!t)
@@ -224,7 +224,7 @@ export function esriField(p: unknown): GpField | null {
 
 /** A GP task's description (`…/GPServer/Buffer?f=json`). */
 export function parseEsriTask(url: string, json: unknown, service?: unknown): GpTask {
-  if (!isRecord(json) || !Array.isArray(json.parameters)) throw new Error('GP タスクの応答に parameters がありません');
+  if (!isRecord(json) || !Array.isArray(json.parameters)) throw new Error('GP タスクの応答に parameters なし');
   const params = json.parameters.slice(0, 200);
   const inputs = params.map(esriField).filter((f): f is GpField => f !== null);
   const outputs = params
@@ -267,7 +267,7 @@ export function ogcProcessesUrl(url: string, json: unknown): string | null {
 
 /** The processes of an OGC API – Processes list (`/processes`). */
 export function parseOgcProcessList(url: string, json: unknown): GpService {
-  if (!isRecord(json) || !Array.isArray(json.processes)) throw new Error('processes の一覧がありません');
+  if (!isRecord(json) || !Array.isArray(json.processes)) throw new Error('processes の一覧なし');
   const base = url.endsWith('/') ? url : `${url}/`;
   const tasks = json.processes
     .filter((p): p is Record<string, unknown> => isRecord(p) && typeof p.id === 'string' && !!p.id)
@@ -342,7 +342,7 @@ export function ogcField(id: string, input: unknown): GpField {
 
 /** An OGC process description (`/processes/{id}`). */
 export function parseOgcProcess(url: string, json: unknown): GpTask {
-  if (!isRecord(json) || typeof json.id !== 'string') throw new Error('プロセスの説明に id がありません');
+  if (!isRecord(json) || typeof json.id !== 'string') throw new Error('プロセスの説明に id なし');
   // 1.0 has inputs as a map; drafts had a list of { id, … }.
   const entries = (value: unknown): Array<[string, unknown]> =>
     Array.isArray(value)
@@ -393,7 +393,7 @@ const esriTypes: Record<Field['type'], string> = {
 
 /** Features as an Esri feature set in Web Mercator (`GPFeatureRecordSetLayer`), or rows without geometry (`GPRecordSet`). */
 export function esriFeatureSet(input: FeatureInput, table = false): object {
-  if (input.features.length > MAX_GP_FEATURES) throw new Error(`送れる地物は ${MAX_GP_FEATURES.toLocaleString()} 件までです`);
+  if (input.features.length > MAX_GP_FEATURES) throw new Error(`送れる地物は ${MAX_GP_FEATURES.toLocaleString()} 件まで`);
   const fields = input.fields.filter((f) => f.type !== 'other').map((f) => ({ name: f.name, type: esriTypes[f.type], alias: f.alias }));
   const names = new Set(fields.map((f) => f.name));
   const attributesOf = (f: Feature) => {
@@ -418,15 +418,15 @@ export function esriFeatureSet(input: FeatureInput, table = false): object {
 
 /** Features as GeoJSON (WGS 84) in the shape an OGC input takes. */
 export function ogcGeoJson(input: FeatureInput, shape: GpField['shape'] = 'collection'): object {
-  if (input.features.length > MAX_GP_FEATURES) throw new Error(`送れる地物は ${MAX_GP_FEATURES.toLocaleString()} 件までです`);
+  if (input.features.length > MAX_GP_FEATURES) throw new Error(`送れる地物は ${MAX_GP_FEATURES.toLocaleString()} 件まで`);
   const options = { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857', decimals: 8 };
   if (shape === 'geometry') {
     const geometry = input.features.find((f) => f.getGeometry())?.getGeometry();
-    if (!geometry) throw new Error('図形がありません');
+    if (!geometry) throw new Error('図形なし');
     return geoJson.writeGeometryObject(geometry, options);
   }
   if (shape === 'feature') {
-    if (!input.features[0]) throw new Error('地物がありません');
+    if (!input.features[0]) throw new Error('地物なし');
     return geoJson.writeFeatureObject(input.features[0], options);
   }
   return geoJson.writeFeaturesObject(input.features, options);
@@ -439,19 +439,19 @@ export function checkValues(task: GpTask, values: Record<string, GpValue>): stri
     const value = values[field.name];
     const empty = value === null || value === undefined || value === '' || (isFeatureInput(value) && value.features.length === 0);
     if (empty) {
-      if (field.required && field.type !== 'boolean') problems.push(`「${field.label}」を入れてください`);
+      if (field.required && field.type !== 'boolean') problems.push(`「${field.label}」を入力`);
       continue;
     }
     if ((field.type === 'integer' || field.type === 'number') && typeof value === 'number') {
-      if (!Number.isFinite(value) || (field.type === 'integer' && !Number.isInteger(value))) problems.push(`「${field.label}」は${field.type === 'integer' ? '整数' : '数値'}にしてください`);
-      else if ((field.min !== undefined && value < field.min) || (field.max !== undefined && value > field.max)) problems.push(`「${field.label}」は ${field.min ?? ''}〜${field.max ?? ''} にしてください`);
+      if (!Number.isFinite(value) || (field.type === 'integer' && !Number.isInteger(value))) problems.push(`「${field.label}」は${field.type === 'integer' ? '整数' : '数値'}で指定`);
+      else if ((field.min !== undefined && value < field.min) || (field.max !== undefined && value > field.max)) problems.push(`「${field.label}」は ${field.min ?? ''}〜${field.max ?? ''} で指定`);
     }
-    if ((field.type === 'raster' || field.type === 'file') && !safeUrl(value)) problems.push(`「${field.label}」は http(s) の URL にしてください`);
+    if ((field.type === 'raster' || field.type === 'file') && !safeUrl(value)) problems.push(`「${field.label}」は http(s) の URL で指定`);
     if (field.type === 'json' && typeof value === 'string') {
       try {
         JSON.parse(value);
       } catch {
-        problems.push(`「${field.label}」は JSON で書いてください`);
+        problems.push(`「${field.label}」は JSON で記述`);
       }
     }
   }
@@ -632,7 +632,7 @@ export function esriOutput(result: unknown, label?: string, dataProjection: Proj
   }
   if ((dataType === 'GPRasterDataLayer' || dataType === 'GPRasterData' || dataType === 'GPDataFile') && isRecord(value)) {
     const url = safeUrl(value.url, base);
-    if (!url) return { ...head, kind: 'value', text: '（URL がありません）' };
+    if (!url) return { ...head, kind: 'value', text: '（URL なし）' };
     const image = dataType !== 'GPDataFile' || imageLike.test(url) || (typeof value.format === 'string' && /^(tiff?|png|jpe?g)$/i.test(value.format));
     return { ...head, kind: image ? 'image' : 'link', url };
   }
@@ -663,7 +663,7 @@ export function ogcOutput(name: string, value: unknown, label = name, base?: str
   }
   if (isRecord(value) && typeof value.href === 'string') {
     const url = safeUrl(value.href, base);
-    if (!url) return { ...head, kind: 'value', text: '（http(s) 以外のリンクは開きません）' };
+    if (!url) return { ...head, kind: 'value', text: '（http(s) 以外のリンクは表示不可）' };
     const type = typeof value.type === 'string' ? value.type : '';
     return { ...head, kind: /^image\//i.test(type) || imageLike.test(url) ? 'image' : 'link', url };
   }

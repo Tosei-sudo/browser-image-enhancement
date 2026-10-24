@@ -58,7 +58,7 @@ export function readKml(text: string, title: string): VectorFile {
   try {
     features = new KML({ extractStyles: false, showPointNames: false }).readFeatures(text, read3857) as Feature[];
   } catch {
-    throw new Error(`${title} は KML として読めませんでした`);
+    throw new Error(`${title} は KML として読み込み失敗`);
   }
   features = flatten(plainValues(features));
   return { title, format: 'KML', features, fields: fieldsOf(features), crs: 'WGS 84', projection: 'EPSG:4326', writeCrs: wgs84 };
@@ -68,7 +68,7 @@ export function readKml(text: string, title: string): VectorFile {
 export function readKmz(entries: NamedBytes[], title: string): VectorFile {
   const kmls = entries.filter((e) => /\.kml$/i.test(e.name));
   const main = kmls.find((e) => /(^|\/)doc\.kml$/i.test(e.name)) ?? kmls[0];
-  if (!main) throw new Error(`${title}.kmz に KML がありません`);
+  if (!main) throw new Error(`${title}.kmz に KML なし`);
   return { ...readKml(new TextDecoder().decode(main.bytes), title), format: 'KMZ' };
 }
 
@@ -78,7 +78,7 @@ export function readGpx(text: string, title: string): VectorFile {
   try {
     features = new GPX().readFeatures(text, read3857) as Feature[];
   } catch {
-    throw new Error(`${title} は GPX として読めませんでした`);
+    throw new Error(`${title} は GPX として読み込み失敗`);
   }
   for (const f of features) {
     const g = f.getGeometry();
@@ -105,7 +105,7 @@ export async function readFgb(bytes: Uint8Array, title: string, projectionOf?: P
   let dataProjection = 'EPSG:4326';
   if (name && !/EPSG:4326$|CRS:?84$/i.test(name)) {
     const projection = projectionOf ? await projectionOf(name) : null;
-    if (!projection) throw new Error(`${title} の座標系 ${name} を読めませんでした`);
+    if (!projection) throw new Error(`${title} の座標系 ${name} の読み込みに失敗`);
     dataProjection = projection.getCode();
   }
   const toMap = getTransform(dataProjection, 'EPSG:3857');

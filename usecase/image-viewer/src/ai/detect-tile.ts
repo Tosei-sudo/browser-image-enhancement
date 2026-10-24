@@ -80,7 +80,7 @@ async function runTile(
     if (spec.format === 'detectron2') {
       // Boxes, scores and classes apart, after the model's own NMS (the tiles' overlaps are merged later).
       const parts = detectron2Outputs(names.map((name) => ({ name, type: outputs[name].type, dims: outputs[name].dims })));
-      if (!parts) throw new Error('Detectron2 の出力（boxes [N, 4]・scores [N]・classes [N]）が見つかりません');
+      if (!parts) throw new Error('Detectron2 の出力（boxes [N, 4]・scores [N]・classes [N]）なし');
       found = decodeDetectron2(await read(parts.boxes.name), await read(parts.scores.name), await read(parts.classes.name), spec.score);
       full = spec.maxDetections > 0 && outputs[parts.scores.name].dims[0] >= spec.maxDetections;
     } else found = nms(decodeYolo(await read(names[0]), spec, spec.score), spec.iou);

@@ -33,7 +33,7 @@ export function cloudForecastOf(value: unknown, problems: string[]): CloudForeca
     const { url, label } = value as Record<string, unknown>;
     if (typeof url === 'string' && /^(https?:)?\/\/|^\.{0,2}\//.test(url)) return { url, label: typeof label === 'string' && label ? label : '雲量予報' };
   }
-  problems.push('cloudForecast は { "url": "…/v1/forecast" } か false にしてください');
+  problems.push('cloudForecast は { "url": "…/v1/forecast" } か false で指定');
   return defaultCloudForecast;
 }
 
@@ -92,7 +92,7 @@ export async function fetchClouds(config: CloudForecastConfig, places: Array<[nu
       timeformat: 'unixtime',
     });
     const response = await fetcher(`${config.url}${config.url.includes('?') ? '&' : '?'}${params}`);
-    if (!response.ok) throw new Error(`${config.label} が ${response.status} を返しました`);
+    if (!response.ok) throw new Error(`${config.label} が ${response.status} を返却`);
     const json = (await response.json()) as unknown;
     const entries = Array.isArray(json) ? json : [json];
     batch.forEach((key, k) => {

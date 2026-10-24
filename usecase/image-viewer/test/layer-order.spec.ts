@@ -25,7 +25,7 @@ async function choose(page: Page, name: string, bytes: Uint8Array | string) {
     },
     [name, typeof bytes === 'string' ? bytes : Buffer.from(bytes).toString('base64'), typeof bytes === 'string'] as const,
   );
-  await expect(page.locator('#status')).toContainText(`${name.replace(/\.geojson$/, '')} を開きました`);
+  await expect(page.locator('#status')).toContainText(`${name.replace(/\.geojson$/, '')} を表示`);
 }
 
 const names = (page: Page) => page.evaluate(() => window.viewer.images.layers().map((l) => l.name));
@@ -121,7 +121,7 @@ test('a group\'s vector layers take one style at once; its images are left as th
   for (const use of ['公園', '住宅', '商業']) await expect(dialog.getByLabel(`${use} の色`)).toBeVisible();
   await dialog.getByLabel('商業 の色').fill('#ff8800');
   await dialog.getByRole('button', { name: 'OK' }).click();
-  await expect(page.locator('#status')).toContainText('グループ「all」のベクターレイヤー 2 件のスタイルを変更しました');
+  await expect(page.locator('#status')).toContainText('グループ「all」のベクターレイヤー 2 件のスタイルを変更');
   const specs = await page.evaluate(() =>
     window.viewer.images
       .layers()

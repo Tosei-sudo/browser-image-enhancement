@@ -81,36 +81,36 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 function options(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {};
-  if (!isRecord(value)) throw new TypeError('オプションはオブジェクトで指定してください');
+  if (!isRecord(value)) throw new TypeError('オプションはオブジェクトで指定');
   return value;
 }
 
 function number(value: unknown, name: string, min: number, max: number): number {
   const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-  if (typeof n !== 'number' || !Number.isFinite(n)) throw new TypeError(`${name} は数値で指定してください`);
-  if (n < min || n > max) throw new RangeError(`${name} は ${min}〜${max} で指定してください`);
+  if (typeof n !== 'number' || !Number.isFinite(n)) throw new TypeError(`${name} は数値で指定`);
+  if (n < min || n > max) throw new RangeError(`${name} は ${min}〜${max} で指定`);
   return n;
 }
 
 function lonLat(value: unknown, name: string): [number, number] {
   if (!Array.isArray(value) || value.length < 2 || !value.slice(0, 2).every((v) => typeof v === 'number' && Number.isFinite(v))) {
-    throw new TypeError(`${name} は [経度, 緯度] で指定してください`);
+    throw new TypeError(`${name} は [経度, 緯度] で指定`);
   }
   const [lon, lat] = value as number[];
-  if (lat < -90 || lat > 90) throw new RangeError(`${name} の緯度は -90〜90 です`);
+  if (lat < -90 || lat > 90) throw new RangeError(`${name} の緯度は -90〜90 で指定`);
   return [lon, lat];
 }
 
 /** The server of a URL a script gives (http or https only). */
 function originOf(url: unknown): { url: string; origin: string } {
-  if (typeof url !== 'string' || !url.trim()) throw new TypeError('URL を文字列で指定してください');
+  if (typeof url !== 'string' || !url.trim()) throw new TypeError('URL を文字列で指定');
   let parsed: URL;
   try {
     parsed = new URL(url.trim(), location.href);
   } catch {
-    throw new TypeError(`URL として読めません: ${url}`);
+    throw new TypeError(`URL として読み込み不可: ${url}`);
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new TypeError('http か https の URL を指定してください');
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new TypeError('http か https の URL を指定');
   return { url: parsed.href, origin: parsed.origin };
 }
 
@@ -122,8 +122,8 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     const { url: href, origin } = originOf(url);
     const known = new Set([location.origin, ...ctx.knownHosts()]);
     if (known.has(origin) || allowed.has(origin)) return href;
-    const ok = confirm(`スクリプトが次のサーバーからデータを読み込もうとしています。\n\n${origin}\n\n許可しますか？（この実行の間だけ有効です）`);
-    if (!ok) throw new Error(`${origin} への接続は許可されませんでした`);
+    const ok = confirm(`スクリプトが次のサーバーからデータを読み込もうとしています。\n\n${origin}\n\n許可しますか？（この実行の間のみ有効）`);
+    if (!ok) throw new Error(`${origin} への接続は拒否`);
     allowed.add(origin);
     return href;
   };
@@ -144,7 +144,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
   const toolOf = (id: unknown): ScriptTool => {
     const tools = ctx.tools();
     const tool = tools.find((t) => t.id === id || t.label === id || t.label.startsWith(`${String(id)}（`));
-    if (!tool) throw new Error(`ツール「${String(id)}」はありません。使えるもの: ${tools.map((t) => t.id).join(', ')}`);
+    if (!tool) throw new Error(`ツール「${String(id)}」なし。使えるもの: ${tools.map((t) => t.id).join(', ')}`);
     return tool;
   };
   const correctionOf = (layer: ViewerLayer) => (layer.type === 'image' ? layer.source : (layer.service.correction ?? null));
@@ -152,7 +152,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
   return {
     // Layers in the list.
     setVisible: (ref: unknown, visible: unknown) => {
-      if (typeof visible !== 'boolean') throw new TypeError('表示は true か false で指定してください');
+      if (typeof visible !== 'boolean') throw new TypeError('表示は true か false で指定');
       ctx.list.setVisible(kit.layerOf(ref), visible);
       return true;
     },
@@ -172,7 +172,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     removeLayer: (ref: unknown) => {
       const layer = kit.layerOf(ref);
       if (ctx.editor.editing() === layer && (ctx.editor.session()?.count() ?? 0) > 0) {
-        throw new Error(`${layer.name} には未保存の変更があるので閉じません（保存するか「元に戻す」で戻してから閉じてください）`);
+        throw new Error(`${layer.name} には未保存の変更があるため閉じる操作は不可（保存か「元に戻す」の後に再実行）`);
       }
       ctx.list.remove(layer);
       return true;
@@ -181,13 +181,13 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     // Images: correction, bands, no-data, coloring.
     enhance: (ref: unknown) => {
       const target = correctionOf(kit.layerOf(ref));
-      if (!target) throw new Error('このレイヤーは補正できません');
+      if (!target) throw new Error('このレイヤーは補正不可');
       return target.getPipeline().toJSON().ops;
     },
     setEnhance: (ref: unknown, settings: unknown) => {
       const layer = kit.layerOf(ref);
       const target = correctionOf(layer);
-      if (!target) throw new Error(`${layer.name} は補正できません`);
+      if (!target) throw new Error(`${layer.name} は補正不可`);
       let p: Pipeline;
       try {
         if (settings === null) p = new Pipeline();
@@ -195,12 +195,12 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
         else if (isRecord(settings)) {
           p = target.getPipeline();
           for (const [name, value] of Object.entries(settings)) {
-            if (value !== null && typeof value !== 'number' && !isRecord(value)) throw new TypeError(`${name} は数値、オプションのオブジェクト、または null（外す）です`);
+            if (value !== null && typeof value !== 'number' && !isRecord(value)) throw new TypeError(`${name} は数値、オプションのオブジェクト、または null（除外）で指定`);
             p = value === null ? p.remove(name as never) : p.set(name as never, value as never);
           }
-        } else throw new TypeError('補正は { brightness: 0.2, contrast: 0.1 } のようなオブジェクト、手順の配列、または null（元に戻す）で指定してください');
+        } else throw new TypeError('補正は { brightness: 0.2, contrast: 0.1 } のようなオブジェクト、手順の配列、または null（初期化）で指定');
       } catch (error) {
-        throw new TypeError(`補正を設定できません: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        throw new TypeError(`補正の設定不可: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
       ctx.setCorrection(layer, p);
       return p.toJSON().ops;
@@ -209,12 +209,12 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       const image = kit.imageOf(ref);
       const n = image.source.getValueBandCount();
       if (bands !== null && (!Array.isArray(bands) || ![1, 3].includes(bands.length) || !bands.every((b) => Number.isInteger(b) && b >= 0 && b < n))) {
-        throw new TypeError(`バンドは [R, G, B] か [1 バンド] を 0〜${n - 1} の番号（0 から）で、または null（元のまま）で指定してください`);
+        throw new TypeError(`バンドは [R, G, B] か [1 バンド] を 0〜${n - 1} の番号（0 から）で、または null（元のまま）で指定`);
       }
       try {
         await image.source.setSelect(bands as [number, number, number] | [number] | null);
       } catch (error) {
-        throw new Error(`バンドを割り当てられません: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        throw new Error(`バンドの割り当て不可: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
       // The panel's band choices follow.
       if (ctx.list.selectedLayer() === image) ctx.list.select(image);
@@ -224,8 +224,8 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       const image = kit.imageOf(ref);
       const o = value === null ? { auto: false, values: [] } : options(value);
       const values = o.values === undefined ? [] : o.values;
-      if (!Array.isArray(values) || !values.every((v) => typeof v === 'number' && !Number.isNaN(v))) throw new TypeError('values はノーデータにする値の配列です');
-      if (values.length > 64) throw new RangeError('values は 64 個までです');
+      if (!Array.isArray(values) || !values.every((v) => typeof v === 'number' && !Number.isNaN(v))) throw new TypeError('values はノーデータにする値の配列で指定');
+      if (values.length > 64) throw new RangeError('values は 64 個まで');
       ctx.setNoData(image, { auto: o.auto === undefined ? values.length === 0 && value !== null : Boolean(o.auto), values });
       return true;
     },
@@ -238,12 +238,12 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       const o = options(value);
       const names = scaleChoices.map(([n]) => n as string);
       const blend = o.blend ?? 'normal';
-      if (!blendChoices.some(([b]) => b === blend)) throw new TypeError(`blend は ${blendChoices.map(([b]) => b).join(' / ')} のどれかです`);
+      if (!blendChoices.some(([b]) => b === blend)) throw new TypeError(`blend は ${blendChoices.map(([b]) => b).join(' / ')} のいずれか`);
       let scale: LayerColorScale['scale'];
       if (typeof o.scale === 'string' && names.includes(o.scale)) scale = o.scale as never;
       else if (typeof o.scale === 'string' && /^#[0-9a-f]{6}$/i.test(o.scale)) scale = oneColor(o.scale) as never;
       else if (o.scale === undefined && o.classes !== undefined) scale = 'turbo';
-      else throw new TypeError(`scale は ${names.join(' / ')}、または "#ff0000" のような色です`);
+      else throw new TypeError(`scale は ${names.join(' / ')}、または "#ff0000" のような色で指定`);
       if (o.classes === undefined) {
         ctx.setColorScale(image, { scale, reverse: Boolean(o.reverse), fade: Boolean(o.fade) }, blend as LayerBlendMode);
         return true;
@@ -252,14 +252,14 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       let classes: ColorClasses | null;
       if (Array.isArray(o.classes)) {
         classes = readColorClasses({ kind: o.kind === 'exact' ? 'exact' : 'range', classes: o.classes, method: 'manual', ...(typeof o.min === 'number' ? { min: o.min } : {}) });
-        if (!classes || classes.classes.length !== o.classes.length) throw new TypeError('classes は { value: 数, color: [r, g, b] } の配列です');
+        if (!classes || classes.classes.length !== o.classes.length) throw new TypeError('classes は { value: 数, color: [r, g, b] } の配列で指定');
       } else {
         const unique = o.classes === 'unique';
         const count = Number(o.classes);
-        if (!unique && !(Number.isInteger(count) && count >= 2 && count <= 32)) throw new RangeError("classes は 2〜32 のクラス数、'unique'、またはクラスの配列です");
-        if (o.method !== undefined && o.method !== 'equal' && o.method !== 'quantile') throw new TypeError("method は 'equal' / 'quantile' のどちらかです");
+        if (!unique && !(Number.isInteger(count) && count >= 2 && count <= 32)) throw new RangeError("classes は 2〜32 のクラス数、'unique'、またはクラスの配列で指定");
+        if (o.method !== undefined && o.method !== 'equal' && o.method !== 'quantile') throw new TypeError("method は 'equal' / 'quantile' のいずれかで指定");
         classes = await imageClassesFor(image, { method: unique ? 'unique' : ((o.method as ClassMethod | undefined) ?? 'equal'), count: unique ? 0 : count, scale, reverse: Boolean(o.reverse) });
-        if (!classes) throw new Error(unique ? '値の種類が多すぎるか、画像の値を読めませんでした' : '画像の値を読めませんでした');
+        if (!classes) throw new Error(unique ? '値の種類が多すぎるか、画像の値の読み込みに失敗' : '画像の値の読み込みに失敗');
       }
       ctx.setColorScale(image, { scale, ...(o.reverse ? { reverse: true } : {}), classes }, blend as LayerBlendMode);
       return true;
@@ -268,13 +268,13 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     // Vector styles.
     style: (ref: unknown) => {
       const style = kit.vectorOf(ref).service.style;
-      if (!style) throw new Error('このレイヤーのスタイルは変えられません');
+      if (!style) throw new Error('このレイヤーのスタイルは変更不可');
       return style.get();
     },
     setStyle: (ref: unknown, value: unknown) => {
       const layer = kit.vectorOf(ref);
       const style = layer.service.style;
-      if (!style) throw new Error(`${layer.name} のスタイルは変えられません`);
+      if (!style) throw new Error(`${layer.name} のスタイルは変更不可`);
       const given = options(value);
       const current = style.get();
       const merged = {
@@ -297,7 +297,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       if (spec.mode === 'graduated' && spec.field && (fieldChanged || !spec.classes.length || 'classCount' in given || 'method' in given || 'ramp' in given) && !Array.isArray(given.classes)) {
         spec = { ...spec, classes: classesFor(features, spec.field, spec.method, spec.classCount, spec.ramp, spec.reversed) };
       }
-      if ((spec.mode === 'categorized' || spec.mode === 'graduated') && !spec.field) throw new Error('mode が categorized・graduated のときは field（属性）を指定してください');
+      if ((spec.mode === 'categorized' || spec.mode === 'graduated') && !spec.field) throw new Error('mode が categorized・graduated のときは field（属性）を指定');
       style.set(spec);
       return spec;
     },
@@ -310,7 +310,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       const duration = o.duration === undefined ? 0 : number(o.duration, 'duration', 0, 10_000);
       if (o.bbox !== undefined) {
         const box = o.bbox;
-        if (!Array.isArray(box) || box.length !== 4 || !box.every((v) => typeof v === 'number' && Number.isFinite(v))) throw new TypeError('bbox は [西, 南, 東, 北]（経緯度）です');
+        if (!Array.isArray(box) || box.length !== 4 || !box.every((v) => typeof v === 'number' && Number.isFinite(v))) throw new TypeError('bbox は [西, 南, 東, 北]（経緯度）で指定');
         view.fit(transformExtent(box as number[], 'EPSG:4326', projection), { duration, padding: [20, 20, 20, 20] });
       } else {
         const target: { center?: number[]; zoom?: number; resolution?: number; rotation?: number; duration: number } = { duration };
@@ -332,7 +332,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     setBaseMap: (id: unknown) => {
       const list = ctx.baseMaps();
       const base = id === '' || id === null ? { id: '' } : list.find((b) => b.id === id || b.label === id);
-      if (!base) throw new Error(`背景地図「${String(id)}」はありません。使えるもの: ${list.map((b) => `${b.id}（${b.label}）`).join(', ') || '（なし）'}`);
+      if (!base) throw new Error(`背景地図「${String(id)}」なし。使えるもの: ${list.map((b) => `${b.id}（${b.label}）`).join(', ') || '（なし）'}`);
       ctx.setBaseMap(base.id);
       return base.id;
     },
@@ -340,12 +340,12 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     goBookmark: (ref: unknown) => {
       const list = ctx.bookmarks().get();
       const mark = list.find((b) => b.id === ref) ?? list.find((b) => b.name === ref);
-      if (!mark) throw new Error(`ブックマーク「${String(ref)}」はありません`);
+      if (!mark) throw new Error(`ブックマーク「${String(ref)}」なし`);
       ctx.bookmarks().go(mark.id);
       return true;
     },
     addBookmark: (name: unknown) => {
-      if (name !== undefined && typeof name !== 'string') throw new TypeError('名前は文字列で指定してください');
+      if (name !== undefined && typeof name !== 'string') throw new TypeError('名前は文字列で指定');
       const mark = ctx.bookmarks().add(name?.slice(0, 200));
       return mark ? { id: mark.id, name: mark.name } : null;
     },
@@ -357,13 +357,13 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
           const o = options(value);
           const ms = (v: unknown, name: string) => {
             const t = typeof v === 'number' ? v : typeof v === 'string' ? new Date(v).getTime() : NaN;
-            if (!Number.isFinite(t)) throw new TypeError(`${name} は日時（"2026-10-01" やミリ秒）で指定してください`);
+            if (!Number.isFinite(t)) throw new TypeError(`${name} は日時（"2026-10-01" やミリ秒）で指定`);
             return t;
           };
           if (!timeline.isOpen()) timeline.setOpen(true);
           const from = ms(o.from, 'from');
           const to = ms(o.to, 'to');
-          if (from > to) throw new RangeError('from は to より前にしてください');
+          if (from > to) throw new RangeError('from は to より前で指定');
           timeline.setWindow(from, to);
         }
       }
@@ -371,8 +371,8 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       return w ? { from: new Date(w[0]).toISOString(), to: new Date(w[1]).toISOString() } : null;
     },
     split: (count: unknown, layers: unknown) => {
-      if (count !== 1 && count !== 2 && count !== 4) throw new TypeError('画面の数は 1・2・4 のどれかです');
-      if (layers !== undefined && !Array.isArray(layers)) throw new TypeError('layers は各画面のレイヤーの配列です（null で空き）');
+      if (count !== 1 && count !== 2 && count !== 4) throw new TypeError('画面の数は 1・2・4 のいずれか');
+      if (layers !== undefined && !Array.isArray(layers)) throw new TypeError('layers は各画面のレイヤーの配列で指定（null で空き）');
       const panes = (layers as unknown[] | undefined)?.map((l) => (l === null ? null : kit.layerOf(l)));
       ctx.split().setCount(count, panes);
       return ctx.split().getCount();
@@ -387,7 +387,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       const o = options(value);
       swipe.setLayer(layer.layer, layer.name);
       if (o.orientation !== undefined) {
-        if (o.orientation !== 'vertical' && o.orientation !== 'horizontal') throw new TypeError('orientation は vertical か horizontal です');
+        if (o.orientation !== 'vertical' && o.orientation !== 'horizontal') throw new TypeError('orientation は vertical か horizontal で指定');
         swipe.setOrientation(o.orientation);
       }
       if (o.position !== undefined) swipe.setPosition(number(o.position, 'position', 0, 1));
@@ -395,11 +395,11 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
       return true;
     },
     globe: async (open: unknown) => {
-      if (typeof open !== 'boolean') throw new TypeError('3D 表示は true か false で指定してください');
+      if (typeof open !== 'boolean') throw new TypeError('3D 表示は true か false で指定');
       return ctx.globe(open);
     },
     theme: (theme: unknown) => {
-      if (theme !== 'auto' && theme !== 'light' && theme !== 'dark') throw new TypeError('テーマは auto・light・dark のどれかです');
+      if (theme !== 'auto' && theme !== 'light' && theme !== 'dark') throw new TypeError('テーマは auto・light・dark のいずれか');
       ctx.setTheme(theme);
       return theme;
     },
@@ -407,7 +407,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     command: async (id: unknown) => {
       const list = ctx.commands();
       const command = list.find((c) => c.id === id || c.label === id);
-      if (!command) throw new Error(`コマンド「${String(id)}」はありません。使えるもの: ${list.map((c) => c.id).join(', ')}`);
+      if (!command) throw new Error(`コマンド「${String(id)}」なし。使えるもの: ${list.map((c) => c.id).join(', ')}`);
       command.press();
       await settle();
       return true;
@@ -417,26 +417,26 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
     open: async (url: unknown, value: unknown) => {
       const o = options(value);
       const type = o.type ?? 'cog';
-      if (typeof type !== 'string' || !OPEN_TYPES.has(type)) throw new TypeError(`type は ${[...OPEN_TYPES].join(' / ')} のどれかです`);
+      if (typeof type !== 'string' || !OPEN_TYPES.has(type)) throw new TypeError(`type は ${[...OPEN_TYPES].join(' / ')} のいずれか`);
       const href = allow(url);
       if (type !== 'cog' && type !== 'file' && (typeof o.layer !== 'string' || !o.layer)) {
-        throw new TypeError('サービスは layer（レイヤー名）も指定してください（viewer.serviceLayers(url, type) で一覧できます）');
+        throw new TypeError('サービスは layer（レイヤー名）も指定（viewer.serviceLayers(url, type) で一覧可能）');
       }
       const config = (type === 'cog' || type === 'file' ? { type, url: href } : { type, url: href, layer: o.layer, ...(typeof o.matrixSet === 'string' ? { matrixSet: o.matrixSet } : {}), ...(typeof o.format === 'string' ? { format: o.format } : {}) }) as LayerConfig;
       const layers = await added(() => ctx.open(config));
-      if (!layers.length) throw new Error(`${href} を開けませんでした`);
+      if (!layers.length) throw new Error(`${href} の読み込みに失敗`);
       return layers;
     },
     serviceLayers: async (url: unknown, type: unknown) => {
       const kind = type ?? 'auto';
-      if (kind !== 'auto' && kind !== 'wms' && kind !== 'wmts' && kind !== 'wfs' && kind !== 'esri') throw new TypeError('type は wms・wmts・wfs・esri のどれかです');
+      if (kind !== 'auto' && kind !== 'wms' && kind !== 'wmts' && kind !== 'wfs' && kind !== 'esri') throw new TypeError('type は wms・wmts・wfs・esri のいずれか');
       const choices = await ctx.serviceChoices(allow(url), kind);
       return choices.map((c) => ({ name: c.name, title: c.title, ...(c.matrixSets ? { matrixSets: c.matrixSets } : {}), ...(c.formats ? { formats: c.formats } : {}) }));
     },
     openFiles: async (value: unknown) => {
       const o = options(value);
       const accept = typeof o.accept === 'string' ? o.accept.slice(0, 500) : '';
-      const message = typeof o.message === 'string' && o.message ? o.message.slice(0, 200) : 'スクリプトがファイルを開こうとしています';
+      const message = typeof o.message === 'string' && o.message ? o.message.slice(0, 200) : 'スクリプトからのファイル選択の要求';
       const files = await ctx.pickFiles(message, accept, o.multiple !== false);
       if (!files.length) return [];
       return added(() => ctx.openFiles(files));
@@ -467,7 +467,7 @@ export function automationHandlers(ctx: AutomationContext, kit: AutomationKit): 
         await settle();
         const status = statusOf(tool.dialog);
         const layers = ctx.list.layers().filter((l) => !before.has(l));
-        if (!layers.length && !result && tool.id !== 'save-view') throw new Error(status || `${tool.label}は何も作りませんでした`);
+        if (!layers.length && !result && tool.id !== 'save-view') throw new Error(status || `${tool.label}の作成結果なし`);
         return { layers: layers.map(kit.info), ...(status ? { message: status } : {}) };
       } finally {
         if (tool.dialog.open) tool.dialog.close();

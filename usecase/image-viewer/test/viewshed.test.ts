@@ -80,7 +80,7 @@ describe('viewshed', () => {
   });
 
   it('cannot run without elevation data at the observer', () => {
-    expect(() => gridAround([cell(() => 0)], { lon: 141, lat: 35.5, radius: 1000 })).toThrow('観測点に標高データがありません');
+    expect(() => gridAround([cell(() => 0)], { lon: 141, lat: 35.5, radius: 1000 })).toThrow('観測点に標高データなし');
   });
 });
 

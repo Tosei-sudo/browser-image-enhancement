@@ -70,7 +70,7 @@ export class DataSources {
     button.className = 'source-browse';
     button.textContent = '📂';
     const what = browse.kind === 'image' ? '画像' : 'ベクター';
-    button.title = `${what}ファイルを参照…（地図に追加せずに使います）`;
+    button.title = `${what}ファイルを参照…（地図に追加せずに使用）`;
     button.setAttribute('aria-label', 'ファイルを参照');
     button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-expanded', 'false');
@@ -120,7 +120,7 @@ export class DataSources {
       });
       return b;
     };
-    const items: HTMLElement[] = [item('ファイルを選ぶ…', () => void this.choose_(browse, choice))];
+    const items: HTMLElement[] = [item('ファイルを選択…', () => void this.choose_(browse, choice))];
     const entries = (await this.options.recent()?.list().catch(() => [])) ?? [];
     if (entries.length) {
       const head = document.createElement('span');
@@ -182,7 +182,7 @@ export class DataSources {
 
   private async reopen_(entry: RecentEntry, browse: BrowseOptions, choice: HTMLElement): Promise<void> {
     const { files, missing } = await readEntry(entry);
-    if (missing.length) this.options.say(`${missing.join('、')} を開けませんでした（移動・削除されたか、読み取りが許可されていません）`);
+    if (missing.length) this.options.say(`${missing.join('、')} の読み込みに失敗（移動・削除されたか、読み取りの許可なし）`);
     if (!files.length) return;
     this.options.remember?.(entry.handles);
     await this.open_(() => this.options.openFiles(files), files.map((f) => f.name).join('、'), browse, choice);
@@ -194,11 +194,11 @@ export class DataSources {
     try {
       added = await this.images.openAsSources(open);
     } catch (error) {
-      this.options.say(`${names} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.options.say(`${names} の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     if (!added.length) return; // the opening said why
-    this.options.say(`${added.map((l) => l.name).join('、')} を入力用に開きました（地図には追加していません）`);
+    this.options.say(`${added.map((l) => l.name).join('、')} を入力用に表示（地図には未追加）`);
     if (!browse.dialog.open) return;
     if (browse.take) return browse.take(added);
     const form = browse.dialog.querySelector('form');
@@ -207,7 +207,7 @@ export class DataSources {
     if (form && kept) restore(form, kept, choice);
     const fits = added.map((l) => browse.valueOf(l)).find((v): v is string => v !== null);
     if (fits === undefined || !(choice instanceof HTMLSelectElement)) {
-      this.options.say(`${names} には使える${browse.kind === 'image' ? '画像' : 'ベクターレイヤー'}がありませんでした（入力用に開いたものは他のツールでも選べます）`);
+      this.options.say(`${names} には使える${browse.kind === 'image' ? '画像' : 'ベクターレイヤー'}なし（入力用に開いたものは他のツールでも選択可能）`);
       return;
     }
     choice.value = fits;

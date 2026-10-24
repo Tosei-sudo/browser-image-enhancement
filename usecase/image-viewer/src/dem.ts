@@ -59,7 +59,7 @@ let geoid: Promise<GeoidGrid> | null = null;
 export function loadGeoid(): Promise<GeoidGrid> {
   geoid ??= fetch(new URL('./egm96.bin', import.meta.url))
     .then((r) => {
-      if (!r.ok) throw new Error('ジオイドのデータを読み込めませんでした');
+      if (!r.ok) throw new Error('ジオイドのデータの読み込みに失敗');
       return r.arrayBuffer();
     })
     .then((b) => new Int16Array(b))

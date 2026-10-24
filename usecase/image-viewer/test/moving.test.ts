@@ -221,7 +221,7 @@ describe('feeds', () => {
     const { config, problems: all } = parseConfig({ movingFeeds: [{ type: 'sse', url: 'https://a/events' }, 3] });
     expect(config.movingFeeds).toEqual([{ label: 'フィード 1', type: 'sse', url: 'https://a/events' }]);
     expect(all).toHaveLength(1);
-    expect(parseConfig({ movingFeeds: {} }).problems).toEqual(['movingFeeds が配列ではありません']);
+    expect(parseConfig({ movingFeeds: {} }).problems).toEqual(['movingFeeds は配列で指定']);
     expect(parseConfig({}).config.movingFeeds).toEqual([]);
   });
 });

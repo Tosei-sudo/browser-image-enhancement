@@ -115,12 +115,12 @@ function metresPerDegree(lat: number): [number, number] {
  */
 export async function openElevationService(input: string, token?: string): Promise<ElevationSource> {
   const url = input.replace(/\?.*$/, '').replace(/\/+$/, '');
-  if (!/\/ImageServer$/i.test(url)) throw new ServiceError('ArcGIS のイメージサービス（…/ImageServer）の URL を入れてください');
+  if (!/\/ImageServer$/i.test(url)) throw new ServiceError('ArcGIS のイメージサービス（…/ImageServer）の URL を入力');
   const json = await esriJson<ElevationServiceJson>(url, {}, token);
   const title = json.name || url.split('/').slice(-2, -1)[0] || url;
   const tiles = isLercCache(json);
-  if (!tiles && (json.bandCount ?? 1) !== 1) throw new ServiceError(`${title} は ${json.bandCount} バンドの画像です。標高に使えるのは 1 バンドのサービスか、LERC のタイルキャッシュを持つ標高サービスです`);
-  if (!tiles && json.capabilities && !/image/i.test(json.capabilities)) throw new ServiceError(`${title} は画像を書き出せません（Image の機能がありません）`);
+  if (!tiles && (json.bandCount ?? 1) !== 1) throw new ServiceError(`${title} は ${json.bandCount} バンドの画像。標高に使えるのは 1 バンドのサービスか、LERC のタイルキャッシュを持つ標高サービスのみ`);
+  if (!tiles && json.capabilities && !/image/i.test(json.capabilities)) throw new ServiceError(`${title} は画像を書き出し不可（Image の機能なし）`);
 
   const e = json.extent;
   const extentCode = wkidOf(e?.spatialReference ?? json.spatialReference);
@@ -197,8 +197,8 @@ async function tileSource(
 ): Promise<ElevationSource> {
   const code = wkidOf(info.spatialReference) ?? 3857;
   const projection = await projectionOf(`EPSG:${code}`);
-  if (!projection) throw new ServiceError(`${title} のタイルの座標系（EPSG:${code}）が分かりません`);
-  if (!info.origin) throw new ServiceError(`${title} のタイルの原点が分かりません`);
+  if (!projection) throw new ServiceError(`${title} のタイルの座標系（EPSG:${code}）が不明`);
+  if (!info.origin) throw new ServiceError(`${title} のタイルの原点が不明`);
   const origin = info.origin;
   const cols = info.cols ?? 256;
   const rows = info.rows ?? 256;
@@ -253,7 +253,7 @@ async function tileSource(
       const { c0, c1, r0, r1 } = tilesAt(lod.resolution);
       const nx = c1 - c0 + 1;
       const ny = r1 - r0 + 1;
-      if (nx * ny > MAX_TILES * 4) throw new ServiceError(`${title}: 範囲が広すぎます`);
+      if (nx * ny > MAX_TILES * 4) throw new ServiceError(`${title}: 範囲が広すぎ`);
       const W = nx * cols;
       const H = ny * rows;
       const data = new Float32Array(W * H).fill(NaN);
@@ -299,11 +299,11 @@ async function fetchTile(url: string, cols: number, rows: number): Promise<Float
   try {
     response = await authFetch(url);
   } catch {
-    throw new ServiceError('標高タイルを読み込めませんでした（接続、または CORS を確認してください）');
+    throw new ServiceError('標高タイルの読み込みに失敗（接続、または CORS を確認）');
   }
   // Tiles outside the data are missing (404), or answered with an error in JSON.
   if (response.status === 404 || response.status === 204) return null;
-  if (!response.ok) throw new ServiceError(`標高タイルでサーバーがエラーを返しました（HTTP ${response.status}）`);
+  if (!response.ok) throw new ServiceError(`標高タイルでサーバーからエラー応答（HTTP ${response.status}）`);
   const buffer = await response.arrayBuffer();
   if (buffer.byteLength < 16 || new Uint8Array(buffer)[0] === 0x7b /* { */) return null;
   const block = Lerc.decode(buffer);
@@ -331,7 +331,7 @@ async function exportHeights(url: string, params: Record<string, string>, token?
     : await request(`${url}/exportImage?${all}`);
   if (/json|text/i.test(response.headers.get('content-type') ?? '')) {
     const json = (await response.json().catch(() => null)) as { error?: { message?: string; details?: string[] } } | null;
-    throw new ServiceError(`標高を読み込めませんでした: ${[json?.error?.message ?? '画像ではない応答', ...(json?.error?.details ?? [])].join(' ')}`);
+    throw new ServiceError(`標高の読み込みに失敗: ${[json?.error?.message ?? '画像ではない応答', ...(json?.error?.details ?? [])].join(' ')}`);
   }
   return response.blob();
 }

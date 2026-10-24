@@ -48,7 +48,7 @@ describe('planPanSharpen', () => {
   });
 
   it('refuses images that do not overlap', () => {
-    expect(() => planPanSharpen(pan, { ...ms, origin: [9000, 5000] }, { bands: 4, maxSamples: 1e9 })).toThrow('重なっていません');
+    expect(() => planPanSharpen(pan, { ...ms, origin: [9000, 5000] }, { bands: 4, maxSamples: 1e9 })).toThrow('重なりなし');
   });
 });
 

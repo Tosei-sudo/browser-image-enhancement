@@ -44,7 +44,7 @@ test('lists places found by name and goes to the one chosen', async ({ page }) =
   await expect(list.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
   await field.press('Enter');
   await expect(list).toBeHidden();
-  await expect(page.locator('#status')).toContainText('移動しました: 富士宮市（地理院）');
+  await expect(page.locator('#status')).toContainText('移動: 富士宮市（地理院）');
   await expect.poll(async () => (await center(page))[0], { timeout: 3000 }).toBeCloseTo(138.6, 3);
 
   // A coordinate is still read as one, without asking.
@@ -52,13 +52,13 @@ test('lists places found by name and goes to the one chosen', async ({ page }) =
   await page.waitForTimeout(500);
   await expect(list).toBeHidden();
   await field.press('Enter');
-  await expect(page.locator('#status')).toContainText('移動しました: 35.68');
+  await expect(page.locator('#status')).toContainText('移動: 35.68');
   expect(asked).toEqual(['富士']);
 
   // Enter without waiting for the list takes the first place.
   await field.fill('富士山');
   await field.press('Enter');
-  await expect(page.locator('#status')).toContainText('移動しました: 富士山（地理院）');
+  await expect(page.locator('#status')).toContainText('移動: 富士山（地理院）');
 });
 
 test('"geocoders": [] reads coordinates only and asks no one', async ({ page }) => {
@@ -73,6 +73,6 @@ test('"geocoders": [] reads coordinates only and asks no one', async ({ page }) 
   await expect(field).toHaveAttribute('placeholder', '緯度経度・MGRS・UTM');
   await field.fill('富士山');
   await field.press('Enter');
-  await expect(page.locator('#status')).toContainText('座標として読めませんでした');
+  await expect(page.locator('#status')).toContainText('座標として読み込み失敗');
   expect(asked).toBe(0);
 });

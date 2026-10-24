@@ -54,7 +54,7 @@ export function readDted(buffer: ArrayBuffer | Uint8Array): Dted {
       break;
     }
   }
-  if (uhl < 0) throw new Error('DTED のヘッダー（UHL）が見つかりません');
+  if (uhl < 0) throw new Error('DTED のヘッダー（UHL）なし');
 
   const west = angle(text(bytes, uhl + 4, 8));
   const south = angle(text(bytes, uhl + 12, 8));
@@ -63,19 +63,19 @@ export function readDted(buffer: ArrayBuffer | Uint8Array): Dted {
   const accuracy = text(bytes, uhl + 28, 4).trim();
   const width = int(text(bytes, uhl + 47, 4));
   const height = int(text(bytes, uhl + 51, 4));
-  if (!(lonSpacing > 0 && latSpacing > 0 && width > 1 && height > 1)) throw new Error('DTED のヘッダーが読めません');
+  if (!(lonSpacing > 0 && latSpacing > 0 && width > 1 && height > 1)) throw new Error('DTED のヘッダーが読み込み不可');
 
   const dsi = uhl + UHL_LENGTH;
   const level = text(bytes, dsi + 59, 5).match(/^DTED[0-2]$/)?.[0] ?? levelOf(latSpacing);
   const first = dsi + DSI_LENGTH + ACC_LENGTH;
   const recordLength = 12 + 2 * height;
-  if (bytes.length < first + recordLength * width) throw new Error('DTED のデータが途中で切れています');
+  if (bytes.length < first + recordLength * width) throw new Error('DTED のデータが途中で途切れ');
 
   const data = new Int16Array(width * height);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let x = 0; x < width; x++) {
     const record = first + x * recordLength;
-    if (bytes[record] !== 0xaa) throw new Error(`DTED のデータレコード ${x + 1} が壊れています`);
+    if (bytes[record] !== 0xaa) throw new Error(`DTED のデータレコード ${x + 1} が破損`);
     const line = view.getUint16(record + 4); // longitude count: the record's place west to east
     const column = line < width ? line : x;
     for (let y = 0; y < height; y++) {
@@ -100,7 +100,7 @@ export function readDted(buffer: ArrayBuffer | Uint8Array): Dted {
 /** `DDDMMSSH` (H is N, S, E or W) as degrees. */
 function angle(value: string): number {
   const m = value.trim().match(/^(\d{2,3})(\d{2})(\d{2}(?:\.\d+)?)([NSEW])$/i);
-  if (!m) throw new Error(`DTED の座標が読めません: ${value}`);
+  if (!m) throw new Error(`DTED の座標が読み込み不可: ${value}`);
   const degrees = Number(m[1]) + Number(m[2]) / 60 + Number(m[3]) / 3600;
   return /[SW]/i.test(m[4]) ? -degrees : degrees;
 }

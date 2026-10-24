@@ -238,7 +238,7 @@ export class RecentMenu {
     b.type = 'button';
     b.className = 'recent-button';
     b.textContent = '最近';
-    b.title = '最近開いたファイルを開き直します';
+    b.title = '最近開いたファイルを再読み込み';
     b.setAttribute('aria-haspopup', 'menu');
     b.addEventListener('click', () => void this.show_());
   }
@@ -248,7 +248,7 @@ export class RecentMenu {
     try {
       await this.recent.add(handles);
     } catch (error) {
-      console.warn('最近開いたファイルを記録できませんでした', error);
+      console.warn('最近開いたファイルの記録に失敗', error);
     }
   }
 
@@ -260,9 +260,9 @@ export class RecentMenu {
       entries.length
         ? [
             ...entries.map((entry) => ({ label: entryLabel(entry), run: () => void this.reopen_(entry) })),
-            { label: '履歴を消去', danger: true, run: () => void this.recent.clear().then(() => this.options.say('最近開いたファイルの履歴を消去しました')) },
+            { label: '履歴を消去', danger: true, run: () => void this.recent.clear().then(() => this.options.say('最近開いたファイルの履歴を消去')) },
           ]
-        : [{ label: '最近開いたファイルはありません', disabled: true, run: () => {} }],
+        : [{ label: '最近開いたファイルなし', disabled: true, run: () => {} }],
       rect.left,
       rect.bottom + 2,
     );
@@ -270,7 +270,7 @@ export class RecentMenu {
 
   private async reopen_(entry: RecentEntry): Promise<void> {
     const { files, missing } = await readEntry(entry);
-    if (missing.length) this.options.say(`${missing.join('、')} を開けませんでした（移動・削除されたか、読み取りが許可されていません）`);
+    if (missing.length) this.options.say(`${missing.join('、')} の読み込みに失敗（移動・削除されたか、読み取りの許可なし）`);
     if (!files.length) {
       if (missing.length === entry.handles.length) await this.recent.remove(entry).catch(() => {});
       return;

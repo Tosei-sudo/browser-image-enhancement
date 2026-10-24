@@ -98,11 +98,11 @@ export class GpDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="gp-title">サーバ処理</h2>
-        <p class="wide processing-hint">ArcGIS の GP サービス（GPServer）や OGC API – Processes の処理をサーバーで実行し、結果をレイヤーとして開きます。</p>
+        <p class="wide processing-hint">ArcGIS の GP サービス（GPServer）や OGC API – Processes の処理をサーバーで実行し、結果をレイヤーとして表示。</p>
         <label class="wide gp-service-choice" hidden>サービス<select name="gp-service" aria-label="サービス"></select></label>
         <label class="wide">URL<input name="gp-url" type="url" placeholder="https://…/GPServer、…/GPServer/タスク名、…/processes など" aria-label="処理サービスの URL" /></label>
         <label>トークン（任意）<input name="gp-token" type="password" autocomplete="off" aria-label="トークン" /></label>
-        <button type="submit" value="read" class="read">読み込む</button>
+        <button type="submit" value="read" class="read">読み込み</button>
         <label class="wide gp-task-choice" hidden>処理<select name="gp-task" aria-label="処理"></select></label>
         <p class="wide processing-hint gp-description"></p>
         <div class="wide service-form gp-params"></div>
@@ -187,11 +187,11 @@ export class GpDialog {
     this.renderParams_();
     this.results_.hidden = true;
     if (!safeUrl(url)) {
-      this.status_.textContent = 'http(s) の URL を入れてください';
+      this.status_.textContent = 'http(s) の URL を入力';
       return;
     }
     this.serviceUrl = url;
-    this.status_.textContent = '読み込んでいます…';
+    this.status_.textContent = '読み込み中…';
     try {
       const read = await readGp(url, this.token_value());
       if ('task' in read) {
@@ -199,14 +199,14 @@ export class GpDialog {
         return;
       }
       this.service_info = read.service;
-      if (!read.service.tasks.length) throw new Error('処理がありません');
+      if (!read.service.tasks.length) throw new Error('処理なし');
       const choice = this.dialog.querySelector<HTMLElement>('.gp-task-choice')!;
       choice.hidden = false;
       this.task_.replaceChildren(...read.service.tasks.map((t, i) => new Option(t.title === t.id ? t.title : `${t.title}（${t.id}）`, String(i))));
       this.status_.textContent = `${read.service.kind === 'esri' ? 'GP サービス' : 'OGC API – Processes'}「${read.service.title}」: ${read.service.tasks.length} 件の処理`;
       await this.chooseTask(0);
     } catch (error) {
-      this.status_.textContent = `読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `読み込み失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -219,11 +219,11 @@ export class GpDialog {
     this.drawn.clear();
     this.drawSource.clear();
     this.renderParams_();
-    this.status_.textContent = `「${ref.title}」を読んでいます…`;
+    this.status_.textContent = `「${ref.title}」を読み込み中…`;
     try {
       this.setTask_(await readTask({ kind: this.service_info.kind, url: ref.url }, this.token_value()));
     } catch (error) {
-      this.status_.textContent = `処理を読めませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = `処理の読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -268,7 +268,7 @@ export class GpDialog {
     switch (field.type) {
       case 'choice': {
         const select = el('select', { name, 'aria-label': field.label });
-        if (!field.required) select.append(new Option('（指定しない）', ''));
+        if (!field.required) select.append(new Option('（指定なし）', ''));
         select.append(...(field.choices ?? []).map((c) => new Option(String(c), String(c))));
         select.value = value(field.default ?? (field.required ? field.choices?.[0] : ''));
         return wrap(select);
@@ -306,10 +306,10 @@ export class GpDialog {
   private layerControl_(field: GpField, typed: FormData): HTMLElement {
     const name = field.name;
     const select = el('select', { name, 'aria-label': field.label });
-    if (!field.required) select.append(new Option('（指定しない）', ''));
+    if (!field.required) select.append(new Option('（指定なし）', ''));
     for (const [i, l] of this.layerChoices_(field)) select.append(new Option(l.name, `layer:${i}`));
     const drawn = this.drawn.get(name) ?? [];
-    if (field.type === 'features') select.append(new Option(drawn.length ? `地図に描いた図形（${drawn.length} 個）` : '地図に描く…', 'draw'));
+    if (field.type === 'features') select.append(new Option(drawn.length ? `地図に描いた図形（${drawn.length} 個）` : '地図に作図…', 'draw'));
     const previous = typed.get(name);
     if (typeof previous === 'string' && [...select.options].some((o) => o.value === previous)) select.value = previous;
     else if (drawn.length) select.value = 'draw';
@@ -321,9 +321,9 @@ export class GpDialog {
       type.append(...Object.entries(drawNames).map(([k, n]) => new Option(n, k)));
       type.hidden = !!field.geometry;
       if (field.geometry) type.value = field.geometry;
-      const drawButton = el('button', { type: 'button', className: 'gp-draw', textContent: drawn.length ? '描き足す' : '地図に描く' });
+      const drawButton = el('button', { type: 'button', className: 'gp-draw', textContent: drawn.length ? '作図の追加' : '地図に作図' });
       drawButton.addEventListener('click', () => this.startDraw_(field, type.value as keyof typeof drawNames));
-      const clear = el('button', { type: 'button', textContent: '描いた図形を消す', hidden: drawn.length === 0 });
+      const clear = el('button', { type: 'button', textContent: '作図した図形を消去', hidden: drawn.length === 0 });
       clear.addEventListener('click', () => {
         for (const f of this.drawn.get(name) ?? []) this.drawSource.removeFeature(f);
         this.drawn.delete(name);
@@ -384,7 +384,7 @@ export class GpDialog {
     document.addEventListener('keydown', onKey, true);
     map.addInteraction(draw);
     this.dialog.close();
-    this.options.say(`「${field.label}」の${drawNames[type]}を地図に描いてください（${type === 'Point' ? 'クリック' : 'ダブルクリックで終わり'}、Esc で取り消し）`);
+    this.options.say(`「${field.label}」の${drawNames[type]}を地図に作図（${type === 'Point' ? 'クリック' : 'ダブルクリックで終わり'}、Esc で取り消し）`);
   }
 
   /** The form's values, as the task takes them. */
@@ -458,7 +458,7 @@ export class GpDialog {
       });
       await this.show_(task, result, token);
     } catch (error) {
-      this.status_.textContent = error instanceof GpCancelled ? '取り消しました' : `実行できませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      this.status_.textContent = error instanceof GpCancelled ? '取り消し' : `実行失敗: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.abort_ = null;
       this.stop_.hidden = true;
@@ -486,24 +486,24 @@ export class GpDialog {
         if (output.kind === 'features' && output.features.length) layers++;
         if (output.kind === 'image') layers++;
       } catch (error) {
-        if (output.kind === 'image' || output.kind === 'link') items.push(link(output.label, output.url, `（開けませんでした: ${error instanceof Error ? error.message : String(error)}）`));
-        else items.push(el('li', {}, `${output.label}: 開けませんでした（${error instanceof Error ? error.message : String(error)}）`));
+        if (output.kind === 'image' || output.kind === 'link') items.push(link(output.label, output.url, `（読み込み失敗: ${error instanceof Error ? error.message : String(error)}）`));
+        else items.push(el('li', {}, `${output.label}: 読み込み失敗（${error instanceof Error ? error.message : String(error)}）`));
       }
     }
     if (result.mapServer) {
       try {
         await this.options.addMapServer(result.mapServer, token);
-        items.push(el('li', {}, '結果のマップサービスをレイヤーに追加しました'));
+        items.push(el('li', {}, '結果のマップサービスをレイヤーに追加'));
         layers++;
       } catch {
         items.push(link('結果のマップサービス', result.mapServer));
       }
     }
-    if (!items.length) items.push(el('li', {}, '結果はありませんでした'));
+    if (!items.length) items.push(el('li', {}, '結果なし'));
     const messages = result.messages.length ? [el('details', { className: 'gp-messages' }, el('summary', {}, `メッセージ（${result.messages.length} 件）`), el('pre', { textContent: result.messages.join('\n') }))] : [];
     this.results_.replaceChildren(el('h3', {}, '結果'), el('ul', {}, ...items), ...messages);
     this.results_.hidden = false;
-    this.status_.textContent = `「${task.title}」を実行しました${layers ? `（${layers} 件をレイヤーに追加）` : ''}`;
+    this.status_.textContent = `「${task.title}」を実行${layers ? `（${layers} 件をレイヤーに追加）` : ''}`;
     this.options.say(this.status_.textContent);
   }
 
@@ -514,13 +514,13 @@ export class GpDialog {
         if (!output.features.length) return el('li', {}, `${output.label}: 0 件`);
         const crs = output.srs && output.srs.startsWith('EPSG:') && output.srs !== 'EPSG:3857' && output.srs !== 'EPSG:4326' ? await targetCrs(output.srs).catch(() => undefined) : undefined;
         const title = `${task.title} ${output.label}`;
-        const notes = output.truncated ? [`${output.features.length.toLocaleString()} 件で打ち切りました`] : [];
+        const notes = output.truncated ? [`${output.features.length.toLocaleString()} 件で打ち切り`] : [];
         await this.options.onFeatures({ title, features: output.features, fields: copyFields(output.fields), ...(crs ? { crs } : {}), notes }, `${made} ${output.label}`);
         return el('li', {}, `${output.label}: 一時レイヤー「${title}」（${output.features.length.toLocaleString()} 件${output.truncated ? '、打ち切り' : ''}）`);
       }
       case 'image':
         await this.options.openImage(output.url);
-        return el('li', {}, `${output.label}: 画像をレイヤーとして開きました`);
+        return el('li', {}, `${output.label}: 画像をレイヤーとして表示`);
       case 'link':
         return el('li', {}, `${output.label}: `, el('a', { href: output.url, target: '_blank', rel: 'noopener noreferrer', textContent: output.url }));
       case 'value':

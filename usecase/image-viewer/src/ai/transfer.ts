@@ -64,19 +64,19 @@ const isName = (value: unknown): value is string => typeof value === 'string' &&
 /** One `detectionOutputs` entry; null (with the reason in `problems`) when it cannot be used. */
 export function detectionOutputOf(value: unknown, problems: string[], index: number): DetectionOutput | null {
   const at = `detectionOutputs[${index}]`;
-  if (!isRecord(value)) return (problems.push(`${at} がオブジェクトではありません`), null);
+  if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
   const { label, url, token, fields, statusValues, constants } = value;
   if (typeof url !== 'string' || !/^(https?:)?\/\/|^\.{0,2}\//.test(url) || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) {
-    return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤーの URL にしてください`), null);
+    return (problems.push(`${at} の url は …/FeatureServer/0 のようなレイヤーの URL で指定`), null);
   }
-  if (!isRecord(fields)) return (problems.push(`${at} に fields（役割ごとの属性名）がありません`), null);
+  if (!isRecord(fields)) return (problems.push(`${at} に fields（役割ごとの属性名）なし`), null);
   const mapped: DetectionOutput['fields'] = {};
   for (const [role, name] of Object.entries(fields)) {
-    if (!(role in transferRoles)) problems.push(`${at} の fields.${role} は使えない役割です`);
+    if (!(role in transferRoles)) problems.push(`${at} の fields.${role} は使用不可の役割`);
     else if (isName(name)) mapped[role as TransferRole] = name;
-    else problems.push(`${at} の fields.${role} は属性名（英数字と _）にしてください`);
+    else problems.push(`${at} の fields.${role} は属性名（英数字と _）で指定`);
   }
-  if (!Object.keys(mapped).length) return (problems.push(`${at} の fields に書き込む属性がありません`), null);
+  if (!Object.keys(mapped).length) return (problems.push(`${at} の fields に書き込む属性なし`), null);
   const status: DetectionOutput['statusValues'] = { ai: 'AI', corrected: '修正', manual: '手動' };
   if (isRecord(statusValues)) {
     for (const key of ['ai', 'corrected', 'manual'] as const) {
@@ -88,7 +88,7 @@ export function detectionOutputOf(value: unknown, problems: string[], index: num
   if (isRecord(constants)) {
     for (const [name, v] of Object.entries(constants)) {
       if (isName(name) && (v === null || ['string', 'number', 'boolean'].includes(typeof v))) fixed[name] = v as string | number | boolean | null;
-      else problems.push(`${at} の constants.${name} は属性名と値（文字・数・真偽）にしてください`);
+      else problems.push(`${at} の constants.${name} は属性名と値（文字・数・真偽）で指定`);
     }
   }
   return {

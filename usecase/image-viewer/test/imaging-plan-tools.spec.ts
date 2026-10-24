@@ -132,7 +132,7 @@ test('moves the chosen scene by dragging it on the map', async ({ page }) => {
   await dialog.locator('input[name=start]').fill('2026-10-07T12:00');
   await dialog.locator('select[name=daylight]').selectOption('none');
   await dialog.getByRole('button', { name: '計算' }).click();
-  await expect(dialog.locator('.service-status')).toContainText('ドラッグで動かせます', { timeout: 30_000 });
+  await expect(dialog.locator('.service-status')).toContainText('ドラッグで移動可能', { timeout: 30_000 });
   await dialog.locator('input[name=firstOnly]').check();
   await page.evaluate(() => window.viewer.imagingPlan.choose(window.viewer.imagingPlan.opportunities()[0]));
   // Zoomed out enough that the scene and some room around it are on the map, left of the panel.
@@ -164,7 +164,7 @@ test('moves the chosen scene by dragging it on the map', async ({ page }) => {
   await page.mouse.move(box.x + pixel[0] + 20, box.y + pixel[1] + 10, { steps: 4 });
   await page.mouse.move(box.x + pixel[0] + 60, box.y + pixel[1] + 20, { steps: 4 });
   await page.mouse.up();
-  await expect(dialog.locator('.service-status')).toContainText('撮像範囲を動かしました');
+  await expect(dialog.locator('.service-status')).toContainText('撮像範囲を移動');
   const after = await page.evaluate(() => window.viewer.imagingPlan.opportunities()[0]);
   expect(after.adjusted).toBe(true);
   expect(after.window[0]).not.toBeCloseTo(before.window[0], 6);
@@ -280,7 +280,7 @@ test('saves a plan to a feature service and follows its shots up in the image ca
   await dialog.getByRole('button', { name: '保存・追跡…' }).click();
   await dialog.locator('input[name=planName]').fill('テスト計画');
   await dialog.getByRole('button', { name: '保存先に保存' }).click();
-  await expect(dialog.locator('.service-status')).toContainText('「テスト計画」を 計画レイヤー に保存しました');
+  await expect(dialog.locator('.service-status')).toContainText('「テスト計画」を 計画レイヤー に保存');
   expect(fake.shots.length).toBe(ops.length);
 
   await dialog.getByRole('button', { name: '保存した計画…' }).click();
@@ -300,7 +300,7 @@ test('saves a plan to a feature service and follows its shots up in the image ca
   // Deleting takes two presses.
   await saved.getByRole('button', { name: '計画を削除' }).dispatchEvent('click');
   await saved.getByRole('button', { name: 'もう一度押すと削除' }).dispatchEvent('click');
-  await expect(saved.locator('.service-status')).toContainText('保存した計画はまだありません');
+  await expect(saved.locator('.service-status')).toContainText('に保存した計画なし');
   expect(fake.shots).toHaveLength(0);
   expect(errors).toEqual([]);
 });
@@ -453,7 +453,7 @@ test('maps any layer of position reports to moving targets: predicted places and
   expect(t1[2].radius).toBeGreaterThan(t1[0].radius);
 
   // The imaging plan of the two, with the circle each shot may miss by.
-  await dialog.getByRole('button', { name: '撮像計画を立てる' }).click();
+  await dialog.getByRole('button', { name: '撮像計画の作成' }).click();
   await expect(plan).toBeVisible();
   await expect(plan.locator('select[name=target]')).toHaveValue('moving');
   await expect(plan.locator('.service-status')).toContainText('最短は', { timeout: 60_000 });

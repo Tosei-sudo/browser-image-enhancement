@@ -99,19 +99,19 @@ export class ChangeDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="change-title">変化抽出（2 時期）</h2>
-        <p class="wide processing-hint">同じ場所の 2 枚を比べ、値が下がった所を青、上がった所を赤で表示し、大きく変わった所をポリゴンにします。</p>
+        <p class="wide processing-hint">同じ場所の 2 枚を比較し、値が下がった所を青、上がった所を赤で表示、大きく変わった所をポリゴン化。</p>
         <label class="wide">前<select name="before" aria-label="前の画像"></select></label>
         <label class="wide">後<select name="after" aria-label="後の画像"></select></label>
         <label class="wide">比べ方<select name="method" aria-label="比べ方">${CHANGE_METHODS.map((m) => `<option value="${m.id}">${m.label}</option>`).join('')}</select></label>
-        <label class="wide check"><input name="outline" type="checkbox" checked /><span>変化した所をポリゴンにする</span></label>
+        <label class="wide check"><input name="outline" type="checkbox" checked /><span>変化箇所をポリゴン化</span></label>
         <details class="wide composite-more">
           <summary>詳細設定</summary>
           <div class="service-form">
             <label>しきい値<input name="threshold" type="number" min="0" step="any" placeholder="自動（平均 ± 2σ）" aria-label="しきい値" /></label>
             <label>向き<select name="direction" aria-label="向き"><option value="both">増加と減少</option><option value="increase">増加だけ</option><option value="decrease">減少だけ</option></select></label>
             <label>最小の大きさ（画素）<input name="minPixels" type="number" min="1" step="1" value="9" aria-label="最小の大きさ" /></label>
-            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値を変えない）</option></select></label>
-            <p class="wide processing-hint">しきい値は「変化なし」（差は 0、比は 1）からの隔たりです。空欄なら、変化の平均 ± 標準偏差の 2 倍を超えた所を変化とします。</p>
+            <label>再サンプリング<select name="resample" aria-label="再サンプリング"><option value="bilinear">バイリニア</option><option value="nearest">最近傍（値の変化なし）</option></select></label>
+            <p class="wide processing-hint">しきい値は「変化なし」（差は 0、比は 1）からの隔たり。空欄なら、変化の平均 ± 標準偏差の 2 倍を超えた所を変化と判定。</p>
           </div>
         </details>
         <p class="wide processing-hint composite-plan"></p>
@@ -149,7 +149,7 @@ export class ChangeDialog {
       return Array.from({ length: bands }, (_, b) => new Option(label(`${image.name} ・ バンド ${b + 1}`), `${i}:${b}`));
     });
     for (const s of [this.before_, this.after_]) s.replaceChildren(...options.map((o) => new Option(o.text, o.value)));
-    this.note_.textContent = this.images_.length >= 2 ? '' : '比べる画像を 2 枚開いてください';
+    this.note_.textContent = this.images_.length >= 2 ? '' : '比較する画像が不足（2 枚を開く）';
     const selected = this.images.selected();
     (this.dialog.querySelector('button[value=save]') as HTMLButtonElement).hidden = !(selected && this.made_.has(selected));
     if (!this.dialog.open) this.dialog.showModal();
@@ -201,10 +201,10 @@ export class ChangeDialog {
     const after = this.channel_(this.after_);
     this.run_.disabled = true;
     if (!before || !after) return void (out.textContent = '');
-    if (before.image === after.image && before.band === after.band) return void (out.textContent = '前と後に違う画像（バンド）を選んでください');
+    if (before.image === after.image && before.band === after.band) return void (out.textContent = '前と後に違う画像（バンド）を選択');
     try {
       const { grid } = planCalc([before, after], this.reference_(before, after));
-      out.textContent = `重なる範囲 ${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px を比べます。`;
+      out.textContent = `重なる範囲 ${grid.width.toLocaleString()} × ${grid.height.toLocaleString()} px を比較。`;
       this.run_.disabled = false;
     } catch (error) {
       out.textContent = error instanceof Error ? error.message : String(error);
@@ -224,7 +224,7 @@ export class ChangeDialog {
     const name = `${baseName(before.image.name)}_${baseName(after.image.name)}_${method.id}.tif`.slice(-120);
     const draft = results.begin('変化');
     try {
-      this.note_.textContent = '比べています… 0%';
+      this.note_.textContent = '比較中… 0%';
       const result = await runCalc({
         sink: draft.sink(name),
         name,
@@ -234,10 +234,10 @@ export class ChangeDialog {
         resample: form.get('resample') === 'nearest' ? 'nearest' : 'bilinear',
         control,
         onProgress: (done) => {
-          if (!control.cancelled) this.note_.textContent = `比べています… ${Math.floor(done * 100)}%`;
+          if (!control.cancelled) this.note_.textContent = `比較中… ${Math.floor(done * 100)}%`;
         },
       });
-      this.note_.textContent = '結果を開いています…';
+      this.note_.textContent = '結果を読み込み中…';
       const file = result.blob;
       const source = this.options.open ? await this.options.open(file) : await this.loader.loadFile(file, name);
       const made = source && this.images.find(source);
@@ -266,12 +266,12 @@ export class ChangeDialog {
         summary = `、変化 ${outlined} か所（${describeThresholds(thresholds, form.get('direction') as ChangeDirection, method)}）`;
       }
       this.dialog.close();
-      this.options.say(`${name} を作りました${summary}`);
+      this.options.say(`${name} を作成${summary}`);
       return made;
     } catch (error) {
       await draft.discard();
-      if (control.cancelled) this.options.say('変化抽出を中止しました');
-      else this.note_.textContent = `比べられませんでした: ${error instanceof Error ? error.message : String(error)}`;
+      if (control.cancelled) this.options.say('変化抽出を中止');
+      else this.note_.textContent = `比較失敗: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     } finally {
       this.running_ = null;

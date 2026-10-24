@@ -57,18 +57,18 @@ describe('shapes in a link', () => {
     expect(shapes.features).toHaveLength(1);
     expect(shapes.features[0].get('label')).toBe('ok');
     expect(shapes.errors).toHaveLength(6);
-    expect(shapes.errors.join('\n')).toMatch(/座標として読めません[\s\S]*範囲外[\s\S]*SRID=2451[\s\S]*使えない文字[\s\S]*2 点以上[\s\S]*JSON/);
+    expect(shapes.errors.join('\n')).toMatch(/座標として読み込み不可[\s\S]*範囲外[\s\S]*SRID=2451[\s\S]*使用不可の文字[\s\S]*2 点以上[\s\S]*JSON/);
   });
 
   it('limits the number of shapes, the length of values and cleans names', () => {
     const many = Array.from({ length: MAX_SHAPES + 5 }, () => 'geom=35,139').join('&');
     const shapes = read(`${many}&name=${encodeURIComponent('a‮b\nc')}&color=f00&zoom=30`);
     expect(shapes.features).toHaveLength(MAX_SHAPES);
-    expect(shapes.errors.at(-1)).toMatch(/多すぎます/);
+    expect(shapes.errors.at(-1)).toMatch(/多すぎ/);
     expect(shapes.title).toBe('a b c');
     expect(shapes.color).toBe('#ff0000');
     expect(shapes.zoom).toBeNull();
-    expect(read(`geom=${'1'.repeat(200_001)}`).errors[0]).toMatch(/長すぎます/);
+    expect(read(`geom=${'1'.repeat(200_001)}`).errors[0]).toMatch(/長すぎ/);
     expect(read('geom=35,139&color=red;x&zoom=12').color).toBeNull();
     expect(read('geom=35,139&zoom=12').zoom).toBe(12);
   });

@@ -62,7 +62,7 @@ test('a GeoPackage is edited (attributes, a new point, a deletion) and saved wit
       ]),
     },
   ]);
-  await expect(page.locator('#status')).toContainText('stations を開きました');
+  await expect(page.locator('#status')).toContainText('stations を表示');
   await page.locator('#images li').getByRole('button', { name: '編集' }).click();
   await expect(page.getByRole('toolbar', { name: '編集' })).toBeVisible();
   // The table's type: no choice of what to draw.
@@ -88,7 +88,7 @@ test('a GeoPackage is edited (attributes, a new point, a deletion) and saved wit
   await page.getByRole('button', { name: '保存 (3)' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('stations.gpkg');
-  await expect(page.locator('#status')).toContainText('3 件の変更を保存しました（ファイルをダウンロードしました）');
+  await expect(page.locator('#status')).toContainText('3 件の変更を保存（ファイルをダウンロード）');
   // The new row has its id now.
   await page.getByRole('button', { name: '全件' }).click();
   await expect(rows(page)).toHaveCount(3);
@@ -155,7 +155,7 @@ test('a GeoJSON picked with a handle is saved over the original file; any geomet
     await writable.close();
   }, geojson);
   await page.locator('#open .ol-load-image button').first().click();
-  await expect(page.locator('#status')).toContainText('roads を開きました');
+  await expect(page.locator('#status')).toContainText('roads を表示');
   await page.locator('#images li').getByRole('button', { name: '編集' }).click();
   // GeoJSON holds any geometry: the toolbar asks which.
   await expect(page.locator('.edit-kind')).toBeVisible();
@@ -167,7 +167,7 @@ test('a GeoJSON picked with a handle is saved over the original file; any geomet
   await rows(page).first().getByRole('textbox', { name: 'route' }).fill('起点');
   await rows(page).first().getByRole('textbox', { name: 'route' }).press('Enter');
   await page.getByRole('button', { name: '保存 (1)' }).click();
-  await expect(page.locator('#status')).toContainText('元のファイルに上書きしました');
+  await expect(page.locator('#status')).toContainText('元のファイルに上書き');
   const saved = await page.evaluate(async () => (await (await (await navigator.storage.getDirectory()).getFileHandle('roads.geojson')).getFile()).text());
   const json = JSON.parse(saved);
   expect(json.features.map((f: { geometry: { type: string }; properties: { route: string } }) => [f.geometry.type, f.properties.route])).toEqual([

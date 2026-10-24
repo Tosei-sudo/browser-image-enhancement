@@ -30,7 +30,7 @@ export const MULTIPATCH_SHAPE_TYPE = 31;
 /** The shapes of a MultiPatch .shp, in order (null shapes as null). */
 export function readMultiPatches(shp: Uint8Array): Array<MultiPatch | null> {
   const view = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
-  if (view.getInt32(32, true) !== MULTIPATCH_SHAPE_TYPE) throw new Error('マルチパッチの Shapefile ではありません');
+  if (view.getInt32(32, true) !== MULTIPATCH_SHAPE_TYPE) throw new Error('マルチパッチの Shapefile 以外');
   const end = Math.min(shp.byteLength, view.getInt32(24, false) * 2);
   const shapes: Array<MultiPatch | null> = [];
   let at = 100;

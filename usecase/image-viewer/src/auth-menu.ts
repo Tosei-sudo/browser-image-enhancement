@@ -28,7 +28,7 @@ export class SignInMenu {
     this.render_();
     try {
       const user = await signIn(portal);
-      this.options.say(`${portal.label} に ${user.fullName ? `${user.fullName}（${user.username}）` : user.username} でサインインしました`);
+      this.options.say(`${portal.label} に ${user.fullName ? `${user.fullName}（${user.username}）` : user.username} でサインイン`);
     } catch (error) {
       this.options.say(error instanceof Error ? error.message : String(error));
     } finally {
@@ -39,7 +39,7 @@ export class SignInMenu {
 
   signOut(portal?: string): void {
     signOut(portal);
-    this.options.say('サインアウトしました');
+    this.options.say('サインアウト');
   }
 
   private render_(): void {
@@ -71,7 +71,7 @@ export class SignInMenu {
       } else if (this.pending_ === portal) {
         const wait = document.createElement('p');
         wait.className = 'signin-user';
-        wait.textContent = 'ポップアップでサインインしてください…';
+        wait.textContent = 'ポップアップでサインイン…';
         const stop = document.createElement('button');
         stop.type = 'button';
         stop.textContent = '中止';
@@ -81,7 +81,7 @@ export class SignInMenu {
         const sign = document.createElement('button');
         sign.type = 'button';
         sign.textContent = `${portal.label} にサインイン`;
-        sign.title = 'ポップアップで ArcGIS にサインインし、保護されたサービスをトークンなしで開けるようにします';
+        sign.title = 'ポップアップで ArcGIS にサインインし、保護されたサービスをトークンなしで利用可能に';
         sign.disabled = this.pending_ !== null;
         sign.addEventListener('click', () => void this.signIn(portal));
         row.append(sign);

@@ -27,10 +27,10 @@ export async function readWmts(url: string): Promise<ServiceCatalog> {
   try {
     caps = new WMTSCapabilities().read(text);
   } catch {
-    throw new ServiceError('WMTS の GetCapabilities を読めませんでした');
+    throw new ServiceError('WMTS の GetCapabilities の読み込みに失敗');
   }
   const layers: WmtsLayer[] = caps?.Contents?.Layer ?? [];
-  if (layers.length === 0) throw new ServiceError('表示できるレイヤーがありません');
+  if (layers.length === 0) throw new ServiceError('表示できるレイヤーなし');
   const sets: Array<{ Identifier: string; SupportedCRS: string }> = caps.Contents.TileMatrixSet ?? [];
   const crsOf = (id: string) => sets.find((s) => s.Identifier === id)?.SupportedCRS ?? '';
   const rank = (id: string) => ({ 3857: 0, 4326: 1 })[epsgCode(crsOf(id)) ?? -1] ?? 2;
@@ -50,12 +50,12 @@ export async function readWmts(url: string): Promise<ServiceCatalog> {
       const layer = layers.find((l) => l.Identifier === choice.name)!;
       const matrixSet = pick.matrixSet ?? choice.matrixSets?.[0];
       const format = pick.format ?? choice.formats?.[0];
-      if (!matrixSet) throw new ServiceError('タイル行列セットがありません');
+      if (!matrixSet) throw new ServiceError('タイル行列セットなし');
       const crs = crsOf(matrixSet);
       const projection = await projectionOf(crs);
-      if (!projection) throw new ServiceError(`${crs} に対応していません`);
+      if (!projection) throw new ServiceError(`${crs} に非対応`);
       const options = optionsFromCapabilities(caps, { layer: choice.name, matrixSet, format, projection });
-      if (!options) throw new ServiceError('このレイヤーの設定を読めませんでした');
+      if (!options) throw new ServiceError('このレイヤーの設定の読み込みに失敗');
       const fn = new WMTS(options).getTileUrlFunction();
       const service: ServiceLayer = {
         ref: { kind: 'wmts', url, layer: choice.name, matrixSet, format },
@@ -80,7 +80,7 @@ export async function readWmts(url: string): Promise<ServiceCatalog> {
         tileGrid: options.tileGrid,
         projection,
         gpu: context.gpu,
-        onNoCors: () => context.say(`${service.title}: サーバーが CORS を許可していないため、補正せずに表示します`),
+        onNoCors: () => context.say(`${service.title}: サーバーが CORS 非許可のため、補正なしで表示`),
       });
       service.layer = tiles.layer;
       Object.defineProperty(service, 'correction', { get: tiles.correction });

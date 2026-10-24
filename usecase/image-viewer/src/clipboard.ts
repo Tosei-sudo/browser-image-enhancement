@@ -76,7 +76,7 @@ export async function writeClipboardText(text: string): Promise<boolean> {
 }
 
 function toPng(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG にできませんでした'))), 'image/png'));
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG 化に失敗'))), 'image/png'));
 }
 
 export class ClipboardTools {
@@ -129,7 +129,7 @@ export class ClipboardTools {
       }
       e.clipboardData.setData('text/plain', out.text);
       e.preventDefault();
-      this.toast(`選択した地物 ${features.length.toLocaleString()} 件を GeoJSON でコピーしました`);
+      this.toast(`選択した地物 ${features.length.toLocaleString()} 件を GeoJSON でコピー`);
     });
   }
 
@@ -146,7 +146,7 @@ export class ClipboardTools {
   async pasteFromClipboard(): Promise<void> {
     const clipboard = navigator.clipboard;
     if (!clipboard) {
-      this.toast('このブラウザではクリップボードを読めません（地図の上で Ctrl+V を押してください）');
+      this.toast('このブラウザではクリップボードの読み込み不可（地図の上で Ctrl+V）');
       return;
     }
     let text = '';
@@ -162,7 +162,7 @@ export class ClipboardTools {
         }
       } else text = await clipboard.readText();
     } catch {
-      this.toast('クリップボードを読めませんでした（ブラウザが許可していません）。地図の上で Ctrl+V を押して貼り付けてください');
+      this.toast('クリップボードの読み込みに失敗（ブラウザの許可なし）。地図の上で Ctrl+V で貼り付け');
       return;
     }
     if (files.length) await this.takeFiles(files);
@@ -173,13 +173,13 @@ export class ClipboardTools {
   async takeFiles(files: File[]): Promise<void> {
     const kept = files.slice(0, MAX_PASTE_FILES).filter((f) => f.size <= MAX_PASTE_FILE);
     if (!kept.length) {
-      this.toast(`貼り付けたファイルが大きすぎます（${MAX_PASTE_FILE / 1024 / 1024} MB まで）`);
+      this.toast(`貼り付けたファイルが大きすぎ（${MAX_PASTE_FILE / 1024 / 1024} MB まで）`);
       return;
     }
     // A screenshot has a name like image.png: call it 貼り付け.
     const named = kept.map((f) => (f.type in PICTURE_TYPES && /^image\.\w+$/i.test(f.name) ? new File([f], `${PASTE_TITLE}.${PICTURE_TYPES[f.type]}`, { type: f.type }) : f));
     const pictures = named.filter((f) => f.type in PICTURE_TYPES).length;
-    this.toast(pictures === named.length ? `貼り付けた画像を開きます（位置情報なし）` : `貼り付けたファイル ${named.length} 件を開きます`);
+    this.toast(pictures === named.length ? `貼り付けた画像を表示（位置情報なし）` : `貼り付けたファイル ${named.length} 件を表示`);
     await this.options.openFiles(named);
   }
 
@@ -196,13 +196,13 @@ export class ClipboardTools {
         await this.options.openUrl(pasted.url).catch(() => {});
         return true;
       });
-      if (!opened) this.options.say('URL は開きませんでした');
+      if (!opened) this.options.say('URL の表示を取消');
       return;
     }
     let shapes: PastedShapes;
     if (pasted.kind === 'table') {
       const choice = pasted.geographic ? { crs: undefined, x: pasted.x, y: pasted.y } : await askColumns(pasted);
-      if (!choice) return void this.options.say('貼り付けをやめました');
+      if (!choice) return void this.options.say('貼り付けを取消');
       const made = tableShapes(pasted, choice.crs, choice.x, choice.y);
       if (made.kind === 'none') return void this.toast(made.message);
       shapes = made;
@@ -214,7 +214,7 @@ export class ClipboardTools {
   async addShapes(shapes: PastedShapes, from: string): Promise<void> {
     const { images, tempStore, say } = this.options;
     const record = recordOf({ title: PASTE_TITLE, features: shapes.features, fields: shapes.fields }, `${from}（${shapes.what}）`);
-    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     const service = tempLayer(record, tempStore);
     const entry = images.addService(service);
     if (shapes.color || shapes.labeled) {
@@ -230,7 +230,7 @@ export class ClipboardTools {
     else if (pointsOnly && service.extent) this.map.getView().fit(service.extent, { padding: [40, 40, 40, 40], maxZoom: shapes.zoom ?? POINT_ZOOM, duration: 250 });
     else void images.zoomTo(entry);
     const skipped = shapes.errors.length ? `（${shapes.errors.slice(0, 3).join(' / ')}）` : '';
-    this.toast(`${shapes.what}として読み、図形 ${shapes.features.length.toLocaleString()} 個を一時レイヤー「${PASTE_TITLE}」に追加しました${skipped}`);
+    this.toast(`${shapes.what}として読み、図形 ${shapes.features.length.toLocaleString()} 個を一時レイヤー「${PASTE_TITLE}」に追加${skipped}`);
   }
 
   /** The row menu's copy items for `features` (the table's selected rows). */
@@ -247,26 +247,26 @@ export class ClipboardTools {
   async copyGeoJson(features: Feature[]): Promise<void> {
     const out = featuresToGeoJson(features, this.fields_());
     if ('error' in out) return void this.options.say(out.error);
-    if (await writeClipboardText(out.text)) this.toast(`地物 ${features.length.toLocaleString()} 件を GeoJSON でコピーしました`);
-    else this.options.say('コピーできませんでした');
+    if (await writeClipboardText(out.text)) this.toast(`地物 ${features.length.toLocaleString()} 件を GeoJSON でコピー`);
+    else this.options.say('コピー失敗');
   }
 
   /** Copies the geometries of `features` as WKT in WGS 84, one per line. */
   async copyWkt(features: Feature[]): Promise<void> {
     const out = featuresToWkt(features);
     if ('error' in out) return void this.options.say(out.error);
-    if (await writeClipboardText(out.text)) this.toast(`図形 ${out.count.toLocaleString()} 個を WKT でコピーしました（WGS 84・経度 緯度の順）`);
-    else this.options.say('コピーできませんでした');
+    if (await writeClipboardText(out.text)) this.toast(`図形 ${out.count.toLocaleString()} 個を WKT でコピー（WGS 84・経度 緯度の順）`);
+    else this.options.say('コピー失敗');
   }
 
   /** 「表示範囲の画像をコピー」: the map as drawn, as a PNG picture. */
   async copyView(): Promise<void> {
     const { say } = this.options;
-    if (this.options.in3d?.()) return void say('3D 表示では使えません（「表示範囲を保存」で画像に保存できます）');
+    if (this.options.in3d?.()) return void say('3D 表示では使用不可（「表示範囲を保存」で画像に保存可能）');
     if (typeof ClipboardItem === 'undefined' || typeof navigator.clipboard?.write !== 'function') {
-      return void say('このブラウザでは画像をコピーできません（「表示範囲を保存」で PNG に保存してください）');
+      return void say('このブラウザでは画像のコピー不可（「表示範囲を保存」で PNG に保存）');
     }
-    say('表示範囲を描いています…');
+    say('表示範囲を描画中…');
     let skipped = 0;
     // The item is made on the click, its picture comes when drawn (so the browser still counts it as the click's).
     const png = drawView(this.map).then((drawn) => {
@@ -275,16 +275,16 @@ export class ClipboardTools {
     });
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
-      this.toast(`表示範囲の画像をコピーしました${skipped ? `（${skipped} 枚のレイヤーは含められませんでした）` : ''}`);
+      this.toast(`表示範囲の画像をコピー${skipped ? `（${skipped} 枚のレイヤーは対象外）` : ''}`);
     } catch (error) {
-      say(`画像をコピーできませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      say(`画像のコピーに失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   /** 「共有…」: the view's link, with a picture of the view where the share sheet takes files. */
   async share(): Promise<void> {
     const { say, images } = this.options;
-    if (typeof navigator.share !== 'function') return void say('このブラウザでは共有できません');
+    if (typeof navigator.share !== 'function') return void say('このブラウザでは共有不可');
     this.options.updateHash?.();
     const url = location.href;
     const data: ShareData = { title: document.title, url };
@@ -299,11 +299,11 @@ export class ClipboardTools {
     const local = images.layers().some((l) => (l.type === 'image' && !/^https?:/i.test(l.name)) || (l.type === 'service' && !l.service.ref));
     try {
       await navigator.share(data);
-      say(`共有しました${local ? '（ローカルファイルのレイヤーはリンクに含まれません）' : ''}`);
+      say(`共有${local ? '（ローカルファイルのレイヤーはリンクの対象外）' : ''}`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      if (error instanceof DOMException && error.name === 'NotAllowedError') return void say('共有できませんでした（時間がかかりました）。もう一度「共有…」を押してください');
-      say(`共有できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return void say('共有失敗（時間切れ）。もう一度「共有…」を実行');
+      say(`共有失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -326,11 +326,11 @@ export class ClipboardTools {
     try {
       shared = await takeShared(id);
     } catch (error) {
-      return void this.options.say(`共有されたものを読めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      return void this.options.say(`共有されたものの読み込みに失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (!shared) return void this.options.say('共有されたものはもう開いたか、見つかりません');
+    if (!shared) return void this.options.say('共有データは開封済み、または不明');
     if (shared.files.length) {
-      this.toast(`共有されたファイル ${shared.files.length} 件を開きます`);
+      this.toast(`共有されたファイル ${shared.files.length} 件を表示`);
       await this.options.openFiles(shared.files);
     }
     // A link shared as text often comes as 「title\nurl」: the URL alone when there is one.
@@ -339,7 +339,7 @@ export class ClipboardTools {
     // (Not out of data such as GeoJSON or KML, which may hold URLs.)
     if (link && !/[{<]/.test(text)) text = link;
     if (text.trim()) await this.takeText(text, '共有');
-    else if (!shared.files.length) this.options.say('共有されたものに開けるものがありません');
+    else if (!shared.files.length) this.options.say('共有されたものに開けるものなし');
   }
 
   /** The fields of the selected vector layer (attributes copied in their order). */
@@ -358,7 +358,7 @@ function askColumns(pasted: PastedTable): Promise<{ crs: TargetCrs; x: string; y
     title.textContent = '貼り付けた表の座標';
     const hint = document.createElement('p');
     hint.className = 'processing-hint';
-    hint.textContent = `${pasted.table.features.length.toLocaleString()} 行の表です。X（経度・東向き）と Y（緯度・北向き）の列と、値の座標系を選んでください。`;
+    hint.textContent = `${pasted.table.features.length.toLocaleString()} 行の表。X（経度・東向き）と Y（緯度・北向き）の列と、値の座標系を選択。`;
     const select = (label: string, options: Array<[string, string]>, value: string | null) => {
       const wrap = document.createElement('label');
       wrap.className = 'wide';
@@ -404,7 +404,7 @@ function askColumns(pasted: PastedTable): Promise<{ crs: TargetCrs; x: string; y
     let answer: { crs: TargetCrs; x: string; y: string } | null = null;
     ok.addEventListener('click', () => {
       const chosen = (crs.s.value || code.value).trim();
-      if (!chosen) return void (error.textContent = 'EPSG コードを入れてください');
+      if (!chosen) return void (error.textContent = 'EPSG コードを入力');
       targetCrs(chosen)
         .then((target) => {
           answer = { crs: target, x: x.s.value, y: y.s.value };
