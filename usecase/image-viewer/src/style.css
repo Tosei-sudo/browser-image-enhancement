@@ -5487,6 +5487,38 @@ dialog.docked > .dock-dialog-corner {
 }
 
 /* Observations (src/observation-panel.ts): the image stepper, the form, the lists and a thing's flow. */
+/* In a window, one column (詳細 last); in the bottom dock, recording at the left and the lists at the right. */
+.obs-main,
+.obs-side {
+  display: contents;
+}
+.obs-main > .catalog-more {
+  order: 1;
+}
+.dock-bottom .obs-dialog[open] {
+  display: grid;
+  grid-template-columns: minmax(20rem, 30rem) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 16px;
+  overflow: hidden;
+}
+.dock-bottom .obs-dialog .catalog-head {
+  grid-column: 1 / -1;
+}
+.dock-bottom .obs-main,
+.dock-bottom .obs-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.dock-bottom .obs-main > .catalog-more {
+  order: 0;
+}
+.dock-bottom .obs-list {
+  flex: 0 1 auto;
+  max-height: none;
+}
 .obs-dialog[open] {
   width: min(38rem, calc(100% - 32px));
   overflow-y: auto;
