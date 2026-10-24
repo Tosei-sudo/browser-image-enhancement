@@ -8,7 +8,7 @@
  * images in order of acquisition time (whatever order they were opened or
  * recorded in), optionally showing only that one; the things recorded in the
  * images before (or after) show as hollow marks, and one click (or
- * 「すべてまだある」) records them as still there, 「いない」 as gone.
+ * 「すべて継続」) records them as still there, 「不在」 as gone.
  *
  * 「モノ」 lists the things; choosing one shows its flow: the spans it stayed
  * doing one thing, where it moved and when it went, in a strip, a table and
@@ -81,7 +81,7 @@ export interface ObservationPanelOptions {
 const PALETTE = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
 const ACTIVITY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#e11d48'];
 
-const HINT = 'モノのある所をクリックしてください（白抜きの印は「まだある」）';
+const HINT = '地図クリックで記録（白抜きの印は継続）';
 const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${Math.round(m)} m`);
 
 export class ObservationPanel {
@@ -149,37 +149,37 @@ export class ObservationPanel {
         <button type="button" value="prev" title="前の画像（撮像日時の順、PageUp）" aria-label="前の画像">◀</button>
         <select name="image" aria-label="画像"></select>
         <button type="button" value="next" title="次の画像（撮像日時の順、PageDown）" aria-label="次の画像">▶</button>
-        <label class="check" title="他の画像を隠して、この画像だけを地図に表示します"><input type="checkbox" name="only" />この画像だけ</label>
+        <label class="check" title="この画像のみ地図に表示（他の画像は非表示）"><input type="checkbox" name="only" />この画像のみ</label>
       </div>
-      <label class="obs-time" hidden>撮像日時が分かりません。入力してください<input type="datetime-local" name="imageTime" step="60" /></label>
+      <label class="obs-time" hidden>撮像日時不明（入力）<input type="datetime-local" name="imageTime" step="60" /></label>
       <div class="obs-actions">
-        <button type="button" value="record" class="primary" aria-pressed="false" title="地図をクリックした所に、この画像の観測を記録します（R）">クリックで記録</button>
+        <button type="button" value="record" class="primary" aria-pressed="false" title="クリック地点にこの画像の観測を記録（R）">クリック記録</button>
         <span class="obs-carry"></span>
-        <button type="button" value="carry-all" hidden title="前後の画像で記録したモノ（白抜きの印）を、この画像にもまだあるとしてまとめて記録します">すべて「まだある」</button>
+        <button type="button" value="carry-all" hidden title="前後の画像のモノ（白抜きの印）を、この画像でも継続として一括記録">すべて継続</button>
       </div>
       <form class="service-form obs-form" hidden>
-        <label>モノ<input name="object" list="obs-objects" autocomplete="off" placeholder="空欄で新しいモノ" /></label>
+        <label>モノ<input name="object" list="obs-objects" autocomplete="off" placeholder="空欄で新規" /></label>
         <label>種別<input name="kind" list="obs-kinds" autocomplete="off" /></label>
         <div class="obs-chips wide" role="radiogroup" aria-label="活動"></div>
         <label>活動<input name="activity" list="obs-activity-list" autocomplete="off" /></label>
         <label>備考<input name="note" autocomplete="off" /></label>
         <div class="service-actions wide">
           <button type="submit" class="primary">記録（Enter）</button>
-          <button type="button" value="absent" title="このモノはこの画像ではもういない（見当たらない）と記録します">いない</button>
-          <button type="button" value="delete" title="この記録を削除します（「詳細」の「削除した記録も表示」から戻せます）">削除</button>
-          <button type="button" value="cancel">やめる（Esc）</button>
+          <button type="button" value="absent" title="この画像での不在（見当たらず）を記録">不在</button>
+          <button type="button" value="delete" title="この記録の削除（「詳細」の「削除済みも表示」から復元可）">削除</button>
+          <button type="button" value="cancel">取消（Esc）</button>
         </div>
       </form>
       <p class="service-status" role="status"></p>
       <details class="catalog-more">
         <summary>詳細</summary>
         <div class="catalog-more-body">
-          <label>モノを絞り込み<input type="search" name="filter" placeholder="名前・ID・種別・活動" /></label>
-          <label class="check"><input type="checkbox" name="deleted" />削除した記録も表示</label>
+          <label>モノの絞り込み<input type="search" name="filter" placeholder="名前・ID・種別・活動" /></label>
+          <label class="check"><input type="checkbox" name="deleted" />削除済みも表示</label>
           <div class="service-actions wide">
-            <button type="button" value="reload" title="保存先から記録を読み直します">読み直す</button>
-            <button type="button" value="csv" title="すべての記録（モノ・撮像日時の順）を CSV に保存します">CSV に保存</button>
-            <button type="button" value="layer" title="記録をポイント、モノの流れをラインの一時レイヤーにします（属性テーブル・タイムライン・書き出しで使えます）">レイヤーにする</button>
+            <button type="button" value="reload" title="保存先から記録を再読み込み">再読み込み</button>
+            <button type="button" value="csv" title="すべての記録の CSV 保存（モノ・撮像日時の順）">CSV 保存</button>
+            <button type="button" value="layer" title="記録をポイント、モノの流れをラインとして一時レイヤー化（属性テーブル・タイムライン・書き出しで利用可）">レイヤー化</button>
           </div>
         </div>
       </details>
@@ -266,7 +266,7 @@ export class ObservationPanel {
       const record = feature?.get('record') as Observation | undefined;
       if (!feature || !record) return;
       const [lon, lat] = toLonLat(feature.getGeometry()!.getCoordinates());
-      void this.saveRecords_([{ ...record, lon, lat, updatedAt: Date.now() }], `${record.objectName} の場所を直しました`);
+      void this.saveRecords_([{ ...record, lon, lat, updatedAt: Date.now() }], `${record.objectName} の位置を修正`);
     });
     this.translate_.setActive(false);
     map.addInteraction(this.translate_);
@@ -305,14 +305,14 @@ export class ObservationPanel {
   /** Turns 「クリックで記録」 on or off. */
   setActive(on: boolean, quiet = false): void {
     if (on && !this.current_) {
-      this.say_('先に画像を開いてください');
+      this.say_('画像なし（先に画像を開く）');
       on = false;
     }
     if (on === this.active_) return;
     this.active_ = on;
     if (on) this.options.onStart?.();
     this.record_.setAttribute('aria-pressed', String(on));
-    this.record_.textContent = on ? '記録中（クリック）' : 'クリックで記録';
+    this.record_.textContent = on ? 'クリック記録中' : 'クリック記録';
     this.translate_.setActive(on);
     this.map.getViewport().classList.toggle('observing', on);
     if (!on) this.closeForm_();
@@ -333,13 +333,13 @@ export class ObservationPanel {
 
   /** Reads the records again from the store. */
   async reload(): Promise<void> {
-    this.say_(`${this.store_.label} から読み込んでいます…`);
+    this.say_(`${this.store_.label} から読み込み中…`);
     try {
       this.records_ = await this.store_.load();
       this.say_(`${this.store_.label}: ${living(this.records_).length} 件の記録、${flows(this.records_).length} のモノ`);
     } catch (error) {
       this.records_ = [];
-      this.say_(`${this.store_.label} から読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.say_(`${this.store_.label} から読み込み失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.render_();
   }
@@ -367,7 +367,7 @@ export class ObservationPanel {
     this.imageSelect_.replaceChildren(
       ...this.ordered_.map((e, i) => new Option(`${e.info.time !== null ? localTime(e.info.time) : '日時不明'}  ${e.info.name}`, String(i), false, e === this.current_)),
     );
-    if (!this.ordered_.length) this.imageSelect_.add(new Option('画像を開いてください', ''));
+    if (!this.ordered_.length) this.imageSelect_.add(new Option('画像なし', ''));
     this.applyOnly_();
     this.render_();
   }
@@ -413,7 +413,7 @@ export class ObservationPanel {
     if (!image || !this.carried_.length) return;
     const now = Date.now();
     const made = this.carried_.map((c) => carriedInto(c.from, image, now));
-    await this.saveRecords_(made, `${made.length} のモノを「まだある」として記録しました`);
+    await this.saveRecords_(made, `${made.length} のモノを継続として記録`);
   }
 
   /** Records a carried-over thing in this image: still there (with changes), or gone. */
@@ -422,7 +422,7 @@ export class ObservationPanel {
     const c = this.carried_.find((x) => x.from.objectId === objectId);
     if (!image || !c) return;
     const record = carriedInto(c.from, image, Date.now(), { present, ...(present ? {} : { activity: '' }), ...changes });
-    await this.saveRecords_([record], `${record.objectName} を${present ? '「まだある」' : '「いない」'}として記録しました`);
+    await this.saveRecords_([record], `${record.objectName} を${present ? '継続' : '不在'}として記録`);
   }
 
   /** Records a new observation (as the form does), for scripts and tests. */
@@ -430,7 +430,7 @@ export class ObservationPanel {
     const image = this.current_?.info;
     if (!image) return null;
     const record = this.recordFrom_(image, values.lon, values.lat, null, null, { object: values.object ?? '', kind: values.kind ?? this.last_.kind, activity: values.activity ?? this.last_.activity, note: values.note ?? '' }, values.present ?? true);
-    await this.saveRecords_([record], `${record.objectName} を記録しました`);
+    await this.saveRecords_([record], `${record.objectName} を記録`);
     return record;
   }
 
@@ -443,9 +443,9 @@ export class ObservationPanel {
       const kept = new Map(marked.map((o) => [o.id, o]));
       this.records_ = this.records_.flatMap((o) => (ids.has(o.id) ? (kept.has(o.id) ? [kept.get(o.id)!] : []) : [o]));
       this.closeForm_();
-      this.say_(`${list.length} 件の記録を削除しました`);
+      this.say_(`${list.length} 件の記録を削除`);
     } catch (error) {
-      this.say_(`削除できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.say_(`削除失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.render_();
   }
@@ -453,14 +453,14 @@ export class ObservationPanel {
   /** Brings deleted records back. */
   async restore(list: readonly Observation[]): Promise<void> {
     const now = Date.now();
-    await this.saveRecords_(list.map((o) => ({ ...o, deletedAt: null, updatedAt: now })), `${list.length} 件の記録を戻しました`);
+    await this.saveRecords_(list.map((o) => ({ ...o, deletedAt: null, updatedAt: now })), `${list.length} 件の記録を復元`);
   }
 
   /** Renames a thing in all its records. */
   async rename(objectId: string, name: string, kind?: string): Promise<void> {
     const now = Date.now();
     const list = this.records_.filter((o) => o.objectId === objectId).map((o) => ({ ...o, objectName: name, ...(kind !== undefined ? { kind } : {}), updatedAt: now }));
-    await this.saveRecords_(list, `モノの名前を「${name}」にしました`);
+    await this.saveRecords_(list, `モノの名前を「${name}」に変更`);
   }
 
   /** Makes `from`'s records `into`'s (the same thing recorded as two). */
@@ -470,13 +470,13 @@ export class ObservationPanel {
     const now = Date.now();
     const list = this.records_.filter((o) => o.objectId === from).map((o) => ({ ...o, objectId: into, objectName: target.name, kind: target.kind || o.kind, updatedAt: now }));
     this.chosen_ = into;
-    await this.saveRecords_(list, `${list.length} 件の記録を「${target.name}」にまとめました`);
+    await this.saveRecords_(list, `${list.length} 件の記録を「${target.name}」に統合`);
   }
 
   /** Saves the records as CSV. */
   saveCsv(): void {
     const list = this.deleted_.checked ? this.records_ : living(this.records_);
-    if (!list.length) return this.say_('記録がありません');
+    if (!list.length) return this.say_('記録なし');
     const d = new Date();
     download(`observations_${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.csv`, observationsCsv(list), 'text/csv');
   }
@@ -484,7 +484,7 @@ export class ObservationPanel {
   /** Adds the records as a point layer and the flows as a line layer. */
   toLayers(): void {
     const list = living(this.records_);
-    if (!list.length) return this.say_('記録がありません');
+    if (!list.length) return this.say_('記録なし');
     const points = list.map((o) => {
       const f = new Feature(new Point(fromLonLat([o.lon, o.lat])));
       f.setProperties({ obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
@@ -614,7 +614,7 @@ export class ObservationPanel {
     const now = Date.now();
     const timeless = this.records_.filter((o) => o.imageId === entry.info.id && o.imageTime === null).map((o) => ({ ...o, imageTime: t, updatedAt: now }));
     await this.refreshImages();
-    if (timeless.length) await this.saveRecords_(timeless, `${timeless.length} 件の記録に撮像日時を入れました`);
+    if (timeless.length) await this.saveRecords_(timeless, `${timeless.length} 件の記録に撮像日時を入力`);
   }
 
   /** A click on the map while recording. */
@@ -637,7 +637,7 @@ export class ObservationPanel {
     input('note').value = editing ? editing.note : '';
     this.form_.querySelector<HTMLButtonElement>('button[value=delete]')!.hidden = !editing;
     this.form_.querySelector<HTMLButtonElement>('button[value=absent]')!.hidden = !source;
-    this.form_.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent = editing ? '更新（Enter）' : from ? 'まだある（Enter）' : '記録（Enter）';
+    this.form_.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent = editing ? '更新（Enter）' : from ? '継続（Enter）' : '記録（Enter）';
     this.form_.hidden = false;
     this.renderChips_();
     this.drawMarks_();
@@ -709,7 +709,7 @@ export class ObservationPanel {
     const record = this.recordFrom_(image, pending.lon, pending.lat, pending.editing, pending.from, values, present);
     this.last_ = { kind: record.kind, activity: present ? record.activity : this.last_.activity };
     this.closeForm_();
-    await this.saveRecords_([record], `${record.objectName}${present ? (record.activity ? `（${record.activity}）` : '') : '（いない）'}を${pending.editing ? '更新' : '記録'}しました`);
+    await this.saveRecords_([record], `${record.objectName}${present ? (record.activity ? `（${record.activity}）` : '') : '（不在）'}を${pending.editing ? '更新' : '記録'}`);
   }
 
   /** Saves records in the store and in the list. */
@@ -721,7 +721,7 @@ export class ObservationPanel {
       this.records_ = [...this.records_.map((o) => byId.get(o.id) ?? o), ...list.filter((o) => !this.records_.some((r) => r.id === o.id))];
       this.say_(done);
     } catch (error) {
-      this.say_(`${this.store_.label} に保存できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      this.say_(`${this.store_.label} への保存失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.render_();
   }
@@ -752,7 +752,7 @@ export class ObservationPanel {
     this.timeRow_.hidden = !image || image.time !== null;
     const all = this.deleted_.checked ? this.records_ : living(this.records_);
     this.carried_ = image ? carryOvers(this.records_, image, this.inside_()) : [];
-    this.carry_.textContent = this.carried_.length ? `前後の画像から ${this.carried_.length} のモノ` : '';
+    this.carry_.textContent = this.carried_.length ? `前後の画像のモノ ${this.carried_.length} 件` : '';
     this.carryAll_.hidden = !this.carried_.length;
     const here = image ? all.filter((o) => o.imageId === image.id).sort((a, b) => a.objectName.localeCompare(b.objectName, 'ja')) : [];
     const objects = flows(this.records_);
@@ -805,7 +805,7 @@ export class ObservationPanel {
     this.setHead_('モノ', '種別', '活動', '備考', '更新', '');
     const rows: HTMLTableRowElement[] = here.map((o) =>
       this.row_(
-        [o.objectName, o.kind, o.present ? o.activity : 'いない', o.note, localTime(o.updatedAt), o.deletedAt !== null ? this.button_('戻す', '削除した記録を戻します', () => void this.restore([o])) : this.button_('流れ', 'このモノの流れを見ます', () => this.choose(o.objectId))],
+        [o.objectName, o.kind, o.present ? o.activity : '不在', o.note, localTime(o.updatedAt), o.deletedAt !== null ? this.button_('復元', '削除した記録の復元', () => void this.restore([o])) : this.button_('流れ', 'このモノの流れの表示', () => this.choose(o.objectId))],
         () => {
           if (o.deletedAt !== null) return;
           this.openForm_(o.lon, o.lat, o, null);
@@ -817,7 +817,7 @@ export class ObservationPanel {
     for (const c of this.carried_) {
       const actions = document.createElement('span');
       actions.className = 'obs-row-actions';
-      actions.append(this.button_('まだある', 'この画像にもまだあるとして記録します', () => void this.carry(c.from.objectId, true)), this.button_('いない', 'この画像ではもういないと記録します', () => void this.carry(c.from.objectId, false)));
+      actions.append(this.button_('継続', 'この画像でも継続として記録', () => void this.carry(c.from.objectId, true)), this.button_('不在', 'この画像での不在を記録', () => void this.carry(c.from.objectId, false)));
       rows.push(
         this.row_([c.from.objectName, c.from.kind, `${c.from.activity}（${c.side === 'before' ? '前' : '後'}の画像 ${localTime(c.from.imageTime)}）`, '', '', actions], () => {
           if (!this.active_) this.setActive(true);
@@ -826,7 +826,7 @@ export class ObservationPanel {
         }, 'obs-ghost'),
       );
     }
-    if (!rows.length) rows.push(this.row_([this.current_ ? 'まだ記録がありません。「クリックで記録」で地図をクリックしてください' : '画像を開いてください']));
+    if (!rows.length) rows.push(this.row_([this.current_ ? '記録なし（「クリック記録」で地図をクリック）' : '画像なし']));
     this.body_.replaceChildren(...rows);
   }
 
@@ -835,12 +835,12 @@ export class ObservationPanel {
     const q = this.filter_.value.trim().toLowerCase();
     const shown = q ? objects.filter((f) => [f.name, f.objectId, f.kind, ...f.observations.map((o) => o.activity)].some((v) => v.toLowerCase().includes(q))) : objects;
     const rows = shown.map((f) => {
-      const tr = this.row_([f.name, f.kind, f.present ? f.activity : 'いない', localTime(f.first), localTime(f.last), String(f.seen)], () => this.choose(this.chosen_ === f.objectId ? null : f.objectId));
+      const tr = this.row_([f.name, f.kind, f.present ? f.activity : '不在', localTime(f.first), localTime(f.last), String(f.seen)], () => this.choose(this.chosen_ === f.objectId ? null : f.objectId));
       tr.setAttribute('aria-selected', String(f.objectId === this.chosen_));
       tr.addEventListener('dblclick', () => this.fitFlow_(f));
       return tr;
     });
-    if (!rows.length) rows.push(this.row_([objects.length ? '当てはまるモノがありません' : 'まだ記録がありません']));
+    if (!rows.length) rows.push(this.row_([objects.length ? '該当するモノなし' : '記録なし']));
     this.body_.replaceChildren(...rows);
   }
 
@@ -854,7 +854,7 @@ export class ObservationPanel {
     title.textContent = `${flow.name}（${flow.kind || '種別なし'}・${flow.objectId}）`;
     const summary = document.createElement('p');
     summary.className = 'obs-summary';
-    summary.textContent = `${localTime(flow.first)} 〜 ${localTime(flow.last)}・${flow.seen} 画像で確認・移動 ${km(flow.distance)}・最新: ${flow.present ? flow.activity || '活動の記録なし' : 'いない'}`;
+    summary.textContent = `${localTime(flow.first)} 〜 ${localTime(flow.last)}・${flow.seen} 画像で確認・移動 ${km(flow.distance)}・最新: ${flow.present ? flow.activity || '活動の記録なし' : '不在'}`;
     const strip = this.strip_(flow);
     const table = document.createElement('table');
     table.className = 'catalog-table obs-steps';
@@ -862,7 +862,7 @@ export class ObservationPanel {
     table.tBodies[0].append(
       ...flow.steps.map((s) =>
         this.row_(
-          [s.from === s.to ? localTime(s.from) : `${localTime(s.from)} 〜 ${localTime(s.to)}`, s.present ? s.activity || '—' : 'いない', String(s.count), s.moved !== null && s.moved > 0 ? km(s.moved) : ''],
+          [s.from === s.to ? localTime(s.from) : `${localTime(s.from)} 〜 ${localTime(s.to)}`, s.present ? s.activity || '—' : '不在', String(s.count), s.moved !== null && s.moved > 0 ? km(s.moved) : ''],
           () => void this.openRecord_(s.observations[0]),
           s.present ? '' : 'obs-absent',
         ),
@@ -874,8 +874,8 @@ export class ObservationPanel {
     more.innerHTML = `<summary>このモノの詳細</summary><div class="catalog-more-body">
       <label>名前<input name="rename" autocomplete="off" /></label>
       <label>種別<input name="rekind" list="obs-kinds" autocomplete="off" /></label>
-      <label class="wide">同じモノとしてまとめる<select name="merge"><option value="">まとめる先のモノ…</option></select></label>
-      <div class="service-actions wide"><button type="button" value="apply">名前・種別を変える</button><button type="button" value="merge">まとめる</button><button type="button" value="fit">範囲へ移動</button><button type="button" value="delete-all">このモノの記録を削除</button></div></div>`;
+      <label class="wide">同一のモノとして統合<select name="merge"><option value="">統合先のモノ…</option></select></label>
+      <div class="service-actions wide"><button type="button" value="apply">名前・種別の変更</button><button type="button" value="merge">統合</button><button type="button" value="fit">範囲へ移動</button><button type="button" value="delete-all">このモノの記録を削除</button></div></div>`;
     more.querySelector<HTMLInputElement>('input[name=rename]')!.value = flow.name;
     more.querySelector<HTMLInputElement>('input[name=rekind]')!.value = flow.kind;
     const merge = more.querySelector<HTMLSelectElement>('select[name=merge]')!;
@@ -888,7 +888,7 @@ export class ObservationPanel {
       // Two steps, so one click never deletes a thing's records.
       if (removeAll.dataset.armed !== '1') {
         removeAll.dataset.armed = '1';
-        removeAll.textContent = 'もう一度押すと削除';
+        removeAll.textContent = '再度押すと削除';
         return;
       }
       void this.remove(flow.observations);
@@ -927,7 +927,7 @@ export class ObservationPanel {
       rect.setAttribute('class', s.present ? 'obs-step' : 'obs-step absent');
       if (s.present) rect.setAttribute('fill', ACTIVITY_COLORS[activities.indexOf(s.activity) % ACTIVITY_COLORS.length]);
       const tip = document.createElementNS(ns, 'title');
-      tip.textContent = `${s.present ? s.activity || '—' : 'いない'}: ${localTime(s.from)}${s.to !== s.from ? ` 〜 ${localTime(s.to)}` : ''}`;
+      tip.textContent = `${s.present ? s.activity || '—' : '不在'}: ${localTime(s.from)}${s.to !== s.from ? ` 〜 ${localTime(s.to)}` : ''}`;
       rect.append(tip);
       svg.append(rect);
       label.push(tip.textContent);
@@ -953,7 +953,7 @@ export class ObservationPanel {
     if (entry) {
       if (!this.active_) this.setActive(true);
       this.openForm_(o.lon, o.lat, o, null);
-    } else this.say_(`この記録の画像（${o.imageName || o.imageId}）は開いていません`);
+    } else this.say_(`画像（${o.imageName || o.imageId}）が開かれておらず移動不可`);
   }
 
   private center_(o: Observation): void {
@@ -981,13 +981,13 @@ export class ObservationPanel {
       const flow = flowOf(chosen);
       const seen = flow.observations.filter((o) => o.present);
       if (seen.length > 1) features.push(new Feature({ geometry: new LineString(seen.map((o) => fromLonLat([o.lon, o.lat]))), role: 'track' }));
-      for (const o of flow.observations) features.push(new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'step', label: `${localTime(o.imageTime).slice(5)}${o.present ? '' : '（いない）'}`, present: o.present }));
+      for (const o of flow.observations) features.push(new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'step', label: `${localTime(o.imageTime).slice(5)}${o.present ? '' : '（不在）'}`, present: o.present }));
     }
     if (image) {
       for (const c of this.carried_) features.push(new Feature({ geometry: new Point(fromLonLat([c.from.lon, c.from.lat])), role: 'ghost', record: c.from, kind: c.from.kind, label: c.from.objectName }));
       for (const o of living(this.records_)) {
         if (o.imageId !== image.id) continue;
-        const f = new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'obs', record: o, kind: o.kind, label: `${o.objectName}${o.present ? (o.activity ? `・${o.activity}` : '') : '（いない）'}`, present: o.present, editing: this.pending_?.editing?.id === o.id });
+        const f = new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'obs', record: o, kind: o.kind, label: `${o.objectName}${o.present ? (o.activity ? `・${o.activity}` : '') : '（不在）'}`, present: o.present, editing: this.pending_?.editing?.id === o.id });
         features.push(f);
         this.movable_.push(f);
       }
