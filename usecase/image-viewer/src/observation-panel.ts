@@ -14,6 +14,11 @@
  * doing one thing, where it moved and when it went, in a strip, a table and
  * a track on the map. Rename and merge wait under its 「詳細」, CSV and a
  * layer of everything under the panel's.
+ *
+ * 「分類」 is the classification the kinds are chosen from (taxonomy.ts):
+ * branches as deep as they need, each naming its own levels, with the known
+ * individuals of a class. The form drills down it (船舶 › 支援船 › 〇〇級),
+ * and renaming or moving a class rewrites the records under it.
  */
 import type OlMap from 'ol/Map.js';
 import Feature from 'ol/Feature.js';
@@ -47,6 +52,26 @@ import {
   type ObservationStore,
   type ObservationVocabulary,
 } from './observations.js';
+import {
+  childrenOf,
+  depthOf,
+  find,
+  kindOf,
+  levelName,
+  memberIndex,
+  moveTaxon,
+  nameLabelOf,
+  nest,
+  pathOf,
+  removeTaxon,
+  rewrite,
+  taxonomyOf,
+  updateTaxon,
+  withKinds,
+  within,
+  type Taxon,
+  type TaxonomyStore,
+} from './taxonomy.js';
 
 /** What the panel knows of an image. */
 export interface ObservedImage {
@@ -60,8 +85,10 @@ export interface ObservedImage {
 export interface ObservationPanelOptions {
   /** Where records can be kept (the first is used at first). */
   stores: ObservationStore[];
-  /** The kinds and activities offered for a store. */
+  /** The kinds, activities and classification offered for a store. */
   vocabulary: (store: ObservationStore) => ObservationVocabulary;
+  /** Where a store's classification is kept once changed. */
+  taxonomyStore: (store: ObservationStore) => TaxonomyStore;
   /** The open images. */
   images: () => readonly ViewerImage[];
   selected: () => ViewerImage | null;
@@ -82,6 +109,7 @@ const PALETTE = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2
 const ACTIVITY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#e11d48'];
 
 const HINT = '地図クリックで記録（白抜きの印は継続）';
+type Tab = 'image' | 'objects' | 'classes';
 const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${Math.round(m)} m`);
 
 export class ObservationPanel {
@@ -102,6 +130,9 @@ export class ObservationPanel {
   private readonly head_: HTMLTableSectionElement;
   private readonly body_: HTMLTableSectionElement;
   private readonly flow_: HTMLElement;
+  private readonly taxonPanel_: HTMLElement;
+  private readonly kindPath_: HTMLElement;
+  private readonly classFilterRow_: HTMLElement;
   private readonly deleted_: HTMLInputElement;
   private readonly filter_: HTMLInputElement;
   private readonly storeSelect_: HTMLSelectElement;
@@ -117,7 +148,12 @@ export class ObservationPanel {
   private readonly manualTimes_ = new Map<string, number>();
   private ordered_: Array<{ image: ViewerImage; info: ObservedImage }> = [];
   private current_: { image: ViewerImage; info: ObservedImage } | null = null;
-  private tab_: 'image' | 'objects' = 'image';
+  private tab_: Tab = 'image';
+  /** The classification (as kept; the kinds records use are added when shown). */
+  private taxonomy_: Taxon[] = [];
+  /** The class shown in 「分類」, and the class 「モノ」 is limited to. */
+  private taxon_: string[] | null = null;
+  private classFilter_: string[] | null = null;
   private chosen_: string | null = null;
   private active_ = false;
   /** The place clicked, and the record edited or the thing carried over, while the form is open. */
@@ -158,8 +194,9 @@ export class ObservationPanel {
         <button type="button" value="carry-all" hidden title="前後の画像のモノ（白抜きの印）を、この画像でも継続として一括記録">すべて継続</button>
       </div>
       <form class="service-form obs-form" hidden>
-        <label>モノ<input name="object" list="obs-objects" autocomplete="off" placeholder="空欄で新規" /></label>
-        <label>種別<input name="kind" list="obs-kinds" autocomplete="off" /></label>
+        <label><span class="obs-object-label">モノ</span><input name="object" list="obs-objects" autocomplete="off" placeholder="空欄で新規" /></label>
+        <label>種別<input name="kind" list="obs-kinds" autocomplete="off" placeholder="船舶 > 支援船 > 〇〇級" /></label>
+        <div class="obs-kind-path wide" aria-label="種別の階層"></div>
         <div class="obs-chips wide" role="radiogroup" aria-label="活動"></div>
         <label>活動<input name="activity" list="obs-activity-list" autocomplete="off" /></label>
         <label>備考<input name="note" autocomplete="off" /></label>
@@ -188,9 +225,12 @@ export class ObservationPanel {
       <div class="obs-tabs" role="tablist">
         <button type="button" role="tab" value="image" aria-selected="true">この画像 <span></span></button>
         <button type="button" role="tab" value="objects" aria-selected="false">モノ <span></span></button>
+        <button type="button" role="tab" value="classes" aria-selected="false" title="種別の分類体系（階層・階層名・既知の個体）">分類 <span></span></button>
       </div>
+      <p class="obs-class-filter" hidden><span></span><button type="button" value="unfilter" title="分類の絞り込み解除" aria-label="分類の絞り込み解除">×</button></p>
       <div class="catalog-results obs-list"><table class="catalog-table"><thead></thead><tbody></tbody></table></div>
       <section class="obs-flow" hidden></section>
+      <section class="obs-taxon" hidden></section>
       </div>
       <datalist id="obs-objects"></datalist><datalist id="obs-kinds"></datalist><datalist id="obs-activity-list"></datalist>`;
     document.body.append(this.dialog);
@@ -210,6 +250,9 @@ export class ObservationPanel {
     this.head_ = $('.obs-list thead');
     this.body_ = $('.obs-list tbody');
     this.flow_ = $('.obs-flow');
+    this.taxonPanel_ = $('.obs-taxon');
+    this.kindPath_ = $('.obs-kind-path');
+    this.classFilterRow_ = $('.obs-class-filter');
     this.deleted_ = $('input[name=deleted]');
     this.filter_ = $('input[name=filter]');
     this.lists_ = { objects: $('#obs-objects'), kinds: $('#obs-kinds'), activities: $('#obs-activity-list') };
@@ -244,7 +287,9 @@ export class ObservationPanel {
       if (editing) void this.remove([editing]);
     });
     $('button[value=cancel]').addEventListener('click', () => this.closeForm_());
-    for (const tab of this.tabs_) tab.addEventListener('click', () => this.setTab(tab.value as 'image' | 'objects'));
+    for (const tab of this.tabs_) tab.addEventListener('click', () => this.setTab(tab.value as Tab));
+    $('button[value=unfilter]').addEventListener('click', () => this.filterClass(null));
+    this.form_.querySelector<HTMLInputElement>('input[name=kind]')!.addEventListener('input', () => this.renderKindPath_());
     this.deleted_.addEventListener('change', () => this.render_());
     this.filter_.addEventListener('input', () => this.render_());
     $('button[value=reload]').addEventListener('click', () => void this.reload());
@@ -334,6 +379,10 @@ export class ObservationPanel {
   /** Reads the records again from the store. */
   async reload(): Promise<void> {
     this.say_(`${this.store_.label} から読み込み中…`);
+    const kept = this.options
+      .taxonomyStore(this.store_)
+      .load()
+      .catch(() => null);
     try {
       this.records_ = await this.store_.load();
       this.say_(`${this.store_.label}: ${living(this.records_).length} 件の記録、${flows(this.records_).length} のモノ`);
@@ -341,6 +390,7 @@ export class ObservationPanel {
       this.records_ = [];
       this.say_(`${this.store_.label} から読み込み失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
+    this.taxonomy_ = (await kept) ?? this.vocabulary_().taxonomy;
     this.render_();
   }
 
@@ -394,7 +444,7 @@ export class ObservationPanel {
   }
 
   /** Shows a tab. */
-  setTab(tab: 'image' | 'objects'): void {
+  setTab(tab: Tab): void {
     this.tab_ = tab;
     for (const t of this.tabs_) t.setAttribute('aria-selected', String(t.value === tab));
     this.render_();
@@ -473,6 +523,78 @@ export class ObservationPanel {
     await this.saveRecords_(list, `${list.length} 件の記録を「${target.name}」に統合`);
   }
 
+  /** The classification shown: the kept one with the kinds records use added. */
+  taxonomy(): Taxon[] {
+    return withKinds(this.taxonomy_, this.records_.map((o) => o.kind));
+  }
+
+  /** Replaces the classification (a flat list, or nested as `config.json` writes it). */
+  async setTaxonomy(value: readonly Taxon[] | unknown[]): Promise<void> {
+    const problems: string[] = [];
+    const list = value.length && Array.isArray((value[0] as Taxon)?.path) ? withKinds(value as Taxon[], []) : taxonomyOf(value, problems);
+    if (!list) return this.say_(problems[0] ?? '分類の形式不正');
+    await this.saveTaxonomy_(list, [], `分類 ${list.length} 件を設定`);
+  }
+
+  /** Adds a class (its parents too). */
+  async addClass(path: readonly string[]): Promise<void> {
+    if (!path.length) return;
+    this.taxon_ = [...path];
+    await this.saveTaxonomy_(withKinds(this.taxonomy(), [kindOf(path)]), [], `分類「${kindOf(path)}」を追加`);
+  }
+
+  /**
+   * Changes a class: its name or parent (the records under it follow), the
+   * names of its branch's levels, what an individual's name is called, its known individuals.
+   */
+  async updateClass(path: readonly string[], changes: { name?: string; parent?: readonly string[]; levels?: string[]; nameLabel?: string; members?: string[] }): Promise<void> {
+    let list = this.taxonomy();
+    if (!find(list, path)) return this.say_(`分類「${kindOf(path)}」なし`);
+    const name = changes.name?.trim().replace(/\s*[>›＞]\s*/g, ' ') || path[path.length - 1];
+    const to = [...(changes.parent ?? path.slice(0, -1)), name];
+    const own: Pick<Taxon, 'levels' | 'nameLabel' | 'members'> = {};
+    if ('levels' in changes) own.levels = changes.levels;
+    if ('nameLabel' in changes) own.nameLabel = changes.nameLabel;
+    if ('members' in changes) own.members = changes.members;
+    list = updateTaxon(list, path, own);
+    const moved = kindOf(to) !== kindOf(path);
+    if (moved) {
+      if (find(list, to)) return this.say_(`分類「${kindOf(to)}」は既存（統合は不可、別の名前で）`);
+      try {
+        list = moveTaxon(list, path, to);
+      } catch (error) {
+        return this.say_(error instanceof Error ? error.message : String(error));
+      }
+    }
+    const now = Date.now();
+    const records = moved ? this.records_.filter((o) => within(o.kind, path)).map((o) => ({ ...o, kind: rewrite(o.kind, path, to), updatedAt: now })) : [];
+    this.taxon_ = to;
+    if (this.classFilter_ && within(kindOf(this.classFilter_), path)) this.classFilter_ = pathOf(rewrite(kindOf(this.classFilter_), path, to));
+    await this.saveTaxonomy_(list, records, moved ? `分類「${kindOf(path)}」を「${kindOf(to)}」に変更（記録 ${records.length} 件）` : `分類「${kindOf(path)}」を変更`);
+  }
+
+  /** Removes a class and its branch; the records under it keep the class above. */
+  async removeClass(path: readonly string[]): Promise<void> {
+    const now = Date.now();
+    const up = path.slice(0, -1);
+    const records = this.records_.filter((o) => within(o.kind, path)).map((o) => ({ ...o, kind: kindOf(up), updatedAt: now }));
+    this.taxon_ = up.length ? up : null;
+    if (this.classFilter_ && within(kindOf(this.classFilter_), path)) this.classFilter_ = null;
+    await this.saveTaxonomy_(removeTaxon(this.taxonomy(), path), records, `分類「${kindOf(path)}」を削除${records.length ? `（記録 ${records.length} 件は「${kindOf(up) || '種別なし'}」に）` : ''}`);
+  }
+
+  /** Limits 「モノ」 to a class and below (null: all). */
+  filterClass(path: readonly string[] | null): void {
+    this.classFilter_ = path?.length ? [...path] : null;
+    if (this.classFilter_ && this.tab_ !== 'objects') this.setTab('objects');
+    else this.render_();
+  }
+
+  /** The classification as `config.json`'s `observationVocabulary.taxonomy` writes it. */
+  saveTaxonomy(): void {
+    download('observation-taxonomy.json', `${JSON.stringify(nest(this.taxonomy()), null, 2)}\n`, 'application/json');
+  }
+
   /** Saves the records as CSV. */
   saveCsv(): void {
     const list = this.deleted_.checked ? this.records_ : living(this.records_);
@@ -485,9 +607,14 @@ export class ObservationPanel {
   toLayers(): void {
     const list = living(this.records_);
     if (!list.length) return this.say_('記録なし');
+    // A field per level of the kinds (kind_1 the top class), to style and filter a branch.
+    const depth = Math.max(1, ...list.map((o) => pathOf(o.kind).length));
+    const levels = Array.from({ length: depth }, (_, i) => `kind_${i + 1}`);
+    const levelValues = (kind: string) => Object.fromEntries(levels.map((name, i) => [name, pathOf(kind)[i] ?? '']));
+    const levelFields = levels.map((name, i) => field(name, 'string', `分類${i + 1}`));
     const points = list.map((o) => {
       const f = new Feature(new Point(fromLonLat([o.lon, o.lat])));
-      f.setProperties({ obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
+      f.setProperties({ ...levelValues(o.kind), obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
       return f;
     });
     this.options.onLayer(
@@ -499,6 +626,7 @@ export class ObservationPanel {
           field('object_id', 'string', 'モノID'),
           field('object', 'string', 'モノ'),
           field('kind', 'string', '種別'),
+          ...levelFields,
           field('activity', 'string', '活動'),
           field('present', 'string', '有無'),
           field('image_time', 'date', '撮像日時'),
@@ -516,7 +644,7 @@ export class ObservationPanel {
         const seen = flow.observations.filter((o) => o.present);
         if (seen.length < 2) return null;
         const f = new Feature(new LineString(seen.map((o) => fromLonLat([o.lon, o.lat]))));
-        f.setProperties({ object_id: flow.objectId, object: flow.name, kind: flow.kind, first: flow.first, last: flow.last, images: flow.seen, distance_m: Math.round(flow.distance), activity: flow.activity });
+        f.setProperties({ ...levelValues(flow.kind), object_id: flow.objectId, object: flow.name, kind: flow.kind, first: flow.first, last: flow.last, images: flow.seen, distance_m: Math.round(flow.distance), activity: flow.activity });
         return f;
       })
       .filter((f): f is Feature<LineString> => f !== null);
@@ -529,6 +657,7 @@ export class ObservationPanel {
             field('object_id', 'string', 'モノID'),
             field('object', 'string', 'モノ'),
             field('kind', 'string', '種別'),
+            ...levelFields,
             field('first', 'date', '初出'),
             field('last', 'date', '最終'),
             field('images', 'integer', '画像数'),
@@ -581,6 +710,23 @@ export class ObservationPanel {
 
   private vocabulary_(): ObservationVocabulary {
     return this.options.vocabulary(this.store_);
+  }
+
+  /** Keeps a changed classification, and the records it rewrote. */
+  private async saveTaxonomy_(list: Taxon[], records: Observation[], done: string): Promise<void> {
+    const store = this.options.taxonomyStore(this.store_);
+    try {
+      await store.save(list);
+      this.taxonomy_ = list;
+    } catch (error) {
+      this.say_(`${store.label} への分類の保存失敗: ${error instanceof Error ? error.message : String(error)}`);
+      return this.render_();
+    }
+    if (records.length) await this.saveRecords_(records, done);
+    else {
+      this.say_(done);
+      this.render_();
+    }
   }
 
   /** The current image's footprint test. */
@@ -640,6 +786,7 @@ export class ObservationPanel {
     this.form_.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent = editing ? '更新（Enter）' : from ? '継続（Enter）' : '記録（Enter）';
     this.form_.hidden = false;
     this.renderChips_();
+    this.renderKindPath_();
     this.drawMarks_();
     // A new thing gets its name typed; a known one is saved with Enter (or 1–9 picks its activity first).
     (source ? this.form_.querySelector<HTMLButtonElement>('button[type=submit]')! : input('object')).focus({ preventScroll: true });
@@ -652,12 +799,20 @@ export class ObservationPanel {
     this.drawMarks_();
   }
 
-  /** A known thing's name typed: its kind and latest activity come with it. */
+  /** A known thing's name typed: its kind and latest activity come with it; a known individual's name brings its class. */
   private objectTyped_(): void {
     const name = this.form_.querySelector<HTMLInputElement>('input[name=object]')!.value.trim();
     const flow = this.flowByName_(name);
-    if (!flow) return;
+    if (!flow) {
+      const member = memberIndex(this.taxonomy()).get(name);
+      if (member) {
+        this.form_.querySelector<HTMLInputElement>('input[name=kind]')!.value = kindOf(member);
+        this.renderKindPath_();
+      }
+      return;
+    }
     this.form_.querySelector<HTMLInputElement>('input[name=kind]')!.value = flow.kind;
+    this.renderKindPath_();
     const activity = this.form_.querySelector<HTMLInputElement>('input[name=activity]')!;
     if (!activity.value) activity.value = flow.activity;
     this.renderChips_();
@@ -673,7 +828,7 @@ export class ObservationPanel {
   private recordFrom_(image: ObservedImage, lon: number, lat: number, editing: Observation | null, from: Observation | null, values: { object: string; kind: string; activity: string; note: string }, present: boolean): Observation {
     const now = Date.now();
     const name = values.object.trim();
-    const kind = values.kind.trim();
+    const kind = kindOf(pathOf(values.kind));
     const activity = present ? values.activity.trim() : '';
     if (editing) {
       // The same thing unless another one's name was typed.
@@ -747,6 +902,58 @@ export class ObservationPanel {
     );
   }
 
+  /** The kind's levels in the form: the path so far (a click goes back up), then the classes below it and its known individuals. */
+  private renderKindPath_(): void {
+    const kindInput = this.form_.querySelector<HTMLInputElement>('input[name=kind]')!;
+    const objectInput = this.form_.querySelector<HTMLInputElement>('input[name=object]')!;
+    const list = this.taxonomy();
+    const path = pathOf(kindInput.value);
+    const set = (p: readonly string[]) => {
+      kindInput.value = kindOf(p);
+      this.renderKindPath_();
+    };
+    const chip = (text: string, title: string, run: () => void, pressed = false) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = text;
+      b.title = title;
+      if (pressed) b.setAttribute('aria-pressed', 'true');
+      b.addEventListener('click', run);
+      return b;
+    };
+    const tag = (text: string) => {
+      const t = document.createElement('span');
+      t.className = 'obs-level';
+      t.textContent = text;
+      return t;
+    };
+    const parts: Node[] = [];
+    path.forEach((name, i) => {
+      if (i) parts.push(document.createTextNode('›'));
+      parts.push(chip(name, `${levelName(list, path, i) || `第 ${i + 1} 階層`}（クリックでこの階層まで）`, () => set(path.slice(0, i + 1)), i === path.length - 1));
+    });
+    const below = childrenOf(list, path).slice(0, 24);
+    if (below.length) {
+      parts.push(tag(`${levelName(list, path, path.length) || (path.length ? '下位' : '大分類')}:`));
+      for (const t of below) parts.push(chip(t.path[t.path.length - 1], `${kindOf(t.path)} を選択`, () => set(t.path)));
+    }
+    const label = nameLabelOf(list, path);
+    const members = find(list, path)?.members ?? [];
+    if (members.length) {
+      parts.push(tag(`${label || '個体'}:`));
+      for (const m of members.slice(0, 24))
+        parts.push(
+          chip(m, `${m} として記録`, () => {
+            objectInput.value = m;
+            this.objectTyped_();
+          }, objectInput.value.trim() === m),
+        );
+    }
+    this.kindPath_.replaceChildren(...parts);
+    this.kindPath_.hidden = !parts.length;
+    this.form_.querySelector('.obs-object-label')!.textContent = label ? `モノ（${label}）` : 'モノ';
+  }
+
   private render_(): void {
     const image = this.current_?.info ?? null;
     this.timeRow_.hidden = !image || image.time !== null;
@@ -758,15 +965,21 @@ export class ObservationPanel {
     const objects = flows(this.records_);
     this.tabs_[0].querySelector('span')!.textContent = String(here.filter((o) => o.deletedAt === null).length);
     this.tabs_[1].querySelector('span')!.textContent = String(objects.length);
+    const taxonomy = this.taxonomy();
+    this.tabs_[2].querySelector('span')!.textContent = String(taxonomy.length);
     // What the form offers.
     const vocabulary = this.vocabulary_();
     const options = (list: HTMLDataListElement, values: Iterable<string>) => list.replaceChildren(...[...new Set(values)].filter(Boolean).map((v) => new Option(v)));
     options(this.lists_.objects, objects.map((f) => f.name));
-    options(this.lists_.kinds, [...vocabulary.kinds, ...objects.map((f) => f.kind)]);
+    options(this.lists_.kinds, [...vocabulary.kinds, ...taxonomy.map((t) => kindOf(t.path)), ...objects.map((f) => f.kind)]);
     options(this.lists_.activities, [...vocabulary.activities, ...living(this.records_).map((o) => o.activity)]);
+    this.classFilterRow_.hidden = this.tab_ !== 'objects' || !this.classFilter_;
+    this.classFilterRow_.querySelector('span')!.textContent = this.classFilter_ ? `分類: ${kindOf(this.classFilter_)} 以下` : '';
     if (this.tab_ === 'image') this.renderImage_(here);
-    else this.renderObjects_(objects);
+    else if (this.tab_ === 'objects') this.renderObjects_(objects);
+    else this.renderClasses_(taxonomy, objects);
     this.renderFlow_();
+    this.renderTaxon_(taxonomy, objects);
     this.drawMarks_();
   }
 
@@ -833,7 +1046,9 @@ export class ObservationPanel {
   private renderObjects_(objects: ObjectFlow[]): void {
     this.setHead_('モノ', '種別', '最新', '初出', '最終', '画像');
     const q = this.filter_.value.trim().toLowerCase();
-    const shown = q ? objects.filter((f) => [f.name, f.objectId, f.kind, ...f.observations.map((o) => o.activity)].some((v) => v.toLowerCase().includes(q))) : objects;
+    const within_ = this.classFilter_;
+    const inClass = within_ ? objects.filter((f) => within(f.kind, within_)) : objects;
+    const shown = q ? inClass.filter((f) => [f.name, f.objectId, f.kind, ...f.observations.map((o) => o.activity)].some((v) => v.toLowerCase().includes(q))) : inClass;
     const rows = shown.map((f) => {
       const tr = this.row_([f.name, f.kind, f.present ? f.activity : '不在', localTime(f.first), localTime(f.last), String(f.seen)], () => this.choose(this.chosen_ === f.objectId ? null : f.objectId));
       tr.setAttribute('aria-selected', String(f.objectId === this.chosen_));
@@ -842,6 +1057,129 @@ export class ObservationPanel {
     });
     if (!rows.length) rows.push(this.row_([objects.length ? '該当するモノなし' : '記録なし']));
     this.body_.replaceChildren(...rows);
+  }
+
+  /** 「分類」: the classification as a tree, with the things and records under each class. */
+  private renderClasses_(taxonomy: Taxon[], objects: ObjectFlow[]): void {
+    this.setHead_('分類', '階層', 'モノ', '記録');
+    const records = living(this.records_);
+    const rows = taxonomy.map((t) => {
+      const depth = t.path.length - 1;
+      const name = document.createElement('span');
+      name.className = 'obs-class-name';
+      name.style.paddingInlineStart = `${depth * 1.1}em`;
+      name.textContent = `${depth ? '└ ' : ''}${t.path[depth]}`;
+      const things = objects.filter((f) => within(f.kind, t.path)).length;
+      const tr = this.row_([name, levelName(taxonomy, t.path, depth), String(things), String(records.filter((o) => within(o.kind, t.path)).length)], () => {
+        this.taxon_ = this.taxon_ && kindOf(this.taxon_) === kindOf(t.path) ? null : t.path;
+        this.render_();
+      });
+      tr.setAttribute('aria-selected', String(!!this.taxon_ && kindOf(this.taxon_) === kindOf(t.path)));
+      tr.addEventListener('dblclick', () => this.filterClass(t.path));
+      return tr;
+    });
+    if (!rows.length) rows.push(this.row_(['分類なし（下の「大分類の追加」から）']));
+    this.body_.replaceChildren(...rows);
+  }
+
+  /** Under 「分類」: the chosen class's settings, and adding, exporting and reading in classes. */
+  private renderTaxon_(taxonomy: Taxon[], objects: ObjectFlow[]): void {
+    this.taxonPanel_.hidden = this.tab_ !== 'classes';
+    if (this.taxonPanel_.hidden) return this.taxonPanel_.replaceChildren();
+    const path = this.taxon_ && find(taxonomy, this.taxon_) ? this.taxon_ : null;
+    const t = path ? find(taxonomy, path)! : null;
+    const wasOpen = this.taxonPanel_.dataset.path === (path ? kindOf(path) : '');
+    const keep = (name: string) => (wasOpen ? this.taxonPanel_.querySelector<HTMLInputElement>(`[name=${name}]`)?.value : undefined);
+    const box = document.createElement('div');
+    box.className = 'service-form obs-taxon-form';
+    if (t && path) {
+      const parents = taxonomy.filter((x) => !within(kindOf(x.path), path));
+      const things = objects.filter((f) => within(f.kind, path)).length;
+      box.innerHTML = `
+        <h3 class="wide"></h3>
+        <label>名前<input name="taxon-name" autocomplete="off" /></label>
+        <label>上位<select name="taxon-parent"><option value="">（なし: 大分類）</option></select></label>
+        <label class="wide" title="大分類から順に、読点区切り。この分類より下の枝はここが優先">この枝の階層名<input name="taxon-levels" autocomplete="off" placeholder="大分類、種別、級" /></label>
+        <label title="最下位の個体（実名）の呼び方">個体名の呼称<input name="taxon-label" autocomplete="off" placeholder="艦名・機番" /></label>
+        <label class="wide" title="この分類の既知の個体（実名）、読点区切り。記録時にモノ欄へ入力で分類も自動入力">既知の個体<input name="taxon-members" autocomplete="off" /></label>
+        <div class="service-actions wide">
+          <button type="button" value="taxon-apply" class="primary">変更</button>
+          <button type="button" value="taxon-things">モノ一覧</button>
+          <button type="button" value="taxon-delete" title="この分類と下位分類の削除（記録の種別は上位の分類に）">削除</button>
+        </div>
+        <label class="wide">下位分類の追加<span class="obs-inline"><input name="taxon-child" autocomplete="off" placeholder="${levelName(taxonomy, path, path.length) || '下位分類'}の名前" /><button type="button" value="taxon-add-child">追加</button></span></label>`;
+      box.querySelector('h3')!.textContent = `${kindOf(path)}（${levelName(taxonomy, path, path.length - 1) || `第 ${path.length} 階層`}・モノ ${things}）`;
+      const input = (name: string) => box.querySelector<HTMLInputElement>(`[name=${name}]`)!;
+      input('taxon-name').value = keep('taxon-name') ?? path[path.length - 1];
+      input('taxon-levels').value = keep('taxon-levels') ?? (t.levels ?? []).join('、');
+      input('taxon-label').value = keep('taxon-label') ?? t.nameLabel ?? '';
+      input('taxon-members').value = keep('taxon-members') ?? (t.members ?? []).join('、');
+      input('taxon-child').value = keep('taxon-child') ?? '';
+      const parent = box.querySelector<HTMLSelectElement>('select[name=taxon-parent]')!;
+      for (const x of parents) parent.add(new Option(kindOf(x.path), kindOf(x.path)));
+      parent.value = kindOf(path.slice(0, -1));
+      const split = (v: string) =>
+        v
+          .split(/[,、\n]/)
+          .map((w) => w.trim())
+          .filter(Boolean);
+      box.querySelector('button[value=taxon-apply]')!.addEventListener('click', () => {
+        void this.updateClass(path, { name: input('taxon-name').value, parent: pathOf(parent.value), levels: split(input('taxon-levels').value), nameLabel: input('taxon-label').value.trim(), members: split(input('taxon-members').value) });
+      });
+      box.querySelector('button[value=taxon-things]')!.addEventListener('click', () => this.filterClass(path));
+      const remove = box.querySelector<HTMLButtonElement>('button[value=taxon-delete]')!;
+      remove.addEventListener('click', () => {
+        // Two steps, so one click never drops a branch.
+        if (remove.dataset.armed !== '1') {
+          remove.dataset.armed = '1';
+          remove.textContent = '再度押すと削除';
+          return;
+        }
+        void this.removeClass(path);
+      });
+      const addChild = () => {
+        const name = input('taxon-child').value.trim();
+        if (name) void this.addClass([...path, ...pathOf(name)]);
+      };
+      box.querySelector('button[value=taxon-add-child]')!.addEventListener('click', addChild);
+      input('taxon-child').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), addChild()));
+    }
+    const general = document.createElement('div');
+    general.className = 'service-form obs-taxon-form';
+    general.innerHTML = `
+      <label class="wide">大分類の追加<span class="obs-inline"><input name="taxon-root" autocomplete="off" placeholder="船舶・航空機…（「船舶 > 支援船」で階層ごと）" /><button type="button" value="taxon-add-root">追加</button></span></label>
+      <div class="service-actions wide">
+        <button type="button" value="taxon-export" title="分類体系の JSON 保存（config.json の observationVocabulary.taxonomy に記載可）">JSON 保存</button>
+        <button type="button" value="taxon-import" title="分類体系の JSON 読み込み（現在の分類と置き換え）">JSON 読み込み</button>
+        <input type="file" name="taxon-file" accept=".json,application/json" hidden />
+      </div>
+      <p class="obs-note wide"></p>`;
+    general.querySelector('.obs-note')!.textContent = `保存先: ${this.options.taxonomyStore(this.store_).label}・最大 ${depthOf(taxonomy)} 階層（行のダブルクリックでその分類のモノ一覧）`;
+    const root = general.querySelector<HTMLInputElement>('input[name=taxon-root]')!;
+    root.value = keep('taxon-root') ?? '';
+    const addRoot = () => {
+      const p = pathOf(root.value);
+      if (p.length) void this.addClass(p);
+    };
+    general.querySelector('button[value=taxon-add-root]')!.addEventListener('click', addRoot);
+    root.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), addRoot()));
+    general.querySelector('button[value=taxon-export]')!.addEventListener('click', () => this.saveTaxonomy());
+    const file = general.querySelector<HTMLInputElement>('input[name=taxon-file]')!;
+    general.querySelector('button[value=taxon-import]')!.addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+      const chosen = file.files?.[0];
+      if (!chosen) return;
+      try {
+        const value = JSON.parse(await chosen.text()) as unknown;
+        const list = Array.isArray(value) ? value : (value as { taxonomy?: unknown })?.taxonomy;
+        if (!Array.isArray(list)) throw new Error('分類の配列なし');
+        await this.setTaxonomy(list);
+      } catch (error) {
+        this.say_(`分類の読み込み失敗: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+    this.taxonPanel_.dataset.path = path ? kindOf(path) : '';
+    this.taxonPanel_.replaceChildren(...(t ? [box] : []), general);
   }
 
   /** The chosen thing's flow: summary, strip, steps and its own 「詳細」. */
@@ -997,9 +1335,10 @@ export class ObservationPanel {
     source.addFeatures(features);
   }
 
+  /** A colour per top class, so a branch reads as one. */
   private colorOf_(kind: string): string {
-    const kinds = [...new Set([...this.vocabulary_().kinds, ...flows(this.records_).map((f) => f.kind)])];
-    const i = kinds.indexOf(kind);
+    const kinds = [...new Set([...this.vocabulary_().kinds, ...this.taxonomy_.map((t) => t.path[0]), ...flows(this.records_).map((f) => pathOf(f.kind)[0] ?? '')])];
+    const i = kinds.indexOf(pathOf(kind)[0] ?? '');
     return PALETTE[(i < 0 ? kinds.length : i) % PALETTE.length];
   }
 

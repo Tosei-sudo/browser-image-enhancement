@@ -5547,20 +5547,73 @@ dialog.docked > .dock-dialog-corner {
 }
 .obs-time[hidden],
 .obs-form[hidden],
-.obs-flow[hidden] {
+.obs-flow[hidden],
+.obs-taxon[hidden],
+.obs-kind-path[hidden],
+.obs-class-filter[hidden] {
   display: none;
+}
+.obs-kind-path {
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.obs-kind-path button[aria-pressed='true'] {
+  font-weight: 600;
+  border-color: var(--accent);
+}
+.obs-level {
+  margin-inline-start: 6px;
+}
+.obs-class-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+.obs-class-filter button {
+  padding: 0 6px;
+}
+.obs-class-name {
+  display: inline-block;
+  white-space: nowrap;
+}
+.obs-taxon h3 {
+  margin: 8px 0 2px;
+  font-size: 14px;
+}
+.obs-taxon-form + .obs-taxon-form {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.obs-inline {
+  display: flex;
+  gap: 4px;
+}
+.obs-inline input {
+  flex: 1;
+  min-width: 0;
+}
+.obs-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 .obs-form {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
 }
-.obs-chips {
+.obs-chips,
+.obs-kind-path {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
-.obs-chips button {
+.obs-chips button,
+.obs-kind-path button {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 12px;

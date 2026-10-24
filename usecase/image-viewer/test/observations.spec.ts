@@ -166,8 +166,8 @@ test('a record is moved, deleted (kept marked), brought back, and written as CSV
     for await (const chunk of stream) text += chunk;
     return text;
   });
-  expect(csv).toContain('観測ID,モノID,モノ,種別,活動,有無,撮像日時');
-  expect(csv).toContain(',倉庫,建物,');
+  expect(csv).toContain('観測ID,モノID,モノ,種別,分類1,活動,有無,撮像日時');
+  expect(csv).toContain(',倉庫,建物,建物,');
 
   // A layer of the records, for the table, the timeline and export.
   await panel.getByRole('button', { name: 'レイヤー化' }).click();
@@ -260,4 +260,66 @@ test('the panel opens in the bottom dock until it is put in a window, and comes 
   await page.getByRole('button', { name: 'ツール' }).click();
   await page.locator('#observe-open').click();
   await expect(page.locator('.dock-bottom .obs-dialog')).toBeVisible();
+});
+
+test('kinds are chosen down a classification whose branches name their own levels, and follow its changes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openImages(page);
+  const panel = await openPanel(page);
+  // A class added several levels at once, and a known individual of it.
+  await panel.getByRole('tab', { name: /分類/ }).click();
+  await panel.locator('input[name=taxon-root]').fill('船舶 > 支援船 > 〇〇級');
+  await panel.getByRole('button', { name: '追加', exact: true }).last().click();
+  await expect(panel.locator('.service-status')).toContainText('分類「船舶 > 支援船 > 〇〇級」を追加');
+  await expect(panel.locator('.obs-taxon h3')).toContainText('船舶 > 支援船 > 〇〇級（級');
+  await panel.locator('input[name=taxon-members]').fill('△△、□□');
+  await panel.locator('.obs-taxon').getByRole('button', { name: '変更', exact: true }).click();
+  await expect(panel.locator('.service-status')).toContainText('分類「船舶 > 支援船 > 〇〇級」を変更');
+  await expect(panel.locator('.obs-list tbody tr', { hasText: '支援船' })).toContainText('種別');
+
+  // Recording: down the levels with chips, then the individual by name.
+  const map = page.locator('#map');
+  const box = (await map.boundingBox())!;
+  await map.click({ position: { x: box.width / 4, y: box.height / 2 } });
+  const form = panel.locator('.obs-form');
+  const path = form.locator('.obs-kind-path');
+  await expect(form.locator('input[name=kind]')).toHaveValue('船舶');
+  await expect(form.locator('.obs-object-label')).toHaveText('モノ（船名）');
+  await expect(path).toContainText('種別:');
+  await path.getByRole('button', { name: '支援船' }).click();
+  await expect(path).toContainText('級:');
+  await path.getByRole('button', { name: '〇〇級' }).click();
+  await expect(form.locator('input[name=kind]')).toHaveValue('船舶 > 支援船 > 〇〇級');
+  await path.getByRole('button', { name: '△△' }).click();
+  await expect(form.locator('input[name=object]')).toHaveValue('△△');
+  await form.locator('input[name=object]').press('Enter');
+  await expect(panel.locator('.service-status')).toContainText('△△');
+  // Typing a known individual's name brings its class.
+  await map.click({ position: { x: box.width / 4 + 30, y: box.height / 2 + 20 } });
+  await form.locator('input[name=kind]').fill('航空機');
+  await form.locator('input[name=object]').fill('□□');
+  await form.locator('input[name=object]').dispatchEvent('change');
+  await expect(form.locator('input[name=kind]')).toHaveValue('船舶 > 支援船 > 〇〇級');
+  await form.locator('input[name=object]').press('Enter');
+  await expect.poll(() => page.evaluate(() => window.viewer.observations.records().map((o) => o.kind))).toEqual(['船舶 > 支援船 > 〇〇級', '船舶 > 支援船 > 〇〇級']);
+
+  // Renaming a class rewrites the records below it.
+  await panel.getByRole('tab', { name: /分類/ }).click();
+  await panel.locator('.obs-list tbody tr', { hasText: '支援船' }).click();
+  await panel.locator('input[name=taxon-name]').fill('補助艦');
+  await panel.locator('.obs-taxon').getByRole('button', { name: '変更', exact: true }).click();
+  await expect(panel.locator('.service-status')).toContainText('「船舶 > 補助艦」に変更（記録 2 件）');
+  expect(await page.evaluate(() => window.viewer.observations.records().map((o) => o.kind))).toEqual(['船舶 > 補助艦 > 〇〇級', '船舶 > 補助艦 > 〇〇級']);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('image-viewer.obs-taxonomy:このブラウザ') ?? '[]') as Array<{ path: string[] }>);
+  expect(kept.map((t) => t.path.join(' > '))).toContain('船舶 > 補助艦 > 〇〇級');
+
+  // A class limits the list of things to it and below.
+  await panel.locator('.obs-list tbody tr', { hasText: '補助艦' }).dblclick();
+  await expect(panel.getByRole('tab', { name: /モノ/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.locator('.obs-class-filter')).toContainText('分類: 船舶 > 補助艦 以下');
+  await expect(panel.locator('.obs-list tbody tr')).toHaveCount(2);
+  await panel.getByRole('button', { name: '分類の絞り込み解除' }).click();
+  await expect(panel.locator('.obs-class-filter')).toBeHidden();
+  expect(errors).toEqual([]);
 });

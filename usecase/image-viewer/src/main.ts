@@ -133,6 +133,7 @@ import { startReminders } from './imaging-plan-remind.js';
 import { SavedPlansPanel } from './imaging-plan-saved.js';
 import { ObservationPanel } from './observation-panel.js';
 import { EsriObservationStore, LocalObservationStore, type ObservationStore } from './observations.js';
+import { EsriTaxonomyStore, LocalTaxonomyStore, type TaxonomyStore } from './taxonomy.js';
 import { MovingTargetDialog } from './moving-target-dialog.js';
 import { SatelliteTrackPanel } from './satellite-track-panel.js';
 import { ScriptDialog } from './script-dialog.js';
@@ -1364,11 +1365,22 @@ const observationStores: ObservationStore[] = [
   ...config.observationStores.map((c) => new EsriObservationStore(c, (url, params, token) => esriJson(url, params, token, true))),
   new LocalObservationStore(),
 ];
+const taxonomyStores = new WeakMap<ObservationStore, TaxonomyStore>();
 const observations = new ObservationPanel(map, document.getElementById('observe-open') as HTMLButtonElement, {
   stores: observationStores,
   vocabulary: (store) => {
     const own = config.observationStores.find((c) => c.label === store.label);
-    return { kinds: own?.kinds ?? config.observationVocabulary.kinds, activities: own?.activities ?? config.observationVocabulary.activities };
+    return { kinds: own?.kinds ?? config.observationVocabulary.kinds, activities: own?.activities ?? config.observationVocabulary.activities, taxonomy: own?.taxonomy ?? config.observationVocabulary.taxonomy };
+  },
+  // A store's classification in its own Esri table when given (shared), else in this browser.
+  taxonomyStore: (store) => {
+    let kept = taxonomyStores.get(store);
+    if (!kept) {
+      const table = config.observationStores.find((c) => c.label === store.label)?.taxonomyTable;
+      kept = table ? new EsriTaxonomyStore(table, (url, params, token) => esriJson(url, params, token, true), `${store.label}の分類テーブル`) : new LocalTaxonomyStore(store.label);
+      taxonomyStores.set(store, kept);
+    }
+    return kept;
   },
   images: () => images.list(),
   selected: () => images.selected(),
