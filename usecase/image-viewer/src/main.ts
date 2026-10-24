@@ -74,7 +74,7 @@ import { bindShortcuts, foldSections, Guide, HelpDialog, ToolMenu } from './shel
 import { Hints } from './help.js';
 import { Theme } from './theme.js';
 import { AttributeTable, type TableData } from './table.js';
-import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer } from './services/index.js';
+import { MAX_FEATURES, readService, type OpenContext, type ServiceLayer, type ServiceRef } from './services/index.js';
 import { IMAGE_CHOICE, isImageServerUrl, isMapServerUrl, MAP_CHOICE } from './services/esri-raster.js';
 import { RasterRulesDialog } from './raster-rules-dialog.js';
 import { elevationRange } from './dem.js';
@@ -1645,8 +1645,8 @@ async function openEsriUrl(url: string): Promise<boolean> {
   return true;
 }
 
-/** Opens one layer at start; failures are reported in the status line and the rest still open. */
-async function openAtStart(layer: LayerConfig): Promise<void> {
+/** Opens one layer at start, giving the service layer's ref; failures are reported in the status line and the rest still open. */
+async function openAtStart(layer: LayerConfig): Promise<ServiceRef | undefined> {
   say(`${layer.url} を読み込んでいます…`);
   try {
     if (layer.type === 'cog') {
@@ -1657,20 +1657,29 @@ async function openAtStart(layer: LayerConfig): Promise<void> {
       const { type: kind, ...ref } = layer;
       const opened = await openRef({ kind, ...ref }, serviceContext());
       if (opened) addService(opened);
+      return opened?.ref ?? undefined;
     }
   } catch (error) {
     // The loader's onError has already said why a COG failed.
     if (layer.type !== 'cog') say(`${layer.url} を開けませんでした: ${error instanceof Error ? error.message : String(error)}`);
   }
+  return undefined;
 }
 
 // A link's `#view=` wins over where the layers opening at start would zoom to.
 let linkedView: string | null = location.hash || null;
 const started = (async () => {
-  const opening: LayerConfig[] = [...config.layers];
+  // A shared link (and the address kept over a reload) lists the service layers in config.json too: open those once.
+  // They are known both as written in config.json and as opened, since opening fills in what the entry left out
+  // (a WMTS matrix set and format, the service's own URL), and an address with them several times opens them once.
+  const fromConfig = new Set<string>();
+  for (const layer of config.layers) {
+    const opened = await openAtStart(layer);
+    if (layer.type !== 'cog' && layer.type !== 'file') fromConfig.add(refKey({ ...layer, kind: layer.type }));
+    if (opened) fromConfig.add(refKey(opened));
+  }
+  const opening: LayerConfig[] = [];
   for (const url of start.getAll('url')) opening.push({ type: 'cog', url });
-  // A shared link lists the service layers in config.json too: open those once.
-  const fromConfig = new Set(config.layers.filter((l) => l.type !== 'cog' && l.type !== 'file').map((l) => refKey({ ...l, kind: l.type })));
   for (const ref of start.getAll('service').map(paramToRef)) {
     if (ref && !fromConfig.has(refKey(ref))) opening.push({ type: ref.kind, url: ref.url, layer: ref.layer, matrixSet: ref.matrixSet, format: ref.format, settings: ref.settings, bbox: ref.bbox, filter: ref.filter });
   }
