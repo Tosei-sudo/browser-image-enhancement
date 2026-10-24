@@ -131,6 +131,7 @@ import { Dashboard } from './dashboard.js';
 import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { startReminders } from './imaging-plan-remind.js';
 import { SavedPlansPanel } from './imaging-plan-saved.js';
+import { MovingTargetDialog } from './moving-target-dialog.js';
 import { SatelliteTrackPanel } from './satellite-track-panel.js';
 import { ScriptDialog } from './script-dialog.js';
 import type { SavedScript } from './script/saved.js';
@@ -1312,6 +1313,22 @@ const imagingPlan = new ImagingPlanPanel(document.getElementById('plan-open') as
   openSaved: (planId) => void savedPlans.open(planId),
 });
 
+// Moving targets from any layer of position reports: predicted places and their imaging plan.
+const movingTargets = new MovingTargetDialog(document.getElementById('moving-target-open') as HTMLButtonElement, selection, {
+  layers: () => images.layers().filter((l): l is ViewerService => l.type === 'service' && !!l.service.vector && !l.service.tableOnly),
+  feedTracks: (layer): Track[] | null => {
+    const feed = (moving.feeds() as MovingLayer[]).find((m) => m.layer === layer.service.layer);
+    return feed ? [...feed.store.tracks.values()] : null;
+  },
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザに保存できませんでした（このページを開いている間だけ残ります）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
+  },
+  plan: (targets, label) => void imagingPlan.planMoving(targets, label),
+  say,
+});
+
 // Imaging plans kept in Esri feature services (config.json's planStores), followed up in the image catalog.
 const savedPlans = new SavedPlansPanel(map, {
   stores: config.planStores,
@@ -1401,6 +1418,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     { id: 'gp', label: 'サーバ処理（ArcGIS GP・OGC API – Processes）', dialog: gp.dialog, open: () => gp.open(), run: () => gp.run() },
     { id: 'webmap-open', label: 'ArcGIS Web マップを開く', dialog: webMaps.openDialog, open: () => webMaps.open(), run: () => webMaps.openTyped() },
     { id: 'tessellate', label: '格子を敷き詰める（正方形・六角形・三角形）', dialog: tessellateDialog.dialog, open: () => tessellateDialog.open(), run: () => tessellateDialog.run() },
+    { id: 'moving-target', label: '移動目標撮像計画（存在予測・撮像計画）', dialog: movingTargets.dialog, open: () => movingTargets.open(), run: async () => movingTargets.plan() },
   ],
   commands: () =>
     SCRIPT_COMMANDS.flatMap((id) => {
@@ -1805,6 +1823,7 @@ declare global {
       dashboard: Dashboard;
       imagingPlan: ImagingPlanPanel;
       savedPlans: SavedPlansPanel;
+      movingTargets: MovingTargetDialog;
       satelliteTracks: SatelliteTrackPanel;
       scripts: ScriptDialog;
       rasterRules: RasterRulesDialog;
@@ -1817,4 +1836,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

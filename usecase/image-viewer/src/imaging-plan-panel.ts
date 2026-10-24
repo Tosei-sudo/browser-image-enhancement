@@ -416,6 +416,8 @@ export class ImagingPlanPanel {
   private plan_: { sats: SatelliteSpec[]; targets: PlanTarget[]; result: PlanResult; options: PlanOptions } | null = null;
   /** The pairs of the last plan in a pair view, for the conditions they were found with. */
   private pairs_: { key: string; pairs: PlanPair[] } | null = null;
+  /** Moving targets handed over by 「移動目標撮像計画」, offered as a target choice. */
+  private moving_: { ships: ShipState[]; label: string } | null = null;
   /** The revisit map of the last plan: its grid, how often each cell is seen, and the cell chosen. */
   private revisit_: { size: number; cells: RevisitCell[]; stats: RevisitStats[]; chosen: number | null } | null = null;
   /** The combination of the last plan, for the goal it was made for. */
@@ -746,6 +748,7 @@ export class ImagingPlanPanel {
       ...(selected ? [new Option(`選択中の地物（${selected}）`, 'selection')] : []),
       ...this.vectorLayers().map((l, i) => new Option(`${l.name}（${l.service.vector!.source.getFeatures().length.toLocaleString()}）`, `layer:${i}`)),
       new Option('地図でクリックした地点', 'click'),
+      ...(this.moving_ ? [new Option(`移動目標: ${this.moving_.label}（${this.moving_.ships.length}）`, 'moving')] : []),
     ];
     this.target_.replaceChildren(...options);
     this.target_.value = options.some((o) => o.value === before) ? before : options[0].value;
@@ -767,7 +770,7 @@ export class ImagingPlanPanel {
   /** The features of the chosen target (null for a clicked point). */
   private chosenFeatures(): Feature[] | null {
     const choice = this.target_.value;
-    if (choice === 'click') return null;
+    if (choice === 'click' || choice === 'moving') return null;
     if (choice === 'selection') return this.options.selection.list();
     return this.vectorLayers()[Number(choice.slice('layer:'.length))]?.service.vector!.source.getFeatures() ?? [];
   }
@@ -812,6 +815,8 @@ export class ImagingPlanPanel {
       if (!this.clicked_) return '地図をクリックして地点を指定してください';
       return [{ label: `${round(this.clicked_[1], 5)}, ${round(this.clicked_[0], 5)}`, center: this.clicked_, points: [] }];
     }
+    // Moving targets, where they were last reported (the plan follows them: see runShips).
+    if (choice === 'moving') return this.moving_?.ships.map((s) => ({ label: s.name, center: [s.lon, s.lat] as [number, number], points: [] })) ?? '移動目標がありません';
     let name: string;
     if (choice === 'selection') name = '選択中の地物';
     else {
@@ -848,6 +853,7 @@ export class ImagingPlanPanel {
       const projection = this.map.getView().getProjection();
       const choice = this.target_.value;
       if (choice === 'click') source.addFeature(new Feature({ kind: 'target', target: 0, geometry: new Point(transform(this.clicked_!, 'EPSG:4326', projection)) }));
+      else if (choice === 'moving') this.moving_?.ships.forEach((s, i) => source.addFeature(new Feature({ kind: 'target', target: i, geometry: new Point(transform([s.lon, s.lat], 'EPSG:4326', projection)) })));
       else {
         // The features themselves, outlined.
         const features = this.chosenFeatures() ?? [];
@@ -885,6 +891,23 @@ export class ImagingPlanPanel {
       side: side === 'left' || side === 'right' ? side : null,
       ...(this.options.stations?.length ? { stations: this.options.stations } : {}),
     };
+  }
+
+  /**
+   * Plans moving targets (from 「移動目標撮像計画」): they become the target
+   * choice, and the plan is made at once when satellites are chosen.
+   */
+  async planMoving(ships: ShipState[], label: string): Promise<void> {
+    this.moving_ = { ships, label };
+    this.open();
+    this.listTargets();
+    this.target_.value = 'moving';
+    // Reports older than the horizon: plan from the latest of them, as nothing can be guessed later.
+    const latest = Math.max(...ships.map((s) => s.t));
+    const start = this.form_.elements.namedItem('start') as HTMLInputElement;
+    if (latest + MAX_HORIZON * 3600000 < (start.value ? new Date(start.value).getTime() : Date.now())) start.value = inputText(latest);
+    this.showTargets();
+    await this.run();
   }
 
   /** Plans the checked satellites over the targets, in a worker. */
@@ -931,6 +954,7 @@ export class ImagingPlanPanel {
 
   /** The ships of the target choice when it holds moving objects (an AIS feed or ships selected in one); null otherwise. */
   private ships(): ShipState[] | null {
+    if (this.target_.value === 'moving' && this.moving_) return this.moving_.ships.slice();
     const features = this.chosenFeatures();
     const track = this.options.shipTrack;
     if (!features?.length || !track || !features.every((f) => String(f.getId() ?? '').startsWith('moving:'))) return null;

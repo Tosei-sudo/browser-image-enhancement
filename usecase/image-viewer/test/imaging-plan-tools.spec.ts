@@ -401,3 +401,65 @@ test('plans ships of an AIS feed where they will be, with the circle they may be
   expect(kinds).toContain('scene:Polygon');
   expect(errors).toEqual([]);
 });
+
+test('maps any layer of position reports to moving targets: predicted places and their imaging plan', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await start(page);
+  const plan = page.locator('.plan-dialog');
+  await plan.locator('select[name=days]').selectOption('3');
+  await plan.locator('select[name=daylight]').selectOption('none');
+  await plan.evaluate((d: HTMLDialogElement) => d.close());
+  // Radar tracks with attribute names of their own: two reports of T-1 (no course or speed), one of T-2.
+  const now = Date.now();
+  const tracks = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [139.7, 35.5] }, properties: { TRACK_NO: 'T-1', OBS_TIME: new Date(now - 2 * 3600000).toISOString(), LABEL: 'はやぶさ' } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [139.7, 35.6] }, properties: { TRACK_NO: 'T-1', OBS_TIME: new Date(now - 3600000).toISOString(), LABEL: 'はやぶさ' } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [139.9, 35.4] }, properties: { TRACK_NO: 'T-2', OBS_TIME: new Date(now - 3600000).toISOString(), HDG: 180, SPD_KMH: 20, LABEL: 'かもめ' } },
+    ],
+  };
+  await page.evaluate(async (text) => window.viewer.project.openFiles([new File([text], 'tracks.geojson', { type: 'application/geo+json' })]), JSON.stringify(tracks));
+  await expect(page.locator('#images li')).toHaveCount(2);
+  await page.locator('#tools-menu .menu-button').click();
+  await page.locator('#moving-target-open').click();
+  const dialog = page.locator('.moving-target-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator('select[name=layer]').selectOption({ label: 'tracks（3）' });
+  await dialog.locator('select[name=f-id]').selectOption('TRACK_NO');
+  await dialog.locator('select[name=f-time]').selectOption('OBS_TIME');
+  await dialog.locator('select[name=f-course]').selectOption('HDG');
+  await dialog.locator('select[name=f-speed]').selectOption('SPD_KMH');
+  await dialog.locator('select[name=f-name]').selectOption('LABEL');
+  await dialog.locator('select[name=unit]').selectOption('kmh');
+  await expect(dialog.locator('.processing-note')).toContainText('目標 2 件');
+  await dialog.locator('input[name=horizon]').fill('24');
+  await dialog.locator('input[name=step]').fill('12');
+  await dialog.getByRole('button', { name: '存在予測を追加' }).click();
+  await expect(page.locator('#images li')).toHaveCount(3);
+  await expect(dialog.locator('.processing-note')).toContainText('存在予測 6 個');
+  // T-1 went north 0.1° in an hour (about 6 kn) from its two reports.
+  const places = await page.evaluate(() => {
+    const layer = window.viewer.images.layers().find((l) => l.name.startsWith('存在予測'));
+    const features = layer && 'service' in layer ? layer.service.vector!.source.getFeatures() : [];
+    return features.map((f) => ({ kind: f.get('kind'), id: f.get('target_id'), radius: f.get('radius_km'), course: f.get('course'), speed: f.get('speed_kn') }));
+  });
+  expect(places.filter((p) => p.kind === '予測航跡')).toHaveLength(2);
+  const t1 = places.filter((p) => p.kind === '存在予測' && p.id === 'T-1');
+  expect(t1).toHaveLength(3);
+  expect(t1[0].course).toBeCloseTo(0, 0);
+  expect(t1[0].speed).toBeGreaterThan(5);
+  expect(t1[2].radius).toBeGreaterThan(t1[0].radius);
+
+  // The imaging plan of the two, with the circle each shot may miss by.
+  await dialog.getByRole('button', { name: '撮像計画を立てる' }).click();
+  await expect(plan).toBeVisible();
+  await expect(plan.locator('select[name=target]')).toHaveValue('moving');
+  await expect(plan.locator('.service-status')).toContainText('最短は', { timeout: 60_000 });
+  await expect(plan.locator('thead')).toContainText('位置の誤差');
+  const rows = await plan.locator('tbody tr').allTextContents();
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.some((r) => r.includes('はやぶさ') || r.includes('かもめ'))).toBe(true);
+  expect(errors).toEqual([]);
+});
