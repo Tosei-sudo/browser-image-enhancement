@@ -2,7 +2,7 @@
  * "New layer": a temporary layer designed by the person, like QGIS's "New
  * Temporary Scratch Layer". They name it, choose what it holds (points,
  * lines, polygons, their multi forms, or any) and define its attributes
- * (name and type; under "詳細" a heading, a default, a length limit, a
+ * (name, alias and type; under "詳細" a default, a length limit, a
  * range and allowed values). Attributes can be copied from an open vector
  * layer, or taken from a template (layer-templates.ts: built in, from
  * config.json or saved in the browser) and changed from there. The layer
@@ -97,7 +97,7 @@ class FieldRow {
     this.more_.type = 'button';
     this.more_.className = 'new-layer-more';
     this.more_.textContent = '詳細';
-    this.more_.title = '表示名・既定値・文字数・範囲・候補値';
+    this.more_.title = '既定値・文字数・範囲・候補値';
     this.more_.setAttribute('aria-expanded', 'false');
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -107,8 +107,9 @@ class FieldRow {
     remove.setAttribute('aria-label', 'この属性を削除');
     remove.addEventListener('click', () => onRemove(this));
 
-    this.alias_ = input('表示名');
-    this.alias_.placeholder = '属性名と同じ';
+    this.alias_ = input('エイリアス');
+    this.alias_.placeholder = 'エイリアス（任意）';
+    this.alias_.title = 'テーブルや属性の選択肢での表示名（空欄は属性名のまま）';
     this.alias_.value = design.alias ?? '';
     this.default_ = input('既定値');
     this.default_.placeholder = 'なし';
@@ -132,17 +133,17 @@ class FieldRow {
     this.details_.hidden = true;
     const codes = labelled('候補値（表で選べる値）', this.codes_);
     codes.className = 'wide';
-    this.details_.append(labelled('表示名', this.alias_), labelled('既定値', this.default_), labelled('文字数の上限', this.length_), labelled('最小', this.min_), labelled('最大', this.max_), codes);
+    this.details_.append(labelled('既定値', this.default_), labelled('文字数の上限', this.length_), labelled('最小', this.min_), labelled('最大', this.max_), codes);
     this.more_.addEventListener('click', () => this.showDetails(this.details_.hidden));
     this.type_.addEventListener('change', () => this.update_());
 
     const main = document.createElement('div');
     main.className = 'new-layer-field-main';
-    main.append(this.name_, this.type_, required, this.more_, remove);
+    main.append(this.name_, this.alias_, this.type_, required, this.more_, remove);
     this.element.append(main, this.details_);
     this.update_();
     // Copied fields with more than a name and a type show what they carry.
-    if (design.alias || design.length != null || design.min != null || design.max != null || design.codes || design.defaultValue) this.showDetails(true);
+    if (design.length != null || design.min != null || design.max != null || design.codes || design.defaultValue) this.showDetails(true);
   }
 
   showDetails(show: boolean): void {

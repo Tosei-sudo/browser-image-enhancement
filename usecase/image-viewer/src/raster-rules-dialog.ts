@@ -14,6 +14,7 @@
  * 適用 draws with the settings and keeps the dialog open; OK also closes it;
  * キャンセル goes back to what was drawn when the dialog opened.
  */
+import { fieldLabel } from './field-alias.js';
 import type { ViewerService } from './images.js';
 import type { EsriRaster } from './services/esri-raster.js';
 import {
@@ -168,7 +169,7 @@ export class RasterRulesDialog {
     this.dialog.querySelector<HTMLElement>('.rule-pick')!.hidden = raster.rules.length === 0;
 
     if (raster.kind === 'image') {
-      const fieldOptions = raster.fields.filter((f) => f.type !== 'other').map((f) => new Option(f.alias === f.name ? f.name : `${f.alias}（${f.name}）`, f.name));
+      const fieldOptions = raster.fields.filter((f) => f.type !== 'other').map((f) => new Option(fieldLabel(f), f.name));
       this.select_('field').replaceChildren(...fieldOptions.map((o) => o.cloneNode(true) as HTMLOptionElement));
       this.select_('sortField').replaceChildren(new Option('（サービスの既定）', ''), ...fieldOptions);
       this.select_('rasterFunction').replaceChildren(

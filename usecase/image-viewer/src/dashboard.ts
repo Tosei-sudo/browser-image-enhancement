@@ -24,6 +24,7 @@ import type Geometry from 'ol/geom/Geometry.js';
 import HeatmapLayer from 'ol/layer/Heatmap.js';
 import VectorSource from 'ol/source/Vector.js';
 import { getCenter, intersects } from 'ol/extent.js';
+import { fieldLabel } from './field-alias.js';
 import type { ImageList, ViewerLayer, ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
@@ -558,11 +559,11 @@ export class Dashboard extends Observable {
     this.layerSelect_.value = this.pinned_ ? String(this.images.layers().indexOf(this.pinned_)) : '';
 
     const fields = this.fields_();
-    const group = [new Option('（なし）', ''), ...fields.map((f) => new Option(f.alias || f.name, f.name))];
+    const group = [new Option('（なし）', ''), ...fields.map((f) => new Option(fieldLabel(f), f.name))];
     this.groupSelect_.replaceChildren(...group);
     this.groupSelect_.value = this.groupBy_ ?? '';
     const numbers = fields.filter((f) => f.type === 'double' || f.type === 'integer');
-    this.measureSelect_.replaceChildren(new Option('（なし）', ''), ...numbers.map((f) => new Option(f.alias || f.name, f.name)));
+    this.measureSelect_.replaceChildren(new Option('（なし）', ''), ...numbers.map((f) => new Option(fieldLabel(f), f.name)));
     this.measureSelect_.value = this.measure_ ?? '';
     this.statSelect_.value = this.statistic_;
     // A sum or a mean needs a number.

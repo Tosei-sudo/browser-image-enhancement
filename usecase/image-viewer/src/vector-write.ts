@@ -375,7 +375,7 @@ export function writeShapefile(name: string, features: Feature[], fields: Field[
     if (style) {
       // QGIS reads `name.qml` with `name.shp`; the style names the columns as written.
       const rename = new Map(columns.map((c) => [c.field.name, new TextDecoder().decode(c.name)]));
-      out.push({ name: `${base}.qml`, bytes: utf8.encode(styleQml(style, kind === 'multipoint' ? 'point' : kind, rename)) });
+      out.push({ name: `${base}.qml`, bytes: utf8.encode(styleQml(style, kind === 'multipoint' ? 'point' : kind, rename, columns.map((c) => c.field))) });
     }
   }
   return out;
@@ -572,7 +572,8 @@ export async function writeGeoPackage(name: string, features: Feature[], fields:
     db.runEach(`INSERT INTO ${rtree} VALUES (?, ?, ?, ?, ?)`, boxes);
     db.exec('COMMIT');
     db.exec(rtreeTriggers(name));
-    if (style) writeLayerStyle(db, name, style, symbolKindOf(geometryType) ?? commonKind(geometries), new Map(columns.map((c) => [c.field.name, c.column])));
+    writeDataColumns(db, name, columns);
+    if (style) writeLayerStyle(db, name, style, symbolKindOf(geometryType) ?? commonKind(geometries), new Map(columns.map((c) => [c.field.name, c.column])), columns.map((c) => c.field));
     return db.export();
   } finally {
     db.close();
@@ -589,14 +590,35 @@ function commonKind(geometries: Array<Geometry | null>): SymbolKind {
   return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'polygon';
 }
 
+/**
+ * The aliases of the columns as `gpkg_data_columns` names (GDAL's
+ * alternative names, QGIS's aliases), when any differs from its column.
+ */
+function writeDataColumns(db: Awaited<ReturnType<typeof openGeoPackageDb>>, table: string, columns: Array<{ field: Field; column: string }>): void {
+  const used = new Set<string>();
+  const named = columns.filter((c) => {
+    const alias = c.field.alias?.trim();
+    if (!alias || alias === c.column || used.has(alias)) return false;
+    used.add(alias);
+    return true;
+  });
+  if (!named.length) return;
+  db.exec(`CREATE TABLE gpkg_data_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL, name TEXT, title TEXT, description TEXT, mime_type TEXT, constraint_name TEXT, CONSTRAINT pk_gdc PRIMARY KEY (table_name, column_name), CONSTRAINT gdc_tn UNIQUE (table_name, name))`);
+  db.run(`INSERT INTO gpkg_extensions VALUES ('gpkg_data_columns', NULL, 'gpkg_schema', 'http://www.geopackage.org/spec/#extension_schema', 'read-write')`);
+  db.runEach(
+    'INSERT INTO gpkg_data_columns (table_name, column_name, name, title) VALUES (?, ?, ?, ?)',
+    named.map((c) => [table, c.column, c.field.alias.trim(), c.field.alias.trim()]),
+  );
+}
+
 /** The `layer_styles` table QGIS reads a GeoPackage layer's default style from, with `style` in it. */
-function writeLayerStyle(db: Awaited<ReturnType<typeof openGeoPackageDb>>, table: string, style: VectorStyleSpec, kind: SymbolKind, rename: Map<string, string>): void {
+function writeLayerStyle(db: Awaited<ReturnType<typeof openGeoPackageDb>>, table: string, style: VectorStyleSpec, kind: SymbolKind, rename: Map<string, string>, fields: Field[]): void {
   db.exec(`CREATE TABLE IF NOT EXISTS layer_styles (id INTEGER PRIMARY KEY AUTOINCREMENT, f_table_catalog TEXT(256), f_table_schema TEXT(256), f_table_name TEXT(256), f_geometry_column TEXT(256), styleName TEXT(30), styleQML TEXT, styleSLD TEXT, useAsDefault BOOLEAN, description TEXT, owner TEXT(30), ui TEXT(30), update_time DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
   db.run(`INSERT OR IGNORE INTO gpkg_contents (table_name, data_type, identifier) VALUES ('layer_styles', 'attributes', 'layer_styles')`);
   db.run(`INSERT INTO layer_styles (f_table_catalog, f_table_schema, f_table_name, f_geometry_column, styleName, styleQML, styleSLD, useAsDefault, description, owner) VALUES ('', '', ?, 'geom', ?, ?, '', 1, ?, '')`, [
     table,
     table,
-    styleQml(style, kind, rename),
+    styleQml(style, kind, rename, fields),
     'browser-image-viewer',
   ]);
 }

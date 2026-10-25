@@ -24,6 +24,7 @@ import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import { createEmpty, extend, getCenter, isEmpty } from 'ol/extent.js';
 import { fromLonLat, transform } from 'ol/proj.js';
 import type { Selection } from './selection.js';
+import { nameLabel } from './field-alias.js';
 import type { ViewerLayer, ViewerService } from './images.js';
 import { esriJson } from './services/esri.js';
 import { download } from './local-edit.js';
@@ -845,13 +846,17 @@ export class ImagingPlanPanel {
         if (priorityOf(v) !== null) fields.add(key);
       }
     }
+    // A layer's attributes show with their aliases.
+    const choice = this.target_.value;
+    const known = choice.startsWith('layer:') ? (this.vectorLayers()[Number(choice.slice('layer:'.length))]?.service.vector?.fields ?? []) : [];
+    const label = (k: string) => nameLabel(known, k);
     // The name: any attribute, or 自動 (name, 名称… else the ID).
     const names = this.form_.elements.namedItem('nameField') as HTMLSelectElement;
     const named = names.value;
-    names.replaceChildren(new Option('自動', ''), ...[...all].map((k) => new Option(k, k)));
+    names.replaceChildren(new Option('自動', ''), ...[...all].map((k) => new Option(label(k), k)));
     names.value = all.has(named) ? named : '';
     names.closest('label')!.hidden = !all.size;
-    select.replaceChildren(new Option('なし', ''), ...[...fields].sort((a, b) => a.localeCompare(b, 'ja')).map((k) => new Option(k, k)));
+    select.replaceChildren(new Option('なし', ''), ...[...fields].sort((a, b) => a.localeCompare(b, 'ja')).map((k) => new Option(label(k), k)));
     select.value = fields.has(before) ? before : (([...fields].find((k) => /priority|優先/i.test(k)) ?? '') as string);
     const shown = each && features.length > 1 && fields.size > 0;
     for (const label of this.dialog.querySelectorAll<HTMLElement>('.plan-priority')) label.hidden = !shown;

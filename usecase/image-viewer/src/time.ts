@@ -89,6 +89,8 @@ const END_NAME = /end|until|finish|stop|終了|終/i;
 export interface TimeField {
   name: string;
   hint: TimeHint;
+  /** The layer's field (for its alias). */
+  field?: Field;
 }
 
 /**
@@ -112,9 +114,9 @@ export function timeFields(fields: readonly Field[], features: readonly FeatureL
     }
     if (!hint) continue;
     const named = TIME_NAME.test(field.name) || TIME_NAME.test(field.alias);
-    found.push({ name: field.name, hint, rank: (hint === 'date' ? 0 : 2) + (named ? 0 : 1) });
+    found.push({ name: field.name, hint, field, rank: (hint === 'date' ? 0 : 2) + (named ? 0 : 1) });
   }
-  return found.sort((a, b) => a.rank - b.rank).map(({ name, hint }) => ({ name, hint }));
+  return found.sort((a, b) => a.rank - b.rank).map(({ name, hint, field }) => ({ name, hint, field }));
 }
 
 /**

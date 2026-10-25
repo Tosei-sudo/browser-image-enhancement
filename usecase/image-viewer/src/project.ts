@@ -16,6 +16,7 @@ import { dropImageRule, imageRuleOf } from './image-rules.js';
 import type { LoadImageControl } from 'browser-image-enhancement/openlayers';
 import { groupNameOf, type ImageList, type ViewerImage, type ViewerLayer } from './images.js';
 import { isPicture } from './open-files.js';
+import { aliasOverrides, applyAliases } from './field-alias.js';
 import type { Georef } from './georef.js';
 import type { BaseMapSwitch } from './basemap.js';
 import { openRef } from './add-service.js';
@@ -281,7 +282,8 @@ export class ProjectControl {
       extent = null;
     }
     const title = this.name_ ?? '画像ビューアの表示';
-    const text = writeQgs(project, { kinds, extent, title }, left);
+    const fields = listed.map((l) => (l.type === 'service' ? (l.service.vector?.fields ?? null) : null));
+    const text = writeQgs(project, { kinds, extent, title, fields }, left);
     const url = URL.createObjectURL(new Blob([text], { type: 'application/xml' }));
     const a = document.createElement('a');
     a.href = url;
@@ -347,6 +349,8 @@ export class ProjectControl {
       if (time) layer.time = time;
       const query = this.options.layerQuery?.get(l);
       if (query) layer.query = query;
+      const aliases = l.type === 'service' && l.service.vector ? aliasOverrides(l.service.vector.fields) : null;
+      if (aliases) layer.aliases = aliases;
       const group = images.groupOf(l);
       if (group) {
         if (!savedGroups.includes(group)) savedGroups.push(group);
@@ -547,6 +551,7 @@ export class ProjectControl {
           markRow(l);
         }
         if (l.type === 'service' && l.service.style && saved.style) l.service.style.set(normalizeSpec(saved.style, l.service.style.initial));
+        if (l.type === 'service' && l.service.vector && saved.aliases) applyAliases(l.service.vector.fields, saved.aliases);
         if (saved.time) this.options.layerTime?.set(l, saved.time);
         if (saved.query && this.options.layerQuery) pending.push(this.options.layerQuery.set(l, saved.query).catch(() => void problems.push(`${saved.name} の既定クエリ`)));
       });

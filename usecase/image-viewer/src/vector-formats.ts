@@ -129,7 +129,7 @@ export async function readFgb(bytes: Uint8Array, title: string, projectionOf?: P
           : c.type === ColumnType.Bool
             ? 'string'
             : 'integer';
-  const fields: Field[] = file.columns.map((c) => ({ name: c.name, alias: c.name, type: typeOf(c), editable: false, nullable: true }));
+  const fields: Field[] = file.columns.map((c) => ({ name: c.name, alias: c.title || c.name, type: typeOf(c), editable: false, nullable: true }));
   const geometryType = ({ 1: 'Point', 2: 'LineString', 3: 'Polygon', 4: 'MultiPoint', 5: 'MultiLineString', 6: 'MultiPolygon' } as const)[file.geometryType as 1] ?? null;
   const writeCrs: TargetCrs = name ? { projection: dataProjection, name, wkt: crs?.wkt ?? null, epsg: epsgCode(name) } : wgs84;
   return { title, format: 'FlatGeobuf', features, fields, crs: name ?? 'WGS 84', projection: dataProjection, geometryType, writeCrs };
@@ -241,7 +241,7 @@ function columnType(field: Field): ColumnType {
 
 /** A FlatGeobuf file of `features` in `crs`. */
 export function writeFgb(name: string, features: Feature[], fields: Field[], crs: TargetCrs = wgs84): Uint8Array<ArrayBuffer> {
-  const columns: FgbColumn[] = fields.filter((f) => f.type !== 'other').map((f) => ({ name: f.name, type: columnType(f) }));
+  const columns: FgbColumn[] = fields.filter((f) => f.type !== 'other').map((f) => ({ name: f.name, type: columnType(f), ...(f.alias && f.alias !== f.name ? { title: f.alias } : {}) }));
   const decimals = crs.projection === 'EPSG:4326' ? 9 : 4;
   return writeFlatGeobuf({
     name,

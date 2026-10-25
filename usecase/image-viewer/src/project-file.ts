@@ -93,6 +93,8 @@ export interface ProjectLayer {
   dem?: true;
   /** The definition query (SQL WHERE) of a vector layer: only the features meeting it are shown. */
   query?: string;
+  /** Aliases (attribute name → heading) of a vector layer that differ from the ones it comes with. */
+  aliases?: Record<string, string>;
   /** The timeline's settings of the layer: whether it follows the window, its time attributes, a typed time. */
   time?: { on: boolean; start?: string | null; end?: string | null; time?: number };
   /**
@@ -282,6 +284,10 @@ function readLayer(raw: unknown, sets: number, groups: number): ProjectLayer | n
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
   if (raw.dem === true) layer.dem = true;
   if (typeof raw.query === 'string' && raw.query.trim() && layer.type === 'service') layer.query = raw.query.trim();
+  if (isObject(raw.aliases) && layer.type === 'service') {
+    const aliases = Object.fromEntries(Object.entries(raw.aliases).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1].trim() !== ''));
+    if (Object.keys(aliases).length) layer.aliases = aliases;
+  }
   if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
     const t = raw.time;
     const name = (v: unknown) => (typeof v === 'string' ? v : v === null ? null : undefined);

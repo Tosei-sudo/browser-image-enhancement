@@ -4,6 +4,7 @@
  * settings. The result opens as a temporary layer (see temp-layers.ts).
  */
 import type Feature from 'ol/Feature.js';
+import { fieldLabel } from './field-alias.js';
 import type { ViewerLayer, ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
@@ -35,7 +36,7 @@ const escape = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ '&': 'amp'
 
 /** A field choice, with "none" first. */
 function fieldSelect(name: string, label: string, fields: Field[], none: string): string {
-  const options = fields.filter((f) => f.type !== 'other').map((f) => `<option value="${escape(f.name)}">${escape(f.alias === f.name ? f.name : `${f.alias}（${f.name}）`)}</option>`);
+  const options = fields.filter((f) => f.type !== 'other').map((f) => `<option value="${escape(f.name)}">${escape(fieldLabel(f))}</option>`);
   return `<label>${label}<select name="${name}" aria-label="${label}"><option value="">${none}</option>${options.join('')}</select></label>`;
 }
 
@@ -158,7 +159,7 @@ export const tools: Tool[] = [
       const select = (name: string, label: string, chosen: string) =>
         `<label>${label}<select name="${name}" aria-label="${label}">${fields
           .filter((f) => f.type !== 'other')
-          .map((f) => `<option value="${escape(f.name)}"${f.name === chosen ? ' selected' : ''}>${escape(f.name)}</option>`)
+          .map((f) => `<option value="${escape(f.name)}"${f.name === chosen ? ' selected' : ''}>${escape(fieldLabel(f))}</option>`)
           .join('')}</select></label>`;
       return `
       ${select('x', 'X（経度・東西）の列', pick(/^(x|lon|lng|long|longitude|経度|東経|x座標|easting)$/i))}

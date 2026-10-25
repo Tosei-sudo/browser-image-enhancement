@@ -52,6 +52,8 @@ export type FgbGeometry =
 export interface FgbColumn {
   name: string;
   type: ColumnType;
+  /** A heading for the column (shown as the attribute's alias). */
+  title?: string;
 }
 
 export interface FgbFeature {
@@ -332,7 +334,12 @@ function readProperties(bytes: Uint8Array, columns: readonly FgbColumn[]): Recor
 }
 
 function readColumns(t: Table | null, index: number): FgbColumn[] {
-  return t ? t.tables(index).map((c) => ({ name: c.string(0) ?? '', type: c.u8(1) as ColumnType })) : [];
+  return t
+    ? t.tables(index).map((c) => {
+        const title = c.string(2);
+        return { name: c.string(0) ?? '', type: c.u8(1) as ColumnType, ...(title ? { title } : {}) };
+      })
+    : [];
 }
 
 /**
@@ -692,7 +699,7 @@ export function writeFlatGeobuf(file: { name?: string; columns: FgbColumn[]; crs
     null,
     null,
     null,
-    file.columns.length ? ref({ kind: 'tables', value: file.columns.map((c) => [ref({ kind: 'string', value: c.name }), u8(c.type)]) }) : null,
+    file.columns.length ? ref({ kind: 'tables', value: file.columns.map((c) => [ref({ kind: 'string', value: c.name }), u8(c.type), ...(c.title ? [ref({ kind: 'string', value: c.title })] : [])]) }) : null,
     { kind: 'u64', value: file.features.length },
     { kind: 'u16', value: 0 },
     crs

@@ -76,10 +76,26 @@ function defaultStyle(db: Database, table: string): string | null {
   }
 }
 
+/** The aliases of a table's columns in `gpkg_data_columns` (its `name`, else its `title`), when the file has them. */
+function dataColumnAliases(db: Database, table: string): Map<string, string> {
+  const out = new Map<string, string>();
+  try {
+    for (const r of rows(db, 'SELECT column_name, name, title FROM gpkg_data_columns WHERE table_name = ?', [table])) {
+      const column = String(r.column_name);
+      const alias = [r.name, r.title].find((v): v is string => typeof v === 'string' && v.trim() !== '' && v !== column);
+      if (alias) out.set(column, alias.trim());
+    }
+  } catch {
+    // no gpkg_data_columns table
+  }
+  return out;
+}
+
 function readTable(db: Database, t: { table: string; geometryColumn: string; srsId: number }, title: string, geometryType: string, projection: string): VectorFile {
   const info = rows(db, `PRAGMA table_info(${quote(t.table)})`);
   const types = new Map(info.map((c) => [String(c.name), String(c.type).toUpperCase()]));
   const idColumn = String(info.find((c) => Number(c.pk) > 0)?.name ?? 'fid');
+  const aliases = dataColumnAliases(db, t.table);
   const fields: Field[] = [];
   for (const c of info) {
     const name = String(c.name);
@@ -90,7 +106,7 @@ function readTable(db: Database, t: { table: string; geometryColumn: string; srs
     const length = /^TEXT\s*\((\d+)\)/.exec(types.get(name)!)?.[1];
     fields.push({
       name,
-      alias: name,
+      alias: aliases.get(name) ?? name,
       type: name === idColumn ? 'oid' : type,
       editable: name !== idColumn,
       nullable: name !== idColumn && Number(c.notnull) === 0,
