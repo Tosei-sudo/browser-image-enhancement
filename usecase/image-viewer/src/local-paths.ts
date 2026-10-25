@@ -91,16 +91,18 @@ export function urlFor(mapping: PathMapping & { url: string }, rest: string[]): 
   return `${mapping.url.replace(/\/+$/, '')}/${rest.map(encodeURIComponent).join('/')}`;
 }
 
-/** Whether the files beside `name` that go with it: its .ovr, RPC and .IMD files. */
+/** Whether the files beside `name` that go with it: its .ovr, RPC and .IMD files, world file and .aux.xml; a Shapefile's .dbf, .shx, .prj, .cpg and .qml. */
 export function isSidecar(name: string, image: string): boolean {
   const lower = name.toLowerCase();
   const full = image.toLowerCase();
   const stem = full.replace(/\.[^.]+$/, '');
   if (lower === full) return false;
+  if (full.endsWith('.shp')) return lower.startsWith(`${stem}.`) && /^(dbf|shx|prj|cpg|qml)$/.test(lower.slice(stem.length + 1));
   return (
     lower === `${full}.ovr` ||
+    lower === `${full}.aux.xml` ||
     lower === `${stem}_rpc.txt` ||
-    (lower.startsWith(`${stem}.`) && /^(ovr|rpb|rpc|imd)$/.test(lower.slice(stem.length + 1)))
+    (lower.startsWith(`${stem}.`) && /^(ovr|rpb|rpc|imd|tfw|tifw|jgw|jpgw|pgw|pngw|j2w|wld)$/.test(lower.slice(stem.length + 1)))
   );
 }
 
