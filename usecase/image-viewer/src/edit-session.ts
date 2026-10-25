@@ -37,6 +37,8 @@ export interface EditTarget {
   canDelete: boolean;
   /** The geometry type new features are drawn as; null when any (the toolbar asks). */
   geometryType: DrawableType | null;
+  /** A table: rows without geometry, added from the toolbar rather than drawn. */
+  noGeometry?: boolean;
   /** Attributes a new feature starts with. */
   template: Record<string, unknown>;
   /** What the "save" button says it does (status line). */
@@ -66,18 +68,22 @@ export function esriTarget(info: EsriLayerInfo, fields: Field[]): EditTarget {
   const editable = new Set(fields.filter((f) => f.editable).map((f) => f.name));
   const attributesOf = (f: Feature, names: Iterable<string>) => Object.fromEntries([...names].filter((n) => editable.has(n)).map((n) => [n, f.get(n) ?? null]));
   return {
-    canCreate: info.canCreate && !!esriDrawTypes[info.geometryType],
+    canCreate: info.canCreate && (!!info.table || !!esriDrawTypes[info.geometryType]),
     canUpdate: info.canUpdate,
     canDelete: info.canDelete,
     geometryType: esriDrawTypes[info.geometryType] ?? null,
+    ...(info.table ? { noGeometry: true } : {}),
     template: Object.fromEntries(Object.entries(info.template).filter(([name]) => name !== oid)),
     savedTo: 'サーバー',
     async save({ adds, updates, deletes }) {
       const result = await applyEdits(info, {
-        adds: adds.map((f) => ({ geometry: esriGeometry(f.getGeometry()!), attributes: attributesOf(f, Object.keys(f.getProperties())) })),
+        adds: adds.map((f) => {
+          const geometry = f.getGeometry();
+          return { ...(geometry ? { geometry: esriGeometry(geometry) } : {}), attributes: attributesOf(f, Object.keys(f.getProperties())) };
+        }),
         updates: updates.map(({ feature: f, attributes, geometry }) => ({
           attributes: { [oid]: f.get(oid), ...attributesOf(f, attributes) },
-          ...(geometry ? { geometry: esriGeometry(f.getGeometry()!) } : {}),
+          ...(geometry && f.getGeometry() ? { geometry: esriGeometry(f.getGeometry()!) } : {}),
         })),
         deletes: deletes.map((f) => Number(f.get(oid))),
       });
@@ -100,7 +106,7 @@ export function esriTarget(info: EsriLayerInfo, fields: Field[]): EditTarget {
       deletes.forEach((f, i) => check(f, result.deleteResults[i]));
       // Values the server fills in (edit tracking, defaults).
       if (reread.length) {
-        const fresh = await queryIds(info.url, oid, reread.map(([, id]) => id), info.token).catch(() => []);
+        const fresh = await queryIds(info.url, oid, reread.map(([, id]) => id), info.token, info.table ? { returnGeometry: 'false' } : {}).catch(() => []);
         const byId = new Map(fresh.map((f) => [f.getId(), f]));
         for (const [f, id] of reread) {
           const server = byId.get(id);

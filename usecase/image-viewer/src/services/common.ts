@@ -152,6 +152,8 @@ export interface LayerChoice {
   name: string;
   title: string;
   abstract?: string;
+  /** A table without geometry (an Esri standalone table): marked as such in the list. */
+  table?: boolean;
   /** WMTS: tile matrix sets and image formats to choose from (the first is the default). */
   matrixSets?: string[];
   formats?: string[];
