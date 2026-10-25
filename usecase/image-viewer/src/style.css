@@ -1688,6 +1688,12 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+.new-layer-template-note {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.new-layer-template-actions,
 .new-layer-field-actions {
   display: flex;
   flex-wrap: wrap;
