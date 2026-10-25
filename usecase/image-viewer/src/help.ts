@@ -224,6 +224,17 @@ export const HELP_TOPICS: Array<[group: string, topics: HelpTopic[]]> = [
         target: '#table',
       },
       {
+        id: 'query',
+        title: '属性の条件による選択・絞り込み',
+        keywords: '属性 条件 選択 sql where クエリ 既定クエリ 定義クエリ フィルター 絞り込み 検索',
+        steps: [
+          '属性テーブルの「条件」（または「ツール」→「属性条件で選択…」）で、フィールド・演算子・値を指定して地物を選択。「SQL」タブで WHERE 句の直接入力も可。',
+          '選択方法は新規選択・選択に追加・選択から解除・選択内から選択。',
+          'レイヤーの右クリック→「既定クエリ…」で、条件に合う地物のみを地図と属性テーブルに表示。プロジェクトに保存。',
+        ],
+        target: '#query-select',
+      },
+      {
         id: 'style',
         title: 'ベクターの色・ラベルの変更',
         keywords: 'スタイル 色 ラベル 太さ 記号 分類',

@@ -90,6 +90,8 @@ export interface ProjectOptions {
   /** Makes a layer elevation data again. */
   useAsDem?: (layer: ViewerLayer) => Promise<unknown>;
   /** Each layer's timeline settings. */
+  /** Each vector layer's definition query (既定クエリ). */
+  layerQuery?: { get: (layer: ViewerLayer) => string | undefined; set: (layer: ViewerLayer, where: string) => Promise<void> };
   layerTime?: { get: (layer: ViewerLayer) => ProjectLayer['time']; set: (layer: ViewerLayer, saved: NonNullable<ProjectLayer['time']>) => void };
   /** The elevation services by URL: saved with the project, and added when it opens. */
   elevationServices?: { get: () => string[]; add: (urls: string[]) => Promise<void> };
@@ -343,6 +345,8 @@ export class ProjectControl {
       if (this.options.isDem?.(l)) layer.dem = true;
       const time = this.options.layerTime?.get(l);
       if (time) layer.time = time;
+      const query = this.options.layerQuery?.get(l);
+      if (query) layer.query = query;
       const group = images.groupOf(l);
       if (group) {
         if (!savedGroups.includes(group)) savedGroups.push(group);
@@ -544,6 +548,7 @@ export class ProjectControl {
         }
         if (l.type === 'service' && l.service.style && saved.style) l.service.style.set(normalizeSpec(saved.style, l.service.style.initial));
         if (saved.time) this.options.layerTime?.set(l, saved.time);
+        if (saved.query && this.options.layerQuery) pending.push(this.options.layerQuery.set(l, saved.query).catch(() => void problems.push(`${saved.name} の既定クエリ`)));
       });
       await Promise.all(pending);
       // Elevation services, then GeoTIFFs used as elevation data.

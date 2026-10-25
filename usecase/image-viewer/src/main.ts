@@ -59,6 +59,8 @@ import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add
 import { BaseMapSwitch } from './basemap.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
+import { LayerQueries } from './layer-query.js';
+import { QueryDialog } from './query-dialog.js';
 import { applyImageRule } from './image-rules.js';
 import { ExportDialog } from './export-dialog.js';
 import { StyleDialog } from './style-dialog.js';
@@ -284,6 +286,7 @@ const table = new AttributeTable(document.getElementById('table')!, map, selecti
     const layer = images.selectedLayer();
     if (layer) pinTable(layer);
   },
+  onQuery: () => openQuery(images.selectedLayer()),
 });
 dock.add({ id: 'table', title: () => '属性テーブル', element: table.element, grip: table.heading, placeButton: (b) => table.heading.after(b), home: 'bottom' });
 
@@ -306,6 +309,7 @@ function pinTable(layer: ViewerLayer, id?: string): void {
     links: cellLinks,
     shapeLink: (features) => shapeLinkOf(layer, features),
     menuItems: (features) => clipboard.menuItems(features),
+    onQuery: () => openQuery(layer),
     heading: '属性',
   });
   pinnedTables.set(id, { layer, table: pinned });
@@ -357,12 +361,19 @@ function tableDataOf(layer: ViewerLayer | null): [data: TableData | null, messag
       dashboard.filters(layer) ? 'ダッシュボードで絞り込み中' : '',
     ].filter(Boolean);
     const style = service.style;
+    const definition = queries.get(service);
+    if (definition) notes.push('既定クエリで絞り込み中');
     return [{
       title: layer.name,
       fields: vector.fields,
-      // What the map shows: the timeline's window and the dashboard's filter.
-      features: () => (style?.isFiltered() ? vector.source.getFeatures().filter((f) => style.shows(f)) : vector.source.getFeatures()),
+      // What the map shows: the timeline's window, the dashboard's filter and the definition query (tables without a map: the definition query only).
+      features: () => {
+        const all = vector.source.getFeatures();
+        if (style) return style.isFiltered() ? all.filter((f) => style.shows(f)) : all;
+        return queries.filters(service) ? all.filter((f) => queries.passes(service, f)) : all;
+      },
       note: notes.length ? notes.join('・') : undefined,
+      ...(definition ? { definition } : {}),
       watch: [vector.source, timeline, dashboard, ...(editor.session() ? [editor.session()!] : [])],
       // Deleting from the table starts editing the layer; the deletion waits for "保存" like any other edit.
       onDelete: editTargetOf(service)?.canDelete
@@ -442,9 +453,64 @@ const images = new ImageList(document.getElementById('images') as HTMLOListEleme
     const items: MenuItem[] = from ? [{ label: '類似画像の検索…', run: () => void catalogPanel.findSimilar(from.record, from.catalog) }] : [];
     // Its own table, kept beside the others (several layers' tables at once).
     if (layer.type === 'service' && (layer.service.vector || layer.service.featureInfo)) items.push({ label: '属性テーブルを表示', run: () => pinTable(layer) });
+    // Selecting by attributes, and the definition query that filters the map and the table.
+    if (layer.type === 'service' && layer.service.vector) {
+      items.push({ label: '属性条件で選択…', run: () => queryDialog.open('select', layer) }, { label: '既定クエリ…', run: () => queryDialog.open('definition', layer) });
+      if (queries.get(layer.service)) items.push({ label: '既定クエリの解除', run: () => void setLayerQuery(layer, null) });
+    }
     return items;
   },
 });
+// Attribute queries: selecting by attributes or SQL, and each layer's definition query (既定クエリ).
+const queries = new LayerQueries((service) => {
+  const layer = images.layers().find((l): l is ViewerService => l.type === 'service' && l.service === service);
+  if (!layer) return;
+  // Features no longer shown leave the selection (an Esri layer's are read anew).
+  if (images.selectedLayer() === layer) {
+    const source = service.vector!.source;
+    const kept = selection.list().filter((f) => source.hasFeature(f) && queries.passes(service, f));
+    if (kept.length !== selection.list().length) selection.set(kept);
+  }
+  const where = queries.get(service);
+  images.setFilterMark(layer, where ? `既定クエリ: ${where}` : null);
+  showTable(images.selectedLayer());
+  dashboard?.refresh();
+  timeline?.refresh();
+});
+const queryDialog = new QueryDialog({
+  layers: () => images.layers().filter((l): l is ViewerService => l.type === 'service' && !!l.service.vector),
+  selected: () => images.selectedLayer(),
+  queries,
+  selection,
+  select: (layer) => images.select(layer),
+  editing: (layer) => editor.editing() === layer,
+  say,
+});
+
+/** Opens the query dialog on `layer` (selecting by attributes), or says why not. */
+function openQuery(layer: ViewerLayer | null): void {
+  if (layer?.type === 'service' && layer.service.vector) queryDialog.open('select', layer);
+  else say('属性条件での選択はベクターレイヤーのみ');
+}
+
+/** Sets (or with null clears) a layer's definition query, saying what went wrong. */
+async function setLayerQuery(layer: ViewerService, where: string | null): Promise<boolean> {
+  if (editor.editing() === layer) {
+    say('編集中は既定クエリの変更不可');
+    return false;
+  }
+  try {
+    const n = await queries.set(layer.service, where);
+    say(`${layer.name}: ${where?.trim() ? '既定クエリを適用' : '既定クエリを解除'}（${n.toLocaleString()} 件を表示）`);
+    return true;
+  } catch (error) {
+    say(`${layer.name} の既定クエリの設定に失敗: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+document.getElementById('query-select')?.addEventListener('click', () => queryDialog.open('select'));
+document.getElementById('query-definition')?.addEventListener('click', () => queryDialog.open('definition'));
+
 // The timeline: every layer with times on one axis, and a window of time that filters the map, the table and the 3D view.
 const timeline: Timeline = new Timeline(images, {
   element: document.getElementById('timeline')!,
@@ -671,8 +737,9 @@ map.on('singleclick', (e) => {
 const boxSelect = new DragBox({ condition: platformModifierKeyOnly, className: 'ol-dragbox select-box' });
 boxSelect.on('boxend', () => {
   const layer = images.selectedLayer();
-  const vector = layer?.type === 'service' ? layer.service.vector : null;
-  if (!vector) {
+  const service = layer?.type === 'service' ? layer.service : null;
+  const vector = service?.vector;
+  if (!service || !vector) {
     say('範囲選択にはベクターレイヤーの選択が必要');
     return;
   }
@@ -684,7 +751,7 @@ boxSelect.on('boxend', () => {
     const g = f.getGeometry();
     if (!g) return;
     const inside = g.getType() === 'Point' ? box.intersectsCoordinate((g as Point).getCoordinates()) : box.intersectsExtent(g.getExtent()) && g.intersectsExtent(extent);
-    if (inside) found.push(f as Feature);
+    if (inside && queries.passes(service, f)) found.push(f as Feature);
   });
   selection.add(found);
   if (found[0]) table.scrollTo(found[0]);
@@ -1106,6 +1173,10 @@ const project = new ProjectControl({
   isDem: (layer) => layer.type === 'image' && geometry.isGeoTiffDem(layer),
   useAsDem: (layer) => (layer.type === 'image' ? geometry.useAsDem(layer) : Promise.resolve(false)),
   layerTime: { get: (l) => timeline.layerState(l), set: (l, saved) => timeline.setLayerState(l, saved) },
+  layerQuery: {
+    get: (l) => (l.type === 'service' ? (queries.get(l.service) ?? undefined) : undefined),
+    set: (l, where) => (l.type === 'service' ? setLayerQuery(l, where).then(() => {}) : Promise.resolve()),
+  },
   bookmarks: { get: () => bookmarks.get(), merge: (list) => bookmarks.merge(list) },
   scripts: { get: (): SavedScript[] => scripts.savedScripts(), add: (list: SavedScript[]): void => scripts.addSaved(list) },
   elevationServices: {
@@ -1863,6 +1934,8 @@ declare global {
       enhance: EnhanceControl;
       onGpu: boolean;
       selection: Selection;
+      queries: LayerQueries;
+      queryDialog: QueryDialog;
       table: AttributeTable;
       dock: DockLayout;
       pinTable: (layer: ViewerLayer) => void;
@@ -1931,4 +2004,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, taxonomyEditor, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, queries, queryDialog, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, taxonomyEditor, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };

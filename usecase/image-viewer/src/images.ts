@@ -370,6 +370,23 @@ export class ImageList {
     badge.textContent = text;
   }
 
+  /** Marks a layer's row as filtered (a definition query, said by `title`), or takes the mark off with null. */
+  setFilterMark(layer: ViewerLayer, title: string | null): void {
+    const name = layer.row.querySelector<HTMLButtonElement>('.name')!;
+    let mark = name.querySelector<HTMLSpanElement>('.filter-mark');
+    if (title === null) {
+      mark?.remove();
+      return;
+    }
+    if (!mark) {
+      mark = document.createElement('span');
+      mark.className = 'filter-mark';
+      mark.textContent = '絞込';
+      name.append(mark);
+    }
+    mark.title = title;
+  }
+
   select(image: ViewerLayer | null): void {
     if (image === this.selected_) {
       if (this.picked_.size > 1) this.pick(image ? [image] : []);

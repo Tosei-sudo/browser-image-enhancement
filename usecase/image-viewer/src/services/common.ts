@@ -103,6 +103,12 @@ export interface ServiceLayer {
   correction: TileCorrection | null;
   /** Attributes, for vector layers. */
   vector: VectorData | null;
+  /**
+   * Esri layers and tables: reads the features again, only those meeting
+   * `where` (the definition query, filtered by the server), or all of them
+   * with null. Resolves to the number read.
+   */
+  requery?: (where: string | null) => Promise<number>;
   /** Symbols and labels, for vector layers drawn on the map. */
   style?: LayerStyle;
   /** Name the style is kept under in the browser; by default made of `ref`, or of the badge and title. */
