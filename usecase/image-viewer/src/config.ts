@@ -21,6 +21,7 @@ import { defaultEmbed, embedConfigOf, type EmbedConfig } from './embed-protocol.
 import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type AuthRule } from './auth.js';
 import { DEFAULT_STAC_CATALOGS, stacCatalogOf, type StacCatalogConfig } from './stac.js';
 import { defaultVocabulary, observationStoreOf, vocabularyOf, type ObservationStoreConfig, type ObservationVocabulary } from './observations.js';
+import { templateOf, type LayerTemplate } from './layer-templates.js';
 
 /**
  * What a base map URL points to:
@@ -152,6 +153,8 @@ export interface ViewerConfig {
   stacCatalogs: StacCatalogConfig[];
   /** Server-side processing services (ArcGIS GPServer, OGC API – Processes) offered in 「サーバ処理」. */
   gpServices: GpServiceConfig[];
+  /** Templates offered by ツール → 新規レイヤー… after the built-in ones (layer-templates.ts). */
+  layerTemplates: LayerTemplate[];
 }
 
 /** A processing service of config.json: its name in the list, its URL, and a token when it needs one. */
@@ -238,6 +241,7 @@ export const defaultConfig: ViewerConfig = {
   movingFeeds: [],
   stacCatalogs: [...DEFAULT_STAC_CATALOGS],
   gpServices: [],
+  layerTemplates: [],
 };
 
 /**
@@ -308,7 +312,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [], layerTemplates: [] };
   if (!isRecord(json)) return { config, problems: ['設定はオブジェクトで指定'] };
 
   if ('baseMaps' in json) {
@@ -470,6 +474,10 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
         return [{ label, url, ...(typeof entry.token === 'string' && entry.token ? { token: entry.token } : {}) }];
       });
     } else problems.push('gpServices は配列で指定');
+  }
+  if ('layerTemplates' in json) {
+    if (Array.isArray(json.layerTemplates)) config.layerTemplates = json.layerTemplates.map((t, i) => templateOf(t, problems, `layerTemplates[${i}]`)).filter((t): t is LayerTemplate => t !== null);
+    else problems.push('layerTemplates は配列で指定');
   }
 
   return { config, problems };

@@ -104,3 +104,41 @@ test('attributes and geometry type are copied from an open layer; "any" lets the
   await expect(page.locator('.edit-kind')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('a template fills the design, which is changed before the layer is made; own designs are saved as templates', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.getByRole('button', { name: '新規レイヤー…' }).click();
+  const d = dialog(page);
+  await expect(d.getByLabel('テンプレート')).toHaveValue('0');
+  await d.getByLabel('テンプレート').selectOption({ label: '航跡（生存圏計算用）' });
+  await expect(d.locator('.new-layer-template-note')).toContainText('移動目標撮像計画');
+  await expect(d.getByLabel('レイヤーの名前')).toHaveValue('航跡');
+  await expect(d.getByLabel('ジオメトリ')).toHaveValue('Point');
+  await expect(d.getByLabel('属性名')).toHaveCount(7);
+  await expect(d.getByLabel('属性名').nth(0)).toHaveValue('track_id');
+  await expect(d.getByLabel('型').nth(1)).toHaveValue('date');
+  // Changed before making: one attribute less, another name.
+  await d.locator('.new-layer-field').nth(6).getByRole('button', { name: 'この属性を削除' }).click();
+  await d.getByLabel('レイヤーの名前').fill('不審船航跡');
+  await d.locator('summary', { hasText: '詳細設定' }).click();
+  await expect(d.getByRole('button', { name: 'テンプレートを削除' })).toBeHidden();
+  await d.getByRole('button', { name: 'テンプレートとして保存' }).click();
+  await expect(d.locator('.new-layer-note')).toContainText('テンプレート「不審船航跡」を保存');
+  await d.getByText('作成後すぐ地図に作図開始').click();
+  await d.getByRole('button', { name: '作成' }).click();
+  await expect(d).toBeHidden();
+  await expect(page.locator('#images li')).toContainText('不審船航跡');
+
+  // The saved design comes back as a template next time, and can be removed.
+  await page.getByRole('button', { name: 'ツール' }).click();
+  await page.getByRole('button', { name: '新規レイヤー…' }).click();
+  await expect(d.getByLabel('属性名')).toHaveCount(1);
+  await d.getByLabel('テンプレート').selectOption({ label: '不審船航跡' });
+  await expect(d.getByLabel('属性名')).toHaveCount(6);
+  await d.getByRole('button', { name: 'テンプレートを削除' }).click();
+  await expect(d.getByLabel('テンプレート').locator('option', { hasText: '不審船航跡' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -4,12 +4,15 @@
  * lines, polygons, their multi forms, or any) and define its attributes
  * (name and type; under "詳細" a heading, a default, a length limit, a
  * range and allowed values). Attributes can be copied from an open vector
- * layer. The layer opens empty, kept in the browser like the other
- * temporary layers, and editing starts with the draw tool, so the first
- * click on the map adds a feature.
+ * layer, or taken from a template (layer-templates.ts: built in, from
+ * config.json or saved in the browser) and changed from there. The layer
+ * opens empty, kept in the browser like the other temporary layers, and
+ * editing starts with the draw tool, so the first click on the map adds a
+ * feature.
  */
 import type { DrawableType } from './edit-session.js';
 import type { ViewerService } from './images.js';
+import { builtinTemplates, removeTemplate, saveTemplate, savedTemplates, type LayerTemplate, type TemplateSource } from './layer-templates.js';
 import { crsPresets, targetCrs } from './processing/reproject.js';
 import type { Field } from './services/index.js';
 import { designRecord, geometryNames, geometryTypeOf, type DesignType, type FieldDesign, type LayerDesign, type TempRecord } from './temp-layers.js';
@@ -19,6 +22,8 @@ export interface NewLayerOptions {
   /** The open layers (vector ones offer their attributes for copying). */
   layers: () => ViewerService[];
   say: (message: string) => void;
+  /** Templates from config.json, offered after the built-in ones. */
+  templates?: readonly LayerTemplate[];
   /** Adds the made layer; `draw`: start editing with the draw tool. */
   onCreate: (record: TempRecord, draw: boolean) => void | Promise<void>;
 }
@@ -179,6 +184,9 @@ class FieldRow {
 export class NewLayerDialog {
   readonly dialog: HTMLDialogElement;
   private readonly form_: HTMLFormElement;
+  private readonly template_: HTMLSelectElement;
+  private readonly templateNote_: HTMLElement;
+  private readonly removeButton_: HTMLButtonElement;
   private readonly title_: HTMLInputElement;
   private readonly geometry_: HTMLSelectElement;
   private readonly list_: HTMLOListElement;
@@ -189,6 +197,7 @@ export class NewLayerDialog {
   private readonly note_: HTMLElement;
   private rows_: FieldRow[] = [];
   private layers_: ViewerService[] = [];
+  private templates_: Array<{ source: TemplateSource; template: LayerTemplate }> = [];
 
   constructor(
     button: HTMLButtonElement,
@@ -201,6 +210,8 @@ export class NewLayerDialog {
     this.dialog.innerHTML = `
       <form method="dialog" class="service-form">
         <h2 id="new-layer-title">新規レイヤー</h2>
+        <label class="wide">テンプレート<select name="template" aria-label="テンプレート"></select></label>
+        <p class="wide new-layer-template-note"></p>
         <label>名前<input name="title" type="text" value="新規レイヤー" aria-label="レイヤーの名前" /></label>
         <label>ジオメトリ<select name="geometry" aria-label="ジオメトリ">${geometry}<option value="">指定なし（作図ごとに選択）</option></select></label>
         <fieldset class="wide new-layer-fields">
@@ -219,6 +230,10 @@ export class NewLayerDialog {
               .map((p) => `<option value="${p.code}">${p.name}</option>`)
               .join('')}<option value="">その他（EPSG コードを入力）</option></select></label>
             <label class="wide" hidden>EPSG コード<input name="code" type="text" placeholder="例: 6677" aria-label="EPSG コード" /></label>
+            <div class="wide new-layer-template-actions">
+              <button type="button" value="save-template" title="名前・ジオメトリ・属性をこのブラウザに保存（同名は上書き）">テンプレートとして保存</button>
+              <button type="button" value="remove-template" title="選択中の保存済みテンプレートを削除">テンプレートを削除</button>
+            </div>
           </div>
         </details>
         <label class="wide check"><input name="draw" type="checkbox" checked /><span>作成後すぐ地図に作図開始</span></label>
@@ -231,6 +246,9 @@ export class NewLayerDialog {
     document.body.append(this.dialog);
     this.form_ = this.dialog.querySelector('form')!;
     const el = <T extends Element>(name: string) => this.form_.elements.namedItem(name) as unknown as T;
+    this.template_ = el('template');
+    this.templateNote_ = this.dialog.querySelector('.new-layer-template-note')!;
+    this.removeButton_ = this.dialog.querySelector('button[value=remove-template]')!;
     this.title_ = el('title');
     this.geometry_ = el('geometry');
     this.copy_ = el('copy');
@@ -241,6 +259,9 @@ export class NewLayerDialog {
     this.note_ = this.dialog.querySelector('.new-layer-note')!;
     this.dialog.querySelector('button[value=add-field]')!.addEventListener('click', () => this.addField({ name: '', type: 'string' }).focus());
     this.copy_.addEventListener('change', () => this.copyFrom_());
+    this.template_.addEventListener('change', () => this.applyTemplate_());
+    this.dialog.querySelector('button[value=save-template]')!.addEventListener('click', () => this.saveTemplate_());
+    this.removeButton_.addEventListener('click', () => this.dropTemplate_());
     this.crs_.addEventListener('change', () => (this.code_.closest('label')!.hidden = this.crs_.value !== ''));
     this.dialog.querySelector('button[value=cancel]')!.addEventListener('click', () => this.dialog.close());
     this.dialog.querySelector('button[value=create]')!.addEventListener('click', () => void this.create());
@@ -251,21 +272,17 @@ export class NewLayerDialog {
     button.addEventListener('click', () => this.open());
   }
 
-  /** Opens the dialog with a fresh design: one text attribute "name" to start from. */
+  /** Opens the dialog with a fresh design: the blank template, one text attribute "name" to start from. */
   open(): void {
-    this.title_.value = '新規レイヤー';
-    this.geometry_.value = 'Point';
     this.crs_.value = wgs84.projection;
     this.code_.value = '';
     this.code_.closest('label')!.hidden = true;
-    this.rows_ = [];
-    this.list_.replaceChildren();
-    this.addField({ name: 'name', type: 'string' });
+    this.listTemplates_();
+    this.template_.value = '0';
+    this.applyTemplate_();
     this.layers_ = this.options.layers().filter((l) => l.service.vector && l.service.vector.fields.length > 0);
     this.copy_.replaceChildren(new Option('ほかのレイヤーの属性をコピー…', ''), ...this.layers_.map((l, i) => new Option(l.name, String(i))));
     this.copy_.hidden = this.layers_.length === 0;
-    this.note_.textContent = '';
-    this.update_();
     this.dialog.showModal();
     this.title_.select();
   }
@@ -305,6 +322,87 @@ export class NewLayerDialog {
     }
     this.dialog.close();
     await this.options.onCreate(record, this.draw_.checked);
+  }
+
+  /** The templates offered: built in, from config.json, then saved in this browser. */
+  templates(): Array<{ source: TemplateSource; template: LayerTemplate }> {
+    return [
+      ...builtinTemplates.map((template) => ({ source: 'builtin' as const, template })),
+      ...(this.options.templates ?? []).map((template) => ({ source: 'config' as const, template })),
+      ...savedTemplates().map((template) => ({ source: 'saved' as const, template })),
+    ];
+  }
+
+  /** Fills the template list, grouped by where they come from. */
+  private listTemplates_(): void {
+    this.templates_ = this.templates();
+    const groups: Record<TemplateSource, string> = { builtin: '標準', config: '組織の設定', saved: '保存済み' };
+    this.template_.replaceChildren();
+    for (const [source, label] of Object.entries(groups) as Array<[TemplateSource, string]>) {
+      const group = document.createElement('optgroup');
+      group.label = label;
+      this.templates_.forEach((t, i) => {
+        if (t.source === source) group.append(new Option(t.template.name, String(i)));
+      });
+      if (group.children.length) this.template_.append(group);
+    }
+  }
+
+  /** Replaces the name, geometry and attributes with those of the chosen template, to change from there. */
+  private applyTemplate_(): void {
+    const chosen = this.templates_[Number(this.template_.value)];
+    if (!chosen) return;
+    const { template } = chosen;
+    this.title_.value = template.title;
+    this.geometry_.value = template.geometryType ?? '';
+    this.rows_ = [];
+    this.list_.replaceChildren();
+    // Folded: a template's headings and limits are seen under 「詳細」 when wanted.
+    for (const f of template.fields) this.addField({ ...f }).showDetails(false);
+    this.templateNote_.textContent = template.description ?? '';
+    this.templateNote_.hidden = !template.description;
+    this.removeButton_.hidden = chosen.source !== 'saved';
+    this.note_.textContent = '';
+    this.update_();
+  }
+
+  /** Keeps the design as filled in as a template in this browser, named after the layer. */
+  private saveTemplate_(): void {
+    const design = this.design();
+    const name = design.title.trim();
+    this.note_.classList.remove('error');
+    if (!name) {
+      this.note_.textContent = 'テンプレート名としてレイヤーの名前を入力';
+      this.note_.classList.add('error');
+      return;
+    }
+    const kind = design.geometryType ? geometryNames[design.geometryType] : 'ジオメトリ指定なし';
+    try {
+      saveTemplate({ name, description: `${kind}・属性 ${design.fields.length} 個`, title: name, geometryType: design.geometryType, fields: design.fields });
+    } catch (error) {
+      this.note_.textContent = `テンプレートの保存に失敗: ${error instanceof Error ? error.message : String(error)}`;
+      this.note_.classList.add('error');
+      return;
+    }
+    this.listTemplates_();
+    this.template_.value = String(this.templates_.findIndex((t) => t.source === 'saved' && t.template.name === name));
+    this.removeButton_.hidden = false;
+    this.templateNote_.textContent = `${kind}・属性 ${design.fields.length} 個`;
+    this.templateNote_.hidden = false;
+    this.note_.textContent = `テンプレート「${name}」を保存`;
+  }
+
+  /** Removes the chosen saved template and goes back to the blank one. */
+  private dropTemplate_(): void {
+    const chosen = this.templates_[Number(this.template_.value)];
+    if (chosen?.source !== 'saved') return;
+    removeTemplate(chosen.template.name);
+    this.listTemplates_();
+    this.template_.value = '0';
+    this.removeButton_.hidden = true;
+    this.templateNote_.textContent = builtinTemplates[0].description ?? '';
+    this.note_.classList.remove('error');
+    this.note_.textContent = `テンプレート「${chosen.template.name}」を削除（入力中の設計はそのまま）`;
   }
 
   /** Replaces the attributes with those of the layer chosen in "copy", and takes its geometry type and CRS. */

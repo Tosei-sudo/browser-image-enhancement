@@ -918,6 +918,7 @@ async function addLinkShapes(params: URLSearchParams, zoom: boolean): Promise<{ 
 const newLayer = new NewLayerDialog(document.getElementById('new-layer') as HTMLButtonElement, {
   layers: () => images.layers().filter((l): l is ViewerService => l.type === 'service'),
   say,
+  templates: config.layerTemplates,
   onCreate: async (record, draw) => {
     await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     const entry = images.addService(tempLayer(record, tempStore));
