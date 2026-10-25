@@ -137,6 +137,7 @@ import { SavedPlansPanel } from './imaging-plan-saved.js';
 import { ObservationPanel } from './observation-panel.js';
 import { TaxonomyEditor } from './taxonomy-editor.js';
 import { EsriObservationStore, LocalObservationStore, type ObservationStore } from './observations.js';
+import { EsriAreaStore, LocalAreaStore, type AreaStore } from './observation-areas.js';
 import { EsriTaxonomyStore, LocalTaxonomyStore, type TaxonomyStore } from './taxonomy.js';
 import { MovingTargetDialog } from './moving-target-dialog.js';
 import { SatelliteTrackPanel } from './satellite-track-panel.js';
@@ -147,7 +148,7 @@ import { applyLayout, collectLayout, type LayoutParts } from './layout.js';
 import { POINT_ZOOM, hasShapes, linkOfShapes, readLinkShapes, shapeParamsOf, withoutShapes } from './link-shapes.js';
 import { EmbedApi } from './embed.js';
 import { layerId } from './script/api.js';
-import { configureAuth } from './auth.js';
+import { configureAuth, signedInUsers } from './auth.js';
 import { SignInMenu } from './auth-menu.js';
 import { AuthLoadImageControl } from './auth-cog.js';
 import { StacPanel } from './stac-panel.js';
@@ -1460,13 +1461,32 @@ const observationStores: ObservationStore[] = [
   new LocalObservationStore(),
 ];
 const taxonomyStores = new WeakMap<ObservationStore, TaxonomyStore>();
+const areaStores = new WeakMap<ObservationStore, AreaStore>();
 const observations: ObservationPanel = new ObservationPanel(map, document.getElementById('observe-open') as HTMLButtonElement, {
   stores: observationStores,
   onEditTaxonomy: (path) => void taxonomyEditor.open(path),
   vocabulary: (store) => {
     const own = config.observationStores.find((c) => c.label === store.label);
-    return { kinds: own?.kinds ?? config.observationVocabulary.kinds, activities: own?.activities ?? config.observationVocabulary.activities, taxonomy: own?.taxonomy ?? config.observationVocabulary.taxonomy, specFields: config.observationVocabulary.specFields };
+    return {
+      kinds: own?.kinds ?? config.observationVocabulary.kinds,
+      activities: own?.activities ?? config.observationVocabulary.activities,
+      taxonomy: own?.taxonomy ?? config.observationVocabulary.taxonomy,
+      specFields: config.observationVocabulary.specFields,
+      confidences: own?.confidences ?? config.observationVocabulary.confidences,
+      matchRadius: config.observationVocabulary.matchRadius,
+    };
   },
+  // A store's checked areas in its own polygon layer when given (shared), else in this browser.
+  areaStore: (store) => {
+    let kept = areaStores.get(store);
+    if (!kept) {
+      const areas = config.observationStores.find((c) => c.label === store.label)?.areas;
+      kept = areas ? new EsriAreaStore(`${store.label}の確認範囲`, areas, (url, params, token) => esriJson(url, params, token, true)) : new LocalAreaStore(store.label);
+      areaStores.set(store, kept);
+    }
+    return kept;
+  },
+  user: () => signedInUsers()[0]?.username ?? '',
   // A store's classification in its own Esri table when given (shared), else in this browser.
   taxonomyStore: (store) => {
     let kept = taxonomyStores.get(store);
@@ -1547,6 +1567,7 @@ const scripts = new ScriptDialog(document.getElementById('script-open') as HTMLB
     return source ? (images.find(source) ?? null) : null;
   },
   satellites: () => imagingPlan.catalogSatellites(),
+  observations: () => observations,
   // Everything else a script may do (src/script/automation.ts); the objects are made below, used only once a script runs.
   list: images,
   setCorrection: (layer, pipeline) => {

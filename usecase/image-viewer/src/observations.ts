@@ -19,6 +19,7 @@
  */
 import { timeOf, type FieldTypes } from './catalog-query.js';
 import { getDistance, offset } from 'ol/sphere.js';
+import { areaStoreOf, type AreaStoreConfig } from './observation-areas.js';
 import { defaultSpecFields, fromKinds, kindOf, pathOf, specFieldsOf, taxonomyOf, taxonomyTableOf, within, type SpecField, type Taxon, type TaxonomyTableConfig } from './taxonomy.js';
 
 /** One observation of one thing in one image. */
@@ -47,6 +48,11 @@ export interface Observation {
   length?: number | null;
   /** Which way it points (degrees from north, clockwise, rear to front), when measured. */
   heading?: number | null;
+  /** 確度: how sure the record is, one of the levels of the vocabulary ('' none). */
+  confidence?: string;
+  /** Who made the record, and who last changed it. */
+  recordedBy?: string;
+  updatedBy?: string;
   createdAt: number;
   updatedAt: number;
   /** When it was deleted; null while it counts. */
@@ -67,6 +73,9 @@ export interface ObservationFields {
   note: string;
   length: string;
   heading: string;
+  confidence: string;
+  recordedBy: string;
+  updatedBy: string;
   created: string;
   updated: string;
   deleted: string;
@@ -86,16 +95,32 @@ export const defaultObservationFields: ObservationFields = {
   note: 'NOTE',
   length: 'LENGTH_M',
   heading: 'HEADING',
+  confidence: 'CONFIDENCE',
+  recordedBy: 'OBSERVER',
+  updatedBy: 'UPDATED_BY',
   created: 'CREATED_AT',
   updated: 'UPDATED_AT',
   deleted: 'DELETED_AT',
 };
+
+/** One level of 確度, the surest first. */
+export interface ConfidenceLevel {
+  label: string;
+  /** Its colour on the map and in lists (CSS). */
+  color?: string;
+  /** What it means, shown as a hint. */
+  note?: string;
+}
 
 /** The kinds and activities offered first (more can be typed; those used are offered too). */
 export interface ObservationVocabulary {
   /** The top classes (the roots of `taxonomy`). */
   kinds: string[];
   activities: string[];
+  /** The levels of 確度, the surest first. */
+  confidences: ConfidenceLevel[];
+  /** How far (m) a thing recorded in another image is offered as the same one (同一候補). */
+  matchRadius: number;
   /** The classification the kinds are chosen from (taxonomy.ts). */
   taxonomy: Taxon[];
   /** The specification fields (諸元の項目) of the classes. */
@@ -112,9 +137,21 @@ const defaultTaxonomy: Taxon[] = [
   { path: ['その他'] },
 ];
 
+/** The levels offered when `config.json` gives none. */
+export const defaultConfidences: ConfidenceLevel[] = [
+  { label: '確定', color: '#15803d', note: '識別済み' },
+  { label: '推定', color: '#d97706', note: '特徴からの推定' },
+  { label: '不明', color: '#6b7280', note: '識別不可' },
+];
+
+/** Things farther than this (m) are not offered as the same one. */
+export const MATCH_METRES = 2000;
+
 export const defaultVocabulary: ObservationVocabulary = {
   kinds: defaultTaxonomy.map((t) => t.path[0]),
   activities: ['停泊', '航行', '駐機', '移動', '工事', '集積', '活動なし'],
+  confidences: defaultConfidences,
+  matchRadius: MATCH_METRES,
   taxonomy: defaultTaxonomy,
   specFields: defaultSpecFields,
 };
@@ -132,6 +169,10 @@ export interface ObservationStoreConfig {
   softDelete: boolean;
   kinds?: string[];
   activities?: string[];
+  /** The store's own levels of 確度 (else `observationVocabulary`'s). */
+  confidences?: ConfidenceLevel[];
+  /** A polygon layer the checked areas (確認範囲) are kept in, shared (else the browser). */
+  areas?: AreaStoreConfig;
   /** The store's own classification (else `observationVocabulary`'s). */
   taxonomy?: Taxon[];
   /** An Esri table the classification is kept in, shared by everyone using the store (else the browser). */
@@ -141,14 +182,32 @@ export interface ObservationStoreConfig {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const words = (value: unknown): string[] | undefined => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim()) : undefined);
 
+/** The levels of 確度 (`["確定", "推定"]` or `[{ "label": "確定", "color": "#15803d", "note": "識別済み" }, …]`); null when none can be used. */
+export function confidencesOf(value: unknown, problems: string[], at: string): ConfidenceLevel[] | null {
+  if (!Array.isArray(value)) return (problems.push(`${at} は配列で指定`), null);
+  const out: ConfidenceLevel[] = [];
+  value.forEach((v, i) => {
+    const item = typeof v === 'string' ? { label: v } : isRecord(v) ? v : null;
+    const label = typeof item?.label === 'string' ? item.label.trim() : '';
+    if (!label) return void problems.push(`${at}[${i}] は文字列か { label } で指定`);
+    if (out.some((c) => c.label === label)) return void problems.push(`${at}[${i}] の「${label}」は重複`);
+    const color = typeof item?.color === 'string' && /^(#[0-9a-f]{3,8}|[a-z]+|(rgb|hsl)a?\([\d\s.,%]+\))$/i.test(item.color.trim()) ? item.color.trim() : undefined;
+    if (item?.color !== undefined && !color) problems.push(`${at}[${i}] の color は CSS の色で指定`);
+    out.push({ label, ...(color ? { color } : {}), ...(typeof item?.note === 'string' && item.note.trim() ? { note: item.note.trim() } : {}) });
+  });
+  return out.length ? out : null;
+}
+
 /** One `observationStores` entry; null (with the reason in `problems`) when it cannot be used. */
 export function observationStoreOf(value: unknown, problems: string[], index: number): ObservationStoreConfig | null {
   const at = `observationStores[${index}]`;
   if (!isRecord(value)) return (problems.push(`${at} はオブジェクトで指定`), null);
-  const { label, url, token, fields, where, softDelete, kinds, activities, taxonomy, taxonomyTable } = value;
+  const { label, url, token, fields, where, softDelete, kinds, activities, confidences, areas, taxonomy, taxonomyTable } = value;
   if (typeof url !== 'string' || !/\/FeatureServer\/\d+\/?$/i.test(url.split('?', 1)[0])) return (problems.push(`${at} の url は編集できる …/FeatureServer/0 のようなポイントレイヤーの URL で指定`), null);
   const classes = taxonomy !== undefined ? taxonomyOf(taxonomy, problems, `${at}.taxonomy`) : words(kinds)?.length ? fromKinds(words(kinds)!) : null;
   const table = taxonomyTable !== undefined ? taxonomyTableOf(taxonomyTable, problems, `${at}.taxonomyTable`) : null;
+  const levels = confidences !== undefined ? confidencesOf(confidences, problems, `${at}.confidences`) : null;
+  const areaStore = areas !== undefined ? areaStoreOf(areas, problems, `${at}.areas`) : null;
   const mapped = { ...defaultObservationFields };
   if (isRecord(fields)) {
     for (const [key, v] of Object.entries(fields)) {
@@ -166,6 +225,8 @@ export function observationStoreOf(value: unknown, problems: string[], index: nu
     softDelete: softDelete !== false,
     ...(words(kinds)?.length ? { kinds: words(kinds) } : {}),
     ...(words(activities)?.length ? { activities: words(activities) } : {}),
+    ...(levels ? { confidences: levels } : {}),
+    ...(areaStore ? { areas: areaStore } : {}),
     ...(classes?.length ? { taxonomy: classes } : {}),
     ...(table ? { taxonomyTable: table } : {}),
   };
@@ -183,7 +244,16 @@ export function vocabularyOf(value: unknown, problems: string[]): ObservationVoc
     activities: words(value.activities)?.length ? words(value.activities)! : defaultVocabulary.activities,
     taxonomy: taxonomy?.length ? taxonomy : defaultVocabulary.taxonomy,
     specFields: (value.specFields !== undefined ? specFieldsOf(value.specFields, problems, 'observationVocabulary.specFields') : null) ?? defaultVocabulary.specFields,
+    confidences: (value.confidences !== undefined ? confidencesOf(value.confidences, problems, 'observationVocabulary.confidences') : null) ?? defaultVocabulary.confidences,
+    matchRadius: matchRadiusOf(value.matchRadius, problems),
   };
+}
+
+function matchRadiusOf(value: unknown, problems: string[]): number {
+  if (value === undefined) return MATCH_METRES;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  problems.push('observationVocabulary.matchRadius は正の数（m）で指定');
+  return MATCH_METRES;
 }
 
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -367,6 +437,86 @@ export function carriedInto(from: Observation, image: { id: string; name: string
   return { ...from, note: '', ...changes, id: newObservationId(), imageId: image.id, imageName: image.name, imageTime: image.time, createdAt: now, updatedAt: now, deletedAt: null };
 }
 
+/** A thing recorded in other images that may be the one at a place (同一候補). */
+export interface MatchCandidate {
+  objectId: string;
+  name: string;
+  kind: string;
+  /** The record it is judged by: its nearest in time where it was seen. */
+  from: Observation;
+  /** How far (m) that record is from the place. */
+  distance: number;
+  /** Lower is likelier. */
+  score: number;
+  /** Why it is offered: 「120 m」「同じ分類」「長さ ±4%」… */
+  reasons: string[];
+}
+
+const headingGap = (a: number, b: number) => {
+  const d = Math.abs((((a - b) % 360) + 360) % 360);
+  return Math.min(d, 360 - d);
+};
+
+/**
+ * The things recorded in other images (not yet in this one) that may be the
+ * one at a place, likeliest first: near (within `radius` m) where they were
+ * last seen (the nearest record in time, an earlier one first), of the same
+ * class, of a like length and heading, and seen not long before.
+ */
+export function matchCandidates(
+  records: readonly Observation[],
+  image: { id: string; time: number | null },
+  at: { lon: number; lat: number; kind?: string; length?: number | null; heading?: number | null },
+  options: { radius?: number; limit?: number } = {},
+): MatchCandidate[] {
+  const radius = options.radius ?? MATCH_METRES;
+  const here = new Set<string>();
+  const others = new Map<string, Observation[]>();
+  for (const o of living(records)) {
+    if (o.imageId === image.id) here.add(o.objectId);
+    else if (o.present) {
+      const g = others.get(o.objectId);
+      if (g) g.push(o);
+      else others.set(o.objectId, [o]);
+    }
+  }
+  const kind = pathOf(at.kind ?? '');
+  const out: MatchCandidate[] = [];
+  for (const [objectId, list] of others) {
+    if (here.has(objectId)) continue;
+    list.sort(byTime);
+    const before = image.time === null ? list : list.filter((o) => timeKey(o) <= image.time!);
+    const from = before.length ? before[before.length - 1] : list[0];
+    const d = getDistance([from.lon, from.lat], [at.lon, at.lat]);
+    if (d > radius) continue;
+    const flow = flowOf(list);
+    const reasons = [d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`];
+    let score = d / radius;
+    // The class: the same one (or one above or below it) counts for it, a sibling of the same top class a little against it, another top class against it, an unknown one a little.
+    const theirs = pathOf(flow.kind);
+    if (kind.length && theirs.length) {
+      if (within(flow.kind, kind) || within(kindOf(kind), theirs)) {
+        reasons.push(kindOf(kind) === flow.kind ? '同じ分類' : '同系の分類');
+        score -= 0.1;
+      } else score += kind[0] === theirs[0] ? 0.4 : 1;
+    } else score += 0.2;
+    if (at.length != null && at.length > 0 && from.length != null && from.length > 0) {
+      const gap = Math.abs(at.length - from.length) / Math.max(at.length, from.length);
+      score += Math.min(1, gap * 2);
+      reasons.push(`長さ ${gap < 0.005 ? '同じ' : `±${Math.round(gap * 100)}%`}`);
+    }
+    if (at.heading != null && from.heading != null) {
+      const gap = headingGap(at.heading, from.heading);
+      score += (gap / 180) * 0.3;
+      if (gap <= 20) reasons.push(`向き差 ${Math.round(gap)}°`);
+    }
+    // Seen long before (or after): a little less likely.
+    if (image.time !== null && from.imageTime !== null) score += Math.min(1, Math.abs(image.time - from.imageTime) / (30 * 86_400_000)) * 0.2;
+    out.push({ objectId, name: flow.name, kind: flow.kind, from, distance: d, score, reasons });
+  }
+  return out.sort((a, b) => a.score - b.score || a.distance - b.distance).slice(0, options.limit ?? 5);
+}
+
 const pad = (n: number) => String(n).padStart(2, '0');
 /** `yyyy-mm-dd hh:mm` in local time. */
 export const localTime = (t: number | null): string => {
@@ -385,12 +535,12 @@ export function observationsCsv(records: readonly Observation[]): string {
   // The kind whole, then a column per level (分類1 the top), for sorting and pivoting.
   const depth = Math.max(1, ...records.map((o) => pathOf(o.kind).length));
   const levels = Array.from({ length: depth }, (_, i) => `分類${i + 1}`);
-  const head = ['観測ID', 'モノID', 'モノ', '種別', ...levels, '活動', '有無', '撮像日時', '画像ID', '画像', '経度', '緯度', '長さ（m）', '向き（度）', '備考', '登録日時', '更新日時', '削除日時'];
+  const head = ['観測ID', 'モノID', 'モノ', '種別', ...levels, '活動', '有無', '確度', '撮像日時', '画像ID', '画像', '経度', '緯度', '長さ（m）', '向き（度）', '備考', '記録者', '更新者', '登録日時', '更新日時', '削除日時'];
   const rows = [...records]
     .sort((a, b) => a.objectId.localeCompare(b.objectId) || byTime(a, b))
     .map((o) => {
       const path = pathOf(o.kind);
-      return [o.id, o.objectId, o.objectName, kindOf(path), ...levels.map((_, i) => path[i] ?? ''), o.activity, o.present ? 'あり' : 'なし', iso(o.imageTime), o.imageId, o.imageName, o.lon.toFixed(7), o.lat.toFixed(7), o.length == null ? '' : o.length.toFixed(1), o.heading == null ? '' : o.heading.toFixed(1), o.note, iso(o.createdAt), iso(o.updatedAt), iso(o.deletedAt)];
+      return [o.id, o.objectId, o.objectName, kindOf(path), ...levels.map((_, i) => path[i] ?? ''), o.activity, o.present ? 'あり' : 'なし', o.confidence ?? '', iso(o.imageTime), o.imageId, o.imageName, o.lon.toFixed(7), o.lat.toFixed(7), o.length == null ? '' : o.length.toFixed(1), o.heading == null ? '' : o.heading.toFixed(1), o.note, o.recordedBy ?? '', o.updatedBy ?? '', iso(o.createdAt), iso(o.updatedAt), iso(o.deletedAt)];
     });
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
@@ -524,6 +674,9 @@ export class EsriObservationStore implements ObservationStore {
       [f.note]: o.note,
       [f.length]: o.length ?? null,
       [f.heading]: o.heading ?? null,
+      [f.confidence]: o.confidence ?? '',
+      [f.recordedBy]: o.recordedBy ?? '',
+      [f.updatedBy]: o.updatedBy ?? '',
       [f.created]: o.createdAt,
       [f.updated]: o.updatedAt,
       [f.deleted]: o.deletedAt,
@@ -558,6 +711,9 @@ export class EsriObservationStore implements ObservationStore {
       note: text(a[f.note]),
       length: numberOf(a[f.length]),
       heading: numberOf(a[f.heading]),
+      confidence: text(a[f.confidence]),
+      recordedBy: text(a[f.recordedBy]),
+      updatedBy: text(a[f.updatedBy]),
       lon: x,
       lat: y,
       createdAt: created,

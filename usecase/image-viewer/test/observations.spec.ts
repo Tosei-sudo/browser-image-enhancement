@@ -166,7 +166,7 @@ test('a record is moved, deleted (kept marked), brought back, and written as CSV
     for await (const chunk of stream) text += chunk;
     return text;
   });
-  expect(csv).toContain('観測ID,モノID,モノ,種別,分類1,活動,有無,撮像日時');
+  expect(csv).toContain('観測ID,モノID,モノ,種別,分類1,活動,有無,確度,撮像日時');
   expect(csv).toContain(',倉庫,建物,建物,');
 
   // A layer of the records, for the table, the timeline and export.
