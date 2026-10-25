@@ -11,7 +11,9 @@
  * 「その他」 holds what is needed now and then: typing coordinates and
  * lengths while drawing (the number panel, see edit-panel.ts), duplicating,
  * moving and turning by numbers, parallel lines, splitting and merging.
- * Only the tools the layer allows are shown. Leaving with unsaved edits
+ * Only the tools the layer allows are shown. A table (rows without
+ * geometry, an Esri standalone table) gets 「行を追加」 instead of drawing,
+ * and of 「その他」 only duplicating. Leaving with unsaved edits
  * asks first, and so does closing the page.
  */
 import Feature from 'ol/Feature.js';
@@ -149,7 +151,7 @@ export class Editor {
     this.kind_.setAttribute('aria-label', '追加する図形');
     this.kind_.addEventListener('change', () => (this.tool_ === 'add' ? this.setTool('add') : this.update_()));
     this.bar_.append(this.kind_);
-    button('add', '追加', () => this.setTool(this.tool_ === 'add' ? 'select' : 'add'), { toggle: true });
+    button('add', '追加', () => (this.session_?.target.noGeometry ? this.addRow() : this.setTool(this.tool_ === 'add' ? 'select' : 'add')), { toggle: true });
     button('reshape', '形状編集', () => this.setTool(this.tool_ === 'reshape' ? 'select' : 'reshape'), {
       toggle: true,
       title: '頂点をドラッグで移動・辺をドラッグで頂点を追加・Alt+クリックで頂点を削除・選んだ地物をドラッグで移動',
@@ -289,9 +291,13 @@ export class Editor {
     const kept = this.kind_.value as DrawKind;
     this.kind_.replaceChildren(...kindNames.filter(([k]) => kinds.includes(k)).map(([k, name]) => new Option(name, k)));
     this.kind_.value = kinds.includes(kept) ? kept : kinds[0];
+    const rows = !!target.noGeometry;
     this.buttons_.add.hidden = !target.canCreate;
-    this.kind_.hidden = !target.canCreate || kinds.length < 2;
-    this.buttons_.reshape.hidden = !target.canUpdate;
+    this.buttons_.add.textContent = rows ? '行を追加' : '追加';
+    if (rows) this.buttons_.add.removeAttribute('aria-pressed');
+    else this.buttons_.add.setAttribute('aria-pressed', 'false');
+    this.kind_.hidden = rows || !target.canCreate || kinds.length < 2;
+    this.buttons_.reshape.hidden = rows || !target.canUpdate;
     this.buttons_.delete.hidden = !target.canDelete;
     for (const key of ['duplicate', 'offset']) this.buttons_[key].hidden = !target.canCreate;
     for (const key of ['move', 'rotate']) this.buttons_[key].hidden = !target.canUpdate;
@@ -299,6 +305,10 @@ export class Editor {
     this.buttons_.split.hidden = !(target.canUpdate && target.canCreate) || familyOf(target.geometryType ?? 'Polygon') === 'point';
     this.buttons_.merge.hidden = !(target.canUpdate && target.canDelete);
     this.buttons_.numeric.hidden = !target.canCreate;
+    // A table has nothing on the map to draw, reshape, move or snap to: of 「その他」, duplicating rows only.
+    if (rows) for (const key of ['move', 'rotate', 'offset', 'split', 'merge', 'numeric', 'snap']) this.buttons_[key].hidden = true;
+    else this.buttons_.snap.hidden = false;
+    this.more_.hidden = rows && !target.canCreate;
     this.bar_.hidden = false;
     entry.row.classList.add('editing');
     this.table.setSession(this.session_);
@@ -412,6 +422,19 @@ export class Editor {
     if (!this.sketch_) this.session_?.redo();
   }
 
+  /** Adds an empty row to a table (the template's values), selected and ready for input in the attribute table. */
+  addRow(): Feature | null {
+    const session = this.session_;
+    if (!session?.target.canCreate) return null;
+    const row = new Feature();
+    session.add(row);
+    this.selection.set([row]);
+    this.table.setMode('selected');
+    this.table.focusRow(row);
+    this.options.say(`行を追加。属性テーブルで値を入力し、「保存」で${session.target.savedTo}に書き込み`);
+    return row;
+  }
+
   /** Deletes the selected features (after asking). */
   deleteSelected(): void {
     this.deleteFeatures(this.selection.list());
@@ -448,13 +471,14 @@ export class Editor {
     session.group(() => {
       for (const feature of this.selection.list()) {
         const source = feature.getGeometry();
-        const geometry = source && fitToType(source.clone(), type);
-        if (!geometry) {
+        // A table's rows: the attributes only.
+        const geometry = session.target.noGeometry ? undefined : source && fitToType(source.clone(), type);
+        if (!geometry && !session.target.noGeometry) {
           skipped++;
           continue;
         }
         const attributes = Object.fromEntries(Object.entries(feature.getProperties()).filter(([name]) => editable.has(name) && name !== feature.getGeometryName()));
-        const copy = new Feature(geometry);
+        const copy = new Feature(geometry ?? undefined);
         session.add(copy, attributes);
         copies.push(copy);
       }
@@ -465,7 +489,8 @@ export class Editor {
     }
     this.selection.set(copies);
     this.table.setMode('selected');
-    this.options.say(`${copies.length} 件を複製（同じ位置に配置。「移動…」か「形状編集」のドラッグで移動可能）${skipped ? `。${skipped} 件は図形の種類が合わず複製対象外` : ''}`);
+    if (session.target.noGeometry) this.options.say(`${copies.length} 行を複製`);
+    else this.options.say(`${copies.length} 件を複製（同じ位置に配置。「移動…」か「形状編集」のドラッグで移動可能）${skipped ? `。${skipped} 件は図形の種類が合わず複製対象外` : ''}`);
     return copies;
   }
 
@@ -776,7 +801,7 @@ export class Editor {
     const session = this.session_;
     if (!session) return;
     const count = session.count();
-    for (const key of ['add', 'reshape'] as const) this.buttons_[key].setAttribute('aria-pressed', String(this.tool_ === key));
+    for (const key of ['add', 'reshape'] as const) if (this.buttons_[key].hasAttribute('aria-pressed')) this.buttons_[key].setAttribute('aria-pressed', String(this.tool_ === key));
     const own = this.selection.list().filter((f) => session.source.hasFeature(f));
     const any = this.selection.list().length > 0;
     this.buttons_.delete.disabled = own.length === 0;

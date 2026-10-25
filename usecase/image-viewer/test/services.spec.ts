@@ -403,6 +403,69 @@ test('Esri: the row menu deletes the selected features, starting editing; saved 
   expect(errors).toEqual([]);
 });
 
+test('Esri: a standalone table is listed with the layers, shown in the table and edited (rows added, changed, deleted)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('dialog', (d) => void d.accept());
+  await open(page);
+  await page.getByRole('button', { name: 'サービスを追加' }).click();
+  const dialog = page.getByRole('dialog', { name: 'サービスを追加' });
+  await dialog.getByRole('textbox', { name: 'サービスの URL' }).fill(`${base}/svc/arcgis/rest/services/Survey/FeatureServer`);
+  await dialog.getByRole('button', { name: '読み込み' }).click();
+  // The service's tables after its layers, marked.
+  await expect(dialog.locator('.service-layer .title')).toHaveText(['公園', '点検記録']);
+  await expect(dialog.locator('.service-layer').nth(1).locator('.layer-kind')).toHaveText('テーブル');
+  await expect(dialog.locator('.service-layer').nth(0).locator('.layer-kind')).toHaveCount(0);
+  await dialog.locator('.service-layer input[type=checkbox]').nth(0).uncheck();
+  await dialog.locator('.service-layer input[type=checkbox]').nth(1).check();
+  await dialog.getByRole('button', { name: '追加', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // Its rows in the table (read in batches of maxRecordCount), nothing to style or export as a vector layer.
+  await expect(page.locator('#images .name')).toContainText(['点検記録']);
+  await expect(page.locator('.table-count')).toContainText('全 3 件');
+  await expect(page.locator('.attributes th:not(.check)')).toHaveText(['OBJECTID', '公園', '点検日', '結果', '編集者']);
+  expect(await cellTexts(page, 4)).toEqual(['良好', '要補修', '良好']);
+  await expect(page.locator('#info')).toContainText('テーブル');
+  const row = page.locator('#images li').first();
+  await expect(row.getByRole('button', { name: 'スタイル・ラベル' })).toHaveCount(0);
+
+  // Editing: rows are added from the toolbar, not drawn; no drawing or reshaping tools.
+  await row.getByRole('button', { name: '編集' }).click();
+  const bar = page.getByRole('toolbar', { name: '編集' });
+  await expect(bar).toBeVisible();
+  await expect(bar.getByRole('button', { name: '形状編集' })).toBeHidden();
+  await expect(bar.getByRole('combobox', { name: '追加する図形' })).toBeHidden();
+  await rows(page).nth(1).getByRole('combobox', { name: '結果' }).selectOption('1');
+  await rows(page).nth(2).locator('td:not(.check)').first().click();
+  await bar.getByRole('button', { name: '削除' }).click();
+  await expect(rows(page)).toHaveCount(2);
+  await bar.getByRole('button', { name: '行を追加' }).click();
+  await expect(page.getByRole('button', { name: '選択中のみ' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first().getByRole('combobox', { name: '結果' })).toHaveValue('1'); // the template's
+  await rows(page).first().getByRole('textbox', { name: '公園' }).fill('代々木公園');
+  await rows(page).first().getByRole('textbox', { name: '公園' }).press('Enter');
+  await page.getByRole('button', { name: '保存 (3)' }).click();
+  await expect(page.locator('#status')).toContainText('3 件の変更を保存');
+
+  const state = (await (await page.request.get(`${base}/svc/table-state`)).json()) as Array<{ attributes: Record<string, unknown> }>;
+  expect(state.map((r) => r.attributes)).toEqual([
+    { OBJECTID: 1, PARK: '日比谷公園', CHECKED: Date.UTC(2024, 3, 1), RESULT: 1, EDITOR: 'initial' },
+    { OBJECTID: 2, PARK: '上野恩賜公園', CHECKED: Date.UTC(2024, 3, 2), RESULT: 1, EDITOR: 'server' },
+    { OBJECTID: 4, PARK: '代々木公園', CHECKED: null, RESULT: 1, EDITOR: 'server' },
+  ]);
+  // Read back from the server: the editor field it filled in.
+  await page.getByRole('button', { name: '全件' }).click();
+  expect(await cellTexts(page, 5)).toEqual(['initial', 'server', 'server']);
+  await page.getByRole('button', { name: '編集終了' }).click();
+
+  // A ?service= link opens the table again.
+  await open(page, new URL(page.url()).search);
+  await expect(page.locator('.table-count')).toContainText('全 3 件');
+  expect(errors).toEqual([]);
+});
+
 test('Esri: a secured service asks for a token', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: 'サービスを追加' }).click();

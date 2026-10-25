@@ -137,6 +137,12 @@ export class AddServiceDialog {
     name.className = 'layer-name';
     name.textContent = choice.name === choice.title ? '' : choice.name;
     label.append(box, title, name);
+    if (choice.table) {
+      const kind = document.createElement('span');
+      kind.className = 'layer-kind';
+      kind.textContent = 'テーブル';
+      label.append(kind);
+    }
     if (choice.abstract) label.title = choice.abstract;
     row.append(label);
     const select = (field: string, text: string, values?: string[]) => {

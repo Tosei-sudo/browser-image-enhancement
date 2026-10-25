@@ -187,8 +187,30 @@ const parksLayer = {
   },
 };
 
+/** Survey/FeatureServer/1: a standalone table (rows without geometry) of park inspections, editable. */
+const inspectionsTable = {
+  id: 1,
+  name: '点検記録',
+  type: 'Table',
+  objectIdField: 'OBJECTID',
+  capabilities: 'Create,Delete,Query,Update,Editing',
+  maxRecordCount: 2,
+  editFieldsInfo: { editorField: 'EDITOR' },
+  fields: [
+    { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID', editable: false, nullable: false },
+    { name: 'PARK', type: 'esriFieldTypeString', alias: '公園', length: 20, editable: true, nullable: true },
+    { name: 'CHECKED', type: 'esriFieldTypeDate', alias: '点検日', editable: true, nullable: true },
+    { name: 'RESULT', type: 'esriFieldTypeSmallInteger', alias: '結果', editable: true, nullable: true, domain: { type: 'codedValue', name: 'results', codedValues: [{ name: '良好', code: 1 }, { name: '要補修', code: 2 }] } },
+    { name: 'EDITOR', type: 'esriFieldTypeString', alias: '編集者', length: 50, editable: false, nullable: true },
+  ],
+  templates: [{ name: '点検', prototype: { attributes: { RESULT: 1 } } }],
+};
+
 let parks;
 let nextId;
+/** The rows of the stand-in table, by object id. */
+let inspections;
+let nextInspection;
 /** The requests made of the stand-in image and map services (exportImage, export, tiles), with their parameters. */
 export const rasterRequests = [];
 
@@ -281,6 +303,43 @@ export function resetServices() {
     }),
   );
   nextId = 6;
+  inspections = new Map(
+    [
+      ['日比谷公園', Date.UTC(2024, 3, 1), 1],
+      ['上野恩賜公園', Date.UTC(2024, 3, 2), 2],
+      ['新宿御苑', Date.UTC(2024, 3, 3), 1],
+    ].map(([PARK, CHECKED, RESULT], i) => [i + 1, { attributes: { OBJECTID: i + 1, PARK, CHECKED, RESULT, EDITOR: 'initial' } }]),
+  );
+  nextInspection = 4;
+}
+
+/** applyEdits of the stand-in table: rows without geometry (one sent with a geometry is refused, as the server would). */
+function tableEdits(form) {
+  const adds = JSON.parse(form.get('adds') ?? '[]');
+  const updates = JSON.parse(form.get('updates') ?? '[]');
+  const deletes = (form.get('deletes') ?? '').split(',').filter(Boolean).map(Number);
+  const addResults = adds.map((f) => {
+    if (f.geometry) return { success: false, error: { code: 1000, description: 'テーブルにジオメトリは不可' } };
+    const id = nextInspection++;
+    inspections.set(id, { attributes: { PARK: null, CHECKED: null, RESULT: null, ...f.attributes, OBJECTID: id, EDITOR: 'server' } });
+    return { objectId: id, success: true };
+  });
+  const updateResults = updates.map((f) => {
+    const id = f.attributes.OBJECTID;
+    const row = inspections.get(id);
+    if (!row || f.geometry) return { objectId: id, success: false, error: { code: 1019, description: 'ありません' } };
+    Object.assign(row.attributes, f.attributes, { EDITOR: 'server' });
+    return { objectId: id, success: true };
+  });
+  const deleteResults = deletes.map((id) => ({ objectId: id, success: inspections.delete(id) }));
+  return { addResults, updateResults, deleteResults };
+}
+
+function tableQuery(form) {
+  if (form.get('returnIdsOnly') === 'true') return { objectIdFieldName: 'OBJECTID', objectIds: [...inspections.keys()] };
+  const ids = (form.get('objectIds') ?? '').split(',').filter(Boolean).map(Number);
+  if (ids.length > inspectionsTable.maxRecordCount) return { error: { code: 400, message: 'Too many ids' } };
+  return { objectIdFieldName: 'OBJECTID', fields: inspectionsTable.fields, features: ids.filter((id) => inspections.has(id)).map((id) => inspections.get(id)) };
 }
 resetServices();
 
@@ -508,6 +567,7 @@ export async function serveService(req, res, url, base) {
     return json({ ok: true });
   }
   if (path === '/svc/state') return json([...parks.values()]);
+  if (path === '/svc/table-state') return json([...inspections.values()]);
   if (path === '/svc/vector-tiles') return json(vectorTileRequests);
   if (path === '/svc/wms-times') return json(wmsTimeRequests);
   if (path === '/svc/wmstime') {
@@ -707,7 +767,7 @@ export async function serveService(req, res, url, base) {
     }
   }
 
-  const esri = /^\/svc\/arcgis\/rest\/services\/(Test|Secure|Town)\/FeatureServer(?:\/(\d+))?(?:\/(query|applyEdits))?$/.exec(path);
+  const esri = /^\/svc\/arcgis\/rest\/services\/(Test|Secure|Town|Survey)\/FeatureServer(?:\/(\d+))?(?:\/(query|applyEdits))?$/.exec(path);
   if (esri) {
     const [, service, layer, op] = esri;
     if (service === 'Secure' && form.get('token') !== 'secret') return json({ error: { code: 499, message: 'Token Required', details: [] } });
@@ -715,6 +775,15 @@ export async function serveService(req, res, url, base) {
       if (layer === undefined) return json({ currentVersion: 11.1, layers: [{ id: 0, name: '建物', type: 'Feature Layer', geometryType: 'esriGeometryMultiPatch' }], tables: [] });
       if (!op) return json(buildingsLayer);
       if (op === 'query') return json(buildingsQuery(form));
+    }
+    if (service === 'Survey') {
+      // The park layer of Test, and a standalone table.
+      if (layer === undefined) return json({ currentVersion: 11.1, layers: [{ id: 0, name: '公園', type: 'Feature Layer', geometryType: 'esriGeometryPoint' }], tables: [{ id: 1, name: '点検記録', type: 'Table' }] });
+      if (layer === '1') {
+        if (!op) return json(inspectionsTable);
+        if (op === 'query') return json(tableQuery(form));
+        if (op === 'applyEdits' && req.method === 'POST') return json(tableEdits(form));
+      }
     }
     if (layer === undefined) return json({ currentVersion: 11.1, layers: [{ id: 0, name: '公園', type: 'Feature Layer', geometryType: 'esriGeometryPoint' }], tables: [] });
     if (layer !== '0') return json({ error: { code: 400, message: 'Invalid layer' } });

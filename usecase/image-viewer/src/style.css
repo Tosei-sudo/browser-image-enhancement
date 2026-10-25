@@ -1067,6 +1067,14 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.service-layer .layer-kind {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
 .service-layer .pick {
   display: flex;
   align-items: center;

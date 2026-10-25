@@ -3,7 +3,8 @@
  * of a MapServer, read only): the service's layers, every feature of a layer
  * (paged by object id, up to {@link MAX_FEATURES}), the service's own
  * symbols (simple, unique value and class breaks renderers), and `applyEdits`
- * for editable layers. A token, when given, goes with every request; without
+ * for editable layers. A service's standalone tables (rows without geometry)
+ * open as table layers: their rows in the attribute table, edited the same way. A token, when given, goes with every request; without
  * one, the token of a signed-in ArcGIS portal the URL belongs to (auth.ts).
  */
 import type Feature from 'ol/Feature.js';
@@ -26,8 +27,10 @@ export interface EsriLayerInfo {
   /** The layer's URL (`…/FeatureServer/0`). */
   url: string;
   name: string;
-  /** `esriGeometryPoint`, `esriGeometryMultipoint`, `esriGeometryPolyline`, `esriGeometryPolygon` or `esriGeometryMultiPatch`. */
+  /** `esriGeometryPoint`, `esriGeometryMultipoint`, `esriGeometryPolyline`, `esriGeometryPolygon` or `esriGeometryMultiPatch`; empty for a table. */
   geometryType: string;
+  /** A standalone table: rows without geometry. */
+  table?: boolean;
   objectIdField: string;
   canCreate: boolean;
   canUpdate: boolean;
@@ -126,17 +129,24 @@ export async function readEsri(input: string, token?: string): Promise<ServiceCa
   if (!m) throw new ServiceError('FeatureServer・MapServer・ImageServer の URL を入力');
   const [, serviceUrl, layerId] = m;
   const mapServer = /MapServer$/i.test(serviceUrl);
-  const service = await esriJson<{ layers?: Array<{ id: number; name: string; geometryType?: string; type?: string }>; serviceDescription?: string; documentInfo?: { Title?: string }; mapName?: string }>(
+  const service = await esriJson<{
+    layers?: Array<{ id: number; name: string; geometryType?: string; type?: string }>;
+    tables?: Array<{ id: number; name: string }>;
+    serviceDescription?: string; documentInfo?: { Title?: string }; mapName?: string }>(
     serviceUrl,
     {},
     token,
   );
   const title = service.documentInfo?.Title || service.mapName || serviceUrl.split('/').slice(-2, -1)[0] || serviceUrl;
   const layers = (service.layers ?? []).filter((l) => (l.type ?? 'Feature Layer') === 'Feature Layer' && (layerId === undefined || String(l.id) === layerId));
-  const choices: LayerChoice[] = layers.map((l) => ({ name: String(l.id), title: l.name, abstract: geometryNames[l.geometryType ?? ''] }));
+  const tables = (service.tables ?? []).filter((t) => layerId === undefined || String(t.id) === layerId);
+  const choices: LayerChoice[] = [
+    ...layers.map((l) => ({ name: String(l.id), title: l.name, abstract: geometryNames[l.geometryType ?? ''] })),
+    ...tables.map((t) => ({ name: String(t.id), title: t.name, abstract: TABLE_NAME, table: true })),
+  ];
   // A map service's own map first: what most people want from it.
   if (mapServer && layerId === undefined) choices.unshift(mapChoice(title));
-  if (choices.length === 0) throw new ServiceError('フィーチャーレイヤーなし');
+  if (choices.length === 0) throw new ServiceError('フィーチャーレイヤー・テーブルなし');
   return {
     kind: 'esri',
     url: serviceUrl,
@@ -147,6 +157,8 @@ export async function readEsri(input: string, token?: string): Promise<ServiceCa
   };
 }
 
+const TABLE_NAME = 'テーブル（ジオメトリなし）';
+
 const geometryNames: Record<string, string> = {
   esriGeometryPoint: 'ポイント',
   esriGeometryMultipoint: 'マルチポイント',
@@ -155,25 +167,12 @@ const geometryNames: Record<string, string> = {
   esriGeometryMultiPatch: 'マルチパッチ（3D）',
 };
 
-/** Opens a feature layer; with `where` (a web map's definition expression), only the features meeting it. */
+/** Opens a feature layer or a standalone table; with `where` (a web map's definition expression), only the features meeting it. */
 async function openLayer(url: string, mapServer: boolean, token?: string, where?: string): Promise<ServiceLayer> {
   const json = await esriJson<EsriLayerJson>(url, {}, token);
-  const caps = new Set((json.capabilities ?? '').split(',').map((c) => c.trim().toLowerCase()));
-  const editing = !mapServer && (caps.has('editing') || caps.has('create') || caps.has('update') || caps.has('delete'));
-  const info: EsriLayerInfo = {
-    url,
-    name: json.name,
-    geometryType: json.geometryType ?? '',
-    objectIdField: json.objectIdField ?? json.fields?.find((f) => f.type === 'esriFieldTypeOID')?.name ?? 'OBJECTID',
-    canCreate: editing && caps.has('create'),
-    canUpdate: editing && caps.has('update'),
-    canDelete: editing && caps.has('delete'),
-    template: json.templates?.[0]?.prototype?.attributes ?? json.types?.[0]?.templates?.[0]?.prototype?.attributes ?? {},
-    token,
-    ...(json.timeInfo?.startTimeField ? { time: { start: json.timeInfo.startTimeField, end: json.timeInfo.endTimeField ?? undefined } } : {}),
-  };
-  // Editing (Create, Update or Delete) given without the finer capabilities means all three.
-  if (editing && !info.canCreate && !info.canUpdate && !info.canDelete) info.canCreate = info.canUpdate = info.canDelete = true;
+  if (json.type === 'Table' || (!json.geometryType && json.type !== 'Feature Layer')) return openTable(url, json, mapServer, token, where);
+  const info = layerInfo(url, json, mapServer, token);
+  const editing = info.canCreate || info.canUpdate || info.canDelete;
 
   const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
   const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
@@ -208,6 +207,56 @@ async function openLayer(url: string, mapServer: boolean, token?: string, where?
       ...(where?.trim() ? [['条件', where.trim()] as [string, string]] : []),
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
       ...(raised !== null ? [['3D', raised ? `${raised.toLocaleString()} 件を高さの範囲で立ち上げ（3D 表示）` : '高さの取得不可（ArcGIS Enterprise 10.9 以降の extent が必要）'] as [string, string]] : []),
+    ],
+  };
+}
+
+/** What the viewer keeps of a layer's or table's description: its edit capabilities above all. */
+function layerInfo(url: string, json: EsriLayerJson, mapServer: boolean, token?: string): EsriLayerInfo {
+  const caps = new Set((json.capabilities ?? '').split(',').map((c) => c.trim().toLowerCase()));
+  const editing = !mapServer && (caps.has('editing') || caps.has('create') || caps.has('update') || caps.has('delete'));
+  const info: EsriLayerInfo = {
+    url,
+    name: json.name,
+    geometryType: json.geometryType ?? '',
+    objectIdField: json.objectIdField ?? json.fields?.find((f) => f.type === 'esriFieldTypeOID')?.name ?? 'OBJECTID',
+    canCreate: editing && caps.has('create'),
+    canUpdate: editing && caps.has('update'),
+    canDelete: editing && caps.has('delete'),
+    template: json.templates?.[0]?.prototype?.attributes ?? json.types?.[0]?.templates?.[0]?.prototype?.attributes ?? {},
+    token,
+    ...(json.timeInfo?.startTimeField ? { time: { start: json.timeInfo.startTimeField, end: json.timeInfo.endTimeField ?? undefined } } : {}),
+  };
+  // Editing (Create, Update or Delete) given without the finer capabilities means all three.
+  if (editing && !info.canCreate && !info.canUpdate && !info.canDelete) info.canCreate = info.canUpdate = info.canDelete = true;
+  return info;
+}
+
+/** Opens a standalone table: its rows (features without geometry) in the attribute table, nothing on the map. */
+async function openTable(url: string, json: EsriLayerJson, mapServer: boolean, token?: string, where?: string): Promise<ServiceLayer> {
+  const info = layerInfo(url, json, mapServer, token);
+  info.table = true;
+  const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
+  const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
+  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, { returnGeometry: 'false' }, where?.trim() || undefined);
+  const layer = vectorLayer(features);
+  return {
+    ref: { kind: 'esri', url, layer: String(json.id), ...(where?.trim() ? { settings: { where: where.trim() } } : {}) },
+    title: json.name,
+    layer,
+    correction: null,
+    vector: { source: layer.getSource()!, fields, idField: info.objectIdField, truncated },
+    esri: info,
+    tableOnly: true,
+    extent: null,
+    info: [
+      ['種類', mapServer ? 'Esri マップサービス（テーブル）' : 'Esri フィーチャーサービス（テーブル）'],
+      ['URL', url],
+      ['ジオメトリ', 'なし'],
+      ['行数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
+      ['列数', fields.length.toLocaleString()],
+      ...(where?.trim() ? [['条件', where.trim()] as [string, string]] : []),
+      ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
     ],
   };
 }
