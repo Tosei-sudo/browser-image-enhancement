@@ -6088,3 +6088,91 @@ dialog.docked > .dock-dialog-corner {
 .query-condition > .query-remove {
   grid-column: 5;
 }
+
+/* Observations: candidates of the same thing, 確度, checked areas and the report (src/observation-panel.ts). */
+.obs-actions {
+  flex-wrap: wrap;
+}
+.obs-actions .obs-carry {
+  flex: 1 1 9em;
+}
+.obs-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.obs-candidates[hidden],
+.obs-area-form[hidden],
+.obs-report-form[hidden] {
+  display: none;
+}
+.obs-candidates button {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border-style: dashed;
+}
+.obs-candidates button[aria-pressed='true'] {
+  border-style: solid;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.obs-confidence-colored {
+  border-inline-start-width: 4px;
+  border-inline-start-style: solid;
+}
+.obs-actions button[value='area'][aria-pressed='true'] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.obs-area-form,
+.obs-report-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.obs-area-form input,
+.obs-report-form input:not([type='checkbox']),
+.obs-report-form select {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.obs-area-range,
+.obs-report-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.obs-report-form h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.obs-report-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.obs-report-parts legend {
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.obs-inside td:nth-child(5) {
+  color: var(--danger);
+  font-style: normal;
+}
+.obs-area-row td:first-child {
+  box-shadow: inset 3px 0 #0f766e;
+  color: #0f766e;
+}

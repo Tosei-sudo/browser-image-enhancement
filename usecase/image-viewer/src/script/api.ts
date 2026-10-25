@@ -12,6 +12,8 @@
  * - Rasters: size and georeferencing, pixel values of a window, values at points.
  * - Tools: the processing tools (buffer, centroids, points to lines,
  *   Voronoi), the imaging plan, geodesic measures and geometry operations.
+ * - Observations (観測記録): records, things, checked areas and the report
+ *   (observations.ts).
  * - Files: GeoJSON, CSV, Shapefile and GeoPackage exports and text files,
  *   handed over as downloads (a few per run).
  * - Everything else a person does (layers shown and ordered, correction,
@@ -63,6 +65,7 @@ import {
 } from './convert.js';
 import type { ScriptHandlers } from './sandbox.js';
 import { automationHandlers, type AutomationContext } from './automation.js';
+import { observationHandlers, type ObservationScriptContext } from './observations.js';
 
 /** Most samples (width × height × bands) read or written in one call. */
 export const MAX_SAMPLES = 16_777_216;
@@ -73,7 +76,7 @@ const MAX_DOWNLOADS = 20;
 /** Largest text file a script may save. */
 const MAX_TEXT_FILE = 64 * 1024 * 1024;
 
-export interface ScriptContext extends AutomationContext {
+export interface ScriptContext extends AutomationContext, ObservationScriptContext {
   map: OlMap;
   layers: () => readonly ViewerLayer[];
   selectedLayer: () => ViewerLayer | null;
@@ -916,7 +919,7 @@ export function scriptHandlers(ctx: ScriptContext): { handlers: ScriptHandlers; 
       return geojson.writeGeometryObject(geometry.transform(from, to));
     },
   };
-  Object.assign(handlers, automationHandlers(ctx, { layerOf, imageOf, vectorOf, info, layerId, download: count }));
+  Object.assign(handlers, automationHandlers(ctx, { layerOf, imageOf, vectorOf, info, layerId, download: count }), observationHandlers(ctx, count));
   const finish = () => {
     // Only the session still being edited: an ended one has nothing left to undo.
     for (const [session, from] of marks) if (ctx.editor.session() === session) session.merge(from);

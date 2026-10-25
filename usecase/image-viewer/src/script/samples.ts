@@ -172,4 +172,27 @@ print(\`\${field.name} で \${style.categories.length} 色に色分け\`);
 await viewer.zoomTo(layer.id);
 `,
   },
+  {
+    name: '観測記録: 長く動かないモノ',
+    code: `// 観測したモノのうち、最新の記録で所在し、同じ活動が 3 画像以上続いているものを一覧。CSV でも保存。
+const things = await viewer.observedThings();
+const rows = [];
+for (const t of things) {
+  const last = t.steps[t.steps.length - 1];
+  if (!t.present || last.images < 3) continue;
+  rows.push({ モノ: t.name, 種別: t.kind, 活動: last.activity, 画像数: last.images, から: last.from, まで: last.to, 確度: t.confidence });
+}
+print(rows.length ? rows : '該当なし');
+if (rows.length) await viewer.saveText('長く動かないモノ.csv', toCsv(rows));
+`,
+  },
+  {
+    name: '観測記録: 今月の報告書',
+    code: `// 今月の観測記録の報告書（地図・モノごとの流れ・確認範囲）を HTML で保存。
+const now = new Date();
+const from = new Date(now.getFullYear(), now.getMonth(), 1);
+const result = await viewer.observationReport({ title: \`観測報告 \${now.getFullYear()}年\${now.getMonth() + 1}月\`, from, to: now });
+print(\`モノ \${result.things} 件・記録 \${result.records} 件\`);
+`,
+  },
 ];

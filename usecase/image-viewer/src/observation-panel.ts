@@ -19,6 +19,14 @@
  * branches as deep as they need, each naming its own levels, with the known
  * individuals of a class. The form drills down it (船舶 › 支援船 › 〇〇級),
  * and renaming or moving a class rewrites the records under it.
+ *
+ * A new record offers the things of other images that may be the same one
+ * (同一候補: near where they were last seen, of the same class, length and
+ * heading; Alt+1–5 or a click). Each record carries its 確度 (the levels of
+ * `observationVocabulary.confidences`) and who made and changed it.
+ * 「確認範囲」 marks a part of the image as looked over: things there in
+ * other images and not recorded in this one were not there (空振り). The
+ * 「詳細」 makes a report of a period (observation-report.ts).
  */
 import type OlMap from 'ol/Map.js';
 import Feature from 'ol/Feature.js';
@@ -27,18 +35,26 @@ import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import Translate from 'ol/interaction/Translate.js';
 import Collection from 'ol/Collection.js';
+import Draw, { createBox } from 'ol/interaction/Draw.js';
 import { Circle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style.js';
-import { LineString, Point } from 'ol/geom.js';
+import { LineString, Point, Polygon } from 'ol/geom.js';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj.js';
 import { boundingExtent, buffer, containsCoordinate } from 'ol/extent.js';
+import { getDistance } from 'ol/sphere.js';
 import type { ViewerImage } from './images.js';
 import { field, type ProcessingResult } from './processing/common.js';
 import { download } from './local-edit.js';
 import { photoThumb, showPhoto } from './taxon-photos.js';
+import { drawView } from './view-export.js';
+import { areaLabel, boxRing, coveringAreas, newAreaId, type AreaStore, type CheckedArea } from './observation-areas.js';
+import { defaultReportOptions, printReport, reportHtml, saveReport, selectForReport, type ReportOptions } from './observation-report.js';
 import {
   carriedInto,
   carryOvers,
   flowOf,
+  matchCandidates,
+  type ConfidenceLevel,
+  type MatchCandidate,
   flows,
   living,
   localTime,
@@ -104,6 +120,10 @@ export interface ObservationPanelOptions {
   onEditTaxonomy?: (path: readonly string[] | null) => void;
   /** Where a store's classification is kept once changed. */
   taxonomyStore: (store: ObservationStore) => TaxonomyStore;
+  /** Where a store's checked areas (確認範囲) are kept. */
+  areaStore: (store: ObservationStore) => AreaStore;
+  /** Who is signed in (the recorder when no name is typed), '' when nobody. */
+  user?: () => string;
   /** The open images. */
   images: () => readonly ViewerImage[];
   selected: () => ViewerImage | null;
@@ -126,6 +146,9 @@ const ACTIVITY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', 
 const HINT = '地図クリックで記録（白抜きの印は継続）';
 const HINT_TWO = '前端（船首・機首）→ 後端の 2 点クリックで記録（白抜きの印は継続）';
 const TWO_POINT_KEY = 'image-viewer.obs-two-point';
+const HINT_AREA = '確認範囲: 地図で 2 点クリック（対角）、または「表示範囲」「画像の範囲」';
+/** The recorder's name typed in 「詳細」. */
+const OBSERVER_KEY = 'image-viewer.obs-observer';
 /** Images without a file, per store. */
 const LISTED_KEY = 'image-viewer.obs-listed-images:';
 /** A time for a datetime-local input. */
@@ -163,6 +186,22 @@ export class ObservationPanel {
   private readonly lists_: { objects: HTMLDataListElement; kinds: HTMLDataListElement; activities: HTMLDataListElement };
   private readonly translate_: Translate;
   private readonly movable_ = new Collection<Feature>();
+  private readonly areaForm_: HTMLFormElement;
+  private readonly areaButton_: HTMLButtonElement;
+  private readonly absentInside_: HTMLButtonElement;
+  private readonly candidates_: HTMLElement;
+  private readonly confidence_: HTMLSelectElement;
+  private readonly observerInput_: HTMLInputElement;
+  private readonly reportForm_: HTMLFormElement;
+  /** Two corners of a checked area. */
+  private readonly draw_: Draw;
+  /** The checked areas (deleted ones too). */
+  private areas_: CheckedArea[] = [];
+  private areaMode_ = false;
+  /** The outline of the checked area being made. */
+  private areaRing_: number[][] | null = null;
+  /** The things offered as the same one in the form (同一候補). */
+  private offered_: MatchCandidate[] = [];
 
   private store_: ObservationStore;
   private records_: Observation[] = [];
@@ -194,7 +233,7 @@ export class ObservationPanel {
   private cursor_: number[] | null = null;
   /** Visibility of the images before 「この画像だけ表示」. */
   private shown_: Map<ViewerImage, boolean> | null = null;
-  private last_ = { kind: '', activity: '' };
+  private last_ = { kind: '', activity: '', confidence: '' };
   private carried_: CarryOver[] = [];
 
   constructor(
@@ -238,16 +277,33 @@ export class ObservationPanel {
       <div class="obs-actions">
         <button type="button" value="record" class="primary" aria-pressed="false" title="クリック地点にこの画像の観測を記録（R）">クリック記録</button>
         <button type="button" value="two-point" aria-pressed="false" title="前端（船首・機首）→ 後端の 2 点クリックで、中心・長さ・向きを記録（L）">2 点</button>
+        <button type="button" value="area" aria-pressed="false" title="確認済みの範囲の記録（範囲内の対象は記録がすべて、記録のないものは不在）（A）">確認範囲</button>
         <span class="obs-carry"></span>
-        <button type="button" value="carry-all" hidden title="前後の画像のモノ（白抜きの印）を、この画像でも継続として一括記録">すべて継続</button>
+        <button type="button" value="carry-all" hidden title="前後の画像のモノ（白抜きの印）を、この画像でも継続として一括記録（確認範囲内のものを除く）">すべて継続</button>
+        <button type="button" value="absent-inside" hidden title="確認範囲内で記録のない前後の画像のモノを、この画像での不在として一括記録"></button>
       </div>
+      <form class="service-form obs-area-form" hidden>
+        <p class="obs-area-range wide"></p>
+        <div class="service-actions wide">
+          <button type="button" value="area-view" title="地図の表示範囲を確認範囲に">表示範囲</button>
+          <button type="button" value="area-image" title="画像の範囲全体を確認範囲に">画像の範囲</button>
+        </div>
+        <label>対象の種別<input name="area-kind" list="obs-kinds" autocomplete="off" placeholder="空欄ですべての種別" /></label>
+        <label>備考<input name="area-note" autocomplete="off" /></label>
+        <div class="service-actions wide">
+          <button type="submit" class="primary">確認範囲の記録（Enter）</button>
+          <button type="button" value="area-cancel">取消（Esc）</button>
+        </div>
+      </form>
       <form class="service-form obs-form" hidden>
         <label><span class="obs-object-label">モノ</span><input name="object" list="obs-objects" autocomplete="off" placeholder="空欄で新規" /></label>
+        <div class="obs-candidates wide" aria-label="同一候補" hidden></div>
         <label>種別<input name="kind" list="obs-kinds" autocomplete="off" placeholder="船舶 > 支援船 > 〇〇級" /></label>
         <div class="obs-kind-path wide" aria-label="種別の階層"></div>
         <div class="obs-kind-specs wide" aria-label="種別の諸元" hidden></div>
         <div class="obs-chips wide" role="radiogroup" aria-label="活動"></div>
         <label>活動<input name="activity" list="obs-activity-list" autocomplete="off" /></label>
+        <label>確度<select name="confidence"></select></label>
         <label class="obs-measure">長さ（m）<input name="length" inputmode="decimal" autocomplete="off" /></label>
         <label class="obs-measure">向き（°）<input name="heading" inputmode="decimal" autocomplete="off" title="北から時計回り、後端→前端" /></label>
         <p class="obs-measure obs-measure-note wide"></p>
@@ -260,12 +316,34 @@ export class ObservationPanel {
         </div>
       </form>
       <p class="service-status" role="status"></p>
+      <form class="service-form obs-report-form" hidden>
+        <h3 class="wide">報告書</h3>
+        <label class="wide">題名<input name="report-title" autocomplete="off" /></label>
+        <label>期間（から）<input type="date" name="report-from" /></label>
+        <label>期間（まで）<input type="date" name="report-to" /></label>
+        <label>分類<select name="report-kind"><option value="">すべて</option></select></label>
+        <label>確度<select name="report-confidence"><option value="">すべて</option></select></label>
+        <fieldset class="wide obs-report-parts"><legend>内容</legend>
+          <label class="check" title="記録の範囲の地図（記録の印・流れ・確認範囲）"><input type="checkbox" name="report-map" checked />地図</label>
+          <label class="check"><input type="checkbox" name="report-flows" checked />モノごとの流れ</label>
+          <label class="check"><input type="checkbox" name="report-areas" checked />確認範囲</label>
+          <label class="check"><input type="checkbox" name="report-records" />記録一覧</label>
+        </fieldset>
+        <p class="obs-report-count wide"></p>
+        <div class="service-actions wide">
+          <button type="submit" class="primary" title="報告書の HTML 保存（地図を含む 1 ファイル）">HTML 保存</button>
+          <button type="button" value="report-print" title="報告書の印刷（PDF 保存も可）">印刷</button>
+          <button type="button" value="report-close">閉じる</button>
+        </div>
+      </form>
       <details class="catalog-more">
         <summary>詳細</summary>
         <div class="catalog-more-body">
           <label>モノの絞り込み<input type="search" name="filter" placeholder="名前・ID・種別・活動" /></label>
           <label class="check"><input type="checkbox" name="deleted" />削除済みも表示</label>
+          <label title="記録・更新に付く名前（空欄でサインイン中のユーザー名）">記録者<input name="observer" autocomplete="off" /></label>
           <div class="service-actions wide">
+            <button type="button" value="report" aria-expanded="false" title="期間・分類・確度を指定した報告書（HTML 保存・印刷）">報告書…</button>
             <button type="button" value="reload" title="保存先から記録を再読み込み">再読み込み</button>
             <button type="button" value="csv" title="すべての記録の CSV 保存（モノ・撮像日時の順）">CSV 保存</button>
             <button type="button" value="layer" title="記録をポイント、モノの流れをラインとして一時レイヤー化（属性テーブル・タイムライン・書き出しで利用可）">レイヤー化</button>
@@ -309,6 +387,13 @@ export class ObservationPanel {
     this.deleted_ = $('input[name=deleted]');
     this.filter_ = $('input[name=filter]');
     this.lists_ = { objects: $('#obs-objects'), kinds: $('#obs-kinds'), activities: $('#obs-activity-list') };
+    this.areaForm_ = $('.obs-area-form');
+    this.areaButton_ = $('button[value=area]');
+    this.absentInside_ = $('button[value=absent-inside]');
+    this.candidates_ = $('.obs-candidates');
+    this.confidence_ = $('select[name=confidence]');
+    this.observerInput_ = $('input[name=observer]');
+    this.reportForm_ = $('.obs-report-form');
 
     options.stores.forEach((s, i) => this.storeSelect_.add(new Option(s.label, String(i))));
     this.storeSelect_.hidden = options.stores.length < 2;
@@ -358,6 +443,7 @@ export class ObservationPanel {
     }
     this.twoPointButton_.setAttribute('aria-pressed', String(this.twoPoint_));
     for (const name of ['length', 'heading']) this.form_.querySelector(`input[name=${name}]`)!.addEventListener('input', () => this.renderMeasure_());
+    for (const name of ['length', 'heading']) this.form_.querySelector(`input[name=${name}]`)!.addEventListener('change', () => this.renderCandidates_());
     this.carryAll_.addEventListener('click', () => void this.carryAll());
     this.form_.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -389,6 +475,51 @@ export class ObservationPanel {
     $('button[value=csv]').addEventListener('click', () => this.saveCsv());
     $('button[value=layer]').addEventListener('click', () => this.toLayers());
     this.form_.querySelector<HTMLInputElement>('input[name=object]')!.addEventListener('change', () => this.objectTyped_());
+    kindInput.addEventListener('change', () => this.renderCandidates_());
+
+    // 確認範囲: two corners on the map, the view, or the image's footprint; then its kind and note.
+    this.areaButton_.addEventListener('click', () => this.setAreaMode(!this.areaMode_));
+    this.absentInside_.addEventListener('click', () => void this.absentInside());
+    $('button[value=area-view]').addEventListener('click', () => {
+      const view = this.map.getView();
+      this.setAreaRing_(boxRing(transformExtent(view.calculateExtent(this.map.getSize()), view.getProjection(), 'EPSG:4326')));
+    });
+    $('button[value=area-image]').addEventListener('click', () => {
+      const box = this.current_?.info.box;
+      if (box) this.setAreaRing_(boxRing(box));
+      else this.say_('画像の範囲が不明（地図で 2 点クリック）');
+    });
+    $('button[value=area-cancel]').addEventListener('click', () => this.setAreaMode(false));
+    this.areaForm_.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void this.submitArea_();
+    });
+    this.draw_ = new Draw({ type: 'Circle', geometryFunction: createBox(), stopClick: true });
+    this.draw_.on('drawend', (e) => {
+      const ring = (e.feature.getGeometry() as Polygon).getCoordinates()[0].map((c) => toLonLat(c));
+      this.setAreaRing_(ring);
+    });
+    this.draw_.setActive(false);
+    map.addInteraction(this.draw_);
+
+    // Who records: the name typed here, else whoever is signed in.
+    try {
+      this.observerInput_.value = localStorage.getItem(OBSERVER_KEY) ?? '';
+    } catch {
+      // Storage off: the signed-in user.
+    }
+    this.observerInput_.placeholder = options.user?.() || '名前';
+    this.observerInput_.addEventListener('change', () => this.setObserver(this.observerInput_.value));
+    this.confidence_.addEventListener('change', () => this.renderConfidence_());
+
+    $('button[value=report]').addEventListener('click', () => this.toggleReport_());
+    $('button[value=report-close]').addEventListener('click', () => this.toggleReport_(false));
+    $('button[value=report-print]').addEventListener('click', () => void this.printReport());
+    this.reportForm_.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void this.saveReport();
+    });
+    this.reportForm_.addEventListener('change', () => this.renderReportCount_());
 
     // Keys: PageUp / PageDown step through the images, R records, 1–9 pick an activity, Esc closes the form.
     this.dialog.addEventListener('keydown', (e) => this.key_(e));
@@ -415,8 +546,9 @@ export class ObservationPanel {
     });
     // Points wait out a double click; two points take each click at once, so a quick front and rear both count.
     const click = (e: { type: string; pixel: number[]; coordinate: number[] }) => {
-      if (!this.active_ || !this.dialog.open || (e.type === 'click') !== this.twoPoint_) return;
-      const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f as Feature, { layerFilter: (l) => l === this.overlay, hitTolerance: 6 });
+      if (!this.active_ || this.areaMode_ || !this.dialog.open || (e.type === 'click') !== this.twoPoint_) return;
+      // Checked areas lie under the records: a click inside one records there.
+      const hit = map.forEachFeatureAtPixel(e.pixel, (f) => (f.get('role') === 'area' ? undefined : (f as Feature)), { layerFilter: (l) => l === this.overlay, hitTolerance: 6 });
       const [lon, lat] = toLonLat(e.coordinate);
       this.clicked_(lon, lat, hit ?? null);
     };
@@ -463,7 +595,7 @@ export class ObservationPanel {
     if (on) this.options.onStart?.();
     this.record_.setAttribute('aria-pressed', String(on));
     this.record_.textContent = on ? 'クリック記録中' : 'クリック記録';
-    this.translate_.setActive(on);
+    this.translate_.setActive(on && !this.areaMode_);
     this.map.getViewport().classList.toggle('observing', on);
     if (!on) {
       this.front_ = null;
@@ -489,6 +621,152 @@ export class ObservationPanel {
 
   isTwoPoint(): boolean {
     return this.twoPoint_;
+  }
+
+  /** Turns 「確認範囲」 on (two corners on the map, the view or the image, then its kind) or off. */
+  setAreaMode(on: boolean): void {
+    if (on && !this.current_) {
+      this.say_('画像なし（画像を開く、または ＋ でファイルなしの画像を追加）');
+      on = false;
+    }
+    this.areaMode_ = on;
+    this.areaRing_ = null;
+    this.draw_.abortDrawing();
+    this.draw_.setActive(on);
+    this.translate_.setActive(this.active_ && !on);
+    this.areaButton_.setAttribute('aria-pressed', String(on));
+    if (!on && this.areaForm_.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+    this.areaForm_.hidden = !on;
+    if (on) {
+      this.closeForm_();
+      this.front_ = null;
+      this.options.onStart?.();
+      this.areaForm_.querySelector<HTMLInputElement>('input[name=area-kind]')!.value = '';
+      this.areaForm_.querySelector<HTMLInputElement>('input[name=area-note]')!.value = '';
+      this.areaForm_.querySelector<HTMLButtonElement>('button[value=area-image]')!.disabled = !this.current_?.info.box;
+      this.say_(HINT_AREA);
+    }
+    this.renderAreaRange_();
+    this.drawMarks_();
+  }
+
+  isAreaMode(): boolean {
+    return this.areaMode_;
+  }
+
+  /** The checked areas loaded (deleted ones too). */
+  areas(): readonly CheckedArea[] {
+    return this.areas_;
+  }
+
+  /** Records a checked area on an image (this one unless given): its outline (longitude / latitude), the kind looked for ('' all). */
+  async addArea(values: { ring: number[][]; kind?: string; note?: string; image?: string }): Promise<CheckedArea | null> {
+    const image = values.image ? this.entryOf_(values.image)?.info : this.current_?.info;
+    if (!image) return null;
+    const ring = values.ring.map((p) => [p[0], p[1]]);
+    if (ring.length < 3) return null;
+    const [a, b] = [ring[0], ring[ring.length - 1]];
+    if (a[0] !== b[0] || a[1] !== b[1]) ring.push([a[0], a[1]]);
+    const now = Date.now();
+    const kind = kindOf(pathOf(values.kind ?? ''));
+    const area: CheckedArea = { id: newAreaId(), imageId: image.id, imageName: image.name, imageTime: image.time, ring, kind, note: values.note?.trim() ?? '', recordedBy: this.observer(), createdAt: now, updatedAt: now, deletedAt: null };
+    const store = this.options.areaStore(this.store_);
+    try {
+      await store.save([area]);
+    } catch (error) {
+      this.say_(`${store.label} への確認範囲の保存失敗: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+    this.areas_ = [...this.areas_, area];
+    this.render_();
+    const missing = image.id === this.current_?.info.id ? this.insideCarried_().length : 0;
+    this.say_(`${areaLabel(area)}を記録${missing ? `（範囲内で記録のない前後の画像のモノ ${missing} 件）` : ''}`);
+    return area;
+  }
+
+  /** Deletes checked areas (kept, marked, where the store does). */
+  async removeAreas(list: readonly CheckedArea[]): Promise<void> {
+    if (!list.length) return;
+    const store = this.options.areaStore(this.store_);
+    try {
+      const marked = await store.remove(list);
+      const ids = new Set(list.map((a) => a.id));
+      const kept = new Map(marked.map((a) => [a.id, a]));
+      this.areas_ = this.areas_.flatMap((a) => (ids.has(a.id) ? (kept.has(a.id) ? [kept.get(a.id)!] : []) : [a]));
+      this.say_(`確認範囲 ${list.length} 件を削除`);
+    } catch (error) {
+      this.say_(`確認範囲の削除失敗: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.render_();
+  }
+
+  /** Brings deleted checked areas back. */
+  async restoreAreas(list: readonly CheckedArea[]): Promise<void> {
+    const now = Date.now();
+    const back = list.map((a) => ({ ...a, deletedAt: null, updatedAt: now }));
+    try {
+      await this.options.areaStore(this.store_).save(back);
+      const byId = new Map(back.map((a) => [a.id, a]));
+      this.areas_ = this.areas_.map((a) => byId.get(a.id) ?? a);
+      this.say_(`確認範囲 ${back.length} 件を復元`);
+    } catch (error) {
+      this.say_(`確認範囲の復元失敗: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.render_();
+  }
+
+  /** The things of other images not recorded in this one that lie in one of its checked areas (so were not there). */
+  missingInAreas(): readonly CarryOver[] {
+    return this.insideCarried_();
+  }
+
+  /** Records the things carried over into a checked area as gone in this image. */
+  async absentInside(): Promise<void> {
+    const image = this.current_?.info;
+    const list = this.insideCarried_();
+    if (!image || !list.length) return;
+    const now = Date.now();
+    const made = list.map((c) => carriedInto(c.from, image, now, { present: false, activity: '' }));
+    await this.saveRecords_(made, `${made.length} のモノを不在として記録（確認範囲内）`);
+  }
+
+  /** The levels of 確度 offered, the surest first. */
+  confidences(): ConfidenceLevel[] {
+    return this.vocabulary_().confidences;
+  }
+
+  /** Who records now: the name typed in 「詳細」, else whoever is signed in ('' nobody). */
+  observer(): string {
+    return this.observerInput_.value.trim() || this.options.user?.() || '';
+  }
+
+  /** Sets the recorder's name (kept in this browser; '' the signed-in user). */
+  setObserver(name: string): void {
+    this.observerInput_.value = name.trim();
+    try {
+      localStorage.setItem(OBSERVER_KEY, name.trim());
+    } catch {
+      // Only while the page is open.
+    }
+  }
+
+  /** The things of other images that may be the one at a place in this image (同一候補), likeliest first. */
+  candidates(at: { lon: number; lat: number; kind?: string; length?: number | null; heading?: number | null }, image?: string): MatchCandidate[] {
+    const info = image ? this.entryOf_(image)?.info : this.current_?.info;
+    if (!info) return [];
+    return matchCandidates(this.records_, info, at, { radius: this.vocabulary_().matchRadius });
+  }
+
+  /** The images to record on, in time order: open ones and ones listed without their file. */
+  imageList(): Array<ObservedImage & { file: boolean; current: boolean }> {
+    return this.ordered_.map((e) => ({ ...e.info, file: !!e.image, current: e === this.current_ }));
+  }
+
+  /** Records on the image of this id from now on (an open one or one listed without its file). */
+  goToImage(id: string): boolean {
+    const entry = this.entryOf_(id);
+    if (entry) this.goToEntry_(entry);
+    return !!entry;
   }
 
   /** Opens the panel on the selected image (or the first one). */
@@ -530,6 +808,11 @@ export class ObservationPanel {
       .taxonomyStore(this.store_)
       .loadFields()
       .catch(() => null);
+    const areaStore = this.options.areaStore(this.store_);
+    const areas = areaStore.load().catch((error) => {
+      this.say_(`${areaStore.label} から確認範囲の読み込み失敗: ${error instanceof Error ? error.message : String(error)}`);
+      return [] as CheckedArea[];
+    });
     try {
       this.records_ = await this.store_.load();
       this.say_(`${this.store_.label}: ${living(this.records_).length} 件の記録、${flows(this.records_).length} のモノ`);
@@ -537,6 +820,7 @@ export class ObservationPanel {
       this.records_ = [];
       this.say_(`${this.store_.label} から読み込み失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
+    this.areas_ = await areas;
     this.taxonomy_ = (await kept) ?? this.vocabulary_().taxonomy;
     this.specFields_ = (await fields) ?? this.vocabulary_().specFields;
     this.render_();
@@ -704,13 +988,15 @@ export class ObservationPanel {
     else this.render_();
   }
 
-  /** Records every carried-over thing as still there in this image. */
+  /** Records every carried-over thing as still there in this image (but those in a checked area, which were not). */
   async carryAll(): Promise<void> {
     const image = this.current_?.info;
-    if (!image || !this.carried_.length) return;
+    const inside = new Set(this.insideCarried_());
+    const list = this.carried_.filter((c) => !inside.has(c));
+    if (!image || !list.length) return;
     const now = Date.now();
-    const made = this.carried_.map((c) => carriedInto(c.from, image, now));
-    await this.saveRecords_(made, `${made.length} のモノを継続として記録`);
+    const made = list.map((c) => carriedInto(c.from, image, now));
+    await this.saveRecords_(made, `${made.length} のモノを継続として記録${inside.size ? `（確認範囲内の ${inside.size} 件を除く）` : ''}`);
   }
 
   /** Records a carried-over thing in this image: still there (with changes), or gone. */
@@ -722,12 +1008,29 @@ export class ObservationPanel {
     await this.saveRecords_([record], `${record.objectName} を${present ? '継続' : '不在'}として記録`);
   }
 
-  /** Records a new observation (as the form does), for scripts and tests. */
-  async add(values: { lon: number; lat: number; object?: string; kind?: string; activity?: string; note?: string; present?: boolean; length?: number; heading?: number }): Promise<Observation | null> {
-    const image = this.current_?.info;
+  /** Records a new observation (as the form does) on this image or the one of `image` (its id), for scripts and tests. */
+  async add(values: { lon: number; lat: number; image?: string; object?: string; kind?: string; activity?: string; confidence?: string; note?: string; present?: boolean; length?: number; heading?: number }): Promise<Observation | null> {
+    const image = values.image ? this.entryOf_(values.image)?.info : this.current_?.info;
     if (!image) return null;
-    const record = this.recordFrom_(image, values.lon, values.lat, null, null, { object: values.object ?? '', kind: values.kind ?? this.last_.kind, activity: values.activity ?? this.last_.activity, note: values.note ?? '', length: values.length === undefined ? '' : String(values.length), heading: values.heading === undefined ? '' : String(values.heading) }, values.present ?? true);
+    const record = this.recordFrom_(
+      image,
+      values.lon,
+      values.lat,
+      null,
+      null,
+      { object: values.object ?? '', kind: values.kind ?? this.last_.kind, activity: values.activity ?? this.last_.activity, confidence: values.confidence ?? this.last_.confidence, note: values.note ?? '', length: values.length === undefined ? '' : String(values.length), heading: values.heading === undefined ? '' : String(values.heading) },
+      values.present ?? true,
+    );
     await this.saveRecords_([record], `${record.objectName} を記録`);
+    return record;
+  }
+
+  /** Changes a record (its id): what it says, or where it is. */
+  async update(id: string, changes: Partial<Pick<Observation, 'kind' | 'activity' | 'present' | 'confidence' | 'note' | 'lon' | 'lat' | 'length' | 'heading'>>): Promise<Observation | null> {
+    const was = this.records_.find((o) => o.id === id && o.deletedAt === null);
+    if (!was) return null;
+    const record: Observation = { ...was, ...changes, ...(changes.kind !== undefined ? { kind: kindOf(pathOf(changes.kind)) } : {}), ...(changes.present === false ? { activity: '' } : {}), updatedAt: Date.now() };
+    await this.saveRecords_([record], `${record.objectName} を更新`);
     return record;
   }
 
@@ -880,7 +1183,7 @@ export class ObservationPanel {
     const levelFields = levels.map((name, i) => field(name, 'string', `分類${i + 1}`));
     const points = list.map((o) => {
       const f = new Feature(new Point(fromLonLat([o.lon, o.lat])));
-      f.setProperties({ ...levelValues(o.kind), obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, length_m: o.length ?? null, heading_deg: o.heading ?? null, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
+      f.setProperties({ ...levelValues(o.kind), obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', confidence: o.confidence ?? '', recorded_by: o.recordedBy ?? '', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, length_m: o.length ?? null, heading_deg: o.heading ?? null, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
       return f;
     });
     this.options.onLayer(
@@ -895,18 +1198,44 @@ export class ObservationPanel {
           ...levelFields,
           field('activity', 'string', '活動'),
           field('present', 'string', '有無'),
+          field('confidence', 'string', '確度'),
           field('image_time', 'date', '撮像日時'),
           field('image_id', 'string', '画像ID'),
           field('image', 'string', '画像'),
           field('length_m', 'double', '長さ（m）'),
           field('heading_deg', 'double', '向き（度）'),
           field('note', 'string', '備考'),
+          field('recorded_by', 'string', '記録者'),
           field('created_at', 'date', '登録日時'),
           field('updated_at', 'date', '更新日時'),
         ],
       },
       '観測記録',
     );
+    const areas = this.areas_.filter((a) => a.deletedAt === null);
+    if (areas.length) {
+      this.options.onLayer(
+        {
+          title: '確認範囲',
+          features: areas.map((a) => {
+            const f = new Feature(new Polygon([a.ring.map((p) => fromLonLat(p))]));
+            f.setProperties({ area_id: a.id, kind: a.kind, note: a.note, image_time: a.imageTime, image_id: a.imageId, image: a.imageName, recorded_by: a.recordedBy ?? '', created_at: a.createdAt });
+            return f;
+          }),
+          fields: [
+            field('area_id', 'string', '確認範囲ID'),
+            field('kind', 'string', '対象の種別'),
+            field('note', 'string', '備考'),
+            field('image_time', 'date', '撮像日時'),
+            field('image_id', 'string', '画像ID'),
+            field('image', 'string', '画像'),
+            field('recorded_by', 'string', '記録者'),
+            field('created_at', 'date', '登録日時'),
+          ],
+        },
+        '確認範囲',
+      );
+    }
     const lines = flows(list)
       .map((flow) => {
         const seen = flow.observations.filter((o) => o.present);
@@ -938,7 +1267,232 @@ export class ObservationPanel {
     }
   }
 
+  /** A report of the records (observation-report.ts) as an HTML page; the options default to the report form's. */
+  async report(options: Partial<ReportOptions> = {}): Promise<{ html: string; options: ReportOptions; things: number; records: number }> {
+    const o: ReportOptions = { ...defaultReportOptions, ...this.reportOptions_(), ...options };
+    const levels = this.confidences();
+    const selection = selectForReport(this.records_, this.areas_, o, levels);
+    const map = o.map && (selection.records.length || selection.areas.length) ? await this.snapshot_(selection.records, o.areas ? selection.areas : []) : null;
+    const html = reportHtml(selection, o, { store: this.store_.label, author: this.observer(), made: Date.now(), levels, map });
+    return { html, options: o, things: selection.flows.length, records: selection.records.length };
+  }
+
+  /** Saves the report (the chosen folder, else a download). */
+  async saveReport(options: Partial<ReportOptions> = {}): Promise<void> {
+    this.say_('報告書を作成中…');
+    try {
+      const { html, options: o, records } = await this.report(options);
+      if (!records && !this.areas_.length) return this.say_('該当する記録なし');
+      await saveReport(html, o.title, (m) => this.say_(m));
+    } catch (error) {
+      this.say_(`報告書の作成失敗: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** Prints the report (the browser's print, where a PDF can be made). */
+  async printReport(options: Partial<ReportOptions> = {}): Promise<void> {
+    this.say_('報告書を作成中…');
+    try {
+      const { html, records } = await this.report(options);
+      if (!records && !this.areas_.length) return this.say_('該当する記録なし');
+      printReport(html);
+      this.say_('報告書を印刷');
+    } catch (error) {
+      this.say_(`報告書の作成失敗: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   // ---- inside ----
+
+  /** The entry of an image by its id. */
+  private entryOf_(id: string): Entry | undefined {
+    return this.ordered_.find((e) => e.info.id === id);
+  }
+
+  /** What the report form says (its defaults while it was never opened). */
+  private reportOptions_(): ReportOptions {
+    const f = (name: string) => this.reportForm_.querySelector<HTMLInputElement & HTMLSelectElement>(`[name=${name}]`)!;
+    const day = (v: string, end: boolean) => {
+      if (!v) return null;
+      const [y, m, d] = v.split('-').map(Number);
+      return end ? new Date(y, m - 1, d, 23, 59, 59, 999).getTime() : new Date(y, m - 1, d).getTime();
+    };
+    return {
+      title: f('report-title').value.trim() || defaultReportOptions.title,
+      from: day(f('report-from').value, false),
+      to: day(f('report-to').value, true),
+      kind: f('report-kind').value,
+      confidence: f('report-confidence').value,
+      map: f('report-map').checked,
+      flows: f('report-flows').checked,
+      areas: f('report-areas').checked,
+      records: f('report-records').checked,
+    };
+  }
+
+  private toggleReport_(open = this.reportForm_.hidden): void {
+    this.reportForm_.hidden = !open;
+    this.dialog.querySelector('button[value=report]')!.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    const f = (name: string) => this.reportForm_.querySelector<HTMLInputElement & HTMLSelectElement>(`[name=${name}]`)!;
+    if (!f('report-title').value) f('report-title').value = defaultReportOptions.title;
+    const kind = f('report-kind');
+    const was = kind.value;
+    kind.replaceChildren(new Option('すべて', ''), ...this.taxonomy().map((t) => new Option(`${'\u3000'.repeat(t.path.length - 1)}${t.path[t.path.length - 1]}`, kindOf(t.path))));
+    kind.value = was;
+    const level = f('report-confidence');
+    const had = level.value;
+    level.replaceChildren(new Option('すべて', ''), ...this.confidences().map((c, i, all) => new Option(i === all.length - 1 ? c.label : `${c.label} 以上`, c.label)));
+    level.value = had;
+    this.renderReportCount_();
+  }
+
+  private renderReportCount_(): void {
+    if (this.reportForm_.hidden) return;
+    const o = this.reportOptions_();
+    const s = selectForReport(this.records_, this.areas_, o, this.confidences());
+    this.reportForm_.querySelector('.obs-report-count')!.textContent = `モノ ${s.flows.length}・記録 ${s.records.length}・画像 ${s.images.length}${o.areas ? `・確認範囲 ${s.areas.length}` : ''}`;
+  }
+
+  /** The map of a report: the records (the latest of each thing named), the flows and the checked areas, over their extent. */
+  private async snapshot_(records: readonly Observation[], areas: readonly CheckedArea[]): Promise<string | null> {
+    const features: Feature[] = [];
+    for (const a of areas) features.push(new Feature({ geometry: new Polygon([a.ring.map((p) => fromLonLat(p))]), role: 'area', label: areaLabel(a) }));
+    for (const flow of flows(records)) {
+      const seen = flow.observations.filter((o) => o.present);
+      if (seen.length > 1) features.push(new Feature({ geometry: new LineString(seen.map((o) => fromLonLat([o.lon, o.lat]))), role: 'track' }));
+      const last = flow.observations[flow.observations.length - 1];
+      for (const o of flow.observations) {
+        if (o === last) features.push(new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'obs', kind: o.kind, label: o.objectName, present: o.present }));
+        else features.push(new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'step', present: o.present, label: '' }));
+      }
+    }
+    if (!features.length) return null;
+    const layer = new VectorLayer({ source: new VectorSource({ features }), style: (f) => this.styleOf_(f), zIndex: 1002 });
+    const view = this.map.getView();
+    const was = { center: view.getCenter(), resolution: view.getResolution(), rotation: view.getRotation() };
+    const shown = this.overlay.getVisible();
+    this.overlay.setVisible(false);
+    this.map.addLayer(layer);
+    try {
+      const extent = layer.getSource()!.getExtent()!;
+      view.fit(buffer(extent, Math.max(200, (extent[2] - extent[0]) * 0.08, (extent[3] - extent[1]) * 0.08)), { size: this.map.getSize(), maxZoom: 17 });
+      const { canvas } = await drawView(this.map, 1);
+      return canvas.toDataURL('image/jpeg', 0.88);
+    } catch (error) {
+      this.say_(`報告書の地図の作成不可: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    } finally {
+      this.map.removeLayer(layer);
+      this.overlay.setVisible(shown);
+      view.setRotation(was.rotation);
+      if (was.center) view.setCenter(was.center);
+      if (was.resolution !== undefined) view.setResolution(was.resolution);
+    }
+  }
+
+  /** The carried-over things that lie in one of this image's checked areas. */
+  private insideCarried_(): CarryOver[] {
+    const image = this.current_?.info;
+    if (!image) return [];
+    return this.carried_.filter((c) => coveringAreas(this.areas_, image.id, c.from.lon, c.from.lat, c.from.kind).length > 0);
+  }
+
+  private setAreaRing_(ring: number[][]): void {
+    this.areaRing_ = ring;
+    this.draw_.abortDrawing();
+    this.renderAreaRange_();
+    this.drawMarks_();
+    this.areaForm_.querySelector<HTMLInputElement>('input[name=area-kind]')!.focus({ preventScroll: true });
+  }
+
+  private renderAreaRange_(): void {
+    const text = this.areaForm_.querySelector('.obs-area-range')!;
+    const ring = this.areaRing_;
+    if (!ring) {
+      text.textContent = '範囲: 未指定（地図で 2 点クリック）';
+      return;
+    }
+    const lons = ring.map((p) => p[0]);
+    const lats = ring.map((p) => p[1]);
+    const [w, e, s, n] = [Math.min(...lons), Math.max(...lons), Math.min(...lats), Math.max(...lats)];
+    const mid = (s + n) / 2;
+    text.textContent = `範囲: ${km(getDistance([w, mid], [e, mid]))} × ${km(getDistance([w, s], [w, n]))}`;
+  }
+
+  private async submitArea_(): Promise<void> {
+    if (!this.areaRing_) return this.say_('範囲を指定（地図で 2 点クリック、または「表示範囲」「画像の範囲」）');
+    const value = (name: string) => this.areaForm_.querySelector<HTMLInputElement>(`input[name=${name}]`)!.value;
+    const ring = this.areaRing_;
+    const done = await this.addArea({ ring, kind: value('area-kind'), note: value('area-note') });
+    if (!done) return;
+    const message = this.status_.textContent ?? '';
+    this.setAreaMode(false);
+    this.say_(message);
+  }
+
+  /** The things offered as the same one, under 「モノ」 in a new record's form. */
+  private renderCandidates_(): void {
+    const p = this.pending_;
+    if (!p || p.editing || p.from || this.form_.hidden) {
+      this.offered_ = [];
+      this.candidates_.hidden = true;
+      return this.candidates_.replaceChildren();
+    }
+    const input = (name: string) => this.form_.querySelector<HTMLInputElement>(`input[name=${name}]`)!;
+    const number = (v: string) => (v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
+    this.offered_ = this.candidates({ lon: p.lon, lat: p.lat, kind: input('kind').value, length: number(input('length').value), heading: number(input('heading').value) });
+    const typed = input('object').value.trim();
+    const tag = document.createElement('span');
+    tag.className = 'obs-level';
+    tag.textContent = '同一候補:';
+    this.candidates_.replaceChildren(
+      tag,
+      ...this.offered_.map((c, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = `${i + 1} ${c.name}`;
+        b.title = `${c.kind || '種別なし'}・${c.reasons.join('・')}・${localTime(c.from.imageTime)} の記録（Alt+${i + 1}）`;
+        if (typed === c.name) b.setAttribute('aria-pressed', 'true');
+        b.addEventListener('click', () => this.pickCandidate_(c));
+        return b;
+      }),
+    );
+    this.candidates_.hidden = !this.offered_.length;
+  }
+
+  /** A candidate chosen: the record is of that thing (its kind and activity come with it). */
+  private pickCandidate_(c: MatchCandidate): void {
+    const object = this.form_.querySelector<HTMLInputElement>('input[name=object]')!;
+    object.value = c.name;
+    this.objectTyped_();
+    this.renderCandidates_();
+    this.form_.querySelector<HTMLButtonElement>('button[type=submit]')!.focus({ preventScroll: true });
+  }
+
+  /** The levels of 確度 in the form, with the one given chosen. */
+  private fillConfidence_(value: string): void {
+    const levels = this.confidences();
+    const known = levels.some((c) => c.label === value);
+    this.confidence_.replaceChildren(
+      new Option('確度なし', ''),
+      ...levels.map((c) => {
+        const o = new Option(c.label, c.label);
+        if (c.note) o.title = c.note;
+        return o;
+      }),
+      ...(value && !known ? [new Option(value, value)] : []),
+    );
+    this.confidence_.value = value;
+    this.renderConfidence_();
+  }
+
+  private renderConfidence_(): void {
+    const level = this.confidences().find((c) => c.label === this.confidence_.value);
+    this.confidence_.title = level?.note ?? '';
+    this.confidence_.style.borderInlineStartColor = level?.color ?? '';
+    this.confidence_.classList.toggle('obs-confidence-colored', !!level?.color);
+  }
 
   private say_(message: string): void {
     this.status_.textContent = message;
@@ -946,6 +1500,7 @@ export class ObservationPanel {
   }
 
   private closed_(): void {
+    if (this.areaMode_) this.setAreaMode(false);
     this.setActive(false);
     this.closeForm_();
     if (this.only_.checked) {
@@ -956,9 +1511,27 @@ export class ObservationPanel {
   }
 
   private key_(e: KeyboardEvent): void {
+    // Alt+1–5: a candidate of the same thing (by the key's place, whatever character it types).
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-5]$/.test(e.code) && !this.form_.hidden) {
+      const c = this.offered_[Number(e.code.slice(5)) - 1];
+      if (c) {
+        e.preventDefault();
+        this.pickCandidate_(c);
+      }
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const inText = (e.target as HTMLElement)?.matches?.('input:not([type=checkbox]):not([type=radio]), textarea, select');
-    if (e.key === 'PageDown' || e.key === 'PageUp') {
+    if (e.key === 'Escape' && this.areaMode_) {
+      e.preventDefault();
+      e.stopPropagation();
+      // A corner clicked: that goes first; then the mode.
+      if (this.areaRing_ || !this.draw_.getOverlay().getSource()?.getFeatures().length) this.setAreaMode(false);
+      else {
+        this.draw_.abortDrawing();
+        this.say_(HINT_AREA);
+      }
+    } else if (e.key === 'PageDown' || e.key === 'PageUp') {
       e.preventDefault();
       void this.step(e.key === 'PageDown' ? 1 : -1);
     } else if (e.key === 'Escape' && this.front_) {
@@ -983,6 +1556,9 @@ export class ObservationPanel {
     } else if (!inText && (e.key === 'l' || e.key === 'L')) {
       e.preventDefault();
       this.setTwoPoint(!this.twoPoint_);
+    } else if (!inText && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      this.setAreaMode(!this.areaMode_);
     }
   }
 
@@ -1082,6 +1658,7 @@ export class ObservationPanel {
     input('kind').value = source ? source.kind : this.last_.kind || this.vocabulary_().kinds[0] || '';
     input('activity').value = source ? source.activity : this.last_.activity;
     input('note').value = editing ? editing.note : '';
+    this.fillConfidence_(source ? (source.confidence ?? '') : this.last_.confidence);
     this.form_.querySelector<HTMLButtonElement>('button[value=delete]')!.hidden = !editing;
     this.form_.querySelector<HTMLButtonElement>('button[value=absent]')!.hidden = !source;
     this.form_.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent = editing ? '更新（Enter）' : from ? '継続（Enter）' : '記録（Enter）';
@@ -1089,6 +1666,7 @@ export class ObservationPanel {
     this.renderChips_();
     this.renderKindPath_();
     this.renderMeasure_();
+    this.renderCandidates_();
     this.drawMarks_();
     // A new thing gets its name typed; a known one is saved with Enter (or 1–9 picks its activity first).
     (source ? this.form_.querySelector<HTMLButtonElement>('button[type=submit]')! : input('object')).focus({ preventScroll: true });
@@ -1097,7 +1675,12 @@ export class ObservationPanel {
   private closeForm_(): void {
     if (!this.pending_ && this.form_.hidden) return;
     this.pending_ = null;
+    // Keys go to the panel again (R, L, A…), not to a field hidden with the form.
+    if (this.form_.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     this.form_.hidden = true;
+    this.offered_ = [];
+    this.candidates_.hidden = true;
+    this.candidates_.replaceChildren();
     this.drawMarks_();
   }
 
@@ -1127,7 +1710,7 @@ export class ObservationPanel {
   }
 
   /** The record the form says. */
-  private recordFrom_(image: ObservedImage, lon: number, lat: number, editing: Observation | null, from: Observation | null, values: { object: string; kind: string; activity: string; note: string; length?: string; heading?: string }, present: boolean): Observation {
+  private recordFrom_(image: ObservedImage, lon: number, lat: number, editing: Observation | null, from: Observation | null, values: { object: string; kind: string; activity: string; note: string; confidence?: string; length?: string; heading?: string }, present: boolean): Observation {
     const now = Date.now();
     const number = (v: string | undefined) => (v && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
     const length = number(values.length);
@@ -1136,10 +1719,11 @@ export class ObservationPanel {
     const name = values.object.trim();
     const kind = kindOf(pathOf(values.kind));
     const activity = present ? values.activity.trim() : '';
+    const confidence = values.confidence?.trim() ?? '';
     if (editing) {
       // The same thing unless another one's name was typed.
       const other = name && name !== editing.objectName ? this.flowByName_(name) : null;
-      return { ...editing, objectId: other ? other.objectId : editing.objectId, objectName: other ? other.name : name || editing.objectName, kind, activity, present, note: values.note, lon, lat, ...measure, updatedAt: now };
+      return { ...editing, objectId: other ? other.objectId : editing.objectId, objectName: other ? other.name : name || editing.objectName, kind, activity, present, confidence, note: values.note, lon, lat, ...measure, updatedAt: now };
     }
     const known = from && (!name || name === from.objectName) ? { objectId: from.objectId, name: from.objectName } : this.flowByName_(name) ? { objectId: this.flowByName_(name)!.objectId, name: this.flowByName_(name)!.name } : null;
     return {
@@ -1152,6 +1736,7 @@ export class ObservationPanel {
       kind,
       activity,
       present,
+      confidence,
       note: values.note,
       lon,
       lat,
@@ -1167,9 +1752,9 @@ export class ObservationPanel {
     const pending = this.pending_;
     if (!image || !pending) return;
     const value = (name: string) => this.form_.querySelector<HTMLInputElement>(`input[name=${name}]`)!.value;
-    const values = { object: value('object'), kind: value('kind'), activity: value('activity'), note: value('note'), length: value('length'), heading: value('heading') };
+    const values = { object: value('object'), kind: value('kind'), activity: value('activity'), note: value('note'), confidence: this.confidence_.value, length: value('length'), heading: value('heading') };
     const record = this.recordFrom_(image, pending.lon, pending.lat, pending.editing, pending.from, values, present);
-    this.last_ = { kind: record.kind, activity: present ? record.activity : this.last_.activity };
+    this.last_ = { kind: record.kind, activity: present ? record.activity : this.last_.activity, confidence: record.confidence ?? '' };
     this.closeForm_();
     await this.saveRecords_([record], `${record.objectName}${present ? (record.activity ? `（${record.activity}）` : '') : '（不在）'}を${pending.editing ? '更新' : '記録'}`);
   }
@@ -1177,6 +1762,10 @@ export class ObservationPanel {
   /** Saves records in the store and in the list. */
   private async saveRecords_(list: Observation[], done: string): Promise<void> {
     if (!list.length) return;
+    // Who made (a new record) and who changed it: the one recording now.
+    const by = this.observer();
+    const known = new Set(this.records_.map((o) => o.id));
+    list = list.map((o) => (known.has(o.id) ? { ...o, updatedBy: by } : { ...o, recordedBy: by, updatedBy: by }));
     try {
       await this.store_.save(list);
       const byId = new Map(list.map((o) => [o.id, o]));
@@ -1297,7 +1886,11 @@ export class ObservationPanel {
     const all = this.deleted_.checked ? this.records_ : living(this.records_);
     this.carried_ = image ? carryOvers(this.records_, image, this.inside_()) : [];
     this.carry_.textContent = this.carried_.length ? `前後の画像のモノ ${this.carried_.length} 件` : '';
-    this.carryAll_.hidden = !this.carried_.length;
+    const inside = this.insideCarried_();
+    this.carryAll_.hidden = this.carried_.length <= inside.length;
+    this.absentInside_.hidden = !inside.length;
+    this.absentInside_.textContent = `確認範囲内 ${inside.length} 件を不在`;
+    this.renderReportCount_();
     const here = image ? all.filter((o) => o.imageId === image.id).sort((a, b) => a.objectName.localeCompare(b.objectName, 'ja')) : [];
     const objects = flows(this.records_);
     this.tabs_[0].querySelector('span')!.textContent = String(here.filter((o) => o.deletedAt === null).length);
@@ -1367,16 +1960,29 @@ export class ObservationPanel {
         o.deletedAt !== null ? 'obs-deleted' : '',
       ),
     );
+    const inside = new Set(this.insideCarried_());
     for (const c of this.carried_) {
       const actions = document.createElement('span');
       actions.className = 'obs-row-actions';
       actions.append(this.button_('継続', 'この画像でも継続として記録', () => void this.carry(c.from.objectId, true)), this.button_('不在', 'この画像での不在を記録', () => void this.carry(c.from.objectId, false)));
       rows.push(
-        this.row_([c.from.objectName, c.from.kind, `${c.from.activity}（${c.side === 'before' ? '前' : '後'}の画像 ${localTime(c.from.imageTime)}）`, measure(c.from), '', '', actions], () => {
+        this.row_([c.from.objectName, c.from.kind, `${c.from.activity}（${c.side === 'before' ? '前' : '後'}の画像 ${localTime(c.from.imageTime)}）`, measure(c.from), inside.has(c) ? '確認範囲内（記録なし）' : '', '', actions], () => {
           if (!this.active_) this.setActive(true);
           this.openForm_(c.from.lon, c.from.lat, null, c.from);
           this.center_(c.from);
-        }, 'obs-ghost'),
+        }, inside.has(c) ? 'obs-ghost obs-inside' : 'obs-ghost'),
+      );
+    }
+    // The checked areas of this image.
+    const image = this.current_?.info;
+    for (const a of image ? this.areas_.filter((x) => x.imageId === image.id && (x.deletedAt === null || this.deleted_.checked)) : []) {
+      const gone = a.deletedAt !== null;
+      rows.push(
+        this.row_(
+          [areaLabel(a), a.kind, '', '', a.note, localTime(a.updatedAt), gone ? this.button_('復元', '削除した確認範囲の復元', () => void this.restoreAreas([a])) : this.button_('削除', 'この確認範囲の削除', () => void this.removeAreas([a]))],
+          () => this.fitArea_(a),
+          gone ? 'obs-area-row obs-deleted' : 'obs-area-row',
+        ),
       );
     }
     if (!rows.length) rows.push(this.row_([this.current_ ? '記録なし（「クリック記録」で地図をクリック）' : '画像なし']));
@@ -1638,6 +2244,11 @@ export class ObservationPanel {
     } else this.say_(`画像（${o.imageName || o.imageId}）が開かれておらず移動不可`);
   }
 
+  private fitArea_(a: CheckedArea): void {
+    const extent = boundingExtent(a.ring.map((p) => fromLonLat(p)));
+    this.map.getView().fit(buffer(extent, (extent[2] - extent[0]) * 0.1), { padding: [40, 40, 40, 40], maxZoom: 18, duration: 250 });
+  }
+
   private center_(o: Observation): void {
     const view = this.map.getView();
     const at = fromLonLat([o.lon, o.lat]);
@@ -1666,6 +2277,7 @@ export class ObservationPanel {
       for (const o of flow.observations) features.push(new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'step', label: `${localTime(o.imageTime).slice(5)}${o.present ? '' : '（不在）'}`, present: o.present }));
     }
     if (image) {
+      for (const a of this.areas_) if (a.imageId === image.id && a.deletedAt === null) features.push(new Feature({ geometry: new Polygon([a.ring.map((p) => fromLonLat(p))]), role: 'area', label: areaLabel(a) }));
       for (const c of this.carried_) {
         features.push(new Feature({ geometry: new Point(fromLonLat([c.from.lon, c.from.lat])), role: 'ghost', record: c.from, kind: c.from.kind, label: c.from.objectName }));
         const ends = endsOf(c.from);
@@ -1673,7 +2285,7 @@ export class ObservationPanel {
       }
       for (const o of living(this.records_)) {
         if (o.imageId !== image.id) continue;
-        const f = new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'obs', record: o, kind: o.kind, label: `${o.objectName}${o.present ? (o.activity ? `・${o.activity}` : '') : '（不在）'}`, present: o.present, editing: this.pending_?.editing?.id === o.id });
+        const f = new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'obs', record: o, kind: o.kind, label: `${o.objectName}${o.present ? (o.activity ? `・${o.activity}` : '') : '（不在）'}${o.confidence && o.confidence !== this.confidences()[0]?.label ? `（${o.confidence}）` : ''}`, present: o.present, confidence: o.confidence ?? '', editing: this.pending_?.editing?.id === o.id });
         // Measured by two points: its length along its heading, an arrow at its front.
         const ends = endsOf(o);
         if (ends) features.push(new Feature({ geometry: new LineString(ends.map((p) => fromLonLat(p))), role: 'obs-line', record: o, kind: o.kind, heading: o.heading, present: o.present }));
@@ -1683,6 +2295,7 @@ export class ObservationPanel {
     }
     const p = this.pending_;
     if (p && !p.editing) features.push(new Feature({ geometry: new Point(fromLonLat([p.lon, p.lat])), role: 'pending' }));
+    if (this.areaMode_ && this.areaRing_) features.push(new Feature({ geometry: new Polygon([this.areaRing_.map((q) => fromLonLat(q))]), role: 'area-pending' }));
     // The front clicked, and a line to the pointer with its length and heading.
     if (this.front_) {
       features.push(new Feature({ geometry: new Point(fromLonLat(this.front_)), role: 'pending' }));
@@ -1707,9 +2320,11 @@ export class ObservationPanel {
     switch (role) {
       case 'obs': {
         const color = this.colorOf_(String(f.get('kind') ?? ''));
+        // The ring: the colour of its 確度, when the level has one.
+        const ring = this.confidences().find((c) => c.label === f.get('confidence'))?.color ?? '#fff';
         return new Style({
           image: f.get('present')
-            ? new Circle({ radius: f.get('editing') ? 9 : 7, fill: new Fill({ color }), stroke: new Stroke({ color: '#fff', width: 2 }) })
+            ? new Circle({ radius: f.get('editing') ? 9 : 7, fill: new Fill({ color }), stroke: new Stroke({ color: ring, width: ring === '#fff' ? 2 : 3 }) })
             : new RegularShape({ points: 4, radius: 8, angle: Math.PI / 4, stroke: new Stroke({ color, width: 3 }) }),
           text: label(String(f.get('label') ?? '')),
           zIndex: 3,
@@ -1753,6 +2368,19 @@ export class ObservationPanel {
           new Style({ stroke: new Stroke({ color: '#fff', width: 5 }), zIndex: 4 }),
           new Style({ stroke: new Stroke({ color: '#e11d48', width: 2, lineDash: [6, 4] }), text: label(String(f.get('label') ?? ''), -14), zIndex: 4 }),
         ];
+      case 'area':
+      case 'area-pending': {
+        const outline = new Style({
+          stroke: new Stroke({ color: role === 'area' ? '#0f766e' : '#e11d48', width: 2, lineDash: [8, 4] }),
+          fill: new Fill({ color: role === 'area' ? 'rgba(15,118,110,0.07)' : 'rgba(225,29,72,0.08)' }),
+          zIndex: 0,
+        });
+        if (role !== 'area') return outline;
+        // Its name at its top left corner, clear of the marks inside.
+        const coords = (f.getGeometry() as Polygon).getCoordinates()[0];
+        const corner = [Math.min(...coords.map((c) => c[0])), Math.max(...coords.map((c) => c[1]))];
+        return [outline, new Style({ geometry: new Point(corner), text: new Text({ text: String(f.get('label') ?? ''), font: '11px sans-serif', textAlign: 'left', textBaseline: 'bottom', offsetX: 2, offsetY: -3, overflow: true, fill: new Fill({ color: '#0f766e' }), stroke: new Stroke({ color: '#fff', width: 3 }) }), zIndex: 0 })];
+      }
       case 'pending':
         return new Style({ image: new RegularShape({ points: 4, radius: 10, radius2: 0, stroke: new Stroke({ color: '#e11d48', width: 2 }) }), zIndex: 4 });
       default:
