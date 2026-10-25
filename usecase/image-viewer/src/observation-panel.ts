@@ -46,7 +46,10 @@ import {
   newObservationId,
   nextName,
   observationsCsv,
+  endsOf,
+  headingText,
   timeKey,
+  twoPoint,
   type CarryOver,
   type ObjectFlow,
   type Observation,
@@ -118,6 +121,8 @@ const PALETTE = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2
 const ACTIVITY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#e11d48'];
 
 const HINT = '地図クリックで記録（白抜きの印は継続）';
+const HINT_TWO = '前端（船首・機首）→ 後端の 2 点クリックで記録（白抜きの印は継続）';
+const TWO_POINT_KEY = 'image-viewer.obs-two-point';
 type Tab = 'image' | 'objects' | 'classes';
 const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${Math.round(m)} m`);
 
@@ -131,6 +136,7 @@ export class ObservationPanel {
   private readonly timeRow_: HTMLElement;
   private readonly timeInput_: HTMLInputElement;
   private readonly record_: HTMLButtonElement;
+  private readonly twoPointButton_: HTMLButtonElement;
   private readonly carry_: HTMLElement;
   private readonly carryAll_: HTMLButtonElement;
   private readonly form_: HTMLFormElement;
@@ -169,6 +175,11 @@ export class ObservationPanel {
   private active_ = false;
   /** The place clicked, and the record edited or the thing carried over, while the form is open. */
   private pending_: { lon: number; lat: number; editing: Observation | null; from: Observation | null } | null = null;
+  /** 「2 点」: a thing measured by its front and rear (centre, length, heading) instead of a point. */
+  private twoPoint_ = false;
+  /** The front clicked, waiting for the rear; and where the pointer is meanwhile. */
+  private front_: number[] | null = null;
+  private cursor_: number[] | null = null;
   /** Visibility of the images before 「この画像だけ表示」. */
   private shown_: Map<ViewerImage, boolean> | null = null;
   private last_ = { kind: '', activity: '' };
@@ -201,6 +212,7 @@ export class ObservationPanel {
       <label class="obs-time" hidden>撮像日時不明（入力）<input type="datetime-local" name="imageTime" step="60" /></label>
       <div class="obs-actions">
         <button type="button" value="record" class="primary" aria-pressed="false" title="クリック地点にこの画像の観測を記録（R）">クリック記録</button>
+        <button type="button" value="two-point" aria-pressed="false" title="前端（船首・機首）→ 後端の 2 点クリックで、中心・長さ・向きを記録（L）">2 点</button>
         <span class="obs-carry"></span>
         <button type="button" value="carry-all" hidden title="前後の画像のモノ（白抜きの印）を、この画像でも継続として一括記録">すべて継続</button>
       </div>
@@ -211,6 +223,9 @@ export class ObservationPanel {
         <div class="obs-kind-specs wide" aria-label="種別の諸元" hidden></div>
         <div class="obs-chips wide" role="radiogroup" aria-label="活動"></div>
         <label>活動<input name="activity" list="obs-activity-list" autocomplete="off" /></label>
+        <label class="obs-measure">長さ（m）<input name="length" inputmode="decimal" autocomplete="off" /></label>
+        <label class="obs-measure">向き（°）<input name="heading" inputmode="decimal" autocomplete="off" title="北から時計回り、後端→前端" /></label>
+        <p class="obs-measure obs-measure-note wide"></p>
         <label>備考<input name="note" autocomplete="off" /></label>
         <div class="service-actions wide">
           <button type="submit" class="primary">記録（Enter）</button>
@@ -288,6 +303,15 @@ export class ObservationPanel {
     this.only_.addEventListener('change', () => this.applyOnly_());
     this.timeInput_.addEventListener('change', () => void this.setImageTime_());
     this.record_.addEventListener('click', () => this.setActive(!this.active_));
+    this.twoPointButton_ = $('button[value=two-point]');
+    this.twoPointButton_.addEventListener('click', () => this.setTwoPoint(!this.twoPoint_));
+    try {
+      this.twoPoint_ = localStorage.getItem(TWO_POINT_KEY) === '1';
+    } catch {
+      // Storage off: points.
+    }
+    this.twoPointButton_.setAttribute('aria-pressed', String(this.twoPoint_));
+    for (const name of ['length', 'heading']) this.form_.querySelector(`input[name=${name}]`)!.addEventListener('input', () => this.renderMeasure_());
     this.carryAll_.addEventListener('click', () => void this.carryAll());
     this.form_.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -338,11 +362,23 @@ export class ObservationPanel {
     });
     this.translate_.setActive(false);
     map.addInteraction(this.translate_);
-    map.on('singleclick', (e) => {
-      if (!this.active_ || !this.dialog.open) return;
+    map.on('pointermove', (e) => {
+      if (!this.front_ || !this.active_) return;
+      this.cursor_ = toLonLat(e.coordinate);
+      this.drawMarks_();
+    });
+    // Points wait out a double click; two points take each click at once, so a quick front and rear both count.
+    const click = (e: { type: string; pixel: number[]; coordinate: number[] }) => {
+      if (!this.active_ || !this.dialog.open || (e.type === 'click') !== this.twoPoint_) return;
       const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f as Feature, { layerFilter: (l) => l === this.overlay, hitTolerance: 6 });
       const [lon, lat] = toLonLat(e.coordinate);
       this.clicked_(lon, lat, hit ?? null);
+    };
+    map.on('singleclick', click);
+    map.on('click', click);
+    // No zooming in on the second of two quick points.
+    map.on('dblclick', (e) => {
+      if (this.active_ && this.twoPoint_ && this.dialog.open) e.stopPropagation();
     });
   }
 
@@ -383,8 +419,30 @@ export class ObservationPanel {
     this.record_.textContent = on ? 'クリック記録中' : 'クリック記録';
     this.translate_.setActive(on);
     this.map.getViewport().classList.toggle('observing', on);
-    if (!on) this.closeForm_();
-    else if (!quiet) this.say_(HINT);
+    if (!on) {
+      this.front_ = null;
+      this.closeForm_();
+    }
+    else if (!quiet) this.say_(this.twoPoint_ ? HINT_TWO : HINT);
+  }
+
+  /** Turns 「2 点」 on (front then rear: centre, length, heading) or off (a point). */
+  setTwoPoint(on: boolean): void {
+    this.twoPoint_ = on;
+    this.front_ = null;
+    this.twoPointButton_.setAttribute('aria-pressed', String(on));
+    try {
+      localStorage.setItem(TWO_POINT_KEY, on ? '1' : '0');
+    } catch {
+      // Only for this time.
+    }
+    if (on && !this.active_) this.setActive(true, true);
+    this.say_(on ? HINT_TWO : HINT);
+    this.drawMarks_();
+  }
+
+  isTwoPoint(): boolean {
+    return this.twoPoint_;
   }
 
   /** Opens the panel on the selected image (or the first one). */
@@ -395,7 +453,7 @@ export class ObservationPanel {
     await Promise.all([this.loaded_, this.refreshImages()]);
     if (this.current_ && !this.active_) {
       this.setActive(true, true);
-      this.status_.textContent += `。${HINT}`;
+      this.status_.textContent += `。${this.twoPoint_ ? HINT_TWO : HINT}`;
     }
   }
 
@@ -520,10 +578,10 @@ export class ObservationPanel {
   }
 
   /** Records a new observation (as the form does), for scripts and tests. */
-  async add(values: { lon: number; lat: number; object?: string; kind?: string; activity?: string; note?: string; present?: boolean }): Promise<Observation | null> {
+  async add(values: { lon: number; lat: number; object?: string; kind?: string; activity?: string; note?: string; present?: boolean; length?: number; heading?: number }): Promise<Observation | null> {
     const image = this.current_?.info;
     if (!image) return null;
-    const record = this.recordFrom_(image, values.lon, values.lat, null, null, { object: values.object ?? '', kind: values.kind ?? this.last_.kind, activity: values.activity ?? this.last_.activity, note: values.note ?? '' }, values.present ?? true);
+    const record = this.recordFrom_(image, values.lon, values.lat, null, null, { object: values.object ?? '', kind: values.kind ?? this.last_.kind, activity: values.activity ?? this.last_.activity, note: values.note ?? '', length: values.length === undefined ? '' : String(values.length), heading: values.heading === undefined ? '' : String(values.heading) }, values.present ?? true);
     await this.saveRecords_([record], `${record.objectName} を記録`);
     return record;
   }
@@ -677,7 +735,7 @@ export class ObservationPanel {
     const levelFields = levels.map((name, i) => field(name, 'string', `分類${i + 1}`));
     const points = list.map((o) => {
       const f = new Feature(new Point(fromLonLat([o.lon, o.lat])));
-      f.setProperties({ ...levelValues(o.kind), obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
+      f.setProperties({ ...levelValues(o.kind), obs_id: o.id, object_id: o.objectId, object: o.objectName, kind: o.kind, activity: o.activity, present: o.present ? 'あり' : 'なし', image_time: o.imageTime, image_id: o.imageId, image: o.imageName, length_m: o.length ?? null, heading_deg: o.heading ?? null, note: o.note, created_at: o.createdAt, updated_at: o.updatedAt });
       return f;
     });
     this.options.onLayer(
@@ -695,6 +753,8 @@ export class ObservationPanel {
           field('image_time', 'date', '撮像日時'),
           field('image_id', 'string', '画像ID'),
           field('image', 'string', '画像'),
+          field('length_m', 'double', '長さ（m）'),
+          field('heading_deg', 'double', '向き（度）'),
           field('note', 'string', '備考'),
           field('created_at', 'date', '登録日時'),
           field('updated_at', 'date', '更新日時'),
@@ -756,6 +816,12 @@ export class ObservationPanel {
     if (e.key === 'PageDown' || e.key === 'PageUp') {
       e.preventDefault();
       void this.step(e.key === 'PageDown' ? 1 : -1);
+    } else if (e.key === 'Escape' && this.front_) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.front_ = null;
+      this.say_('2 点目の取消');
+      this.drawMarks_();
     } else if (e.key === 'Escape' && !this.form_.hidden) {
       e.preventDefault();
       e.stopPropagation();
@@ -769,6 +835,9 @@ export class ObservationPanel {
     } else if (!inText && (e.key === 'r' || e.key === 'R')) {
       e.preventDefault();
       this.setActive(!this.active_);
+    } else if (!inText && (e.key === 'l' || e.key === 'L')) {
+      e.preventDefault();
+      this.setTwoPoint(!this.twoPoint_);
     }
   }
 
@@ -831,16 +900,34 @@ export class ObservationPanel {
   private clicked_(lon: number, lat: number, hit: Feature | null): void {
     const role = hit?.get('role');
     const record = hit?.get('record') as Observation | undefined;
-    if (role === 'obs' && record) return this.openForm_(record.lon, record.lat, record, null);
-    if (role === 'ghost' && record) return this.openForm_(record.lon, record.lat, null, record);
-    this.openForm_(lon, lat, null, null);
+    if (!this.front_) {
+      if ((role === 'obs' || role === 'obs-line') && record) return this.openForm_(record.lon, record.lat, record, null);
+      if ((role === 'ghost' || role === 'ghost-line') && record) return this.openForm_(record.lon, record.lat, null, record);
+    }
+    if (!this.twoPoint_) return this.openForm_(lon, lat, null, null);
+    // Two points: the front, then the rear.
+    if (!this.front_) {
+      this.closeForm_();
+      this.front_ = [lon, lat];
+      this.cursor_ = null;
+      this.say_('後端をクリック（Esc で取消）');
+      return this.drawMarks_();
+    }
+    const m = twoPoint(this.front_, [lon, lat]);
+    this.front_ = null;
+    this.openForm_(m.lon, m.lat, null, null, { length: m.length, heading: m.heading });
   }
 
   /** Opens the form for a new record at a place, a record to change, or a thing carried over. */
-  private openForm_(lon: number, lat: number, editing: Observation | null, from: Observation | null): void {
+  private openForm_(lon: number, lat: number, editing: Observation | null, from: Observation | null, measured: { length: number; heading: number } | null = null): void {
     this.pending_ = { lon, lat, editing, from };
     const source = editing ?? from;
     const input = (name: string) => this.form_.querySelector<HTMLInputElement>(`input[name=${name}]`)!;
+    const length = measured?.length ?? source?.length ?? null;
+    const heading = measured?.heading ?? source?.heading ?? null;
+    input('length').value = length == null ? '' : length.toFixed(1);
+    input('heading').value = heading == null ? '' : heading.toFixed(1);
+    this.form_.classList.toggle('measuring', this.twoPoint_ || length != null);
     input('object').value = source ? source.objectName : '';
     input('kind').value = source ? source.kind : this.last_.kind || this.vocabulary_().kinds[0] || '';
     input('activity').value = source ? source.activity : this.last_.activity;
@@ -851,6 +938,7 @@ export class ObservationPanel {
     this.form_.hidden = false;
     this.renderChips_();
     this.renderKindPath_();
+    this.renderMeasure_();
     this.drawMarks_();
     // A new thing gets its name typed; a known one is saved with Enter (or 1–9 picks its activity first).
     (source ? this.form_.querySelector<HTMLButtonElement>('button[type=submit]')! : input('object')).focus({ preventScroll: true });
@@ -889,15 +977,19 @@ export class ObservationPanel {
   }
 
   /** The record the form says. */
-  private recordFrom_(image: ObservedImage, lon: number, lat: number, editing: Observation | null, from: Observation | null, values: { object: string; kind: string; activity: string; note: string }, present: boolean): Observation {
+  private recordFrom_(image: ObservedImage, lon: number, lat: number, editing: Observation | null, from: Observation | null, values: { object: string; kind: string; activity: string; note: string; length?: string; heading?: string }, present: boolean): Observation {
     const now = Date.now();
+    const number = (v: string | undefined) => (v && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
+    const length = number(values.length);
+    const heading = number(values.heading);
+    const measure = { length: length !== null && length > 0 ? length : null, heading: heading === null ? null : ((heading % 360) + 360) % 360 };
     const name = values.object.trim();
     const kind = kindOf(pathOf(values.kind));
     const activity = present ? values.activity.trim() : '';
     if (editing) {
       // The same thing unless another one's name was typed.
       const other = name && name !== editing.objectName ? this.flowByName_(name) : null;
-      return { ...editing, objectId: other ? other.objectId : editing.objectId, objectName: other ? other.name : name || editing.objectName, kind, activity, present, note: values.note, lon, lat, updatedAt: now };
+      return { ...editing, objectId: other ? other.objectId : editing.objectId, objectName: other ? other.name : name || editing.objectName, kind, activity, present, note: values.note, lon, lat, ...measure, updatedAt: now };
     }
     const known = from && (!name || name === from.objectName) ? { objectId: from.objectId, name: from.objectName } : this.flowByName_(name) ? { objectId: this.flowByName_(name)!.objectId, name: this.flowByName_(name)!.name } : null;
     return {
@@ -913,6 +1005,7 @@ export class ObservationPanel {
       note: values.note,
       lon,
       lat,
+      ...measure,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -924,7 +1017,7 @@ export class ObservationPanel {
     const pending = this.pending_;
     if (!image || !pending) return;
     const value = (name: string) => this.form_.querySelector<HTMLInputElement>(`input[name=${name}]`)!.value;
-    const values = { object: value('object'), kind: value('kind'), activity: value('activity'), note: value('note') };
+    const values = { object: value('object'), kind: value('kind'), activity: value('activity'), note: value('note'), length: value('length'), heading: value('heading') };
     const record = this.recordFrom_(image, pending.lon, pending.lat, pending.editing, pending.from, values, present);
     this.last_ = { kind: record.kind, activity: present ? record.activity : this.last_.activity };
     this.closeForm_();
@@ -1016,7 +1109,18 @@ export class ObservationPanel {
     this.kindPath_.replaceChildren(...parts);
     this.kindPath_.hidden = !parts.length;
     this.renderKindSpecs_(list, path);
+    this.renderMeasure_();
     this.form_.querySelector('.obs-object-label')!.textContent = label ? `モノ（${label}）` : 'モノ';
+  }
+
+  /** The measured length against the class's 全長, when both are known. */
+  private renderMeasure_(): void {
+    const note = this.form_.querySelector<HTMLElement>('.obs-measure-note')!;
+    const length = Number(this.form_.querySelector<HTMLInputElement>('input[name=length]')!.value);
+    const path = pathOf(this.form_.querySelector<HTMLInputElement>('input[name=kind]')!.value);
+    const spec = path.length ? specsAt(this.taxonomy(), path).get('全長') : undefined;
+    const full = spec ? Number.parseFloat(spec.value.replace(/[^\d.]/g, '')) : NaN;
+    note.textContent = length > 0 && full > 0 ? `全長 ${spec!.value} m（${spec!.from[spec!.from.length - 1]}）の ${Math.round((length / full) * 100)}%` : '';
   }
 
   /** The chosen class's specifications and photos under the kind, to compare with the image. */
@@ -1100,10 +1204,11 @@ export class ObservationPanel {
   }
 
   private renderImage_(here: Observation[]): void {
-    this.setHead_('モノ', '種別', '活動', '備考', '更新', '');
+    this.setHead_('モノ', '種別', '活動', '長さ・向き', '備考', '更新', '');
+    const measure = (o: Observation) => (o.length != null ? `${km(o.length)}・${headingText(o.heading)}` : '');
     const rows: HTMLTableRowElement[] = here.map((o) =>
       this.row_(
-        [o.objectName, o.kind, o.present ? o.activity : '不在', o.note, localTime(o.updatedAt), o.deletedAt !== null ? this.button_('復元', '削除した記録の復元', () => void this.restore([o])) : this.button_('流れ', 'このモノの流れの表示', () => this.choose(o.objectId))],
+        [o.objectName, o.kind, o.present ? o.activity : '不在', measure(o), o.note, localTime(o.updatedAt), o.deletedAt !== null ? this.button_('復元', '削除した記録の復元', () => void this.restore([o])) : this.button_('流れ', 'このモノの流れの表示', () => this.choose(o.objectId))],
         () => {
           if (o.deletedAt !== null) return;
           this.openForm_(o.lon, o.lat, o, null);
@@ -1117,7 +1222,7 @@ export class ObservationPanel {
       actions.className = 'obs-row-actions';
       actions.append(this.button_('継続', 'この画像でも継続として記録', () => void this.carry(c.from.objectId, true)), this.button_('不在', 'この画像での不在を記録', () => void this.carry(c.from.objectId, false)));
       rows.push(
-        this.row_([c.from.objectName, c.from.kind, `${c.from.activity}（${c.side === 'before' ? '前' : '後'}の画像 ${localTime(c.from.imageTime)}）`, '', '', actions], () => {
+        this.row_([c.from.objectName, c.from.kind, `${c.from.activity}（${c.side === 'before' ? '前' : '後'}の画像 ${localTime(c.from.imageTime)}）`, measure(c.from), '', '', actions], () => {
           if (!this.active_) this.setActive(true);
           this.openForm_(c.from.lon, c.from.lat, null, c.from);
           this.center_(c.from);
@@ -1411,16 +1516,31 @@ export class ObservationPanel {
       for (const o of flow.observations) features.push(new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'step', label: `${localTime(o.imageTime).slice(5)}${o.present ? '' : '（不在）'}`, present: o.present }));
     }
     if (image) {
-      for (const c of this.carried_) features.push(new Feature({ geometry: new Point(fromLonLat([c.from.lon, c.from.lat])), role: 'ghost', record: c.from, kind: c.from.kind, label: c.from.objectName }));
+      for (const c of this.carried_) {
+        features.push(new Feature({ geometry: new Point(fromLonLat([c.from.lon, c.from.lat])), role: 'ghost', record: c.from, kind: c.from.kind, label: c.from.objectName }));
+        const ends = endsOf(c.from);
+        if (ends) features.push(new Feature({ geometry: new LineString(ends.map((p) => fromLonLat(p))), role: 'ghost-line', record: c.from, kind: c.from.kind, heading: c.from.heading }));
+      }
       for (const o of living(this.records_)) {
         if (o.imageId !== image.id) continue;
         const f = new Feature({ geometry: new Point(fromLonLat([o.lon, o.lat])), role: 'obs', record: o, kind: o.kind, label: `${o.objectName}${o.present ? (o.activity ? `・${o.activity}` : '') : '（不在）'}`, present: o.present, editing: this.pending_?.editing?.id === o.id });
+        // Measured by two points: its length along its heading, an arrow at its front.
+        const ends = endsOf(o);
+        if (ends) features.push(new Feature({ geometry: new LineString(ends.map((p) => fromLonLat(p))), role: 'obs-line', record: o, kind: o.kind, heading: o.heading, present: o.present }));
         features.push(f);
         this.movable_.push(f);
       }
     }
     const p = this.pending_;
     if (p && !p.editing) features.push(new Feature({ geometry: new Point(fromLonLat([p.lon, p.lat])), role: 'pending' }));
+    // The front clicked, and a line to the pointer with its length and heading.
+    if (this.front_) {
+      features.push(new Feature({ geometry: new Point(fromLonLat(this.front_)), role: 'pending' }));
+      if (this.cursor_) {
+        const m = twoPoint(this.front_, this.cursor_);
+        features.push(new Feature({ geometry: new LineString([fromLonLat(this.front_), fromLonLat(this.cursor_)]), role: 'rubber', label: `${km(m.length)}・${headingText(m.heading)}` }));
+      }
+    }
     source.addFeatures(features);
   }
 
@@ -1461,6 +1581,28 @@ export class ObservationPanel {
           text: new Text({ text: String(f.get('label') ?? ''), font: '11px sans-serif', offsetY: 14, fill: new Fill({ color: '#111' }), stroke: new Stroke({ color: '#fff', width: 3 }) }),
           zIndex: 1,
         });
+      case 'obs-line':
+      case 'ghost-line': {
+        const color = this.colorOf_(String(f.get('kind') ?? ''));
+        const ghost = role === 'ghost-line';
+        const line = f.getGeometry() as LineString;
+        const front = line.getFirstCoordinate();
+        const heading = Number(f.get('heading')) || 0;
+        return [
+          new Style({ stroke: new Stroke({ color: '#fff', width: ghost ? 4 : 6 }), zIndex: 2 }),
+          new Style({ stroke: new Stroke({ color, width: ghost ? 2 : 3, lineDash: ghost ? [4, 4] : undefined }), zIndex: 2 }),
+          new Style({
+            geometry: new Point(front),
+            image: new RegularShape({ points: 3, radius: ghost ? 6 : 7, rotation: (heading * Math.PI) / 180, rotateWithView: true, fill: new Fill({ color: ghost ? 'rgba(255,255,255,0.6)' : color }), stroke: new Stroke({ color: ghost ? color : '#fff', width: 1.5 }) }),
+            zIndex: 2,
+          }),
+        ];
+      }
+      case 'rubber':
+        return [
+          new Style({ stroke: new Stroke({ color: '#fff', width: 5 }), zIndex: 4 }),
+          new Style({ stroke: new Stroke({ color: '#e11d48', width: 2, lineDash: [6, 4] }), text: label(String(f.get('label') ?? ''), -14), zIndex: 4 }),
+        ];
       case 'pending':
         return new Style({ image: new RegularShape({ points: 4, radius: 10, radius2: 0, stroke: new Stroke({ color: '#e11d48', width: 2 }) }), zIndex: 4 });
       default:
