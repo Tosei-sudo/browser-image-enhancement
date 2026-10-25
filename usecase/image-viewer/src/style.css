@@ -2917,6 +2917,7 @@ body {
 .plan-dialog[open],
 .plan-saved-dialog[open],
 .obs-dialog[open],
+.taxed-dialog[open],
 .track-dialog[open],
 .watch-dialog[open] {
   position: fixed;
@@ -5704,4 +5705,223 @@ dialog.docked > .dock-dialog-corner {
 }
 .ol-viewport.observing {
   cursor: crosshair;
+}
+.obs-kind-specs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.obs-kind-specs[hidden] {
+  display: none;
+}
+.taxon-photo {
+  width: 64px;
+  height: 48px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 10px;
+  cursor: zoom-in;
+}
+.taxon-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.taxon-photo-view {
+  max-width: 92vw;
+  max-height: 92vh;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  cursor: zoom-out;
+}
+.taxon-photo-view img {
+  display: block;
+  max-width: 88vw;
+  max-height: 82vh;
+  object-fit: contain;
+}
+.taxon-photo-view p {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.taxed-dialog[open] {
+  width: min(64rem, calc(100% - 32px));
+  overflow: hidden;
+}
+.taxed-bar,
+.taxed-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.taxed-bar input[type='search'] {
+  flex: 1;
+  min-width: 8em;
+}
+.taxed-foot .obs-note {
+  flex: 1;
+}
+.taxed-body {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) minmax(18rem, 1.2fr);
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+.taxed-tree,
+.taxed-detail {
+  min-height: 12rem;
+  max-height: 60vh;
+  overflow: auto;
+}
+.taxed-tree {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 0;
+  font-size: 13px;
+}
+.taxed-tree.drop-root {
+  box-shadow: inset 0 -3px var(--accent);
+}
+.taxed-row,
+.taxed-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding-inline-end: 4px;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.taxed-row:hover {
+  background: var(--accent-bg);
+}
+.taxed-row[aria-selected='true'] {
+  background: var(--accent-bg);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.taxed-row.hit .taxed-name {
+  font-weight: 600;
+  text-decoration: underline;
+}
+.taxed-row.dragging {
+  opacity: 0.4;
+}
+.taxed-row.drop-before {
+  border-top-color: var(--accent);
+}
+.taxed-row.drop-after {
+  border-bottom-color: var(--accent);
+}
+.taxed-row.drop-inside {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+.taxed-toggle {
+  width: 1.4em;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.taxed-name {
+  white-space: nowrap;
+}
+.taxed-row input,
+.taxed-add input {
+  flex: 1;
+  min-width: 6em;
+}
+.taxed-level,
+.taxed-count {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.taxed-count {
+  margin-inline-start: auto;
+}
+.taxed-actions {
+  display: inline-flex;
+  gap: 2px;
+  visibility: hidden;
+}
+.taxed-row:hover .taxed-actions,
+.taxed-row:focus-within .taxed-actions,
+.taxed-row[aria-selected='true'] .taxed-actions {
+  visibility: visible;
+}
+.taxed-actions button {
+  font-size: 11px;
+  padding: 0 5px;
+}
+.taxed-actions button.armed {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.taxed-detail h3 {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+.taxed-specs,
+.taxed-photos {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 6px;
+}
+.taxed-specs label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+}
+.taxed-photos {
+  display: flex;
+  flex-direction: column;
+}
+.taxed-photo-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.taxed-photo {
+  position: relative;
+}
+.taxed-photo.inherited {
+  opacity: 0.55;
+}
+.taxed-photo-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+.taxed-field-table input {
+  width: 100%;
+  min-width: 4em;
+}
+@media (max-width: 720px) {
+  .taxed-body {
+    grid-template-columns: 1fr;
+  }
+}
+.taxed-specs input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
