@@ -19,7 +19,7 @@
  */
 import { timeOf, type FieldTypes } from './catalog-query.js';
 import { getDistance } from 'ol/sphere.js';
-import { fromKinds, kindOf, pathOf, taxonomyOf, taxonomyTableOf, within, type Taxon, type TaxonomyTableConfig } from './taxonomy.js';
+import { defaultSpecFields, fromKinds, kindOf, pathOf, specFieldsOf, taxonomyOf, taxonomyTableOf, within, type SpecField, type Taxon, type TaxonomyTableConfig } from './taxonomy.js';
 
 /** One observation of one thing in one image. */
 export interface Observation {
@@ -89,6 +89,8 @@ export interface ObservationVocabulary {
   activities: string[];
   /** The classification the kinds are chosen from (taxonomy.ts). */
   taxonomy: Taxon[];
+  /** The specification fields (諸元の項目) of the classes. */
+  specFields: SpecField[];
 }
 
 /** The classes offered at first: each branch with its own levels. */
@@ -105,6 +107,7 @@ export const defaultVocabulary: ObservationVocabulary = {
   kinds: defaultTaxonomy.map((t) => t.path[0]),
   activities: ['停泊', '航行', '駐機', '移動', '工事', '集積', '活動なし'],
   taxonomy: defaultTaxonomy,
+  specFields: defaultSpecFields,
 };
 
 /** One entry of `config.json`'s `observationStores`. */
@@ -170,6 +173,7 @@ export function vocabularyOf(value: unknown, problems: string[]): ObservationVoc
     kinds: taxonomy?.length ? [...new Set(taxonomy.map((t) => t.path[0]))] : words(value.kinds)?.length ? words(value.kinds)! : defaultVocabulary.kinds,
     activities: words(value.activities)?.length ? words(value.activities)! : defaultVocabulary.activities,
     taxonomy: taxonomy?.length ? taxonomy : defaultVocabulary.taxonomy,
+    specFields: (value.specFields !== undefined ? specFieldsOf(value.specFields, problems, 'observationVocabulary.specFields') : null) ?? defaultVocabulary.specFields,
   };
 }
 

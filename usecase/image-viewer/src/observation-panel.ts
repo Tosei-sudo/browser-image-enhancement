@@ -34,6 +34,7 @@ import { boundingExtent, buffer, containsCoordinate } from 'ol/extent.js';
 import type { ViewerImage } from './images.js';
 import { field, type ProcessingResult } from './processing/common.js';
 import { download } from './local-edit.js';
+import { photoThumb, showPhoto } from './taxon-photos.js';
 import {
   carriedInto,
   carryOvers,
@@ -63,12 +64,18 @@ import {
   nameLabelOf,
   nest,
   pathOf,
+  placeTaxon,
   removeTaxon,
   rewrite,
   taxonomyOf,
   updateTaxon,
   withKinds,
   within,
+  classByName,
+  photosAt,
+  specsAt,
+  specText,
+  type SpecField,
   type Taxon,
   type TaxonomyStore,
 } from './taxonomy.js';
@@ -87,6 +94,8 @@ export interface ObservationPanelOptions {
   stores: ObservationStore[];
   /** The kinds, activities and classification offered for a store. */
   vocabulary: (store: ObservationStore) => ObservationVocabulary;
+  /** Opens the classification editor (taxonomy-editor.ts), on a class when given. */
+  onEditTaxonomy?: (path: readonly string[] | null) => void;
   /** Where a store's classification is kept once changed. */
   taxonomyStore: (store: ObservationStore) => TaxonomyStore;
   /** The open images. */
@@ -154,6 +163,8 @@ export class ObservationPanel {
   /** The class shown in 「分類」, and the class 「モノ」 is limited to. */
   private taxon_: string[] | null = null;
   private classFilter_: string[] | null = null;
+  /** The specification fields of the classes. */
+  private specFields_: SpecField[] = [];
   private chosen_: string | null = null;
   private active_ = false;
   /** The place clicked, and the record edited or the thing carried over, while the form is open. */
@@ -197,6 +208,7 @@ export class ObservationPanel {
         <label><span class="obs-object-label">モノ</span><input name="object" list="obs-objects" autocomplete="off" placeholder="空欄で新規" /></label>
         <label>種別<input name="kind" list="obs-kinds" autocomplete="off" placeholder="船舶 > 支援船 > 〇〇級" /></label>
         <div class="obs-kind-path wide" aria-label="種別の階層"></div>
+        <div class="obs-kind-specs wide" aria-label="種別の諸元" hidden></div>
         <div class="obs-chips wide" role="radiogroup" aria-label="活動"></div>
         <label>活動<input name="activity" list="obs-activity-list" autocomplete="off" /></label>
         <label>備考<input name="note" autocomplete="off" /></label>
@@ -289,7 +301,18 @@ export class ObservationPanel {
     $('button[value=cancel]').addEventListener('click', () => this.closeForm_());
     for (const tab of this.tabs_) tab.addEventListener('click', () => this.setTab(tab.value as Tab));
     $('button[value=unfilter]').addEventListener('click', () => this.filterClass(null));
-    this.form_.querySelector<HTMLInputElement>('input[name=kind]')!.addEventListener('input', () => this.renderKindPath_());
+    const kindInput = this.form_.querySelector<HTMLInputElement>('input[name=kind]')!;
+    kindInput.addEventListener('input', () => this.renderKindPath_());
+    // A class's name alone, or one of its other names (別名, 英名), stands for its whole path.
+    kindInput.addEventListener('change', () => {
+      const list = this.taxonomy();
+      if (find(list, pathOf(kindInput.value))) return;
+      const path = classByName(list, kindInput.value, this.specFields_);
+      if (path) {
+        kindInput.value = kindOf(path);
+        this.renderKindPath_();
+      }
+    });
     this.deleted_.addEventListener('change', () => this.render_());
     this.filter_.addEventListener('input', () => this.render_());
     $('button[value=reload]').addEventListener('click', () => void this.reload());
@@ -376,12 +399,32 @@ export class ObservationPanel {
     }
   }
 
+  /** The records and classification of the store, read once. */
+  loaded(): Promise<void> {
+    this.loaded_ ??= this.reload();
+    return this.loaded_;
+  }
+
+  /** The store's label. */
+  storeLabel(): string {
+    return this.store_.label;
+  }
+
+  /** The label of where the classification is kept. */
+  taxonomyStoreLabel(): string {
+    return this.options.taxonomyStore(this.store_).label;
+  }
+
   /** Reads the records again from the store. */
   async reload(): Promise<void> {
     this.say_(`${this.store_.label} から読み込み中…`);
     const kept = this.options
       .taxonomyStore(this.store_)
       .load()
+      .catch(() => null);
+    const fields = this.options
+      .taxonomyStore(this.store_)
+      .loadFields()
       .catch(() => null);
     try {
       this.records_ = await this.store_.load();
@@ -391,6 +434,7 @@ export class ObservationPanel {
       this.say_(`${this.store_.label} から読み込み失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.taxonomy_ = (await kept) ?? this.vocabulary_().taxonomy;
+    this.specFields_ = (await fields) ?? this.vocabulary_().specFields;
     this.render_();
   }
 
@@ -547,15 +591,13 @@ export class ObservationPanel {
    * Changes a class: its name or parent (the records under it follow), the
    * names of its branch's levels, what an individual's name is called, its known individuals.
    */
-  async updateClass(path: readonly string[], changes: { name?: string; parent?: readonly string[]; levels?: string[]; nameLabel?: string; members?: string[] }): Promise<void> {
+  async updateClass(path: readonly string[], changes: { name?: string; parent?: readonly string[]; before?: readonly string[] | null } & Omit<Taxon, 'path'>): Promise<void> {
     let list = this.taxonomy();
     if (!find(list, path)) return this.say_(`分類「${kindOf(path)}」なし`);
     const name = changes.name?.trim().replace(/\s*[>›＞]\s*/g, ' ') || path[path.length - 1];
     const to = [...(changes.parent ?? path.slice(0, -1)), name];
-    const own: Pick<Taxon, 'levels' | 'nameLabel' | 'members'> = {};
-    if ('levels' in changes) own.levels = changes.levels;
-    if ('nameLabel' in changes) own.nameLabel = changes.nameLabel;
-    if ('members' in changes) own.members = changes.members;
+    const own: Omit<Taxon, 'path'> = {};
+    for (const k of ['levels', 'nameLabel', 'members', 'specs', 'photos'] as const) if (k in changes) Object.assign(own, { [k]: changes[k] });
     list = updateTaxon(list, path, own);
     const moved = kindOf(to) !== kindOf(path);
     if (moved) {
@@ -566,11 +608,14 @@ export class ObservationPanel {
         return this.say_(error instanceof Error ? error.message : String(error));
       }
     }
+    // Among its siblings: before one, or last.
+    if (changes.before !== undefined) list = placeTaxon(list, to, changes.before ? [...to.slice(0, -1), changes.before[changes.before.length - 1]] : null);
+    const reordered = changes.before !== undefined && !moved;
     const now = Date.now();
     const records = moved ? this.records_.filter((o) => within(o.kind, path)).map((o) => ({ ...o, kind: rewrite(o.kind, path, to), updatedAt: now })) : [];
     this.taxon_ = to;
     if (this.classFilter_ && within(kindOf(this.classFilter_), path)) this.classFilter_ = pathOf(rewrite(kindOf(this.classFilter_), path, to));
-    await this.saveTaxonomy_(list, records, moved ? `分類「${kindOf(path)}」を「${kindOf(to)}」に変更（記録 ${records.length} 件）` : `分類「${kindOf(path)}」を変更`);
+    await this.saveTaxonomy_(list, records, moved ? `分類「${kindOf(path)}」を「${kindOf(to)}」に変更（記録 ${records.length} 件）` : reordered ? `分類「${kindOf(path)}」の順序を変更` : `分類「${kindOf(path)}」を変更`);
   }
 
   /** Removes a class and its branch; the records under it keep the class above. */
@@ -581,6 +626,24 @@ export class ObservationPanel {
     this.taxon_ = up.length ? up : null;
     if (this.classFilter_ && within(kindOf(this.classFilter_), path)) this.classFilter_ = null;
     await this.saveTaxonomy_(removeTaxon(this.taxonomy(), path), records, `分類「${kindOf(path)}」を削除${records.length ? `（記録 ${records.length} 件は「${kindOf(up) || '種別なし'}」に）` : ''}`);
+  }
+
+  /** The specification fields (諸元の項目) of the classes. */
+  specFields(): SpecField[] {
+    return this.specFields_;
+  }
+
+  /** Changes the specification fields (the values of a field taken away stay in the classes). */
+  async setSpecFields(fields: readonly SpecField[]): Promise<void> {
+    const store = this.options.taxonomyStore(this.store_);
+    try {
+      await store.saveFields(fields);
+      this.specFields_ = [...fields];
+      this.say_(`諸元の項目 ${fields.length} 件を設定`);
+    } catch (error) {
+      this.say_(`${store.label} への諸元の項目の保存失敗: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.render_();
   }
 
   /** Limits 「モノ」 to a class and below (null: all). */
@@ -674,6 +737,7 @@ export class ObservationPanel {
 
   private say_(message: string): void {
     this.status_.textContent = message;
+    this.dialog.dispatchEvent(new CustomEvent('obs-say', { detail: message }));
   }
 
   private closed_(): void {
@@ -951,7 +1015,26 @@ export class ObservationPanel {
     }
     this.kindPath_.replaceChildren(...parts);
     this.kindPath_.hidden = !parts.length;
+    this.renderKindSpecs_(list, path);
     this.form_.querySelector('.obs-object-label')!.textContent = label ? `モノ（${label}）` : 'モノ';
+  }
+
+  /** The chosen class's specifications and photos under the kind, to compare with the image. */
+  private renderKindSpecs_(list: Taxon[], path: string[]): void {
+    const box = this.form_.querySelector<HTMLElement>('.obs-kind-specs')!;
+    const specs = path.length ? specsAt(list, path) : new Map<string, { value: string; from: string[] }>();
+    const { photos } = path.length ? photosAt(list, path) : { photos: [] };
+    const fields = new Map(this.specFields_.map((f) => [f.name, f]));
+    const order = [...this.specFields_.map((f) => f.name), ...[...specs.keys()].filter((k) => !fields.has(k))];
+    const text = document.createElement('span');
+    text.className = 'obs-spec-text';
+    text.textContent = order
+      .filter((k) => specs.has(k))
+      .map((k) => `${k} ${specText(fields.get(k), specs.get(k)!.value)}`)
+      .join('・');
+    const thumbs = photos.slice(0, 4).map((ref, i) => photoThumb(ref, `${kindOf(path)} の参考写真 ${i + 1}`, (url) => showPhoto(url, kindOf(path))));
+    box.replaceChildren(...thumbs, text);
+    box.hidden = !text.textContent && !thumbs.length;
   }
 
   private render_(): void {
@@ -980,6 +1063,8 @@ export class ObservationPanel {
     else this.renderClasses_(taxonomy, objects);
     this.renderFlow_();
     this.renderTaxon_(taxonomy, objects);
+    // For the classification editor (taxonomy-editor.ts).
+    this.dialog.dispatchEvent(new Event('obs-change'));
     this.drawMarks_();
   }
 
@@ -1149,6 +1234,7 @@ export class ObservationPanel {
     general.innerHTML = `
       <label class="wide">大分類の追加<span class="obs-inline"><input name="taxon-root" autocomplete="off" placeholder="船舶・航空機…（「船舶 > 支援船」で階層ごと）" /><button type="button" value="taxon-add-root">追加</button></span></label>
       <div class="service-actions wide">
+        <button type="button" value="taxon-editor" title="分類体系の編集ツール（ツリーのドラッグで移動・並べ替え、名前の直接編集）">編集ツール</button>
         <button type="button" value="taxon-export" title="分類体系の JSON 保存（config.json の observationVocabulary.taxonomy に記載可）">JSON 保存</button>
         <button type="button" value="taxon-import" title="分類体系の JSON 読み込み（現在の分類と置き換え）">JSON 読み込み</button>
         <input type="file" name="taxon-file" accept=".json,application/json" hidden />
@@ -1164,6 +1250,9 @@ export class ObservationPanel {
     general.querySelector('button[value=taxon-add-root]')!.addEventListener('click', addRoot);
     root.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), addRoot()));
     general.querySelector('button[value=taxon-export]')!.addEventListener('click', () => this.saveTaxonomy());
+    const editor = general.querySelector<HTMLButtonElement>('button[value=taxon-editor]')!;
+    editor.hidden = !this.options.onEditTaxonomy;
+    editor.addEventListener('click', () => this.options.onEditTaxonomy?.(path));
     const file = general.querySelector<HTMLInputElement>('input[name=taxon-file]')!;
     general.querySelector('button[value=taxon-import]')!.addEventListener('click', () => file.click());
     file.addEventListener('change', async () => {

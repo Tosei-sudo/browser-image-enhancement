@@ -132,6 +132,7 @@ import { ImagingPlanPanel } from './imaging-plan-panel.js';
 import { startReminders } from './imaging-plan-remind.js';
 import { SavedPlansPanel } from './imaging-plan-saved.js';
 import { ObservationPanel } from './observation-panel.js';
+import { TaxonomyEditor } from './taxonomy-editor.js';
 import { EsriObservationStore, LocalObservationStore, type ObservationStore } from './observations.js';
 import { EsriTaxonomyStore, LocalTaxonomyStore, type TaxonomyStore } from './taxonomy.js';
 import { MovingTargetDialog } from './moving-target-dialog.js';
@@ -1366,11 +1367,12 @@ const observationStores: ObservationStore[] = [
   new LocalObservationStore(),
 ];
 const taxonomyStores = new WeakMap<ObservationStore, TaxonomyStore>();
-const observations = new ObservationPanel(map, document.getElementById('observe-open') as HTMLButtonElement, {
+const observations: ObservationPanel = new ObservationPanel(map, document.getElementById('observe-open') as HTMLButtonElement, {
   stores: observationStores,
+  onEditTaxonomy: (path) => void taxonomyEditor.open(path),
   vocabulary: (store) => {
     const own = config.observationStores.find((c) => c.label === store.label);
-    return { kinds: own?.kinds ?? config.observationVocabulary.kinds, activities: own?.activities ?? config.observationVocabulary.activities, taxonomy: own?.taxonomy ?? config.observationVocabulary.taxonomy };
+    return { kinds: own?.kinds ?? config.observationVocabulary.kinds, activities: own?.activities ?? config.observationVocabulary.activities, taxonomy: own?.taxonomy ?? config.observationVocabulary.taxonomy, specFields: config.observationVocabulary.specFields };
   },
   // A store's classification in its own Esri table when given (shared), else in this browser.
   taxonomyStore: (store) => {
@@ -1408,6 +1410,8 @@ const observations = new ObservationPanel(map, document.getElementById('observe-
   },
   say,
 });
+// The classification of the observations' kinds, edited as a tree, with each class's specifications and photos.
+const taxonomyEditor = new TaxonomyEditor(observations, document.getElementById('taxonomy-open') as HTMLButtonElement);
 imagesChanged = () => {
   if (observations.dialog.open) void observations.refreshImages();
 };
@@ -1892,6 +1896,7 @@ declare global {
       imagingPlan: ImagingPlanPanel;
       savedPlans: SavedPlansPanel;
       observations: ObservationPanel;
+      taxonomyEditor: TaxonomyEditor;
       movingTargets: MovingTargetDialog;
       satelliteTracks: SatelliteTrackPanel;
       scripts: ScriptDialog;
@@ -1905,4 +1910,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, taxonomyEditor, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
