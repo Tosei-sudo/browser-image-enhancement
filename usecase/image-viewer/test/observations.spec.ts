@@ -376,3 +376,59 @@ test('a thing is measured by two clicks, front then rear: its centre, length and
   await expect(panel.getByRole('button', { name: '2 点' })).toHaveAttribute('aria-pressed', 'false');
   expect(errors).toEqual([]);
 });
+
+test('an image outside the catalog, without its file, is listed by its id and time and recorded on', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/index.html');
+  await page.waitForFunction(() => window.viewer !== undefined);
+  const panel = await openPanel(page);
+  await expect(panel.locator('select[name=image] option')).toHaveText(['画像なし']);
+  await panel.getByRole('button', { name: 'ファイルなしの画像の追加' }).click();
+  const list = panel.locator('.obs-list-form');
+  await expect(list.locator('input[name=id]')).toBeFocused();
+  await list.locator('input[name=id]').fill('EXT-001');
+  await list.locator('input[name=name]').fill('他システム画像 1');
+  await list.locator('input[name=time]').fill('2026-10-02T09:30');
+  await list.getByRole('button', { name: '追加' }).click();
+  await expect(list).toBeHidden();
+  await expect(panel.locator('.service-status')).toContainText('他システム画像 1 を追加（ファイルなし）');
+  await expect(panel.locator('select[name=image] option')).toHaveText([/2026-10-02 09:30\s+他システム画像 1（ファイルなし）/]);
+
+  // Recorded with a click on the base map.
+  await panel.getByRole('button', { name: 'クリック記録' }).click();
+  const map = page.locator('#map');
+  const box = (await map.boundingBox())!;
+  await map.click({ position: { x: box.width / 4, y: box.height / 2 } });
+  const form = panel.locator('.obs-form');
+  await form.locator('input[name=object]').fill('タンカーC');
+  await form.locator('input[name=object]').press('Enter');
+  await expect(panel.locator('.service-status')).toContainText('タンカーCを記録');
+  const record = await page.evaluate(() => window.viewer.observations.records()[0]);
+  expect(record).toMatchObject({ imageId: 'EXT-001', imageName: '他システム画像 1', objectName: 'タンカーC' });
+  expect(record.imageTime).toBe(new Date(2026, 9, 2, 9, 30).getTime());
+
+  // Beside the open images, in time order; kept after a reload.
+  await page.evaluate(async (data) => {
+    await window.viewer.project.openFiles([new File([new Uint8Array(data)], 'site_20261003.tif', { type: 'image/tiff' })]);
+  }, Array.from(plainGeoTiff(400, 300)));
+  await expect(panel.locator('select[name=image] option')).toHaveText([/他システム画像 1（ファイルなし）/, /site_20261003\.tif$/]);
+  await page.reload();
+  await page.waitForFunction(() => window.viewer !== undefined);
+  const again = await openPanel(page);
+  await expect(again.locator('select[name=image] option')).toHaveText([/他システム画像 1（ファイルなし）/]);
+  await expect(again.getByRole('tab', { name: /この画像/ })).toContainText('1');
+
+  // Taken off the list, its records stay; picked again by its id from the records.
+  await again.getByRole('button', { name: 'ファイルなしの画像の追加' }).click();
+  await expect(again.locator('.obs-list-form input[name=id]')).toHaveValue('EXT-001');
+  await again.getByRole('button', { name: '一覧から除外' }).click();
+  await expect(again.locator('select[name=image] option')).toHaveText(['画像なし']);
+  expect(await page.evaluate(() => window.viewer.observations.records().length)).toBe(1);
+  await again.getByRole('button', { name: 'ファイルなしの画像の追加' }).click();
+  await again.locator('.obs-list-form input[name=id]').fill('EXT-001');
+  await again.locator('.obs-list-form input[name=id]').dispatchEvent('change');
+  await expect(again.locator('.obs-list-form input[name=name]')).toHaveValue('他システム画像 1');
+  await expect(again.locator('.obs-list-form input[name=time]')).toHaveValue('2026-10-02T09:30');
+  expect(errors).toEqual([]);
+});

@@ -621,3 +621,44 @@ export class EsriObservationStore implements ObservationStore {
     return [];
   }
 }
+
+/** An image recorded on without its file: one outside the catalog, or not opened here (id, name, time, footprint typed). */
+export interface ListedImage {
+  id: string;
+  name: string;
+  time: number | null;
+  box: [number, number, number, number] | null;
+}
+
+/** The images the records name, newest first: for picking one of them again. */
+export function recordedImages(records: readonly Observation[]): ListedImage[] {
+  const byId = new Map<string, ListedImage>();
+  for (const o of living(records)) {
+    const known = byId.get(o.imageId);
+    if (!known) byId.set(o.imageId, { id: o.imageId, name: o.imageName || o.imageId, time: o.imageTime, box: null });
+    else if (known.time === null && o.imageTime !== null) known.time = o.imageTime;
+  }
+  return [...byId.values()].sort((a, b) => (b.time ?? -Infinity) - (a.time ?? -Infinity) || a.id.localeCompare(b.id));
+}
+
+/** Listed images read back (bad entries left out, one per id). */
+export function parseListedImages(text: string | null): ListedImage[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(text ?? '[]');
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: ListedImage[] = [];
+  for (const v of value) {
+    if (!v || typeof v !== 'object') continue;
+    const { id, name, time, box } = v as Record<string, unknown>;
+    if (typeof id !== 'string' || !id.trim() || seen.has(id)) continue;
+    seen.add(id);
+    const okBox = Array.isArray(box) && box.length === 4 && box.every((n) => typeof n === 'number' && Number.isFinite(n)) ? (box as [number, number, number, number]) : null;
+    out.push({ id, name: typeof name === 'string' && name.trim() ? name : id, time: typeof time === 'number' && Number.isFinite(time) ? time : null, box: okBox });
+  }
+  return out;
+}
