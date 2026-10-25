@@ -11,6 +11,8 @@ import {
   nextName,
   observationsCsv,
   observationStoreOf,
+  parseListedImages,
+  recordedImages,
   vocabularyOf,
   type Observation,
 } from '../src/observations.js';
@@ -237,5 +239,32 @@ describe('two points: centre, length and heading', () => {
     expect(read.heading).toBeNull();
     await store.save([obs({ id: 'b', length: 10, heading: 90 })]);
     expect(JSON.parse(sent[sent.length - 1].adds)[0].attributes).toMatchObject({ LENGTH_M: 10, HEADING: 90 });
+  });
+});
+
+describe('images without their file', () => {
+  it('lists the images the records name, newest first, with a time when any record has one', () => {
+    const list = recordedImages([
+      obs({ imageId: 'EXT-1', imageName: '', imageTime: null }),
+      obs({ imageId: 'EXT-1', imageName: '', imageTime: day(2) }),
+      obs({ imageId: 'EXT-2', imageName: '外部 2', imageTime: day(5) }),
+      obs({ imageId: 'EXT-3', imageTime: day(9), deletedAt: day(10) }),
+    ]);
+    expect(list).toEqual([
+      { id: 'EXT-2', name: '外部 2', time: day(5), box: null },
+      { id: 'EXT-1', name: 'EXT-1', time: day(2), box: null },
+    ]);
+  });
+
+  it('reads the kept list back, leaving bad entries out', () => {
+    expect(parseListedImages(null)).toEqual([]);
+    expect(parseListedImages('{')).toEqual([]);
+    expect(parseListedImages('{"id":"x"}')).toEqual([]);
+    expect(
+      parseListedImages(JSON.stringify([{ id: 'A', name: '', time: 5, box: [1, 2, 3, 4] }, { id: 'A' }, { id: ' ' }, { name: 'no id' }, { id: 'B', time: 'x', box: [1, 2] }])),
+    ).toEqual([
+      { id: 'A', name: 'A', time: 5, box: [1, 2, 3, 4] },
+      { id: 'B', name: 'B', time: null, box: null },
+    ]);
   });
 });

@@ -29,7 +29,7 @@ import Translate from 'ol/interaction/Translate.js';
 import Collection from 'ol/Collection.js';
 import { Circle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style.js';
 import { LineString, Point } from 'ol/geom.js';
-import { fromLonLat, toLonLat } from 'ol/proj.js';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj.js';
 import { boundingExtent, buffer, containsCoordinate } from 'ol/extent.js';
 import type { ViewerImage } from './images.js';
 import { field, type ProcessingResult } from './processing/common.js';
@@ -46,6 +46,9 @@ import {
   newObservationId,
   nextName,
   observationsCsv,
+  parseListedImages,
+  recordedImages,
+  type ListedImage,
   endsOf,
   headingText,
   timeKey,
@@ -123,6 +126,12 @@ const ACTIVITY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', 
 const HINT = '地図クリックで記録（白抜きの印は継続）';
 const HINT_TWO = '前端（船首・機首）→ 後端の 2 点クリックで記録（白抜きの印は継続）';
 const TWO_POINT_KEY = 'image-viewer.obs-two-point';
+/** Images without a file, per store. */
+const LISTED_KEY = 'image-viewer.obs-listed-images:';
+/** A time for a datetime-local input. */
+const inputTime = (t: number) => localTime(t).replace(' ', 'T');
+/** An image in the stepper: an open one, or one listed without its file (image null). */
+type Entry = { image: ViewerImage | null; info: ObservedImage };
 type Tab = 'image' | 'objects' | 'classes';
 const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${Math.round(m)} m`);
 
@@ -161,8 +170,11 @@ export class ObservationPanel {
   private info_ = new WeakMap<ViewerImage, ObservedImage>();
   /** Times typed for images that do not say (by image id). */
   private readonly manualTimes_ = new Map<string, number>();
-  private ordered_: Array<{ image: ViewerImage; info: ObservedImage }> = [];
-  private current_: { image: ViewerImage; info: ObservedImage } | null = null;
+  private ordered_: Entry[] = [];
+  private current_: Entry | null = null;
+  /** Images recorded on without their file (outside the catalog, or not opened here). */
+  private listed_: ListedImage[] = [];
+  private readonly listForm_: HTMLFormElement;
   private tab_: Tab = 'image';
   /** The classification (as kept; the kinds records use are added when shown). */
   private taxonomy_: Taxon[] = [];
@@ -207,8 +219,21 @@ export class ObservationPanel {
         <button type="button" value="prev" title="前の画像（撮像日時の順、PageUp）" aria-label="前の画像">◀</button>
         <select name="image" aria-label="画像"></select>
         <button type="button" value="next" title="次の画像（撮像日時の順、PageDown）" aria-label="次の画像">▶</button>
+        <button type="button" value="list-image" aria-expanded="false" title="ファイルなしの画像の追加（カタログ外・未オープンの画像を ID・撮像日時で指定）" aria-label="ファイルなしの画像の追加">＋</button>
         <label class="check" title="この画像のみ地図に表示（他の画像は非表示）"><input type="checkbox" name="only" />この画像のみ</label>
       </div>
+      <form class="service-form obs-list-form" hidden>
+        <label>画像 ID<input name="id" list="obs-recorded-images" autocomplete="off" required placeholder="例: 外部システムの画像番号" /></label>
+        <label>名称<input name="name" autocomplete="off" placeholder="空欄で画像 ID" /></label>
+        <label>撮像日時<input type="datetime-local" name="time" step="60" /></label>
+        <label class="check" title="継続候補（白抜きの印）を地図の表示範囲内に限定"><input type="checkbox" name="box" />範囲: 地図の表示範囲</label>
+        <p class="obs-list-note wide">ファイルなしで記録（背景地図・他の画像の上をクリック）。保存先ごとにこのブラウザで保持</p>
+        <div class="service-actions wide">
+          <button type="submit" class="primary">追加</button>
+          <button type="button" value="unlist" hidden title="この画像の一覧からの除外（記録は残る）">一覧から除外</button>
+          <button type="button" value="list-cancel">取消</button>
+        </div>
+      </form>
       <label class="obs-time" hidden>撮像日時不明（入力）<input type="datetime-local" name="imageTime" step="60" /></label>
       <div class="obs-actions">
         <button type="button" value="record" class="primary" aria-pressed="false" title="クリック地点にこの画像の観測を記録（R）">クリック記録</button>
@@ -259,7 +284,7 @@ export class ObservationPanel {
       <section class="obs-flow" hidden></section>
       <section class="obs-taxon" hidden></section>
       </div>
-      <datalist id="obs-objects"></datalist><datalist id="obs-kinds"></datalist><datalist id="obs-activity-list"></datalist>`;
+      <datalist id="obs-objects"></datalist><datalist id="obs-recorded-images"></datalist><datalist id="obs-kinds"></datalist><datalist id="obs-activity-list"></datalist>`;
     document.body.append(this.dialog);
     const $ = <T extends Element>(s: string) => this.dialog.querySelector<T>(s)!;
     this.status_ = $('.service-status');
@@ -272,6 +297,7 @@ export class ObservationPanel {
     this.carry_ = $('.obs-carry');
     this.carryAll_ = $('button[value=carry-all]');
     this.form_ = $('.obs-form');
+    this.listForm_ = $('.obs-list-form');
     this.chips_ = $('.obs-chips');
     this.tabs_ = [...this.dialog.querySelectorAll<HTMLButtonElement>('[role=tab]')];
     this.head_ = $('.obs-list thead');
@@ -289,6 +315,7 @@ export class ObservationPanel {
     this.storeSelect_.addEventListener('change', () => {
       this.store_ = options.stores[Number(this.storeSelect_.value)] ?? options.stores[0];
       this.closeForm_();
+      this.loadListed_();
       void this.reload();
     });
     button?.addEventListener('click', () => void this.open());
@@ -298,8 +325,27 @@ export class ObservationPanel {
     $('button[value=next]').addEventListener('click', () => void this.step(1));
     this.imageSelect_.addEventListener('change', () => {
       const entry = this.ordered_[Number(this.imageSelect_.value)];
-      if (entry) void this.goTo(entry.image);
+      if (entry) this.goToEntry_(entry);
     });
+    $('button[value=list-image]').addEventListener('click', () => this.toggleListForm_());
+    this.listForm_.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void this.listFromForm_();
+    });
+    $('button[value=unlist]').addEventListener('click', () => {
+      const id = this.current_?.image ? null : this.current_?.info.id;
+      if (id) void this.unlistImage(id);
+    });
+    $('button[value=list-cancel]').addEventListener('click', () => this.toggleListForm_(false));
+    // A recorded image picked by its id brings its name and time.
+    this.listForm_.querySelector<HTMLInputElement>('input[name=id]')!.addEventListener('change', () => {
+      const field = (name: string) => this.listForm_.querySelector<HTMLInputElement>(`input[name=${name}]`)!;
+      const known = recordedImages(this.records_).find((i) => i.id === field('id').value.trim());
+      if (!known) return;
+      if (!field('name').value) field('name').value = known.name === known.id ? '' : known.name;
+      if (!field('time').value && known.time !== null) field('time').value = inputTime(known.time);
+    });
+    this.loadListed_();
     this.only_.addEventListener('change', () => this.applyOnly_());
     this.timeInput_.addEventListener('change', () => void this.setImageTime_());
     this.record_.addEventListener('click', () => this.setActive(!this.active_));
@@ -409,7 +455,7 @@ export class ObservationPanel {
   /** Turns 「クリックで記録」 on or off. */
   setActive(on: boolean, quiet = false): void {
     if (on && !this.current_) {
-      this.say_('画像なし（先に画像を開く）');
+      this.say_('画像なし（画像を開く、または ＋ でファイルなしの画像を追加）');
       on = false;
     }
     if (on === this.active_) return;
@@ -499,7 +545,7 @@ export class ObservationPanel {
   /** The open images again (call when they change): in order of acquisition time. */
   async refreshImages(): Promise<void> {
     const list = this.options.images();
-    const entries = await Promise.all(
+    const entries: Entry[] = await Promise.all(
       list.map(async (image) => {
         let info = this.info_.get(image);
         if (!info) {
@@ -510,14 +556,22 @@ export class ObservationPanel {
         return { image, info: info.time === null && manual !== undefined ? { ...info, time: manual } : info };
       }),
     );
+    // Images without a file, unless one of the open images is the same.
+    const open = new Set(entries.map((e) => e.info.id));
+    for (const info of this.listed_) {
+      if (open.has(info.id)) continue;
+      const manual = this.manualTimes_.get(info.id);
+      entries.push({ image: null, info: info.time === null && manual !== undefined ? { ...info, time: manual } : info });
+    }
     this.ordered_ = entries.sort((a, b) => (a.info.time ?? Infinity) - (b.info.time ?? Infinity) || a.info.name.localeCompare(b.info.name));
     if (this.shown_) for (const image of this.shown_.keys()) if (!list.includes(image)) this.shown_.delete(image);
     const selected = this.options.selected();
-    const keep = this.current_ && this.ordered_.find((e) => e.image === this.current_!.image);
+    const was = this.current_;
+    const keep = was && this.ordered_.find((e) => (was.image ? e.image === was.image : !e.image && e.info.id === was.info.id));
     this.current_ = keep ?? this.ordered_.find((e) => e.image === selected) ?? this.ordered_[0] ?? null;
     if (!this.current_) this.setActive(false);
     this.imageSelect_.replaceChildren(
-      ...this.ordered_.map((e, i) => new Option(`${e.info.time !== null ? localTime(e.info.time) : '日時不明'}  ${e.info.name}`, String(i), false, e === this.current_)),
+      ...this.ordered_.map((e, i) => new Option(`${e.info.time !== null ? localTime(e.info.time) : '日時不明'}  ${e.info.name}${e.image ? '' : '（ファイルなし）'}`, String(i), false, e === this.current_)),
     );
     if (!this.ordered_.length) this.imageSelect_.add(new Option('画像なし', ''));
     this.applyOnly_();
@@ -528,13 +582,104 @@ export class ObservationPanel {
   async goTo(image: ViewerImage): Promise<void> {
     if (!this.ordered_.some((e) => e.image === image)) await this.refreshImages();
     const entry = this.ordered_.find((e) => e.image === image);
-    if (!entry) return;
+    if (entry) this.goToEntry_(entry);
+  }
+
+  /** Records on an image without its file (one listed by its id). */
+  goToListed(id: string): boolean {
+    const entry = this.ordered_.find((e) => !e.image && e.info.id === id);
+    if (entry) this.goToEntry_(entry);
+    return !!entry;
+  }
+
+  /** The images listed without their file. */
+  listedImages(): readonly ListedImage[] {
+    return this.listed_;
+  }
+
+  /** Lists an image without its file (outside the catalog, or not opened here) and records on it. */
+  async listImage(image: { id: string; name?: string; time?: number | null; box?: [number, number, number, number] | null }): Promise<void> {
+    const id = image.id.trim();
+    if (!id) return;
+    const info: ListedImage = { id, name: image.name?.trim() || id, time: image.time ?? null, box: image.box ?? null };
+    this.listed_ = [...this.listed_.filter((i) => i.id !== id), info];
+    this.saveListed_();
+    await this.refreshImages();
+    const entry = this.ordered_.find((e) => e.info.id === id);
+    if (entry) this.goToEntry_(entry);
+    this.say_(entry?.image ? `${info.name} は開いている画像と同じ ID（その画像で記録）` : `${info.name} を追加（ファイルなし）`);
+  }
+
+  /** Takes an image without its file off the list (its records stay). */
+  async unlistImage(id: string): Promise<void> {
+    const gone = this.listed_.find((i) => i.id === id);
+    if (!gone) return;
+    this.listed_ = this.listed_.filter((i) => i !== gone);
+    this.saveListed_();
+    this.toggleListForm_(false);
+    await this.refreshImages();
+    this.say_(`${gone.name} を一覧から除外（記録は保持）`);
+  }
+
+  private goToEntry_(entry: Entry): void {
     this.closeForm_();
     this.current_ = entry;
     this.imageSelect_.value = String(this.ordered_.indexOf(entry));
-    if (this.options.selected() !== image) this.options.select(image);
+    if (entry.image && this.options.selected() !== entry.image) this.options.select(entry.image);
     this.applyOnly_();
     this.render_();
+  }
+
+  private toggleListForm_(open = this.listForm_.hidden): void {
+    this.listForm_.hidden = !open;
+    this.dialog.querySelector('button[value=list-image]')!.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    const field = (name: string) => this.listForm_.querySelector<HTMLInputElement>(`input[name=${name}]`)!;
+    // The image without a file shown now is changed; else a new one.
+    const listed = this.current_ && !this.current_.image ? this.listed_.find((i) => i.id === this.current_!.info.id) : undefined;
+    field('id').value = listed?.id ?? '';
+    field('name').value = listed && listed.name !== listed.id ? listed.name : '';
+    field('time').value = listed?.time != null ? inputTime(listed.time) : '';
+    field('box').checked = !!listed?.box;
+    this.listForm_.querySelector<HTMLButtonElement>('button[value=unlist]')!.hidden = !listed;
+    this.listForm_.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent = listed ? '更新' : '追加';
+    const ids = new Set(this.ordered_.map((e) => e.info.id));
+    this.dialog.querySelector('#obs-recorded-images')!.replaceChildren(
+      ...recordedImages(this.records_)
+        .filter((i) => !ids.has(i.id))
+        .map((i) => new Option(i.id, `${i.time !== null ? localTime(i.time) : '日時不明'}  ${i.name}`)),
+    );
+    field('id').focus({ preventScroll: true });
+  }
+
+  private async listFromForm_(): Promise<void> {
+    const field = (name: string) => this.listForm_.querySelector<HTMLInputElement>(`input[name=${name}]`)!;
+    const id = field('id').value.trim();
+    if (!id) return this.say_('画像 ID を入力');
+    const t = field('time').value ? new Date(field('time').value).getTime() : NaN;
+    const view = this.map.getView();
+    const box = field('box').checked ? (transformExtent(view.calculateExtent(this.map.getSize()), view.getProjection(), 'EPSG:4326') as [number, number, number, number]) : null;
+    // A changed id: the old entry goes.
+    const was = this.current_ && !this.current_.image ? this.current_.info.id : null;
+    if (was && was !== id && !this.listForm_.querySelector<HTMLButtonElement>('button[value=unlist]')!.hidden) this.listed_ = this.listed_.filter((i) => i.id !== was);
+    this.toggleListForm_(false);
+    await this.listImage({ id, name: field('name').value, time: Number.isFinite(t) ? t : null, box });
+  }
+
+  private loadListed_(): void {
+    try {
+      this.listed_ = parseListedImages(localStorage.getItem(LISTED_KEY + this.store_.label));
+    } catch {
+      this.listed_ = [];
+    }
+  }
+
+  private saveListed_(): void {
+    try {
+      localStorage.setItem(LISTED_KEY + this.store_.label, JSON.stringify(this.listed_));
+    } catch {
+      // Only while the page is open.
+    }
   }
 
   /** The next (or previous) image in time. */
@@ -542,7 +687,7 @@ export class ObservationPanel {
     if (!this.ordered_.length) return;
     const at = this.current_ ? this.ordered_.indexOf(this.current_) : -1;
     const next = this.ordered_[Math.min(this.ordered_.length - 1, Math.max(0, at + by))];
-    if (next && next !== this.current_) await this.goTo(next.image);
+    if (next && next !== this.current_) this.goToEntry_(next);
   }
 
   /** Shows a tab. */
@@ -889,6 +1034,11 @@ export class ObservationPanel {
     const t = this.timeInput_.value ? new Date(this.timeInput_.value).getTime() : NaN;
     if (!entry || !Number.isFinite(t)) return;
     this.manualTimes_.set(entry.info.id, t);
+    // An image without a file keeps its time.
+    if (!entry.image) {
+      this.listed_ = this.listed_.map((i) => (i.id === entry.info.id ? { ...i, time: t } : i));
+      this.saveListed_();
+    }
     // The records made without a time get it.
     const now = Date.now();
     const timeless = this.records_.filter((o) => o.imageId === entry.info.id && o.imageTime === null).map((o) => ({ ...o, imageTime: t, updatedAt: now }));
@@ -1480,7 +1630,7 @@ export class ObservationPanel {
   /** Goes to a record's image and opens it in the form. */
   private async openRecord_(o: Observation): Promise<void> {
     const entry = this.ordered_.find((e) => e.info.id === o.imageId);
-    if (entry && entry !== this.current_) await this.goTo(entry.image);
+    if (entry && entry !== this.current_) this.goToEntry_(entry);
     this.center_(o);
     if (entry) {
       if (!this.active_) this.setActive(true);
