@@ -9,7 +9,8 @@
  * zooms to the feature, and right-clicking opens a menu that zooms to the
  * selected features, copies their rows and, for a layer that allows it,
  * deletes them. While an Esri layer is being edited, its editable cells are
- * inputs and unsaved values are marked.
+ * inputs and unsaved values are marked. Values that are URLs or file paths
+ * are links (cell-links.ts).
  */
 import type Feature from 'ol/Feature.js';
 import type OlMap from 'ol/Map.js';
@@ -17,6 +18,7 @@ import { unByKey } from 'ol/Observable.js';
 import { listen, type EventsKey } from 'ol/events.js';
 import type Target from 'ol/events/Target.js';
 import { createEmpty, extend } from 'ol/extent.js';
+import type { CellLink } from './cell-links.js';
 import { ContextMenu, type MenuItem } from './context-menu.js';
 import type { EditSession } from './edit-session.js';
 import type { Selection } from './selection.js';
@@ -83,6 +85,8 @@ export class AttributeTable {
       onPin?: () => void;
       /** The table's own name, before the layer's (default 「属性テーブル」). */
       heading?: string;
+      /** Makes URL and path values links, and opens them (cell-links.ts); absent: plain text. */
+      links?: { linkOf(value: unknown): CellLink | null; open(link: CellLink, tab?: boolean): Promise<void> };
     },
   ) {
     element.classList.add('table-panel');
@@ -318,8 +322,8 @@ export class AttributeTable {
     this.options.say(`${features.length} 行をコピー（タブ区切り）`);
   }
 
-  /** Opens the row menu for `feature` at the page point (`x`, `y`); a row not selected becomes the selection first. */
-  openMenu(feature: Feature, x: number, y: number): void {
+  /** Opens the row menu for `feature` at the page point (`x`, `y`); a row not selected becomes the selection first. `link`: of the cell clicked. */
+  openMenu(feature: Feature, x: number, y: number, link: CellLink | null = null): void {
     if (!this.selection.has(feature)) {
       this.selection.set([feature]);
       this.anchor_ = feature;
@@ -334,9 +338,27 @@ export class AttributeTable {
     ];
     if (this.options.shapeLink) items.splice(2, 0, { label: several ? `${several}の図形のリンクをコピー` : '図形のリンクをコピー', run: () => void this.copyShapeLink(features) });
     if (this.options.menuItems) items.splice(items.length - 1, 0, ...this.options.menuItems(features));
+    const links = this.options.links;
+    if (link && links) {
+      const target = link.kind === 'url' ? link.url : link.path;
+      items.unshift(
+        { label: link.viewer ? 'リンク先を地図に表示' : 'リンク先を開く', run: () => void links.open(link) },
+        ...(link.viewer ? [{ label: 'リンク先を新しいタブで開く', run: () => void links.open(link, true) }] : []),
+        { label: link.kind === 'url' ? 'URL をコピー' : 'パスをコピー', run: () => void this.copyText_(target, link.kind === 'url' ? 'URL をコピー' : 'パスをコピー') },
+      );
+    }
     const remove = this.data_?.onDelete;
     if (remove) items.push({ label: several ? `${several}を削除…` : '削除…', danger: true, run: () => remove(features) });
     this.menu_.open(items, x, y);
+  }
+
+  private async copyText_(text: string, done: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.options.say(done);
+    } catch {
+      this.options.say(`コピー失敗: ${text}`);
+    }
   }
 
   /** The selected features of this table, in row order (those filtered out by the search included, at the end). */
@@ -574,14 +596,15 @@ export class AttributeTable {
       this.pick_(feature, e);
     });
     tr.addEventListener('dblclick', (e) => {
-      if ((e.target as HTMLElement).closest('input, select')) return;
+      if ((e.target as HTMLElement).closest('input, select, .cell-link')) return;
       this.zoomTo([feature]);
     });
     tr.addEventListener('contextmenu', (e) => {
       // Inputs keep the browser's own menu (paste and so on).
       if ((e.target as HTMLElement).closest('input:not([type="checkbox"]), select')) return;
       e.preventDefault();
-      this.openMenu(feature, e.clientX, e.clientY);
+      const cell = (e.target as HTMLElement).closest<HTMLElement>('.cell-link');
+      this.openMenu(feature, e.clientX, e.clientY, cell ? this.options.links?.linkOf(cell.dataset.value) ?? null : null);
     });
     const check = document.createElement('td');
     check.className = 'check';
@@ -597,13 +620,51 @@ export class AttributeTable {
       if (session?.isDirty(feature, field.name)) td.classList.add('dirty');
       if (session && this.session_ && session.canEdit(feature, field)) td.append(this.input_(feature, field, value));
       else {
-        td.textContent = display(field, value);
+        const link = field.codes ? null : this.options.links?.linkOf(value);
+        if (link) td.append(this.link_(link, display(field, value), value as string));
+        else td.textContent = display(field, value);
         if (value === null || value === undefined) td.classList.add('null');
         if (field.type === 'integer' || field.type === 'double' || field.type === 'oid') td.classList.add('number');
       }
       tr.append(td);
     }
     return tr;
+  }
+
+  /**
+   * A link in a cell: a click opens it (on the map when the viewer shows it,
+   * otherwise in a new tab); with Ctrl, Shift or the middle button, a URL
+   * opens in a new tab as links do. It does not select the row.
+   */
+  private link_(link: CellLink, text: string, value: string): HTMLElement {
+    const links = this.options.links!;
+    const a = document.createElement('a');
+    a.className = 'cell-link';
+    a.textContent = text;
+    a.dataset.value = value;
+    if (link.kind === 'url') {
+      a.href = link.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.title = link.viewer ? `${link.url}\nクリックで地図に表示、Ctrl+クリックで新しいタブ` : link.url;
+    } else {
+      // A browser does not open a local path itself: pathMappings and the folders allowed for them do.
+      a.href = '#';
+      a.title = `${link.path}\n${link.viewer ? 'クリックで地図に表示' : 'クリックで新しいタブに表示'}（config.json の pathMappings で対応付け）`;
+    }
+    a.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tab = e.ctrlKey || e.metaKey || e.shiftKey;
+      if (link.kind === 'url' && (!link.viewer || tab)) return; // the browser opens it
+      e.preventDefault();
+      void links.open(link, tab);
+    });
+    a.addEventListener('auxclick', (e) => {
+      if (link.kind !== 'path' || e.button !== 1) return;
+      e.preventDefault();
+      void links.open(link, true);
+    });
+    return a;
   }
 
   /** An input for an editable cell, shaped by the field's type and domain. */

@@ -118,6 +118,7 @@ import { esriJson } from './services/esri.js';
 import type { LonLat } from './coordinates.js';
 import { sensorViewOf, timeText, type CatalogConfig, type CatalogRecord } from './catalog.js';
 import { askDialog, LocalPaths } from './local-paths.js';
+import { CellLinks } from './cell-links.js';
 import { canSaveToFolder, saveFolder, SaveFolderDialog } from './save-folder.js';
 import { results } from './result-store.js';
 import { ResultSaveDialog } from './result-save-dialog.js';
@@ -254,8 +255,27 @@ const shapeLinkOf = (layer: ViewerLayer | null, features: Feature[]): string | n
   const service = layer?.type === 'service' ? layer.service : null;
   return linkOfShapes(location.href, features, { name: service?.title, labelField: service?.style?.get().label.field ?? null });
 };
+// URL and path values in attribute tables are links: images, services and vector files open on the map, the rest in a
+// new tab; local paths through pathMappings and the folders allowed for them, like the image catalog's.
+const cellLinks = new CellLinks({
+  mappings: config.pathMappings,
+  resolve: (path) => localPaths.resolve(path),
+  openUrl: async (url) => {
+    if (await openEsriUrl(url)) return;
+    const name = new URL(url, document.baseURI).pathname;
+    if (isVectorName(name) || isCsvName(name)) await project.openFiles([await fetchFile(url)]);
+    else await loader.loadUrl(url);
+  },
+  openFiles: async (handles) => {
+    const files = await Promise.all(handles.map(fileOf));
+    void recent?.remember(handles);
+    await project.openFiles(files);
+  },
+  say,
+});
 const table = new AttributeTable(document.getElementById('table')!, map, selection, {
   say,
+  links: cellLinks,
   shapeLink: (features) => shapeLinkOf(images.selectedLayer(), features),
   // 「GeoJSON でコピー」・「WKT でコピー」.
   menuItems: (features) => clipboard.menuItems(features),
@@ -282,6 +302,7 @@ function pinTable(layer: ViewerLayer, id?: string): void {
   element.setAttribute('aria-label', `属性テーブル: ${layer.name}`);
   const pinned = new AttributeTable(element, map, selection, {
     say,
+    links: cellLinks,
     shapeLink: (features) => shapeLinkOf(layer, features),
     menuItems: (features) => clipboard.menuItems(features),
     heading: '属性',

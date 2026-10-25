@@ -939,6 +939,16 @@ body {
   outline: 2px solid #00b7ff;
   outline-offset: -2px;
 }
+.attributes .cell-link {
+  color: light-dark(#0a6fb0, #6cc4ff);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.attributes .cell-link:hover {
+  text-decoration-color: currentColor;
+}
 .attributes td.number {
   text-align: right;
   font-variant-numeric: tabular-nums;

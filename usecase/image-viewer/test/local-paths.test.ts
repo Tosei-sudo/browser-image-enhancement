@@ -50,4 +50,9 @@ describe('isSidecar', () => {
     for (const name of ['A.tif.ovr', 'a.ovr', 'a.RPB', 'a_rpc.txt', 'A.IMD']) expect(isSidecar(name, 'a.TIF')).toBe(true);
     for (const name of ['a.tif', 'a.jpg', 'ab.ovr', 'b.rpb']) expect(isSidecar(name, 'a.tif')).toBe(false);
   });
+  it("takes an image's world file and .aux.xml, and a Shapefile's parts", () => {
+    for (const name of ['a.tfw', 'A.TIF.aux.xml', 'a.wld']) expect(isSidecar(name, 'a.tif')).toBe(true);
+    for (const name of ['roads.dbf', 'ROADS.SHX', 'roads.prj', 'roads.cpg', 'roads.qml']) expect(isSidecar(name, 'roads.shp')).toBe(true);
+    for (const name of ['roads.shp', 'roads.tfw', 'roads2.dbf']) expect(isSidecar(name, 'roads.shp')).toBe(false);
+  });
 });
