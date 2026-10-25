@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bearing,
   carriedInto,
+  endsOf,
+  headingText,
+  twoPoint,
   carryOvers,
   EsriObservationStore,
   flows,
@@ -192,5 +196,46 @@ describe('EsriObservationStore', () => {
     const layer = fakeLayer(['OBS_ID']);
     const store = new EsriObservationStore(observationStoreOf({ label: '観測', url: 'https://x/FeatureServer/0' }, [], 0)!, layer.ask);
     await expect(store.load()).rejects.toThrow('観測 に属性 OBJECT_ID なし');
+  });
+});
+
+describe('two points: centre, length and heading', () => {
+  it('measures a thing from its front and rear, and gives its ends back', () => {
+    // About 200 m apart, the front to the north-east of the rear.
+    const rear = [139.7, 35.6];
+    const front = [139.7 + 0.001556, 35.6 + 0.001272];
+    const m = twoPoint(front, rear);
+    expect(m.length).toBeGreaterThan(195);
+    expect(m.length).toBeLessThan(205);
+    expect(m.heading).toBeGreaterThan(40);
+    expect(m.heading).toBeLessThan(50);
+    expect(m.lon).toBeCloseTo(139.700778, 5);
+    expect(m.lat).toBeCloseTo(35.600636, 5);
+    const ends = endsOf(m)!;
+    expect(ends[0][0]).toBeCloseTo(front[0], 6);
+    expect(ends[0][1]).toBeCloseTo(front[1], 6);
+    expect(ends[1][0]).toBeCloseTo(rear[0], 6);
+    expect(ends[1][1]).toBeCloseTo(rear[1], 6);
+    expect(endsOf({ lon: 0, lat: 0, length: null, heading: null })).toBeNull();
+    expect(bearing([0, 0], [-1, 0])).toBeCloseTo(270, 6);
+    expect(headingText(5.4)).toBe('005°');
+  });
+
+  it('writes length and heading in CSV and to the layer', async () => {
+    const csv = observationsCsv([obs({ length: 152.25, heading: 45.04 }), obs({})]);
+    expect(csv.split('\r\n')[0]).toContain('経度,緯度,長さ（m）,向き（度）,備考');
+    expect(csv).toContain(',152.3,45.0,');
+    const sent: Array<Record<string, string>> = [];
+    const store = new EsriObservationStore(observationStoreOf({ url: 'https://x/FeatureServer/0' }, [], 0)!, async (url, params) => {
+      sent.push(params);
+      if (url.endsWith('/0')) return { objectIdField: 'OBJECTID', fields: ['OBJECTID', 'OBS_ID', 'OBJECT_ID', 'LENGTH_M', 'HEADING'].map((name) => ({ name, type: name === 'OBJECTID' ? 'esriFieldTypeOID' : /OBS|OBJECT_ID/.test(name) ? 'esriFieldTypeString' : 'esriFieldTypeDouble' })) };
+      if (url.endsWith('/query')) return { features: [{ attributes: { OBJECTID: 1, OBS_ID: 'a', OBJECT_ID: 'A', LENGTH_M: 99.5, HEADING: null }, geometry: { x: 1, y: 2 } }] };
+      return { addResults: [{ success: true, objectId: 2 }] };
+    });
+    const [read] = await store.load();
+    expect(read.length).toBe(99.5);
+    expect(read.heading).toBeNull();
+    await store.save([obs({ id: 'b', length: 10, heading: 90 })]);
+    expect(JSON.parse(sent[sent.length - 1].adds)[0].attributes).toMatchObject({ LENGTH_M: 10, HEADING: 90 });
   });
 });

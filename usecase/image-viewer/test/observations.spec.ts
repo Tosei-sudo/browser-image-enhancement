@@ -323,3 +323,56 @@ test('kinds are chosen down a classification whose branches name their own level
   await expect(panel.locator('.obs-class-filter')).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+test('a thing is measured by two clicks, front then rear: its centre, length and heading', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openImages(page);
+  const panel = await openPanel(page);
+  await page.evaluate(() => window.viewer.observations.updateClass(['船舶'], { specs: { 全長: '100' } }));
+  await panel.getByRole('button', { name: '2 点' }).click();
+  await expect(panel.getByRole('button', { name: '2 点' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel.locator('.service-status')).toContainText('前端');
+  const map = page.locator('#map');
+  const box = (await map.boundingBox())!;
+  // The front up and right of the rear: heading about 45°.
+  const front = { x: box.width / 4 + 30, y: box.height / 2 - 30 };
+  const rear = { x: box.width / 4 - 30, y: box.height / 2 + 30 };
+  await map.click({ position: front });
+  await expect(panel.locator('.service-status')).toContainText('後端をクリック');
+  await page.mouse.move(box.x + rear.x, box.y + rear.y, { steps: 3 });
+  await map.click({ position: rear });
+  const form = panel.locator('.obs-form');
+  await expect(form).toBeVisible();
+  const length = Number(await form.locator('input[name=length]').inputValue());
+  const heading = Number(await form.locator('input[name=heading]').inputValue());
+  expect(length).toBeGreaterThan(0);
+  expect(heading).toBeGreaterThan(40);
+  expect(heading).toBeLessThan(50);
+  // Against the class's 全長.
+  await expect(form.locator('.obs-measure-note')).toContainText('全長 100 m（船舶）の');
+  await form.locator('input[name=object]').fill('タンカーB');
+  await form.locator('input[name=object]').press('Enter');
+  await expect(panel.locator('.service-status')).toContainText('タンカーBを記録');
+  const record = await page.evaluate(() => window.viewer.observations.records()[0]);
+  expect(record.length).toBeCloseTo(length, 0);
+  expect(record.heading).toBeCloseTo(heading, 0);
+  // The centre is halfway between the clicks.
+  const [cx, cy] = await page.evaluate(([lon, lat]) => window.viewer.map.getPixelFromCoordinate(window.viewer.map.getView().getProjection().getCode() === 'EPSG:3857' ? [lon * 20037508.34 / 180, Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) * 6378137] : [lon, lat]), [record.lon, record.lat]);
+  expect(Math.abs(cx - box.width / 4)).toBeLessThan(2);
+  expect(Math.abs(cy - box.height / 2)).toBeLessThan(2);
+  await expect(panel.locator('.obs-list tbody')).toContainText(`${Math.round(length)} m・04`);
+  // Changed by typing, Esc cancels a waiting front.
+  await panel.locator('.obs-list tbody tr').first().click();
+  await form.locator('input[name=heading]').fill('180');
+  await form.locator('input[name=heading]').press('Enter');
+  await expect.poll(() => page.evaluate(() => window.viewer.observations.records()[0].heading)).toBe(180);
+  await map.click({ position: { x: box.width / 4 + 80, y: box.height / 2 } });
+  await expect(panel.locator('.service-status')).toContainText('後端をクリック');
+  await page.keyboard.press('Escape');
+  await expect(panel.locator('.service-status')).toContainText('2 点目の取消');
+  // L turns it back to points.
+  await page.keyboard.press('l');
+  await expect(panel.getByRole('button', { name: '2 点' })).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});

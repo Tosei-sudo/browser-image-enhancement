@@ -5935,3 +5935,19 @@ dialog.docked > .dock-dialog-corner {
   min-width: 0;
   box-sizing: border-box;
 }
+.obs-form:not(.measuring) .obs-measure {
+  display: none;
+}
+.obs-measure-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.obs-measure-note:empty {
+  display: none;
+}
+.obs-actions button[value='two-point'][aria-pressed='true'] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  font-weight: 600;
+}

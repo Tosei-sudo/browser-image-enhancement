@@ -18,7 +18,7 @@
  * none is given, in the browser (IndexedDB).
  */
 import { timeOf, type FieldTypes } from './catalog-query.js';
-import { getDistance } from 'ol/sphere.js';
+import { getDistance, offset } from 'ol/sphere.js';
 import { defaultSpecFields, fromKinds, kindOf, pathOf, specFieldsOf, taxonomyOf, taxonomyTableOf, within, type SpecField, type Taxon, type TaxonomyTableConfig } from './taxonomy.js';
 
 /** One observation of one thing in one image. */
@@ -40,8 +40,13 @@ export interface Observation {
   /** False for 「不在」: looked for and not there. */
   present: boolean;
   note: string;
+  /** Where it is: its centre when it was measured by two points (its front, then its rear). */
   lon: number;
   lat: number;
+  /** Its length (m), from front to rear, when measured. */
+  length?: number | null;
+  /** Which way it points (degrees from north, clockwise, rear to front), when measured. */
+  heading?: number | null;
   createdAt: number;
   updatedAt: number;
   /** When it was deleted; null while it counts. */
@@ -60,6 +65,8 @@ export interface ObservationFields {
   activity: string;
   present: string;
   note: string;
+  length: string;
+  heading: string;
   created: string;
   updated: string;
   deleted: string;
@@ -77,6 +84,8 @@ export const defaultObservationFields: ObservationFields = {
   activity: 'ACTIVITY',
   present: 'PRESENT',
   note: 'NOTE',
+  length: 'LENGTH_M',
+  heading: 'HEADING',
   created: 'CREATED_AT',
   updated: 'UPDATED_AT',
   deleted: 'DELETED_AT',
@@ -237,6 +246,34 @@ export const MOVE_METRES = 30;
 
 const distance = (a: Observation, b: Observation) => getDistance([a.lon, a.lat], [b.lon, b.lat]);
 
+const DEG = Math.PI / 180;
+/** The bearing (degrees from north, clockwise, 0–360) from one place to another. */
+export function bearing(from: readonly number[], to: readonly number[]): number {
+  const [l1, p1, l2, p2] = [from[0] * DEG, from[1] * DEG, to[0] * DEG, to[1] * DEG];
+  const y = Math.sin(l2 - l1) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(l2 - l1);
+  return (Math.atan2(y, x) / DEG + 360) % 360;
+}
+
+/** A thing measured by two points, its front then its rear: its centre, length (m) and heading (rear to front). */
+export function twoPoint(front: readonly number[], rear: readonly number[]): { lon: number; lat: number; length: number; heading: number } {
+  const length = getDistance([...rear], [...front]);
+  const heading = bearing(rear, front);
+  // The point halfway along.
+  const [lon, lat] = offset(rear as number[], length / 2, heading * DEG);
+  return { lon, lat, length, heading };
+}
+
+/** The front and rear (lon, lat) of a measured record; null when it is a point. */
+export function endsOf(o: Pick<Observation, 'lon' | 'lat' | 'length' | 'heading'>): [number[], number[]] | null {
+  if (o.length == null || o.heading == null || !(o.length > 0)) return null;
+  const centre = [o.lon, o.lat];
+  return [offset(centre, o.length / 2, o.heading * DEG), offset(centre, o.length / 2, (o.heading + 180) * DEG)];
+}
+
+/** `045°` */
+export const headingText = (deg: number | null | undefined): string => (deg == null ? '' : `${String(Math.round(deg) % 360).padStart(3, '0')}°`);
+
 /** The flow of one thing (its living records, any order). */
 export function flowOf(records: readonly Observation[]): ObjectFlow {
   const list = [...records].sort(byTime);
@@ -348,12 +385,12 @@ export function observationsCsv(records: readonly Observation[]): string {
   // The kind whole, then a column per level (分類1 the top), for sorting and pivoting.
   const depth = Math.max(1, ...records.map((o) => pathOf(o.kind).length));
   const levels = Array.from({ length: depth }, (_, i) => `分類${i + 1}`);
-  const head = ['観測ID', 'モノID', 'モノ', '種別', ...levels, '活動', '有無', '撮像日時', '画像ID', '画像', '経度', '緯度', '備考', '登録日時', '更新日時', '削除日時'];
+  const head = ['観測ID', 'モノID', 'モノ', '種別', ...levels, '活動', '有無', '撮像日時', '画像ID', '画像', '経度', '緯度', '長さ（m）', '向き（度）', '備考', '登録日時', '更新日時', '削除日時'];
   const rows = [...records]
     .sort((a, b) => a.objectId.localeCompare(b.objectId) || byTime(a, b))
     .map((o) => {
       const path = pathOf(o.kind);
-      return [o.id, o.objectId, o.objectName, kindOf(path), ...levels.map((_, i) => path[i] ?? ''), o.activity, o.present ? 'あり' : 'なし', iso(o.imageTime), o.imageId, o.imageName, o.lon.toFixed(7), o.lat.toFixed(7), o.note, iso(o.createdAt), iso(o.updatedAt), iso(o.deletedAt)];
+      return [o.id, o.objectId, o.objectName, kindOf(path), ...levels.map((_, i) => path[i] ?? ''), o.activity, o.present ? 'あり' : 'なし', iso(o.imageTime), o.imageId, o.imageName, o.lon.toFixed(7), o.lat.toFixed(7), o.length == null ? '' : o.length.toFixed(1), o.heading == null ? '' : o.heading.toFixed(1), o.note, iso(o.createdAt), iso(o.updatedAt), iso(o.deletedAt)];
     });
   return `\ufeff${[head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }
@@ -430,6 +467,7 @@ type EsriFeature = { attributes: Record<string, unknown>; geometry?: { x?: numbe
 
 const text = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const presentOf = (v: unknown) => !(v === 0 || v === false || /^(0|false|no|なし|いない|不在)$/i.test(text(v).trim()));
+const numberOf = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 const msOf = (v: unknown): number | null => {
   const t = timeOf(v);
   return Number.isFinite(t) ? t : null;
@@ -484,6 +522,8 @@ export class EsriObservationStore implements ObservationStore {
       [f.activity]: o.activity,
       [f.present]: o.present,
       [f.note]: o.note,
+      [f.length]: o.length ?? null,
+      [f.heading]: o.heading ?? null,
       [f.created]: o.createdAt,
       [f.updated]: o.updatedAt,
       [f.deleted]: o.deletedAt,
@@ -516,6 +556,8 @@ export class EsriObservationStore implements ObservationStore {
       activity: text(a[f.activity]),
       present: f.present in a ? presentOf(a[f.present]) : true,
       note: text(a[f.note]),
+      length: numberOf(a[f.length]),
+      heading: numberOf(a[f.heading]),
       lon: x,
       lat: y,
       createdAt: created,
