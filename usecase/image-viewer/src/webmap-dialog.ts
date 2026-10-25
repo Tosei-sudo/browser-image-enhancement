@@ -9,6 +9,7 @@
  * with the service readers (services/*), and written back.
  */
 import { freshTokenFor } from './auth.js';
+import { adoptAliases } from './field-alias.js';
 import type OlMap from 'ol/Map.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import LayerGroup from 'ol/layer/Group.js';
@@ -380,6 +381,7 @@ export class WebMapDialogs {
       if (!projection) throw new ServiceError(`座標系 EPSG:${part.wkid} の読み込み不可`);
       const features = collectionFeatures(part, projection.getCode());
       const fields = part.fields.map((f) => toField(f, true, new Set())).filter((f): f is Field => f !== null && f.type !== 'oid');
+      adoptAliases(fields, new Map(Object.entries(part.aliases ?? {})));
       const record: TempRecord = {
         id: crypto.randomUUID(),
         title: spec.parts.length > 1 && part.name ? `${spec.title}: ${part.name}` : spec.title,
@@ -412,6 +414,8 @@ export class WebMapDialogs {
 
   /** A feature layer drawn by the web map's renderer and labels, and shown at its scales. */
   private styleFeatureLayer_(service: ServiceLayer, spec: Extract<WebMapLayer, { type: 'service' }>): void {
+    // The popup's labels over the service's aliases.
+    if (spec.aliases && service.vector) adoptAliases(service.vector.fields, new Map(Object.entries(spec.aliases)));
     if (spec.renderer || spec.labelField !== undefined) {
       const initial = spec.renderer ? styleOfRenderer(spec.renderer, spec.labelField ?? null) : service.style!.get();
       if (!spec.renderer) initial.label.field = spec.labelField ?? null;

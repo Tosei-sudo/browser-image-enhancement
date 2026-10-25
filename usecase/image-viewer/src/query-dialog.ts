@@ -10,6 +10,7 @@
 import type { ViewerLayer, ViewerService } from './images.js';
 import { onServer, queryFields, selectModes, type LayerQueries, type SelectMode } from './layer-query.js';
 import type { Selection } from './selection.js';
+import { fieldHeading, fieldLabel } from './field-alias.js';
 import type { Field } from './services/index.js';
 import { conditionOps, conditionsSql, sqlName, takesValue, type Condition, type ConditionOp } from './sql-where.js';
 
@@ -61,7 +62,7 @@ class ConditionRow {
     this.join_.append(new Option('かつ', 'AND'), new Option('または', 'OR'));
     this.join_.title = 'かつ（AND）: 両方を満たす／または（OR）: どちらかを満たす';
     this.field_.setAttribute('aria-label', 'フィールド');
-    for (const f of fields) this.field_.append(new Option(f.alias && f.alias !== f.name ? `${f.alias}（${f.name}）` : f.name, f.name));
+    for (const f of fields) this.field_.append(new Option(fieldLabel(f), f.name));
     this.op_.setAttribute('aria-label', '演算子');
     for (const [op, text] of conditionOps) this.op_.append(new Option(text, op));
     this.value_.type = 'text';
@@ -361,7 +362,10 @@ export class QueryDialog {
       ...queryFields(layer.service).map((f) => {
         const b = document.createElement('button');
         b.type = 'button';
-        b.textContent = f.name;
+        // The alias shows, the name goes into the SQL.
+        const field = fields.find((x) => x.name === f.name);
+        b.textContent = field ? fieldHeading(field) : f.name;
+        b.title = field && fieldHeading(field) !== f.name ? `${f.name}（${fieldHeading(field)}）` : f.name;
         b.addEventListener('click', () => this.insert_(sqlName(f.name)));
         return b;
       }),

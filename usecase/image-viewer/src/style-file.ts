@@ -6,7 +6,9 @@
  * main parts of a style QGIS made (one symbol, categories or ranges, their
  * colors, labels and scales).
  */
+import { qmlAliasesXml } from './field-alias.js';
 import { attr, descendants, kid, kids, parseXml, path, type XmlElement } from './safe-xml.js';
+import type { Field } from './services/index.js';
 import { normalizeSpec, settleColorTarget, strokeBeside, symbolOfClass, type GradClass, type LineDash, type PointShape, type SymbolSpec, type VectorStyleSpec } from './vector-style.js';
 
 /** The kind of geometry a QML symbol is for. */
@@ -107,9 +109,10 @@ export function labelingXml(spec: VectorStyleSpec, kind: SymbolKind): string {
 
 /**
  * The QML of a style, for a layer of `kind`. `rename` gives the column a
- * field was written as (Shapefile names are cut to 10 bytes).
+ * field was written as (Shapefile names are cut to 10 bytes); the aliases
+ * of `fields` go with it.
  */
-export function styleQml(spec: VectorStyleSpec, kind: SymbolKind, rename: ReadonlyMap<string, string> = new Map()): string {
+export function styleQml(spec: VectorStyleSpec, kind: SymbolKind, rename: ReadonlyMap<string, string> = new Map(), fields: ReadonlyArray<Pick<Field, 'name' | 'alias'>> = []): string {
   const name = (field: string | null) => (field === null ? null : (rename.get(field) ?? field));
   const written: VectorStyleSpec = { ...spec, field: name(spec.field), label: { ...spec.label, field: name(spec.label.field) } };
   const scaled = written.minScale || written.maxScale;
@@ -117,7 +120,7 @@ export function styleQml(spec: VectorStyleSpec, kind: SymbolKind, rename: Readon
 <qgis version="3.34.0" styleCategories="Symbology|Labeling|Rendering|CustomProperties" hasScaleBasedVisibilityFlag="${scaled ? 1 : 0}" minScale="${written.minScale ?? 0}" maxScale="${written.maxScale ?? 0}" labelsEnabled="${written.label.field ? 1 : 0}">
 ${rendererXml(written, kind)}
 ${labelingXml(written, kind)}
-<customproperties>${options({ [PROPERTY]: JSON.stringify(written) })}</customproperties>
+${qmlAliasesXml(fields, rename)}<customproperties>${options({ [PROPERTY]: JSON.stringify(written) })}</customproperties>
 </qgis>
 `;
 }

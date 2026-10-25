@@ -22,6 +22,7 @@ import type { EventsKey } from 'ol/events.js';
 import type Feature from 'ol/Feature.js';
 import type { FeatureLike } from 'ol/Feature.js';
 import type { GeoTIFFImage } from 'geotiff';
+import { fieldLabel } from './field-alias.js';
 import type { ImageList, ViewerImage, ViewerLayer, ViewerService } from './images.js';
 import { fileInfoOf } from './nitf-tiff.js';
 import {
@@ -687,7 +688,7 @@ export class Timeline extends Observable {
     const select = document.createElement('select');
     select.setAttribute('aria-label', `${label}の属性`);
     if (which === 'end') select.add(new Option('なし', ''));
-    for (const f of t.fields!) select.add(new Option(f.name, f.name));
+    for (const f of t.fields!) select.add(new Option(f.field ? fieldLabel(f.field) : f.name, f.name));
     select.value = t[which]?.name ?? '';
     select.addEventListener('change', () => {
       t[which] = t.fields!.find((f) => f.name === select.value) ?? null;

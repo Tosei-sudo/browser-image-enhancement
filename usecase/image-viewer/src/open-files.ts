@@ -26,6 +26,7 @@ import { glVector, hasFastGpu } from './gl-vector.js';
 import { vectorLayer } from './services/vector.js';
 import { LayerStyle, singleSpec, type VectorStyleSpec } from './vector-style.js';
 import { readStyleQml } from './style-file.js';
+import { adoptAliases, qmlTextAliases, withAliases } from './field-alias.js';
 import { isVectorName, readVectorFiles, stem, type VectorFile } from './vector-files.js';
 import { isCsvName, readCsv } from './csv.js';
 import { openStreamedShapefile, planStreaming } from './streamed-shapefile.js';
@@ -234,6 +235,7 @@ async function openVectors(chosen: File[], { addLayer, say }: OpenFilesContext):
     for (const parts of streamed) {
       const style = parts.qml ? fileStyle({ styleQml: parts.qml }) : null;
       const layer = await openStreamedShapefile(parts, (message, fraction) => say(`${parts.title}: ${message}… ${Math.round(fraction * 100)}%`), style);
+      if (layer.vector) adoptAliases(layer.vector.fields, qmlTextAliases(parts.qml));
       addLayer(layer);
       say(`${parts.title} を表示（${layer.info.find(([k]) => k === '地物数')?.[1]} 件。大容量のため表示範囲のみ読み込み・読み取り専用）`);
     }
@@ -612,7 +614,9 @@ export function vectorFileLayer(file: VectorFile): ServiceLayer {
   const extent = source.getExtent();
   const editable = isEditable(file, truncated);
   // Every attribute of a file can be changed, but the GeoPackage feature id.
-  const fields = editable ? file.fields.map((f) => (f.type === 'oid' ? f : { ...f, editable: true })) : file.fields;
+  // Aliases from the file's QGIS style (a Shapefile's .qml, a GeoPackage's layer_styles) over the file's own.
+  const own = withAliases(file.fields, qmlTextAliases(file.styleQml));
+  const fields = editable ? own.map((f) => (f.type === 'oid' ? f : { ...f, editable: true })) : own;
   const info: Array<[string, string]> = [
     ['種類', editable ? file.format : `${file.format}（読み取り専用）`],
     ['座標系', file.crs],

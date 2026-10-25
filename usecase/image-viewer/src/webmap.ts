@@ -145,6 +145,8 @@ export type WebMapLayer = LayerBase &
         /** A feature layer's renderer and label field in the web map (overriding the service's). */
         renderer?: EsriRenderer;
         labelField?: string | null;
+        /** The web map's popup labels of the attributes (name → label), shown as their aliases. */
+        aliases?: Record<string, string>;
       }
     | { type: 'tiles'; urls: string[]; attributions?: string }
     | { type: 'vector-tiles'; url: string; style?: string }
@@ -158,6 +160,8 @@ export interface CollectionPart {
   fields: Array<{ name: string; type: string; alias?: string; length?: number }>;
   renderer?: EsriRenderer;
   labelField?: string | null;
+  /** The popup labels of the attributes (name → label). */
+  aliases?: Record<string, string>;
   /** Esri JSON features and their spatial reference. */
   features: Json[];
   wkid: number;
@@ -318,6 +322,7 @@ function readOne(item: Json, base: LayerBase): WebMapLayer | WebMapLayer[] | { r
         ref: { kind: 'esri', url: `${m[1]}/${id}`, layer: id, ...(where ? { settings: { where } } : {}) },
         ...(renderer ? { renderer } : {}),
         ...(drawing.labelingInfo !== undefined || definition.showLabels !== undefined ? { labelField: item.showLabels === false || definition.showLabels === false ? null : labelFieldOf(drawing.labelingInfo) } : {}),
+        ...withPopupAliases(item.popupInfo),
       };
     }
     case 'ArcGISMapServiceLayer':
@@ -402,6 +407,24 @@ export function tileUrls(template: string, subDomains: unknown): string[] {
   return (subs.length ? subs : ['a']).map((s) => xyz.replace(/\{subDomain\}/g, s));
 }
 
+/** The labels a web map's popup gives the attributes (`popupInfo.fieldInfos`), where they differ from the names. */
+export function popupAliases(popupInfo: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  const infos = isRecord(popupInfo) && Array.isArray(popupInfo.fieldInfos) ? popupInfo.fieldInfos : [];
+  for (const info of infos) {
+    if (!isRecord(info)) continue;
+    const name = str(info.fieldName);
+    const label = str(info.label)?.trim();
+    if (name && label && label !== name && !/^(relationships|expression)\//.test(name)) out[name] = label;
+  }
+  return out;
+}
+
+const withPopupAliases = (popupInfo: unknown): { aliases?: Record<string, string> } => {
+  const aliases = popupAliases(popupInfo);
+  return Object.keys(aliases).length ? { aliases } : {};
+};
+
 function collectionParts(collection: Json): CollectionPart[] {
   const parts: CollectionPart[] = [];
   for (const l of Array.isArray(collection.layers) ? collection.layers : []) {
@@ -417,6 +440,7 @@ function collectionParts(collection: Json): CollectionPart[] {
       fields: Array.isArray(definition.fields) ? definition.fields.filter((f): f is CollectionPart['fields'][number] => isRecord(f) && typeof f.name === 'string' && typeof f.type === 'string') : [],
       ...(isRecord(drawing.renderer) ? { renderer: drawing.renderer as unknown as EsriRenderer } : {}),
       ...(drawing.labelingInfo !== undefined ? { labelField: labelFieldOf(drawing.labelingInfo) } : {}),
+      ...withPopupAliases(l.popupInfo),
       features,
       wkid: wkidOf(set.spatialReference) ?? wkidOf(definition.spatialReference) ?? wkidOf((features[0].geometry as Json | undefined)?.spatialReference) ?? 102100,
     });

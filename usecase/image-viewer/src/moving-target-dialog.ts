@@ -12,6 +12,7 @@
 import Feature from 'ol/Feature.js';
 import { LineString, Point, Polygon, type Geometry } from 'ol/geom.js';
 import { fromLonLat, toLonLat } from 'ol/proj.js';
+import { nameLabel } from './field-alias.js';
 import type { ViewerService } from './images.js';
 import type { Selection } from './selection.js';
 import { field, type ProcessingResult } from './processing/common.js';
@@ -137,7 +138,7 @@ export class MovingTargetDialog {
     const guess = guessTargetFields(keys);
     for (const [role] of ROLES) {
       const select = this.select_(`f-${role}`);
-      select.replaceChildren(new Option('（なし）', ''), ...[...keys].map((k) => new Option(k, k)));
+      select.replaceChildren(new Option('（なし）', ''), ...[...keys].map((k) => new Option(nameLabel(layer?.service.vector?.fields, k), k)));
       select.value = guess[role] ?? '';
     }
     // Speeds by name: sog and gs are knots; anything in km/h or m/s says so.

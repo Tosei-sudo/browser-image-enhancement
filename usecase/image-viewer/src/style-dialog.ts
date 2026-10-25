@@ -7,6 +7,7 @@
  * goes back to what it was.
  */
 import type Feature from 'ol/Feature.js';
+import { fieldLabel } from './field-alias.js';
 import { baseName, type ViewerService } from './images.js';
 import { exportStyle, importStyle, readStyleFile, styleExtension, styleFormats, type StyleFormat } from './qgis-style.js';
 import { symbolKindOf, type SymbolKind } from './style-file.js';
@@ -224,7 +225,7 @@ export class StyleDialog {
       .map((l) => ({ entry: l, style: l.service.style!, before: l.service.style!.get() }));
     this.title_.textContent = this.group_ !== null ? `スタイル: グループ「${this.group_}」（ベクター ${this.others_.length + 1} 件）` : `スタイル: ${entry.name}`;
     const fields = [vector, ...this.others_.map((o) => o.entry.service.vector!)].flatMap((v) => v.fields).filter((f, i, all) => all.findIndex((g) => g.name === f.name) === i);
-    const fieldOptions = fields.map((f) => new Option(f.alias && f.alias !== f.name ? `${f.alias}（${f.name}）` : f.name, f.name));
+    const fieldOptions = fields.map((f) => new Option(fieldLabel(f), f.name));
     this.select_('field').replaceChildren(...fieldOptions.map((o) => o.cloneNode(true)));
     // Numbers, and text that holds numbers (WFS values are text).
     const sample = this.features_().slice(0, 500);

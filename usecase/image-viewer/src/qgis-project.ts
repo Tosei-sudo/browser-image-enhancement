@@ -15,10 +15,11 @@
 import { iter } from 'but-unzip';
 import { attr, escapeXml as esc, kid, kids, parseXml, path, textOf, type XmlElement } from './safe-xml.js';
 import { labelingXml, readQgisLayerStyle, rendererXml, StyleNotes, type SymbolKind } from './style-file.js';
+import { qmlAliasesXml, readQmlAliases } from './field-alias.js';
 import { readRasterRenderer } from './qgis-style.js';
 import { singleSpec, type VectorStyleSpec } from './vector-style.js';
 import { PROJECT_FORMAT, type FileRef, type FileSetRef, type Project, type ProjectLayer } from './project-file.js';
-import type { ServiceRef } from './services/common.js';
+import type { Field, ServiceRef } from './services/common.js';
 import { splitXyz, xyzUrl, XYZ_LAYER } from './services/xyz.js';
 
 /** The extensions of QGIS project files. */
@@ -290,6 +291,8 @@ export function readQgs(text: string, id: string = crypto.randomUUID()): QgisImp
     }
     const layer: ProjectLayer = { type: layerType, name, source, visible: entry.visible, opacity: Math.max(0, Math.min(1, opacity)) };
     if (pick !== undefined) layer.pick = pick;
+    const aliases = raster ? new Map<string, string>() : readQmlAliases(m);
+    if (aliases.size && layerType === 'service') layer.aliases = Object.fromEntries(aliases);
     if (!raster && kid(m, 'renderer-v2')) {
       layer.style = readQgisLayerStyle(m, singleSpec('#4363d8'), styleNotes);
     } else if (raster && renderer && layerType === 'image') {
@@ -343,6 +346,8 @@ export interface QgsWriteOptions {
   /** The extent shown, in `EPSG:3857`. */
   extent: [number, number, number, number] | null;
   title: string;
+  /** The attributes of each project layer, for their aliases (null: not a vector layer). */
+  fields?: Array<ReadonlyArray<Pick<Field, 'name' | 'alias'>> | null>;
 }
 
 const MERCATOR = `<spatialrefsys nativeFormat="Wkt"><proj4>+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs</proj4><srsid>3857</srsid><srid>3857</srid><authid>EPSG:3857</authid><description>WGS 84 / Pseudo-Mercator</description><projectionacronym>merc</projectionacronym><ellipsoidacronym>EPSG:7030</ellipsoidacronym><geographicflag>false</geographicflag></spatialrefsys>`;
@@ -407,9 +412,9 @@ export function writeQgs(project: Project, options: QgsWriteOptions, left: strin
     if (q.type === 'vector' && style && kind) {
       const scaled = style.minScale || style.maxScale;
       attrs = ` geometry="${geometryName[kind]}" hasScaleBasedVisibilityFlag="${scaled ? 1 : 0}" minScale="${style.minScale ?? 0}" maxScale="${style.maxScale ?? 0}" labelsEnabled="${style.label.field ? 1 : 0}"`;
-      body = `${rendererXml(style, kind)}${labelingXml(style, kind)}<layerOpacity>${layer.opacity}</layerOpacity>`;
+      body = `${rendererXml(style, kind)}${labelingXml(style, kind)}<layerOpacity>${layer.opacity}</layerOpacity>${qmlAliasesXml(options.fields?.[i] ?? [])}`;
     } else if (q.type === 'vector') {
-      body = `<layerOpacity>${layer.opacity}</layerOpacity>`;
+      body = `<layerOpacity>${layer.opacity}</layerOpacity>${qmlAliasesXml(options.fields?.[i] ?? [])}`;
     } else {
       body = `<pipe><rasterrenderer type="${layer.bands ? 'multibandcolor' : 'singlebandcolordata'}" opacity="${layer.opacity}" alphaBand="-1"${layer.bands ? ` redBand="${layer.bands[0] + 1}" greenBand="${layer.bands[1] + 1}" blueBand="${layer.bands[2] + 1}"` : ' band="1"'}/></pipe>`;
     }

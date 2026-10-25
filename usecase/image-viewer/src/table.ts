@@ -20,12 +20,24 @@ import type Target from 'ol/events/Target.js';
 import { createEmpty, extend } from 'ol/extent.js';
 import type { CellLink } from './cell-links.js';
 import { ContextMenu, type MenuItem } from './context-menu.js';
+import { ALIAS_EVENT, fieldHeading, fieldLabel, originalAlias, setFieldAlias } from './field-alias.js';
 import type { EditSession } from './edit-session.js';
 import type { Selection } from './selection.js';
 import type { Field } from './services/index.js';
 import { compareValues, display, localInput, toCsv, toTsv } from './table-text.js';
 
 const ROW_HEIGHT = 28;
+/** Where the table keeps whether headings show attribute names instead of aliases. */
+const RAW_NAMES_KEY = 'image-viewer.table-raw-names';
+
+function storedRawNames(): boolean {
+  try {
+    return localStorage.getItem(RAW_NAMES_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 
 /** What the table shows. */
 export interface TableData {
@@ -52,6 +64,11 @@ export class AttributeTable {
   private sort_: { field: string; dir: 1 | -1 } | null = null;
   private query_ = '';
   private readonly hidden_ = new Map<string, Set<string>>();
+  /** Headings show the attribute names, not the aliases. */
+  private rawNames_ = storedRawNames();
+  private readonly onAlias_ = (e: Event) => {
+    if (this.data_?.fields.includes((e as CustomEvent<Field>).detail)) this.buildHead_();
+  };
   private rows_: Feature[] = [];
   private session_: EditSession | null = null;
   private keys_: EventsKey[] = [];
@@ -137,6 +154,7 @@ export class AttributeTable {
     this.columns_ = document.createElement('details');
     this.columns_.className = 'table-columns';
     this.columns_.innerHTML = '<summary>列</summary><div></div>';
+    window.addEventListener(ALIAS_EVENT, this.onAlias_);
 
     this.csv_ = document.createElement('button');
     this.csv_.type = 'button';
@@ -209,6 +227,7 @@ export class AttributeTable {
   dispose(): void {
     unByKey(this.keys_);
     unByKey(this.selectionKey_);
+    window.removeEventListener(ALIAS_EVENT, this.onAlias_);
     cancelAnimationFrame(this.frame_);
     this.menu_.close();
     this.menu_.element.remove();
@@ -454,12 +473,42 @@ export class AttributeTable {
     });
   }
 
-  private buildHead_(): void {
+  /** Shows attribute names (true) or aliases in the headings. */
+  setRawNames(raw: boolean): void {
+    this.rawNames_ = raw;
+    try {
+      localStorage.setItem(RAW_NAMES_KEY, raw ? '1' : '0');
+    } catch {
+      // kept for this page only
+    }
+    this.buildHead_();
+  }
+
+  /** Opens the 「列」 list with the alias of `field` being typed. */
+  editAlias(field: Field): void {
+    this.columns_.open = true;
+    this.buildHead_(field);
+  }
+
+  private buildHead_(editing: Field | null = null): void {
     const head = this.table_.tHead!;
     const list = this.columns_.querySelector('div')!;
     list.replaceChildren();
     const hidden = this.hiddenFields_();
+    if (this.data_?.fields.length) {
+      const raw = document.createElement('label');
+      raw.className = 'table-raw-names';
+      raw.title = 'エイリアス（表示名）ではなく属性名を見出しに表示';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = this.rawNames_;
+      box.addEventListener('change', () => this.setRawNames(box.checked));
+      raw.append(box, '属性名で表示');
+      list.append(raw);
+    }
     for (const field of this.data_?.fields ?? []) {
+      const row = document.createElement('div');
+      row.className = 'table-column';
       const label = document.createElement('label');
       const box = document.createElement('input');
       box.type = 'checkbox';
@@ -470,8 +519,48 @@ export class AttributeTable {
         this.buildHead_();
         this.renderRows_(true);
       });
-      label.append(box, field.alias);
-      list.append(label);
+      label.append(box);
+      label.title = fieldLabel(field);
+      if (field === editing) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'table-alias';
+        input.value = fieldHeading(field);
+        input.placeholder = originalAlias(field) || field.name;
+        input.setAttribute('aria-label', `${field.name} のエイリアス`);
+        let done = false;
+        const finish = (save: boolean) => {
+          if (done) return;
+          done = true;
+          if (save && setFieldAlias(field, input.value)) this.options.say(`${field.name} のエイリアスを「${fieldHeading(field)}」に変更`);
+          this.buildHead_();
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          else if (e.key === 'Escape') finish(false);
+          else return;
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        input.addEventListener('blur', () => finish(true));
+        row.append(label, input);
+        list.append(row);
+        requestAnimationFrame(() => {
+          input.focus();
+          input.select();
+        });
+        continue;
+      }
+      label.append(this.rawNames_ ? field.name : fieldHeading(field));
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'table-alias-edit';
+      edit.textContent = '✎';
+      edit.title = `エイリアスの変更（属性名 ${field.name}）`;
+      edit.setAttribute('aria-label', `${field.name} のエイリアスを変更`);
+      edit.addEventListener('click', () => this.buildHead_(field));
+      row.append(label, edit);
+      list.append(row);
     }
     const tr = document.createElement('tr');
     const check = document.createElement('th');
@@ -484,8 +573,8 @@ export class AttributeTable {
       th.scope = 'col';
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = field.alias;
-      button.title = field.alias === field.name ? field.name : `${field.alias}（${field.name}）`;
+      button.textContent = this.rawNames_ ? field.name : fieldHeading(field);
+      button.title = this.rawNames_ && fieldHeading(field) !== field.name ? `${field.name}（${fieldHeading(field)}）` : fieldLabel(field);
       const sorted = this.sort_?.field === field.name ? this.sort_.dir : 0;
       th.setAttribute('aria-sort', sorted === 1 ? 'ascending' : sorted === -1 ? 'descending' : 'none');
       button.addEventListener('click', () => {
@@ -493,6 +582,23 @@ export class AttributeTable {
         this.sort_ = sorted === 0 ? { field: field.name, dir: 1 } : sorted === 1 ? { field: field.name, dir: -1 } : null;
         this.buildHead_();
         this.rebuild_();
+      });
+      th.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const hide = () => {
+          this.hiddenFields_().add(field.name);
+          this.buildHead_();
+          this.renderRows_(true);
+        };
+        this.menu_.open(
+          [
+            { label: 'エイリアスの変更…', run: () => this.editAlias(field) },
+            { label: this.rawNames_ ? 'エイリアスで表示' : '属性名で表示', run: () => this.setRawNames(!this.rawNames_) },
+            { label: 'この列を非表示', run: hide },
+          ],
+          e.clientX,
+          e.clientY,
+        );
       });
       th.append(button);
       tr.append(th);
@@ -700,7 +806,7 @@ export class AttributeTable {
         this.updateCount_();
       }
     };
-    const label = `${field.alias}`;
+    const label = fieldHeading(field);
     if (field.codes) {
       const select = document.createElement('select');
       select.setAttribute('aria-label', label);
