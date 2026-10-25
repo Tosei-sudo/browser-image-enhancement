@@ -91,6 +91,8 @@ export interface ProjectLayer {
   style?: VectorStyleSpec;
   /** A GeoTIFF used as elevation data. */
   dem?: true;
+  /** The definition query (SQL WHERE) of a vector layer: only the features meeting it are shown. */
+  query?: string;
   /** The timeline's settings of the layer: whether it follows the window, its time attributes, a typed time. */
   time?: { on: boolean; start?: string | null; end?: string | null; time?: number };
   /**
@@ -279,6 +281,7 @@ function readLayer(raw: unknown, sets: number, groups: number): ProjectLayer | n
   if (georef && layer.type === 'image') layer.georef = georef;
   if (isObject(raw.style)) layer.style = raw.style as unknown as VectorStyleSpec;
   if (raw.dem === true) layer.dem = true;
+  if (typeof raw.query === 'string' && raw.query.trim() && layer.type === 'service') layer.query = raw.query.trim();
   if (isObject(raw.time) && typeof raw.time.on === 'boolean') {
     const t = raw.time;
     const name = (v: unknown) => (typeof v === 'string' ? v : v === null ? null : undefined);

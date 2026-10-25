@@ -37,6 +37,8 @@ export interface TableData {
   note?: string;
   /** Things that change the features (a vector source, an edit session): the table redraws on their events. */
   watch?: Target[];
+  /** The layer's definition query, when it has one (the 「条件」 button is marked). */
+  definition?: string;
   /** Deletes features (asking first); only for layers that allow deleting. */
   onDelete?: (features: Feature[]) => void;
 }
@@ -67,6 +69,7 @@ export class AttributeTable {
   private readonly columns_: HTMLDetailsElement;
   private readonly csv_: HTMLButtonElement;
   private pin_: HTMLButtonElement | null = null;
+  private queryButton_: HTMLButtonElement | null = null;
   private readonly scroller_: HTMLElement;
   private readonly table_: HTMLTableElement;
   private readonly empty_: HTMLElement;
@@ -81,6 +84,8 @@ export class AttributeTable {
       shapeLink?: (features: Feature[]) => string | null;
       /** More commands for the selected features (copying them as GeoJSON or WKT), after the copy ones. */
       menuItems?: (features: Feature[]) => MenuItem[];
+      /** Opens the attribute query dialog on the layer shown (「条件」: selecting by attributes, the definition query); absent: no such button. */
+      onQuery?: () => void;
       /** Opens another table for the layer shown, kept on it (「固定」); absent: no such button. */
       onPin?: () => void;
       /** The table's own name, before the layer's (default 「属性テーブル」). */
@@ -138,7 +143,17 @@ export class AttributeTable {
     this.csv_.textContent = 'CSV 保存';
     this.csv_.addEventListener('click', () => this.downloadCsv());
 
-    bar.append(toggle, this.title_, this.count_, modes, this.search_, this.columns_, this.csv_);
+    bar.append(toggle, this.title_, this.count_, modes, this.search_);
+    if (options.onQuery) {
+      this.queryButton_ = document.createElement('button');
+      this.queryButton_.type = 'button';
+      this.queryButton_.className = 'table-query';
+      this.queryButton_.textContent = '条件';
+      this.queryButton_.title = '属性条件・SQL による選択、既定クエリ（地図とテーブルの絞り込み）';
+      this.queryButton_.addEventListener('click', () => options.onQuery!());
+      bar.append(this.queryButton_);
+    }
+    bar.append(this.columns_, this.csv_);
     if (options.onPin) {
       this.pin_ = document.createElement('button');
       this.pin_.type = 'button';
@@ -214,6 +229,11 @@ export class AttributeTable {
     const heading = this.options.heading ?? '属性テーブル';
     this.title_.textContent = data ? `${heading}: ${data.title}` : heading;
     if (this.pin_) this.pin_.disabled = !data;
+    if (this.queryButton_) {
+      this.queryButton_.disabled = !data;
+      this.queryButton_.classList.toggle('filtered', !!data?.definition);
+      this.queryButton_.title = data?.definition ? `既定クエリで絞り込み中: ${data.definition}` : '属性条件・SQL による選択、既定クエリ（地図とテーブルの絞り込み）';
+    }
     for (const w of data?.watch ?? []) {
       for (const type of ['change', 'addfeature', 'removefeature', 'changefeature', 'clear']) {
         this.keys_.push(listen(w, type, () => this.schedule_()));

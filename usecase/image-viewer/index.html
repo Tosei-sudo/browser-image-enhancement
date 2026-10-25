@@ -99,6 +99,14 @@
                   <button type="button" id="tessellate-open" title="作図範囲・レイヤーの地物・表示範囲に、正方形・六角形・三角形の格子を任意の大きさで敷き詰め（測地線または任意の座標系）">格子の敷き詰め…</button>
                 </div>
               </section>
+              <!-- Selecting by attributes or SQL, and each layer's definition query: src/query-dialog.ts. -->
+              <section class="menu-group">
+                <p class="menu-heading">属性</p>
+                <div class="point-tools">
+                  <button type="button" id="query-select" title="フィールド・演算子・値の条件、または SQL の WHERE 句による地物の選択（新規・追加・解除・選択内から）">属性条件で選択…</button>
+                  <button type="button" id="query-definition" title="条件に合う地物のみを地図と属性テーブルに表示（レイヤーごとの既定クエリ。Esri はサーバーで絞り込み）">既定クエリ…</button>
+                </div>
+              </section>
             </div>
             <div class="menu-column">
               <section class="menu-group">

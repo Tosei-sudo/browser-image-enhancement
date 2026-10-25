@@ -803,6 +803,10 @@ export class LayerStyle {
   private waiting_ = false;
   private time_: TimeFilter | null = null;
   private filter_: ((feature: FeatureLike) => boolean) | null = null;
+  /** The layer's definition query (既定クエリ): features it leaves out are not drawn at all. */
+  private definition_: ((feature: FeatureLike) => boolean) | null = null;
+  /** The dashboard's filter and the definition query in one, for the GPU layer. */
+  private both_: ((feature: FeatureLike) => boolean) | null = null;
   /** Features the layer will hold, when it loads them as the map moves (a streamed Shapefile). */
   private expected_ = 0;
 
@@ -890,23 +894,46 @@ export class LayerStyle {
   setFilter(filter: ((feature: FeatureLike) => boolean) | null): void {
     if (filter === this.filter_) return;
     this.filter_ = filter;
-    if (this.gl_) this.gl_.setFilter(filter);
+    this.filtersChanged_();
+  }
+
+  /** Draws only the features the definition query passes (or all with null), whatever the other filters say. */
+  setDefinition(test: ((feature: FeatureLike) => boolean) | null): void {
+    if (test === this.definition_) return;
+    this.definition_ = test;
+    this.filtersChanged_();
+  }
+
+  /** Whether the layer has a definition query. */
+  hasDefinition(): boolean {
+    return !!this.definition_;
+  }
+
+  /** Whether `feature` passes the definition query (always, without one). */
+  inDefinition(feature: FeatureLike): boolean {
+    return !this.definition_ || this.definition_(feature);
+  }
+
+  private filtersChanged_(): void {
+    const [a, b] = [this.filter_, this.definition_];
+    this.both_ = a && b ? (f) => b(f) && a(f) : (a ?? b);
+    if (this.gl_) this.gl_.setFilter(this.both_);
     else this.layer.changed();
   }
 
-  /** Whether any filter (the timeline's or the dashboard's) leaves features out. */
+  /** Whether any filter (the timeline's, the dashboard's or the definition query) leaves features out. */
   isFiltered(): boolean {
-    return !!this.time_ || !!this.filter_;
+    return !!this.time_ || !!this.both_;
   }
 
-  /** Whether `feature` passes the dashboard's filter (the timeline's aside). */
+  /** Whether `feature` passes the dashboard's filter and the definition query (the timeline's aside). */
   passesFilter(feature: FeatureLike): boolean {
-    return !this.filter_ || this.filter_(feature);
+    return !this.both_ || this.both_(feature);
   }
 
-  /** Whether `feature` is drawn under the timeline's and the dashboard's filters. */
+  /** Whether `feature` is drawn under the timeline's and the dashboard's filters and the definition query. */
   shows(feature: FeatureLike): boolean {
-    return this.inTime(feature) && (!this.filter_ || this.filter_(feature));
+    return this.inTime(feature) && (!this.both_ || this.both_(feature));
   }
 
   /** Whether `feature` is shown under the timeline's filter (always, without one). */
@@ -955,7 +982,7 @@ export class LayerStyle {
       if (this.gl_) {
         this.gl_.setTime(this.time_);
         this.gl_.setSpec(spec);
-      } else this.gl_ = new GlVector(this.layer, spec, this.time_, this.filter_);
+      } else this.gl_ = new GlVector(this.layer, spec, this.time_, this.both_);
       // The canvas layer draws only the labels.
       this.layer.setStyle(spec.label.field ? this.timed_(styleFunction(spec, this.own, latitude, false)) : null);
     } else {
@@ -970,7 +997,7 @@ export class LayerStyle {
     this.layer.setDeclutter(!!spec.label.field && !spec.label.overlap);
   }
 
-  /** `style`, leaving out the features the timeline and the dashboard filter out (read as it draws). */
+  /** `style`, leaving out the features the timeline, the dashboard and the definition query filter out (read as it draws). */
   private timed_(style: StyleFunction): StyleFunction {
     return (feature, resolution) => (this.shows(feature) ? style(feature, resolution) : undefined);
   }

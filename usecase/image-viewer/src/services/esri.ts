@@ -16,7 +16,7 @@ import { Circle, Fill, Icon, RegularShape, Stroke, Style } from 'ol/style.js';
 import { LayerStyle, ownSpec } from '../vector-style.js';
 import type ImageStyle from 'ol/style/Image.js';
 import type { Extent } from 'ol/extent.js';
-import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer } from './common.js';
+import { MAX_FEATURES, projectionOf, request, ServiceError, type Field, type LayerChoice, type ServiceCatalog, type ServiceLayer, type VectorData } from './common.js';
 import { vectorLayer } from './vector.js';
 import { freshTokenFor, renewTokenFor } from '../auth.js';
 import { extentHeights, raiseFootprints } from './esri-multipatch.js';
@@ -177,24 +177,30 @@ async function openLayer(url: string, mapServer: boolean, token?: string, where?
   const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
   const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
   const multipatch = info.geometryType === 'esriGeometryMultiPatch';
+  if (multipatch && editing) info.canCreate = info.canUpdate = info.canDelete = false;
   // Multipatches: their footprints on the map, raised in 3D from their lowest to highest height.
-  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, multipatch ? { multipatchOption: 'xyFootprint' } : {}, where?.trim() || undefined);
-  let raised: number | null = null;
-  if (multipatch) {
-    if (editing) info.canCreate = info.canUpdate = info.canDelete = false;
-    const heights = await multipatchHeights(url, info.objectIdField, features.map((f) => f.getId() as number), json.maxRecordCount ?? 1000, token).catch(() => new Map<unknown, [number, number]>());
-    raised = raiseFootprints(features, heights, (p) => toLonLat(p, 'EPSG:3857'));
-  }
+  const load = async (condition: string | undefined) => {
+    const read = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, multipatch ? { multipatchOption: 'xyFootprint' } : {}, condition);
+    let raised: number | null = null;
+    if (multipatch) {
+      const heights = await multipatchHeights(url, info.objectIdField, read.features.map((f) => f.getId() as number), json.maxRecordCount ?? 1000, token).catch(() => new Map<unknown, [number, number]>());
+      raised = raiseFootprints(read.features, heights, (p) => toLonLat(p, 'EPSG:3857'));
+    }
+    return { ...read, raised };
+  };
+  const { features, truncated, raised } = await load(where?.trim() || undefined);
   const own = rendererStyle(json.drawingInfo?.renderer, url);
   const layer = vectorLayer(features, own);
   const extent = json.extent ? await extentOf(json.extent) : null;
+  const vector: VectorData = { source: layer.getSource()!, fields, idField: info.objectIdField, truncated };
 
   return {
     ref: { kind: 'esri', url, layer: String(json.id), ...(where?.trim() ? { settings: { where: where.trim() } } : {}) },
     title: json.name,
     layer,
     correction: null,
-    vector: { source: layer.getSource()!, fields, idField: info.objectIdField, truncated },
+    vector,
+    requery: requeryOf(vector, where, load),
     esri: info,
     // Drawn as the service draws it until another style is chosen.
     style: new LayerStyle(layer, ownSpec(), own),
@@ -238,14 +244,17 @@ async function openTable(url: string, json: EsriLayerJson, mapServer: boolean, t
   info.table = true;
   const managed = new Set(Object.values(json.editFieldsInfo ?? {}).filter((v): v is string => typeof v === 'string'));
   const fields = (json.fields ?? []).map((f) => toField(f, info.canUpdate || info.canCreate, managed)).filter((f): f is Field => f !== null);
-  const { features, truncated } = await queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, { returnGeometry: 'false' }, where?.trim() || undefined);
+  const load = (condition: string | undefined) => queryAll(url, info.objectIdField, json.maxRecordCount ?? 1000, token, { returnGeometry: 'false' }, condition);
+  const { features, truncated } = await load(where?.trim() || undefined);
   const layer = vectorLayer(features);
+  const vector: VectorData = { source: layer.getSource()!, fields, idField: info.objectIdField, truncated };
   return {
     ref: { kind: 'esri', url, layer: String(json.id), ...(where?.trim() ? { settings: { where: where.trim() } } : {}) },
     title: json.name,
     layer,
     correction: null,
-    vector: { source: layer.getSource()!, fields, idField: info.objectIdField, truncated },
+    vector,
+    requery: requeryOf(vector, where, load),
     esri: info,
     tableOnly: true,
     extent: null,
@@ -259,6 +268,34 @@ async function openTable(url: string, json: EsriLayerJson, mapServer: boolean, t
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
     ],
   };
+}
+
+/**
+ * Reading a layer's features again with only those meeting a definition
+ * query (or all, with null), ANDed with the condition it was opened with
+ * (a web map's): the server does the filtering, so the feature limit counts
+ * only the features asked for.
+ */
+function requeryOf(vector: VectorData, base: string | undefined, read: (where: string | undefined) => Promise<{ features: Feature[]; truncated: boolean }>): (where: string | null) => Promise<number> {
+  let latest = 0;
+  return async (where) => {
+    const turn = ++latest;
+    const parts = [base?.trim(), where?.trim()].filter((p): p is string => !!p);
+    const condition = parts.length > 1 ? parts.map((p) => `(${p})`).join(' AND ') : parts[0];
+    const { features, truncated } = await read(condition);
+    // A later query already asked for: its features win.
+    if (turn !== latest) return features.length;
+    vector.truncated = truncated;
+    vector.source.clear();
+    vector.source.addFeatures(features);
+    return features.length;
+  };
+}
+
+/** The object ids of a layer's features meeting `where`, asked of the server. */
+export async function objectIdsWhere(info: EsriLayerInfo, where: string): Promise<Set<number>> {
+  const ids = await esriJson<{ objectIds?: number[] | null }>(`${info.url}/query`, { where, returnIdsOnly: 'true' }, info.token, true);
+  return new Set(ids.objectIds ?? []);
 }
 
 export function toField(f: EsriField, editableLayer: boolean, managed: Set<string>): Field | null {
