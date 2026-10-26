@@ -3,7 +3,7 @@ import { COLOR_ONLY_OPS, isIdentity, toStage } from "../ops/index.js";
 import { sharpenPlanes, sharpenRows } from "./filter.js";
 import { Quantizer } from "./quantizer.js";
 import { runWasm } from "./wasm.js";
-//#region src/core/process.ts
+// src/core/process.ts
 /**
 * The pixel engine. DOM-free and synchronous, so the same code runs on the main
 * thread and inside Web Workers.
@@ -388,7 +388,6 @@ function extractGray(data) {
 	}
 	return out;
 }
-//#endregion
 export { compile, extractGray, forGray, isMonochrome, processPixels, resolveMode };
 
 //# sourceMappingURL=process.js.map

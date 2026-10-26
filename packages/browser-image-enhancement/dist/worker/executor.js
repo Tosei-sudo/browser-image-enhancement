@@ -6,7 +6,7 @@ import { wasmEnabled } from "../core/wasm.js";
 import { compile, processPixels, resolveMode } from "../core/process.js";
 import { grayFromRgb, mergeHistograms, needsStats, resolveForPixels, resolveOps } from "../core/histogram.js";
 import { getPool } from "./pool.js";
-//#region src/worker/executor.ts
+// src/worker/executor.ts
 /**
 * Runs a chain of normalized ops on an image, in workers when possible.
 *
@@ -158,7 +158,6 @@ async function runInWorkers(pool, slots, image, ops, colorMode, signal) {
 		usedWorker: true
 	};
 }
-//#endregion
 export { abortError, execute, executeOnMainThread, splitRows };
 
 //# sourceMappingURL=executor.js.map

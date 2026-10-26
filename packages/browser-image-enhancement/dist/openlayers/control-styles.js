@@ -1,4 +1,4 @@
-//#region src/openlayers/control-styles.ts
+// src/openlayers/control-styles.ts
 /**
 * Default look of the controls, added to the document once. It follows the
 * colors of `ol/ol.css` (its custom properties), so the controls match the
@@ -72,7 +72,6 @@ function addControlStyles() {
 	style.textContent = CSS;
 	document.head.append(style);
 }
-//#endregion
 export { addControlStyles, iconButton };
 
 //# sourceMappingURL=control-styles.js.map

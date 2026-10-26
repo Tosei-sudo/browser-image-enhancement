@@ -5,7 +5,7 @@ import { createImageData } from "../workers/src/image.js";
 import { shrink, sourceBounds } from "../plan.js";
 import { renderPlan } from "../render.js";
 import { getPool } from "./pool.js";
-//#region src/worker/executor.ts
+// src/worker/executor.ts
 /**
 * Renders a plan in workers when possible: the output is cut into horizontal
 * strips, and each worker receives only the source rectangle its strip reads.
@@ -108,7 +108,6 @@ async function runInWorkers(pool, slots, image, plan, sent, signal) {
 	}));
 	return createImageData(out, width, height);
 }
-//#endregion
 export { execute };
 
 //# sourceMappingURL=executor.js.map

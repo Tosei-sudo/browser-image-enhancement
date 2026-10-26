@@ -2,7 +2,6 @@ import { ColorMode, Histogram, OpSpec } from "../types.js";
 import { ResolvedMode } from "../core/process.js";
 import { PredictorParameters } from "../openlayers/lzw.js";
 import { ReprojectJob } from "../openlayers/reproject-kernel.js";
-//#region src/worker/protocol.d.ts
 /**
  * Messages from the main thread to a worker. Pixel buffers are transferred, not copied.
  *
@@ -87,5 +86,4 @@ export type WorkerResponse = {
   id: number;
   buffer: ArrayBuffer;
 };
-//#endregion
 //# sourceMappingURL=protocol.d.ts.map

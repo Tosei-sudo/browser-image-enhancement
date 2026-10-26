@@ -3,7 +3,6 @@ import { ColorClasses } from "../color-classes.js";
 import TileCorrection from "./tile-correction.js";
 import WebGLTileLayer, { Options } from "ol/layer/WebGLTile.js";
 import { FrameState } from "ol/Map.js";
-//#region src/openlayers/gpu-layer.d.ts
 /** Options for {@link GpuCorrectedTileLayer}: those of `ol/layer/WebGLTile`, plus `gpu`. */
 export interface GpuCorrectedTileLayerOptions extends Options {
   /** Set to false to draw the tiles as the source gives them, like a plain WebGLTile layer. Default true. */
@@ -131,5 +130,4 @@ export default class GpuCorrectedTileLayer extends WebGLTileLayer {
   private sampleStats_;
   protected disposeInternal(): void;
 }
-//#endregion
 //# sourceMappingURL=gpu-layer.d.ts.map

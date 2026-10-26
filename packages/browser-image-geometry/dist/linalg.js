@@ -1,4 +1,4 @@
-//#region src/linalg.ts
+// src/linalg.ts
 /** Small dense linear algebra for fitting transforms. */
 /** Thrown when control points cannot determine a transform (too few, or degenerate). */
 var DegenerateError = class extends RangeError {
@@ -82,7 +82,6 @@ function multiply3(p, q) {
 	for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[i * 3 + j] = p[i * 3] * q[j] + p[i * 3 + 1] * q[3 + j] + p[i * 3 + 2] * q[6 + j];
 	return r;
 }
-//#endregion
 export { DegenerateError, invert3, leastSquares, multiply3 };
 
 //# sourceMappingURL=linalg.js.map

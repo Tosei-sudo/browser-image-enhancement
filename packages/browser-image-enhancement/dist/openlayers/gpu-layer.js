@@ -9,7 +9,7 @@ import TileCorrection from "./tile-correction.js";
 import { getIntersection, isEmpty } from "ol/extent.js";
 import WebGLTileLayer from "ol/layer/WebGLTile.js";
 import { listen, unlistenByKey } from "ol/events.js";
-//#region src/openlayers/gpu-layer.ts
+// src/openlayers/gpu-layer.ts
 /**
 * WebGL tile layer that corrects the drawn map on the GPU.
 *
@@ -335,7 +335,6 @@ function rawStretchStyle(variables) {
 		]
 	};
 }
-//#endregion
 export { GpuCorrectedTileLayer as default };
 
 //# sourceMappingURL=gpu-layer.js.map

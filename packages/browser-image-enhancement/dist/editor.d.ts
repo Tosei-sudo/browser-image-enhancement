@@ -1,7 +1,6 @@
 import { ImageInput } from "./workers/src/io.js";
 import { ColorMode } from "./types.js";
 import { Pipeline, RunOptions, RunResult } from "./pipeline.js";
-//#region src/editor.d.ts
 /** How an {@link Editor} shows the image: on the GPU (WebGL2) or with the JS engine. */
 export type EditorEngine = 'gpu' | 'cpu';
 /** Options for {@link createEditor}. */
@@ -98,5 +97,4 @@ export interface Editor {
  * ```
  */
 export declare function createEditor(options?: EditorOptions): Editor;
-//#endregion
 //# sourceMappingURL=editor.d.ts.map

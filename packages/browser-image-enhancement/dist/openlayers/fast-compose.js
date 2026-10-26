@@ -1,4 +1,4 @@
-//#region src/openlayers/fast-compose.ts
+// src/openlayers/fast-compose.ts
 /** The smallest and largest value of a sample type, as OpenLayers scales samples without statistics. */
 function typeRange(array) {
 	if (array instanceof Int8Array) return [-128, 127];
@@ -122,7 +122,6 @@ function copyBandNot(data, clear, values, nodata, offset, stride, pixelCount, sc
 		data[i] = v;
 	}
 }
-//#endregion
 export { composeFast, fastComposeTiles };
 
 //# sourceMappingURL=fast-compose.js.map

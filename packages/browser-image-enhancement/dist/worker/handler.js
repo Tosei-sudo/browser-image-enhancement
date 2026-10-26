@@ -3,7 +3,7 @@ import { compile, isMonochrome, processPixels, resolveMode } from "../core/proce
 import { countPixels, resolveForPixels } from "../core/histogram.js";
 import { drawTriangles } from "../openlayers/reproject-kernel.js";
 import { decodeLzwBlock } from "../openlayers/lzw.js";
-//#region src/worker/handler.ts
+// src/worker/handler.ts
 /**
 * Worker-side message handling, kept free of worker globals so it can be tested directly.
 */
@@ -105,7 +105,6 @@ function createWorkerHandler(post) {
 		}
 	};
 }
-//#endregion
 export { createWorkerHandler };
 
 //# sourceMappingURL=handler.js.map

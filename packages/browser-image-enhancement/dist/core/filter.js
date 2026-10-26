@@ -1,6 +1,6 @@
 import { LUMA_B, LUMA_G, LUMA_R } from "../color/srgb.js";
 import { kernelRadius } from "../ops/index.js";
-//#region src/core/filter.ts
+// src/core/filter.ts
 /**
 * Steps that read neighbouring pixels: the unsharp mask.
 *
@@ -218,7 +218,6 @@ function applyMask(rgba, row, at, width, lum, sn, sd, amount, threshold, q0, q1,
 		}
 	}
 }
-//#endregion
 export { gaussian, sharpenPlanes, sharpenRows };
 
 //# sourceMappingURL=filter.js.map

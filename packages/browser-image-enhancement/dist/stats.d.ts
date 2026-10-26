@@ -1,7 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { AutoStretchOptions, ColorOptions, Histogram, RGBValues, Rect } from "./types.js";
 import { mergeHistograms } from "./core/histogram.js";
-//#region src/stats.d.ts
 export interface HistogramOptions extends ColorOptions {
   /** Count only this rectangle (clipped to the image). Default: the whole image. */
   rect?: Rect;
@@ -41,6 +40,5 @@ export interface SampleColorOptions {
  * ```
  */
 export declare function sampleColor(image: ImageDataLike, x: number, y: number, options?: SampleColorOptions): RGBValues | null;
-//#endregion
 export { mergeHistograms };
 //# sourceMappingURL=stats.d.ts.map

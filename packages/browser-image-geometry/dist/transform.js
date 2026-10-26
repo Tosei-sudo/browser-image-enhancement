@@ -1,5 +1,5 @@
 import { invert3, multiply3 } from "./linalg.js";
-//#region src/transform.ts
+// src/transform.ts
 /** Creating, applying, inverting and combining transforms. */
 function finite(values, count, what) {
 	if (!Array.isArray(values) || values.length !== count || !values.every(Number.isFinite)) throw new TypeError(`${what} must be ${count} finite numbers.`);
@@ -227,7 +227,6 @@ function assertTransform(t) {
 		}
 	} else throw new TypeError(`Unknown transform type: ${String(t.type)}`);
 }
-//#endregion
 export { affine, applyTransform, assertTransform, composeTransforms, identity, invertTransform, pointFunction, polynomialTerms, projective, rotation, scaling, toMatrix3, translation };
 
 //# sourceMappingURL=transform.js.map

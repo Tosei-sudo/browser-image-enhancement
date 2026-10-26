@@ -174,6 +174,8 @@ export function printReport(html: string): void {
   frame.className = 'obs-report-frame';
   frame.setAttribute('aria-hidden', 'true');
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  // No scripts in the report page (its text is records from a shared store): the page prints it from here.
+  frame.setAttribute('sandbox', 'allow-same-origin allow-modals');
   frame.srcdoc = html;
   frame.addEventListener('load', () => {
     frame.contentWindow?.focus();

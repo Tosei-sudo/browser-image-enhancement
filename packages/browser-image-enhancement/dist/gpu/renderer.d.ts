@@ -1,6 +1,5 @@
 import { ImageDataLike } from "../workers/src/image.js";
 import { ColorOptions, OpSpec } from "../types.js";
-//#region src/gpu/renderer.d.ts
 /** Options for {@link createGpuRenderer}. */
 export interface GpuRendererOptions {
   /**
@@ -71,5 +70,4 @@ export interface GpuRenderer {
  * ```
  */
 export declare function createGpuRenderer(options?: GpuRendererOptions): GpuRenderer | null;
-//#endregion
 //# sourceMappingURL=renderer.d.ts.map

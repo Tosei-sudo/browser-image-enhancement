@@ -5,7 +5,7 @@ import { countPixels, needsStats, resolveOps } from "../core/histogram.js";
 import { warnColorOnly } from "../functional.js";
 import { applyPalette } from "../color-scale.js";
 import { CURVE_SAMPLES, DECODE, PRESENT, PRESENT_PALETTE, VERTEX, curveRow, horizontalShader, opParams, pixelShader, verticalShader } from "./shaders.js";
-//#region src/gpu/renderer.ts
+// src/gpu/renderer.ts
 /**
 * WebGL2 renderer: the same corrections as the JS engine, computed on the GPU
 * at full resolution, fast enough to follow a slider. The image is uploaded
@@ -333,7 +333,6 @@ function pixelOps(plan, from) {
 	for (let i = from; i < plan.length && plan[i].kind === "pixel"; i++) out.push(plan[i].op);
 	return out;
 }
-//#endregion
 export { createGpuRenderer };
 
 //# sourceMappingURL=renderer.js.map

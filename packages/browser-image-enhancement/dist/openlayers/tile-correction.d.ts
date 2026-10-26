@@ -3,7 +3,6 @@ import { Pipeline } from "../pipeline.js";
 import { DraInfo } from "./enhanced-geotiff.js";
 import Observable from "ol/Observable.js";
 import OlMap from "ol/Map.js";
-//#region src/openlayers/tile-correction.d.ts
 /** Options for {@link TileCorrection}. */
 export interface TileCorrectionOptions {
   /** The correction to start with. Default: none. */
@@ -73,5 +72,4 @@ export default class TileCorrection extends Observable {
   /** Called by the layer with the statistics of the frame it drew. */
   setStats(stats: Histogram, info: DraInfo): void;
 }
-//#endregion
 //# sourceMappingURL=tile-correction.d.ts.map

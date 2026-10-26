@@ -1,4 +1,3 @@
-//#region src/types.d.ts
 /** A 2D point or vector, `[x, y]`. */
 export type Point = readonly [x: number, y: number];
 /** `X = a·x + b·y + c`, `Y = d·x + e·y + f`, stored row-major as `[a, b, c, d, e, f]`. */
@@ -76,5 +75,4 @@ export interface CoordinateTransform {
   /** Output → transform target coordinates. */
   inverse(point: [number, number]): number[];
 }
-//#endregion
 //# sourceMappingURL=types.d.ts.map

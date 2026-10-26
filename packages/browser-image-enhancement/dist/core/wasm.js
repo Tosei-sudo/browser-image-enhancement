@@ -1,6 +1,6 @@
 import { gaussian } from "./filter.js";
 import { WASM_BASE64 } from "./wasm-bytes.js";
-//#region src/core/wasm.ts
+// src/core/wasm.ts
 /**
 * The WebAssembly engine: the hot loops of core/process.ts and core/filter.ts
 * compiled from C (wasm/kernel.c) with SIMD. It does the same float64
@@ -218,7 +218,6 @@ var Kernel = class {
 		this.x.quant_prepare(at);
 	}
 };
-//#endregion
 export { configureWasm, runWasm, wasmEnabled, wasmStatus };
 
 //# sourceMappingURL=wasm.js.map

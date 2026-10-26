@@ -1,4 +1,3 @@
-//#region src/color-scale.d.ts
 /**
  * Color scales (pseudo-color): a gray value, 0 (black) to 255 (white), picks
  * a color along a ramp. A monochrome image (a SAR scene, one band of a
@@ -44,5 +43,4 @@ export declare function colorScalePalette(scale: ColorScale, options?: ColorScal
  * multiplied by the palette's.
  */
 export declare function applyPalette(data: Uint8ClampedArray, palette: ArrayLike<number>): Uint8ClampedArray;
-//#endregion
 //# sourceMappingURL=color-scale.d.ts.map

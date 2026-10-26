@@ -1,5 +1,4 @@
 import { OpName } from "../types.js";
-//#region src/ops/info.d.ts
 /** A number parameter. Values outside `min`..`max` are clamped (with a warning in development). */
 export interface NumberParamInfo {
   /** Always `number`. */
@@ -82,5 +81,4 @@ export interface OpInfo {
  * ```
  */
 export declare const opInfo: { readonly [N in OpName]: OpInfo; };
-//#endregion
 //# sourceMappingURL=info.d.ts.map

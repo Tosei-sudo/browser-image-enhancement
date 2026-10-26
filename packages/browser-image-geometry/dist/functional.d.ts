@@ -1,7 +1,6 @@
 import { RGBA, Resample, Transform } from "./types.js";
 import { ImageDataLike } from "./workers/src/image.js";
 import { OutputOptions, WarpInfo } from "./plan.js";
-//#region src/functional.d.ts
 /** A warped image and where it sits in output coordinates. */
 export interface WarpResult<I = ImageData> extends WarpInfo {
   /** The output image. */
@@ -48,5 +47,4 @@ export interface ResizeOptions {
 }
 /** Scales to exactly `width` × `height` pixels. */
 export declare function resize(image: ImageDataLike, width: number, height: number, options?: ResizeOptions): ImageData;
-//#endregion
 //# sourceMappingURL=functional.d.ts.map

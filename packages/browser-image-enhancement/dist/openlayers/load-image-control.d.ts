@@ -5,7 +5,6 @@ import Control from "ol/control/Control.js";
 import BaseEvent from "ol/events/Event.js";
 import OlMap from "ol/Map.js";
 import Layer from "ol/layer/Layer.js";
-//#region src/openlayers/load-image-control.d.ts
 /** What was loaded. */
 export interface LoadedImage {
   /** The new source. */
@@ -174,5 +173,4 @@ export declare function placeOverView(size: {
   width: number;
   height: number;
 }, map: OlMap): ImagePlacement;
-//#endregion
 //# sourceMappingURL=load-image-control.d.ts.map

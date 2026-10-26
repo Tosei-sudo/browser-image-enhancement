@@ -1,6 +1,5 @@
 import { ImageInput } from "./workers/src/io.js";
 import { Pipeline, RunOptions, RunResult } from "./pipeline.js";
-//#region src/presets.d.ts
 /** Names of the built-in {@link presets}. */
 export type PresetName = 'auto' | 'vivid' | 'soft' | 'satellite' | 'document' | 'blackAndWhite';
 /**
@@ -34,5 +33,4 @@ export declare const presets: Readonly<Record<PresetName, Pipeline>>;
  * ```
  */
 export declare function autoEnhance<O extends RunOptions | undefined = undefined>(input: ImageInput, options?: O): Promise<RunResult<O>>;
-//#endregion
 //# sourceMappingURL=presets.d.ts.map

@@ -1,4 +1,4 @@
-//#region ../workers/src/strips.ts
+// ../workers/src/strips.ts
 /** Helpers for cutting an image into horizontal strips, one per worker. */
 /** Splits `height` rows into `count` contiguous ranges of near-equal size. */
 function splitRows(height, count) {
@@ -15,7 +15,6 @@ function stripCount(pixels, height, maxWorkers, minStripPixels) {
 function yieldToEventLoop() {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
-//#endregion
 export { splitRows, stripCount, yieldToEventLoop };
 
 //# sourceMappingURL=strips.js.map

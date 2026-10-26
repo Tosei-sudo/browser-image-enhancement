@@ -15,7 +15,7 @@ import { colorModeFor, fromRGBA, maskNoData, selectRGBA, toRGBA, toRgb, toSelect
 import GeoTIFF from "ol/source/GeoTIFF.js";
 import { getHeight, getIntersection, getWidth, isEmpty } from "ol/extent.js";
 import { transformExtent } from "ol/proj.js";
-//#region src/openlayers/enhanced-geotiff.ts
+// src/openlayers/enhanced-geotiff.ts
 /**
 * OpenLayers GeoTIFF source that runs a browser-image-enhancement pipeline on
 * every tile before it is drawn.
@@ -900,7 +900,6 @@ function noDataOf(options) {
 /** Tile fade-in in milliseconds, unless `transition` is given (OpenLayers' own default is 250). */
 const DEFAULT_TRANSITION = 100;
 const keyFor = (p) => `enhanced:${JSON.stringify(p.ops)}`;
-//#endregion
 export { EnhancedGeoTIFF as default };
 
 //# sourceMappingURL=enhanced-geotiff.js.map

@@ -1,4 +1,4 @@
-//#region src/openlayers/reproject-kernel.ts
+// src/openlayers/reproject-kernel.ts
 let scratchDone = /* @__PURE__ */ new Uint8Array(0);
 /** The target tile's pixels (`bands` per pixel; 0 outside the triangles). */
 function drawTriangles(job) {
@@ -111,7 +111,6 @@ function drawTriangles(job) {
 	}
 	return out;
 }
-//#endregion
 export { drawTriangles };
 
 //# sourceMappingURL=reproject-kernel.js.map

@@ -6,7 +6,6 @@ import GeoTIFF, { Options } from "ol/source/GeoTIFF.js";
 import { Extent } from "ol/extent.js";
 import { Loader } from "ol/source/DataTile.js";
 import OlMap from "ol/Map.js";
-//#region src/openlayers/enhanced-geotiff.d.ts
 /** Options for {@link EnhancedGeoTIFF}: those of `ol/source/GeoTIFF`, plus the correction. */
 export interface EnhancedGeoTIFFOptions extends Omit<Options, 'normalize'> {
   /**
@@ -378,5 +377,4 @@ export default class EnhancedGeoTIFF extends GeoTIFF {
   private withNeighbours_;
   private rawTile_;
 }
-//#endregion
 //# sourceMappingURL=enhanced-geotiff.d.ts.map

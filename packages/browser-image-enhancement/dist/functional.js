@@ -4,7 +4,7 @@ import { isIdentityCurve } from "./ops/curve.js";
 import { COLOR_ONLY_OPS, isIdentity, normalizeOp } from "./ops/index.js";
 import { compile, processPixels, resolveMode } from "./core/process.js";
 import { resolveForPixels } from "./core/histogram.js";
-//#region src/functional.ts
+// src/functional.ts
 /**
 * Functional API: one synchronous correction per call, on the calling thread.
 *
@@ -153,7 +153,6 @@ function sharpen(image, params, options) {
 		...params
 	}], options);
 }
-//#endregion
 export { applySync, autoStretch, brightness, contrast, curve, exposure, gamma, highlights, levels, saturation, shadows, sharpen, stretch, temperature, tint, warnColorOnly, whiteBalance };
 
 //# sourceMappingURL=functional.js.map

@@ -1,4 +1,3 @@
-//#region src/openlayers/tiff-metadata.d.ts
 /**
  * Reading the metadata GDAL writes into a GeoTIFF: the `GDAL_METADATA` tag
  * (an XML list of `<Item>`s, for the dataset or for one band) and the band
@@ -46,5 +45,4 @@ export declare function readBandNames(image: TiffImageLike): Promise<Array<strin
  * geotiff.js 2 in a plain object.
  */
 export declare function readTag(image: TiffImageLike, tag: string | number): Promise<unknown>;
-//#endregion
 //# sourceMappingURL=tiff-metadata.d.ts.map

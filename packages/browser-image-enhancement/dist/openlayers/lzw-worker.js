@@ -1,7 +1,7 @@
 import { getPool } from "../worker/pool.js";
 import { nextWorkerId } from "./worker-ids.js";
 import { decodeLzwBlock } from "./lzw.js";
-//#region src/openlayers/lzw-worker.ts
+// src/openlayers/lzw-worker.ts
 /**
 * Decodes the LZW tiles geotiff.js reads for the map in the library's
 * worker pool with the fast decoder (lzw.ts), instead of geotiff.js's own.
@@ -55,7 +55,6 @@ function lzwDecoderFor(img, fallback) {
 		return original && typeof original.decode === "function" ? original.decode(buffer) : decodeLzwBlock(buffer, parameters);
 	} };
 }
-//#endregion
 export { decodeLzwInWorker, lzwDecoderFor };
 
 //# sourceMappingURL=lzw-worker.js.map

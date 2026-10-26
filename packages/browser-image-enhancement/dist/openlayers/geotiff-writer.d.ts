@@ -1,5 +1,4 @@
 import { ImageDataLike } from "../workers/src/image.js";
-//#region src/openlayers/geotiff-writer.d.ts
 /** Where the image goes on the map. */
 export interface GeoTIFFPlacement {
   /** `[minX, minY, maxX, maxY]` of the image, in the units of `epsg`. */
@@ -87,5 +86,4 @@ export declare function rasterToGeoTIFF(raster: GeoTIFFRaster, options?: {
   tileSize?: number;
   statistics?: boolean;
 }): Blob;
-//#endregion
 //# sourceMappingURL=geotiff-writer.d.ts.map

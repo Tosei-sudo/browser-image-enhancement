@@ -1,5 +1,5 @@
 import { lzwDecoderFor } from "./lzw-worker.js";
-//#region src/openlayers/fast-read.ts
+// src/openlayers/fast-read.ts
 /**
 * A faster way for geotiff.js to copy decoded tiles into the arrays it
 * returns.
@@ -118,7 +118,6 @@ async function readFast(img, plan, imageWindow, samples, arrays, poolOrDecoder, 
 	result.height = imageWindow[3] - imageWindow[1];
 	return result;
 }
-//#endregion
 export { fastReadRasters };
 
 //# sourceMappingURL=fast-read.js.map

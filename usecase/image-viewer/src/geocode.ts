@@ -103,10 +103,16 @@ export function parseFeatures(json: unknown, field: string, source: string): Pla
     // Lines and polygons without a centroid: the middle of their extent.
     const coords: number[][] = (g.rings ?? g.paths ?? []).flat();
     if (coords.length) {
-      const xs = coords.map((c) => c[0]);
-      const ys = coords.map((c) => c[1]);
-      extent = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-      if (!valid(lonLat)) lonLat = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
+      // A loop, not Math.min(...xs): a detailed boundary (100,000 points and more) would overflow the stack.
+      extent = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const [x, y] of coords) {
+        if (x < extent[0]) extent[0] = x;
+        if (y < extent[1]) extent[1] = y;
+        if (x > extent[2]) extent[2] = x;
+        if (y > extent[3]) extent[3] = y;
+      }
+      if (!extent.every(Number.isFinite)) extent = undefined;
+      else if (!valid(lonLat)) lonLat = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
     }
     return valid(lonLat) ? [{ name: String(name), lonLat, ...(extent ? { extent } : {}), source }] : [];
   });

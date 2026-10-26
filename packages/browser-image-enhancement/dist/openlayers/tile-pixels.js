@@ -1,4 +1,4 @@
-//#region src/openlayers/tile-pixels.ts
+// src/openlayers/tile-pixels.ts
 /** Makes transparent the pixels of a tile as read (alpha last) whose value bands all match `isNoData`, as OpenLayers does for no data. */
 function maskNoData(data, bands, isNoData) {
 	if (!(data instanceof Float32Array || data instanceof Uint8Array || data instanceof Uint8ClampedArray) || bands < 2) return data;
@@ -77,7 +77,6 @@ function toSelectedTile(rgba, bands, hasAlpha, pixels) {
 	}
 	return out;
 }
-//#endregion
 export { colorModeFor, fromRGBA, maskNoData, selectRGBA, toRGBA, toRgb, toSelectedTile };
 
 //# sourceMappingURL=tile-pixels.js.map

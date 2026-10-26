@@ -194,6 +194,19 @@ describe('EsriObservationStore', () => {
     expect(layer.rows).toHaveLength(0);
   });
 
+  it('keeps a record the server did not delete, and says so', async () => {
+    const layer = fakeLayer(['OBS_ID', 'OBJECT_ID']);
+    const refusing = async (url: string, params: Record<string, string>) =>
+      url.endsWith('/deleteFeatures') ? { deleteResults: [{ objectId: 1, success: false, error: { description: '権限なし' } }] } : layer.ask(url, params);
+    const store = new EsriObservationStore(observationStoreOf({ url: 'https://x/FeatureServer/0' }, [], 0)!, refusing);
+    const a = obs({ id: 'r3' });
+    await store.save([a]);
+    await expect(store.remove([a])).rejects.toThrow('1 件の削除に失敗: 権限なし');
+    // Still known by its object id: saved again, it is updated, not added twice.
+    await store.save([{ ...a, note: '再保存' }]);
+    expect(layer.rows).toHaveLength(1);
+  });
+
   it('says which required field is missing', async () => {
     const layer = fakeLayer(['OBS_ID']);
     const store = new EsriObservationStore(observationStoreOf({ label: '観測', url: 'https://x/FeatureServer/0' }, [], 0)!, layer.ask);

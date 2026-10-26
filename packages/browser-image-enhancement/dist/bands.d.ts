@@ -1,6 +1,5 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { Raster } from "./raster.js";
-//#region src/bands.d.ts
 /**
  * The band (0-based) each of R, G and B shows. One index, or three equal
  * ones, shows that band in gray.
@@ -37,5 +36,4 @@ export declare function selectBands<T extends ArrayLike<number>>(raster: Raster 
 export declare function assignBands(image: ImageDataLike, bands: BandSelection): ImageData;
 /** Whether a selection shows one band in gray (one index, or three equal ones). */
 export declare function isGraySelection(select: BandSelection): boolean;
-//#endregion
 //# sourceMappingURL=bands.d.ts.map

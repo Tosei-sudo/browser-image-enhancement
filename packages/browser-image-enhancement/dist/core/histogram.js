@@ -2,7 +2,7 @@ import { LUMA_B, LUMA_G, LUMA_R, SRGB_TO_LINEAR, linearToSrgb, quantize } from "
 import { warn } from "../warn.js";
 import { COLOR_ONLY_OPS, isIdentity, normalizeAutoStretch, toStage } from "../ops/index.js";
 import { forGray } from "./process.js";
-//#region src/core/histogram.ts
+// src/core/histogram.ts
 /**
 * Image statistics and automatic stretching (dynamic range adjustment).
 *
@@ -236,7 +236,6 @@ function resolveForPixels(ops, data, mode) {
 	if (!needsStats(ops)) return [...ops];
 	return resolveOps(ops, countPixels(data, Math.max(1, data.length >>> 2), mode));
 }
-//#endregion
 export { countPixels, emptyHistogram, grayFromRgb, mergeHistograms, needsStats, rangeOf, resolveForPixels, resolveOps, stretchRange };
 
 //# sourceMappingURL=histogram.js.map

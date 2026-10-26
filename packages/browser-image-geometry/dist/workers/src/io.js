@@ -1,5 +1,5 @@
 import { createImageData } from "./image.js";
-//#region ../workers/src/io.ts
+// ../workers/src/io.ts
 /**
 * Converting browser image sources to sRGB pixels and back.
 */
@@ -99,7 +99,6 @@ async function toBlob(image, type = "image/png", quality) {
 	});
 	return new Promise((resolve, reject) => canvas.toBlob((b) => b ? resolve(b) : reject(/* @__PURE__ */ new Error("Could not encode the image.")), type, quality));
 }
-//#endregion
 export { createCanvas, toBlob, toCanvas, toImageData };
 
 //# sourceMappingURL=io.js.map

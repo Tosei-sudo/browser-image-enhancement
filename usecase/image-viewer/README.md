@@ -711,7 +711,7 @@ npm run test:browser
 
 `.github/workflows/deploy-image-viewer.yml` が、既定ブランチへの push（マージ）で CI が通ったあと、`dist/` を VPS へ SFTP（lftp、パスワード認証）で転送します。Actions タブから手動実行（workflow_dispatch）もできます。
 
-リポジトリシークレット: `VPS_HOST`、`VPS_USER`、`VPS_USER_PASSWORD`、`IMAGE_VIEWER_DEPLOY_DIRECTORY`（無ければ作成。相対パスはユーザーのホームから）、任意で `VPS_PORT`（既定 22）。
+リポジトリシークレット: `VPS_HOST`、`VPS_USER`、`VPS_USER_PASSWORD`、`IMAGE_VIEWER_DEPLOY_DIRECTORY`（無ければ作成。相対パスはユーザーのホームから）、任意で `VPS_PORT`（既定 22）と `VPS_HOST_KEY`（サーバーの SSH ホスト公開鍵。`ssh-keyscan -t ed25519 <ホスト>` の出力 1 行。設定すると鍵の一致するサーバーにしかパスワードを送らない。未設定ではどの鍵も受け入れ）。
 
 - `config.json` はサーバーに無いときだけ置きます。サーバー上で編集した設定はデプロイで上書きされません（初期値に戻したいときはサーバー上のファイルを消して再デプロイ）。
 - それ以外のファイルは置き換え、古いビルドの不要ファイルは削除します。

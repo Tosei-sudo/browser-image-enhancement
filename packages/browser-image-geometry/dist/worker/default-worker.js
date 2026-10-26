@@ -1,5 +1,5 @@
 import { crossOriginWorkerUrl as crossOriginWorkerUrl$1 } from "../workers/src/cross-origin.js";
-//#region src/worker/default-worker.ts
+// src/worker/default-worker.ts
 /**
 * How the pool starts a worker when no `createWorker` is configured.
 *
@@ -22,7 +22,6 @@ function defaultCreateWorker() {
 	if (shim) return new Worker(shim, { type: "module" });
 	return new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 }
-//#endregion
 export { crossOriginWorkerUrl, defaultCreateWorker };
 
 //# sourceMappingURL=default-worker.js.map

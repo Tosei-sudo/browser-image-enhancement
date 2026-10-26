@@ -2,7 +2,7 @@ import { rotation, scaling } from "./transform.js";
 import { assertImageData, createImageData } from "./workers/src/image.js";
 import { planWarp } from "./plan.js";
 import { renderPlan } from "./render.js";
-//#region src/functional.ts
+// src/functional.ts
 /**
 * Synchronous API: takes sRGB `ImageData`, returns new `ImageData`, runs on the
 * calling thread. Use `warp()` to run in workers.
@@ -104,7 +104,6 @@ function resize(image, width, height, options = {}) {
 		edges: "clamp"
 	}).image;
 }
-//#endregion
 export { crop, flip, resize, rotate, warpImageData };
 
 //# sourceMappingURL=functional.js.map

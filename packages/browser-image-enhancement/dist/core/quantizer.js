@@ -1,5 +1,5 @@
 import { srgbToLinear } from "../color/srgb.js";
-//#region src/core/quantizer.ts
+// src/core/quantizer.ts
 /**
 * Fast exact rounding of `quantize(F(v))` for a non-decreasing function F.
 *
@@ -97,7 +97,6 @@ var Quantizer = class {
 		return code;
 	}
 };
-//#endregion
 export { Quantizer };
 
 //# sourceMappingURL=quantizer.js.map

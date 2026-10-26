@@ -1,5 +1,5 @@
 import { createImageData } from "./workers/src/image.js";
-//#region src/bands.ts
+// src/bands.ts
 /**
 * Band assignment: which band of an image goes to R, G and B. A multiband
 * raster (multispectral imagery, a GeoTIFF with more bands than a screen has
@@ -83,7 +83,6 @@ function assignBands(image, bands) {
 function isGraySelection(select) {
 	return select.length === 1 || select[0] === select[1] && select[1] === select[2];
 }
-//#endregion
 export { assignBands, isGraySelection, selectBands };
 
 //# sourceMappingURL=bands.js.map

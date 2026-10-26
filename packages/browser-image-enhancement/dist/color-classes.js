@@ -1,5 +1,5 @@
 import { colorScalePalette } from "./color-scale.js";
-//#region src/color-classes.ts
+// src/color-classes.ts
 /**
 * Color classes (discrete pseudo-color, as QGIS's "discrete" and "exact"
 * color ramps or its paletted renderer): pixel values are sorted into
@@ -234,7 +234,6 @@ function classShares(hist, classes, band = 0) {
 	}
 	return total > 0 ? counts.map((c) => c / total) : counts;
 }
-//#endregion
 export { classColors, classPalette, classRange, classShares, colorClasses, equalIntervalBreaks, formatClassValue, histogramValueRange, quantileBreaks, rangeLabels, uniqueValues };
 
 //# sourceMappingURL=color-classes.js.map

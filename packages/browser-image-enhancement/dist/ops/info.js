@@ -1,4 +1,4 @@
-//#region src/ops/info.ts
+// src/ops/info.ts
 const CURVE = {
 	type: "curve",
 	default: [[0, 0], [1, 1]]
@@ -279,7 +279,6 @@ const opInfo = {
 function numberParam(op, param) {
 	return opInfo[op].params[param];
 }
-//#endregion
 export { numberParam, opInfo };
 
 //# sourceMappingURL=info.js.map

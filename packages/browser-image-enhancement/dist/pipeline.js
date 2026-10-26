@@ -8,7 +8,7 @@ import { needsStats, resolveOps } from "./core/histogram.js";
 import { applySync, warnColorOnly } from "./functional.js";
 import { downscale } from "./preview.js";
 import { execute } from "./worker/executor.js";
-//#region src/pipeline.ts
+// src/pipeline.ts
 /**
 * Pipeline API: declare a chain of corrections, then run it in one pass
 * (no 8-bit rounding between steps), in Web Workers by default.
@@ -356,7 +356,6 @@ function createPreviewRunner(options) {
 		}
 	};
 }
-//#endregion
 export { Pipeline, createPreviewRunner, pipeline };
 
 //# sourceMappingURL=pipeline.js.map

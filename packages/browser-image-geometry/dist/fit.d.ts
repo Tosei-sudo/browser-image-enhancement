@@ -1,5 +1,4 @@
 import { Point, Transform } from "./types.js";
-//#region src/fit.d.ts
 /** A control point: a position in the source image and where it belongs in the target. */
 export interface ControlPoint {
   /** Source image coordinates (pixel `(i, j)` has its center at `(i + 0.5, j + 0.5)`). */
@@ -50,5 +49,4 @@ export declare const MIN_POINTS: Readonly<Record<TransformModel, number>>;
  * determine the model (too few, or for example all on one line).
  */
 export declare function fitTransform(points: readonly ControlPoint[], options?: FitOptions): FitResult;
-//#endregion
 //# sourceMappingURL=fit.d.ts.map
