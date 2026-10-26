@@ -1,4 +1,4 @@
-//#region ../workers/src/image.ts
+// ../workers/src/image.ts
 /**
 * Wraps pixels in a real `ImageData` when the environment has one, otherwise in
 * a plain object of the same shape (useful in tests and non-DOM workers).
@@ -20,7 +20,6 @@ function assertImageData(image, colorSpaceHint = "Use the pipeline API, which co
 	if (image.data.length !== width * height * 4) throw new RangeError(`data.length ${image.data.length} does not match ${width}x${height}x4.`);
 	if (image.colorSpace && image.colorSpace !== "srgb") throw new RangeError(`Only sRGB pixels are supported here (got ${image.colorSpace}). ` + colorSpaceHint);
 }
-//#endregion
 export { assertImageData, createImageData };
 
 //# sourceMappingURL=image.js.map

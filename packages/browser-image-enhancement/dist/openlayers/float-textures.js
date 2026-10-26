@@ -1,4 +1,4 @@
-//#region src/openlayers/float-textures.ts
+// src/openlayers/float-textures.ts
 /**
 * Whether OpenLayers' WebGL layers can draw float tiles smoothly: WebGL 1
 * (what OpenLayers uses) with float textures (`OES_texture_float`) that can
@@ -20,7 +20,6 @@ function floatTexturesFilterable() {
 	} catch {}
 	return filterable;
 }
-//#endregion
 export { floatTexturesFilterable };
 
 //# sourceMappingURL=float-textures.js.map

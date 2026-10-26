@@ -1,7 +1,7 @@
 import { createImageData } from "./workers/src/image.js";
 import { normalizeAutoStretch } from "./ops/index.js";
 import { rangeOf } from "./core/histogram.js";
-//#region src/raster.ts
+// src/raster.ts
 /**
 * Rasters with values beyond 8 bits (16-bit integers, floats: GeoTIFF
 * bands, scientific data). Corrections work on 8-bit images, so a raster is
@@ -354,7 +354,6 @@ function rasterToImageData(raster, options = {}) {
 	}
 	return createImageData(out, raster.width, raster.height);
 }
-//#endregion
 export { computeRasterStretch, mergeRasterHistograms, rasterHistogram, rasterRange, rasterToFloatRGBA, rasterToImageData, sampleRasterHistogram };
 
 //# sourceMappingURL=raster.js.map

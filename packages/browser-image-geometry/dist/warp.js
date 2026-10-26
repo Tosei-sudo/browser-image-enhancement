@@ -2,7 +2,7 @@ import { assertImageData } from "./workers/src/image.js";
 import { toBlob, toCanvas, toImageData } from "./workers/src/io.js";
 import { planWarp } from "./plan.js";
 import { execute } from "./worker/executor.js";
-//#region src/warp.ts
+// src/warp.ts
 /** Asynchronous API: any image source in, the requested output type back, in workers by default. */
 /**
 * Applies `transform` to any supported image source. The coordinate transform
@@ -39,7 +39,6 @@ async function warp(input, transform, options) {
 		usedWorker
 	};
 }
-//#endregion
 export { warp };
 
 //# sourceMappingURL=warp.js.map

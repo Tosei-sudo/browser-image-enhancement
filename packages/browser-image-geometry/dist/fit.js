@@ -1,6 +1,6 @@
 import { DegenerateError, leastSquares, multiply3 } from "./linalg.js";
 import { pointFunction, polynomialTerms } from "./transform.js";
-//#region src/fit.ts
+// src/fit.ts
 /** Estimating a transform from control points by least squares. */
 /** Fewest control points each model needs. */
 const MIN_POINTS = {
@@ -203,7 +203,6 @@ function fitTransform(points, options = {}) {
 		residuals
 	};
 }
-//#endregion
 export { MIN_POINTS, fitTransform };
 
 //# sourceMappingURL=fit.js.map

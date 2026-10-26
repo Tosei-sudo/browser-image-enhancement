@@ -1,6 +1,6 @@
 import { pipeline } from "../pipeline.js";
 import Observable from "ol/Observable.js";
-//#region src/openlayers/tile-correction.ts
+// src/openlayers/tile-correction.ts
 /**
 * Pipeline and DRA statistics for a {@link GpuCorrectedTileLayer} over a
 * picture tile source. Pass it as the layer's `correction`, and to an
@@ -118,7 +118,6 @@ var TileCorrection = class extends Observable {
 		this.effective_ = this.pipeline_.resolve(stats);
 	}
 };
-//#endregion
 export { TileCorrection as default };
 
 //# sourceMappingURL=tile-correction.js.map

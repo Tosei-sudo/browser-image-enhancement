@@ -1,4 +1,3 @@
-//#region src/index.d.ts
 /** WGS 84 longitude and latitude in degrees, longitude first (as GeoJSON). */
 export type LonLat = [number, number];
 /** `35.681240, 139.767100` (latitude first). */
@@ -28,5 +27,4 @@ export declare function formatUtm(lonLat: LonLat): string | null;
  * Returns `[lon, lat]`, or null when the text is none of them.
  */
 export declare function parseCoordinate(text: string): LonLat | null;
-//#endregion
 //# sourceMappingURL=index.d.ts.map

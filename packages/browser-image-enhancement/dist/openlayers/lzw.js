@@ -1,4 +1,4 @@
-//#region src/openlayers/lzw.ts
+// src/openlayers/lzw.ts
 /**
 * A fast decoder for TIFF's LZW compression (the usual one of GDAL and
 * ArcGIS exports), with TIFF's predictors undone.
@@ -133,7 +133,6 @@ function decodeLzwBlock(buffer, parameters) {
 	const out = decodeLzw(new Uint8Array(buffer), expected);
 	return undoPredictor(out.byteLength === out.buffer.byteLength ? out.buffer : out.slice().buffer, parameters);
 }
-//#endregion
 export { decodeLzw, decodeLzwBlock, undoPredictor };
 
 //# sourceMappingURL=lzw.js.map

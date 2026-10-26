@@ -1,4 +1,4 @@
-//#region src/openlayers/margin.ts
+// src/openlayers/margin.ts
 /**
 * The centre tile (`width` x `height`) with `margin` pixels of its neighbours
 * on every side. Where there is no neighbour the margin is transparent, which
@@ -37,7 +37,6 @@ function cropMargin(padded, width, height, margin) {
 	}
 	return out;
 }
-//#endregion
 export { cropMargin, withMargin };
 
 //# sourceMappingURL=margin.js.map

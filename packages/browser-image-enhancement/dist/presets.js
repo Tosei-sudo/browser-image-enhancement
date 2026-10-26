@@ -1,5 +1,5 @@
 import { pipeline } from "./pipeline.js";
-//#region src/presets.ts
+// src/presets.ts
 /**
 * Built-in corrections:
 *
@@ -50,7 +50,6 @@ const presets = Object.freeze({
 function autoEnhance(input, options) {
 	return presets.auto.run(input, options);
 }
-//#endregion
 export { autoEnhance, presets };
 
 //# sourceMappingURL=presets.js.map

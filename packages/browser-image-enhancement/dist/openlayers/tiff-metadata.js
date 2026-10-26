@@ -1,4 +1,4 @@
-//#region src/openlayers/tiff-metadata.ts
+// src/openlayers/tiff-metadata.ts
 const ITEM = /<Item\b([^>]*?)(?:\/>|>([\s\S]*?)<\/Item\s*>)/g;
 const ATTRIBUTE = /([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 /** The items of GDAL's metadata XML (`<GDALMetadata><Item name="…" sample="0">…</Item></GDALMetadata>`), in order. */
@@ -89,7 +89,6 @@ function decodeXml(text) {
 		return ENTITIES[e.toLowerCase()] ?? whole;
 	});
 }
-//#endregion
 export { bandNamesFromGdalMetadata, parseGdalMetadata, readBandNames, readGdalMetadataXml, readTag };
 
 //# sourceMappingURL=tiff-metadata.js.map

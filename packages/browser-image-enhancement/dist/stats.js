@@ -2,7 +2,7 @@ import { assertImageData } from "./workers/src/image.js";
 import { SRGB_TO_LINEAR, linearToSrgb } from "./color/srgb.js";
 import { resolveMode } from "./core/process.js";
 import { countPixels, mergeHistograms, stretchRange } from "./core/histogram.js";
-//#region src/stats.ts
+// src/stats.ts
 /**
 * Public statistics API: histograms of images or parts of them, and the
 * stretch range they give.
@@ -56,7 +56,6 @@ function sampleColor(image, x, y, options = {}) {
 	if (n === 0) return null;
 	return sum.map((v) => linearToSrgb(v / n));
 }
-//#endregion
 export { computeStretch, histogram, mergeHistograms, sampleColor };
 
 //# sourceMappingURL=stats.js.map

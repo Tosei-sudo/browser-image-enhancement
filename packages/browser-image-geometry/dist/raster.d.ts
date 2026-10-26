@@ -1,6 +1,5 @@
 import { Transform } from "./types.js";
 import { OutputOptions, WarpInfo } from "./plan.js";
-//#region src/raster.d.ts
 /** Pixel values {@link warpRaster} can warp. */
 export type RasterSamples = Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array | Float64Array;
 /** A raster: any number of bands of one sample type, pixel-interleaved. */
@@ -40,5 +39,4 @@ export interface RasterWarpResult<T extends RasterSamples = RasterSamples> exten
 export declare function warpRaster<T extends RasterSamples>(raster: Raster<T>, transform: Transform, options?: RasterWarpOptions): RasterWarpResult<T>;
 /** Halves a raster (2×2 average per band, leaving out no-data), for shrinking by more than 2× without aliasing. */
 export declare function halveRaster<T extends RasterSamples>(src: Raster<T>): Raster<T>;
-//#endregion
 //# sourceMappingURL=raster.d.ts.map

@@ -8,7 +8,7 @@ import { transformExtent } from "ol/proj.js";
 import { unByKey } from "ol/Observable.js";
 import Control from "ol/control/Control.js";
 import BaseEvent from "ol/events/Event.js";
-//#region src/openlayers/load-image-control.ts
+// src/openlayers/load-image-control.ts
 /**
 * OpenLayers control that loads an image onto the map: a GeoTIFF / COG from a
 * local file or a URL, placed where its georeferencing says, or an ordinary
@@ -333,7 +333,6 @@ async function isTiff(file) {
 }
 const FOLDER_ICON = "M2 5.5A1.5 1.5 0 0 1 3.5 4h4l1.5 2h7.5A1.5 1.5 0 0 1 18 7.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 15.5z";
 const LINK_ICON = "M8.5 11.5l3-3M7 9.5l-1.6 1.6a2.5 2.5 0 0 0 3.5 3.5L10.5 13M13 10.5l1.6-1.6a2.5 2.5 0 0 0-3.5-3.5L9.5 7";
-//#endregion
 export { LoadImageEvent, LoadImageControl as default, loadImageLabelsEn, loadImageLabelsJa, placeOverView };
 
 //# sourceMappingURL=load-image-control.js.map

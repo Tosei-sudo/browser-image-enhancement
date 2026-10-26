@@ -1,6 +1,5 @@
 import { RasterHistogram } from "./raster.js";
 import { ColorScale } from "./color-scale.js";
-//#region src/color-classes.d.ts
 /** One class: its bound or value, its color (`[r, g, b]` or `[r, g, b, a]`, 0-255), and a name for a legend. */
 export interface ColorClass {
   /** `range`: the upper bound of the class (inclusive). `exact`: the value of the class. */
@@ -94,5 +93,4 @@ export declare function rangeLabels(min: number, bounds: readonly number[]): str
 export declare function colorClasses(hist: RasterHistogram, options?: ColorClassesOptions): ColorClasses | null;
 /** The share of the pixels counted in `hist` that each class gets (0-1, in the order of `classes.classes`). */
 export declare function classShares(hist: RasterHistogram, classes: ColorClasses, band?: number): number[];
-//#endregion
 //# sourceMappingURL=color-classes.d.ts.map

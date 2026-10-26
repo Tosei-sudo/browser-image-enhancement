@@ -1,5 +1,4 @@
 import { Raster } from "./raster.js";
-//#region src/pansharpen.d.ts
 /** How the panchromatic detail is put into the bands. */
 export type PanSharpenMethod = 'gram-schmidt' | 'ihs' | 'brovey';
 /** Options for {@link panSharpen}. */
@@ -71,5 +70,4 @@ export interface PanSharpenResult<T extends ArrayLike<number> = ArrayLike<number
 export declare function panSharpen<T extends ArrayLike<number>>(pan: Raster, ms: Raster & {
   data: T;
 }, options?: PanSharpenOptions): PanSharpenResult<T>;
-//#endregion
 //# sourceMappingURL=pansharpen.d.ts.map

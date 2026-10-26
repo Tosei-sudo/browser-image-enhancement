@@ -1,4 +1,4 @@
-//#region src/openlayers/geotiff-samples.ts
+// src/openlayers/geotiff-samples.ts
 /**
 * True when every image the source reads holds unsigned 8-bit samples. Reads
 * the images OpenLayers opened (`sourceImagery_`, set before the loader);
@@ -91,7 +91,6 @@ function valuesTest(values, nan) {
 	if (!nan && exact.size === 0 && below === -Infinity && above === Infinity) return null;
 	return (v) => v <= below || v >= above || exact.has(v) || nan && v !== v;
 }
-//#endregion
 export { KNOWN_FILL_VALUES, floatNoData, isEightBit, keepEightBitRange, valuesTest };
 
 //# sourceMappingURL=geotiff-samples.js.map

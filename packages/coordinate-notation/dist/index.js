@@ -1,5 +1,5 @@
 import { forward, toPoint } from "mgrs";
-//#region src/utm.ts
+// src/utm.ts
 /**
 * UTM on WGS 84 without proj4: the transverse Mercator projection in
 * Krüger's series to sixth order in n (Karney 2011), accurate to well under a
@@ -78,8 +78,7 @@ function fromUtm([easting, northing], zone, north) {
 	}
 	return [(Math.atan2(sinhEta, cosXi) + centralMeridian(zone)) / RAD, Math.atan(tau) / RAD];
 }
-//#endregion
-//#region src/index.ts
+// src/index.ts
 /**
 * Coordinate notations: latitude / longitude (decimal or degrees, minutes,
 * seconds), MGRS and UTM, written and read. Everything goes through WGS 84
@@ -246,7 +245,6 @@ function unpack(text) {
 function valid([lon, lat]) {
 	return Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [lon, lat] : null;
 }
-//#endregion
 export { formatDms, formatLatLon, formatMgrs, formatUtm, parseCoordinate, utmEpsg, utmZone };
 
 //# sourceMappingURL=index.js.map

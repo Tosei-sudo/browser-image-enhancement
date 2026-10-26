@@ -1,4 +1,4 @@
-//#region ../workers/src/pool.ts
+// ../workers/src/pool.ts
 /** Thrown when no worker could be started; callers fall back to the main thread. */
 var WorkerUnavailableError = class extends Error {
 	name = "WorkerUnavailableError";
@@ -192,7 +192,6 @@ function createSharedPool(defaultCreate) {
 		terminateWorkers
 	};
 }
-//#endregion
 export { WorkerPool, WorkerUnavailableError, createSharedPool };
 
 //# sourceMappingURL=pool.js.map

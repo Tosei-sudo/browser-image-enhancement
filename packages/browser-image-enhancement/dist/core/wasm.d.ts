@@ -1,4 +1,3 @@
-//#region src/core/wasm.d.ts
 /** Whether the engine is used, and whether it is ready. See {@link wasmStatus}. */
 export type WasmStatus = 'ready' | 'loading' | 'unavailable' | 'off';
 /**
@@ -15,5 +14,4 @@ export declare function configureWasm(options: {
  * after `configureWasm({ enabled: false })`.
  */
 export declare function wasmStatus(): WasmStatus;
-//#endregion
 //# sourceMappingURL=wasm.d.ts.map

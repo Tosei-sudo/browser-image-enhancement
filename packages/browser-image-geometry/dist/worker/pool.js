@@ -1,6 +1,6 @@
 import { createSharedPool } from "../workers/src/pool.js";
 import { defaultCreateWorker } from "./default-worker.js";
-//#region src/worker/pool.ts
+// src/worker/pool.ts
 /**
 * This package's worker pool: the shared pool from @browser-image/workers,
 * typed with this package's messages and started with its own worker script.
@@ -19,7 +19,6 @@ function configureWorkers(next) {
 function terminateWorkers() {
 	shared.terminateWorkers();
 }
-//#endregion
 export { configureWorkers, getPool, terminateWorkers };
 
 //# sourceMappingURL=pool.js.map

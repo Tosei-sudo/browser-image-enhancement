@@ -2058,7 +2058,7 @@ export class ObservationPanel {
           <button type="button" value="taxon-things">モノ一覧</button>
           <button type="button" value="taxon-delete" title="この分類と下位分類の削除（記録の種別は上位の分類に）">削除</button>
         </div>
-        <label class="wide">下位分類の追加<span class="obs-inline"><input name="taxon-child" autocomplete="off" placeholder="${levelName(taxonomy, path, path.length) || '下位分類'}の名前" /><button type="button" value="taxon-add-child">追加</button></span></label>`;
+        <label class="wide">下位分類の追加<span class="obs-inline"><input name="taxon-child" autocomplete="off" /><button type="button" value="taxon-add-child">追加</button></span></label>`;
       box.querySelector('h3')!.textContent = `${kindOf(path)}（${levelName(taxonomy, path, path.length - 1) || `第 ${path.length} 階層`}・モノ ${things}）`;
       const input = (name: string) => box.querySelector<HTMLInputElement>(`[name=${name}]`)!;
       input('taxon-name').value = keep('taxon-name') ?? path[path.length - 1];
@@ -2066,6 +2066,8 @@ export class ObservationPanel {
       input('taxon-label').value = keep('taxon-label') ?? t.nameLabel ?? '';
       input('taxon-members').value = keep('taxon-members') ?? (t.members ?? []).join('、');
       input('taxon-child').value = keep('taxon-child') ?? '';
+      // Level names are the taxonomy's own text (shared through a store): set as text, never as HTML.
+      input('taxon-child').placeholder = `${levelName(taxonomy, path, path.length) || '下位分類'}の名前`;
       const parent = box.querySelector<HTMLSelectElement>('select[name=taxon-parent]')!;
       for (const x of parents) parent.add(new Option(kindOf(x.path), kindOf(x.path)));
       parent.value = kindOf(path.slice(0, -1));

@@ -772,8 +772,21 @@ export class EsriObservationStore implements ObservationStore {
       return marked;
     }
     const ids = list.map((o) => this.oids_.get(o.id)).filter((v): v is number => v !== undefined);
-    if (ids.length) await this.ask(`${this.config.url}/deleteFeatures`, { objectIds: ids.join(',') }, this.config.token);
-    for (const o of list) this.oids_.delete(o.id);
+    const failed = new Set<number>();
+    if (ids.length) {
+      const json = (await this.ask(`${this.config.url}/deleteFeatures`, { objectIds: ids.join(',') }, this.config.token)) as {
+        deleteResults?: Array<{ success: boolean; objectId?: number; error?: { description?: string } | null }>;
+      };
+      // Each record is deleted or not on its own: the ones the server kept stay known, and the person is told.
+      let reason = '';
+      for (const r of json.deleteResults ?? []) {
+        if (r.success || typeof r.objectId !== 'number') continue;
+        failed.add(r.objectId);
+        reason ||= r.error?.description ?? '';
+      }
+      for (const o of list) if (!failed.has(this.oids_.get(o.id) ?? -1)) this.oids_.delete(o.id);
+      if (failed.size) throw new Error(`${failed.size} 件の削除に失敗${reason ? `: ${reason}` : ''}`);
+    }
     return [];
   }
 }

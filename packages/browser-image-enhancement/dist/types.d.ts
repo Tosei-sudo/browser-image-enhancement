@@ -1,5 +1,4 @@
 import { ImageDataLike } from "./workers/src/image.js";
-//#region src/types.d.ts
 /** How color is handled. `auto` detects monochrome (R = G = B everywhere) input. */
 export type ColorMode = 'auto' | 'rgb' | 'gray';
 /**
@@ -258,6 +257,5 @@ export interface Histogram {
   /** Number of pixels counted. */
   count: number;
 }
-//#endregion
 export type { ImageDataLike };
 //# sourceMappingURL=types.d.ts.map

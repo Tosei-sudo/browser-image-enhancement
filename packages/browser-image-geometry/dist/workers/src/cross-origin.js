@@ -1,4 +1,4 @@
-//#region ../workers/src/cross-origin.ts
+// ../workers/src/cross-origin.ts
 /**
 * Browsers refuse to start a worker from a script on another origin, which is
 * where a package loaded from a CDN keeps its worker file. A same-origin Blob
@@ -18,7 +18,6 @@ function crossOriginWorkerUrl(script, pageOrigin) {
 	}
 	return shim;
 }
-//#endregion
 export { crossOriginWorkerUrl };
 
 //# sourceMappingURL=cross-origin.js.map

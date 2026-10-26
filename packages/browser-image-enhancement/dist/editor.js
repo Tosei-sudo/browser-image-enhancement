@@ -4,7 +4,7 @@ import { histogram } from "./stats.js";
 import { downscale } from "./preview.js";
 import { createPreviewRunner } from "./pipeline.js";
 import { createGpuRenderer } from "./gpu/renderer.js";
-//#region src/editor.ts
+// src/editor.ts
 /**
 * An editor for slider-driven corrections: it picks the fastest way to show
 * the image (WebGL2 at full size, or a shrunk preview in workers) and keeps the
@@ -204,7 +204,6 @@ var EditorImpl = class {
 		if (this.disposed) throw new Error("The editor was disposed.");
 	}
 };
-//#endregion
 export { createEditor };
 
 //# sourceMappingURL=editor.js.map

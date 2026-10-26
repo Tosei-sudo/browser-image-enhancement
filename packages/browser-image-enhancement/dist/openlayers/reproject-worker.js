@@ -1,6 +1,6 @@
 import { getPool } from "../worker/pool.js";
 import { nextWorkerId } from "./worker-ids.js";
-//#region src/openlayers/reproject-worker.ts
+// src/openlayers/reproject-worker.ts
 /**
 * Runs {@link drawTriangles} in the library's worker pool, so reprojecting
 * tiles does not hold up the main thread while the map pans.
@@ -32,7 +32,6 @@ async function drawInWorker(job) {
 	if (response.type !== "reprojected") return null;
 	return float ? new Float32Array(response.buffer) : new Uint8ClampedArray(response.buffer);
 }
-//#endregion
 export { drawInWorker };
 
 //# sourceMappingURL=reproject-worker.js.map

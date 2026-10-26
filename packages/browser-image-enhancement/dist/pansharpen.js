@@ -1,4 +1,4 @@
-//#region src/pansharpen.ts
+// src/pansharpen.ts
 /** The range an integer typed array holds, or null for floats and plain arrays. */
 function integerRange(data) {
 	if (data instanceof Uint8Array || data instanceof Uint8ClampedArray) return [0, 255];
@@ -196,7 +196,6 @@ function solve(a, b) {
 	}
 	return m.map((r, i) => r[n] / r[i]);
 }
-//#endregion
 export { panSharpen };
 
 //# sourceMappingURL=pansharpen.js.map

@@ -1,6 +1,5 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { AutoStretchOptions, ColorOptions, CurveOptions, LevelsOptions, SharpenOptions, StretchOptions, WhiteBalanceOptions } from "./types.js";
-//#region src/functional.d.ts
 /** Brightness, -1 to 1. Positive moves toward white, negative toward black. */
 export declare function brightness(image: ImageDataLike, amount: number, options?: ColorOptions): ImageData;
 /** Contrast around mid-gray, -1 (flat gray) to 1 (threshold). */
@@ -43,5 +42,4 @@ export declare function autoStretch(image: ImageDataLike, params?: AutoStretchOp
  * neighbours.
  */
 export declare function sharpen(image: ImageDataLike, params?: SharpenOptions, options?: ColorOptions): ImageData;
-//#endregion
 //# sourceMappingURL=functional.d.ts.map

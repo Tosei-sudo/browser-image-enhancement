@@ -1,5 +1,5 @@
 import { warn } from "../warn.js";
-//#region src/ops/curve.ts
+// src/ops/curve.ts
 /** The straight line from black to white. */
 const IDENTITY_CURVE = [[0, 0], [1, 1]];
 /**
@@ -70,7 +70,6 @@ function curveFunction(points) {
 		return y <= 0 ? 0 : y >= 1 ? 1 : y;
 	};
 }
-//#endregion
 export { IDENTITY_CURVE, curveFunction, isIdentityCurve, normalizeCurve };
 
 //# sourceMappingURL=curve.js.map

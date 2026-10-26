@@ -2,7 +2,7 @@ import { LUMA_B, LUMA_G, LUMA_R, linearToSrgb, srgbToLinear } from "../color/srg
 import { warn } from "../warn.js";
 import { curveFunction, isIdentityCurve, normalizeCurve } from "./curve.js";
 import { numberParam } from "./info.js";
-//#region src/ops/index.ts
+// src/ops/index.ts
 /**
 * Correction definitions: parameter normalization and the per-pixel math.
 *
@@ -379,7 +379,6 @@ function toStage(op) {
 		case "autoStretch": throw new Error("autoStretch has no fixed math; resolve it with image statistics first.");
 	}
 }
-//#endregion
 export { COLOR_ONLY_OPS, CONTRAST_PIVOT, TEMPERATURE_STRENGTH, TINT_STRENGTH, TONE_STRENGTH, isIdentity, kernelRadius, marginOf, normalizeAutoStretch, normalizeCurveOptions, normalizeLevels, normalizeOp, normalizeSharpen, normalizeStretch, normalizeWhiteBalance, temperatureGains, tintGains, toStage, toneShift, whiteBalanceGains };
 
 //# sourceMappingURL=index.js.map

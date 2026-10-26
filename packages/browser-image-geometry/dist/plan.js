@@ -1,6 +1,6 @@
 import { assertTransform, invertTransform, pointFunction } from "./transform.js";
 import { KERNEL_MARGIN, halve, rowMapper } from "./resample.js";
-//#region src/plan.ts
+// src/plan.ts
 /**
 * Main-thread planning: the output grid (size and position), the mapping each
 * output pixel uses, how far to shrink the source first, and which part of the
@@ -325,7 +325,6 @@ function sourceBounds(mapping, width, y0, y1, srcWidth, srcHeight, resample) {
 		bottom
 	] : null;
 }
-//#endregion
 export { MAX_OUTPUT_PIXELS, planWarp, shrink, sourceBounds };
 
 //# sourceMappingURL=plan.js.map

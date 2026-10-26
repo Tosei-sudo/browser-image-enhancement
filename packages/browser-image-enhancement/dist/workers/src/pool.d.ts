@@ -1,4 +1,3 @@
-//#region ../workers/src/pool.d.ts
 /**
  * A lazily started pool of module Web Workers, independent of what the workers compute.
  *
@@ -36,5 +35,4 @@ export interface WorkerConfig<Req = unknown, Res = unknown> {
   /** Creates a worker. Override to serve the worker script from a custom URL. */
   createWorker?: () => WorkerLike<Req, Res>;
 }
-//#endregion
 //# sourceMappingURL=pool.d.ts.map

@@ -1,4 +1,4 @@
-//#region src/openlayers/geotiff-writer.ts
+// src/openlayers/geotiff-writer.ts
 const ASCII = 2;
 const SHORT = 3;
 const LONG = 4;
@@ -554,7 +554,6 @@ function halve(level) {
 		data: out
 	};
 }
-//#endregion
 export { imageToGeoTIFF, rasterToGeoTIFF };
 
 //# sourceMappingURL=geotiff-writer.js.map

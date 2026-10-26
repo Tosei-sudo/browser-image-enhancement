@@ -6,7 +6,7 @@ import { addControlStyles, iconButton } from "./control-styles.js";
 import { listen } from "ol/events.js";
 import { unByKey } from "ol/Observable.js";
 import Control from "ol/control/Control.js";
-//#region src/openlayers/enhance-control.ts
+// src/openlayers/enhance-control.ts
 /**
 * OpenLayers control with the correction sliders: a button on the map that
 * opens a panel of sliders (built from `opInfo`), a DRA switch and a reset
@@ -541,7 +541,6 @@ function sliderRow(label, min, max, step, value, decimals) {
 		output
 	};
 }
-//#endregion
 export { EnhanceControl as default, defaultEnhanceSliders, enhanceLabelsEn, enhanceLabelsJa };
 
 //# sourceMappingURL=enhance-control.js.map

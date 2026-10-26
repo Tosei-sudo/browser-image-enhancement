@@ -4,7 +4,6 @@ import TileCorrection from "./tile-correction.js";
 import Control from "ol/control/Control.js";
 import OlMap from "ol/Map.js";
 import Layer from "ol/layer/Layer.js";
-//#region src/openlayers/enhance-control.d.ts
 /** Steps a slider can set: those with number parameters. */
 /** What an {@link EnhanceControl} corrects: a GeoTIFF source, or the correction of a layer of picture tiles. */
 export type EnhanceTarget = EnhancedGeoTIFF | TileCorrection;
@@ -150,5 +149,4 @@ export default class EnhanceControl extends Control {
   private apply_;
   private build_;
 }
-//#endregion
 //# sourceMappingURL=enhance-control.d.ts.map

@@ -1,4 +1,4 @@
-//#region src/color/srgb.ts
+// src/color/srgb.ts
 /**
 * sRGB <-> linear-light conversion.
 *
@@ -54,7 +54,6 @@ function quantize(v) {
 const LUMA_R = .2126;
 const LUMA_G = .7152;
 const LUMA_B = .0722;
-//#endregion
 export { LUMA_B, LUMA_G, LUMA_R, SRGB_TO_LINEAR, linearToSrgb, quantize, srgbToLinear };
 
 //# sourceMappingURL=srgb.js.map

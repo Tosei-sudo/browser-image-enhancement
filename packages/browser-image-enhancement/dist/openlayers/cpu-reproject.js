@@ -1,6 +1,6 @@
 import { drawTriangles } from "./reproject-kernel.js";
 import { drawInWorker } from "./reproject-worker.js";
-//#region src/openlayers/cpu-reproject.ts
+// src/openlayers/cpu-reproject.ts
 const LOADED = 2;
 const ERROR = 3;
 /** Makes `source` reproject its tiles on the CPU; tiles it cannot handle keep OpenLayers' way. */
@@ -211,7 +211,6 @@ function finish(tile, job, out) {
 function isPixels(data) {
 	return data instanceof Float32Array || data instanceof Uint8Array || data instanceof Uint8ClampedArray;
 }
-//#endregion
 export { reprojectOnCpu };
 
 //# sourceMappingURL=cpu-reproject.js.map

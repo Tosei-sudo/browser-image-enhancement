@@ -1,7 +1,7 @@
 import { LUMA_B, LUMA_G, LUMA_R, srgbToLinear } from "../color/srgb.js";
 import { curveFunction } from "../ops/curve.js";
 import { CONTRAST_PIVOT, TONE_STRENGTH, temperatureGains, tintGains, whiteBalanceGains } from "../ops/index.js";
-//#region src/gpu/shaders.ts
+// src/gpu/shaders.ts
 /**
 * GLSL for the WebGL2 path. The same math as ops/index.ts and core/filter.ts,
 * in float32 on the GPU instead of float64, so results can differ from the JS
@@ -269,7 +269,6 @@ const DECODE = /* @__PURE__ */ (() => {
 	for (let i = 0; i < 256; i++) t[i] = srgbToLinear(i / 255);
 	return t;
 })();
-//#endregion
 export { CURVE_SAMPLES, DECODE, PRESENT, PRESENT_PALETTE, VERTEX, curveRow, horizontalShader, opParams, pixelShader, verticalShader };
 
 //# sourceMappingURL=shaders.js.map

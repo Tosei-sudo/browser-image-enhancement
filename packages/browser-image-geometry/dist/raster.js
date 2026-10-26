@@ -1,6 +1,6 @@
 import { rowMapper } from "./resample.js";
 import { planWarp } from "./plan.js";
-//#region src/raster.ts
+// src/raster.ts
 /**
 * Warping rasters of any band count and sample type (16-bit, float, ...),
 * such as satellite images and elevation models, keeping their values:
@@ -168,7 +168,6 @@ function halveRaster(src) {
 		noData: src.noData
 	};
 }
-//#endregion
 export { halveRaster, warpRaster };
 
 //# sourceMappingURL=raster.js.map

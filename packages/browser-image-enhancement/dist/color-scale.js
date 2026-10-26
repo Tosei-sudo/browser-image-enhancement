@@ -1,4 +1,4 @@
-//#region src/color-scale.ts
+// src/color-scale.ts
 /** Evenly spaced stops from hex colors. */
 function even(...colors) {
 	return colors.map((hex, i) => [i / (colors.length - 1), [
@@ -82,7 +82,6 @@ function applyPalette(data, palette) {
 	}
 	return data;
 }
-//#endregion
 export { applyPalette, colorScalePalette, colorScaleStops, colorScales };
 
 //# sourceMappingURL=color-scale.js.map

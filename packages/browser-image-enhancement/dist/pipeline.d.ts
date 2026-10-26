@@ -1,7 +1,6 @@
 import { ImageDataLike } from "./workers/src/image.js";
 import { ImageInput } from "./workers/src/io.js";
 import { AutoStretchOptions, ColorOptions, CurveOptions, Histogram, LevelsOptions, OpName, OpSpec, SharpenOptions, StepOptions, StretchOptions, WhiteBalanceOptions } from "./types.js";
-//#region src/pipeline.d.ts
 /**
  * What `run()` resolves with: `imageData` (default), a `canvas`
  * (`OffscreenCanvas` where available), an encoded `blob`, or a single-channel
@@ -217,5 +216,4 @@ export interface PreviewRunner<O extends RunOptions | undefined> {
  * ```
  */
 export declare function createPreviewRunner<O extends PreviewOptions | undefined = undefined>(options?: O): PreviewRunner<O>;
-//#endregion
 //# sourceMappingURL=pipeline.d.ts.map

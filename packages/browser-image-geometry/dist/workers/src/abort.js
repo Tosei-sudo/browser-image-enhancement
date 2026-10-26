@@ -1,4 +1,4 @@
-//#region ../workers/src/abort.ts
+// ../workers/src/abort.ts
 /** Helpers for cancelling work with an AbortSignal. */
 function abortError(signal) {
 	const reason = signal?.reason;
@@ -27,7 +27,6 @@ function race(promise, signal) {
 		});
 	});
 }
-//#endregion
 export { abortError, race, throwIfAborted };
 
 //# sourceMappingURL=abort.js.map

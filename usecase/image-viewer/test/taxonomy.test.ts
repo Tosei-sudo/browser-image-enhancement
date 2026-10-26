@@ -278,6 +278,22 @@ describe('EsriTaxonomyStore', () => {
   });
 });
 
+describe('EsriTaxonomyStore order', () => {
+  it('reads a class saved first (order 0) first, wherever its row comes', async () => {
+    const rows = [
+      { OBJECTID: 1, PATH: '車両', SORT_ORDER: 2 },
+      { OBJECTID: 2, PATH: '航空機', SORT_ORDER: 1 },
+      { OBJECTID: 3, PATH: '船舶', SORT_ORDER: 0 },
+    ];
+    const ask = async (url: string) =>
+      url.endsWith('/query')
+        ? { features: rows.map((attributes) => ({ attributes })) }
+        : { objectIdField: 'OBJECTID', fields: ['OBJECTID', 'PATH', 'SORT_ORDER'].map((name) => ({ name, type: name === 'OBJECTID' ? 'esriFieldTypeOID' : 'esriFieldTypeString' })) };
+    const store = new EsriTaxonomyStore({ url: 'https://x/FeatureServer/3', fields: { path: 'PATH', levels: 'LEVELS', nameLabel: 'NAME_LABEL', members: 'MEMBERS', specs: 'SPECS', photos: 'PHOTOS', order: 'SORT_ORDER' } }, ask, '分類');
+    expect((await store.load())!.map((t) => kindOf(t.path))).toEqual(['船舶', '航空機', '車両']);
+  });
+});
+
 describe('specifications and order', () => {
   const list = flatten([
     {

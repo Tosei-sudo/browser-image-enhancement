@@ -9,6 +9,10 @@ name: Deploy image viewer
 #   IMAGE_VIEWER_DEPLOY_DIRECTORY  directory the site is served from (created if missing;
 #                                  a relative path is relative to the user's home)
 #   VPS_PORT                       optional, SSH port (default 22)
+#   VPS_HOST_KEY                   optional, the server's SSH host public key (a line of
+#                                  `ssh-keyscan`, or just `ssh-ed25519 AAAA…`): when set, the
+#                                  upload only goes to a server holding that key; without it
+#                                  any key is accepted on first contact (each runner is fresh)
 #
 # public/config.json is only uploaded when the server has none, so edits made on
 # the server survive later deploys.
@@ -71,6 +75,7 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           DEPLOY_DIR: ${{ secrets.IMAGE_VIEWER_DEPLOY_DIRECTORY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
         run: |
           set -eu
           for name in VPS_HOST VPS_USER LFTP_PASSWORD DEPLOY_DIR; do
@@ -82,16 +87,32 @@ jobs:
           # 1st mirror: everything but config.json; --delete removes files of older builds
           # (the excluded config.json is left alone).
           # 2nd mirror: config.json only when the server has none yet.
-          # sftp:auto-confirm accepts the server's host key on first contact (each runner is fresh).
+          # sftp:auto-confirm accepts the server's host key on first contact (each runner is fresh),
+          # unless VPS_HOST_KEY says which key it must be.
           # The session log is printed only on failure; it never contains the password.
           log="$RUNNER_TEMP/lftp.log"
+          # With the host key known, a server that cannot show it (a man in the middle) never gets the password.
+          confirm=yes
+          strict=""
+          if [ -n "${VPS_HOST_KEY:-}" ]; then
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            key="$(printf '%s\n' "$VPS_HOST_KEY" | grep -v '^#' | sed -n 's/.*\(\(ssh-\|ecdsa-\)[^ ]* [A-Za-z0-9+/=]*\).*/\1/p')"
+            if [ -z "$key" ]; then echo "::error::VPS_HOST_KEY is not an SSH public key."; exit 1; fi
+            port="${VPS_PORT:-22}"
+            host="$VPS_HOST"; [ "$port" = 22 ] || host="[$VPS_HOST]:$port"
+            printf '%s\n' "$key" | sed "s|^|$host |" > ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+            confirm=no
+            strict='set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=yes"'
+          fi
           if ! lftp -c "
             debug -o $log 5
             set cmd:fail-exit yes
             set net:max-retries 2
             set net:timeout 20
             set net:reconnect-interval-base 5
-            set sftp:auto-confirm yes
+            set sftp:auto-confirm $confirm
+            $strict
             open -p ${VPS_PORT:-22} -u \"$VPS_USER\" --env-password \"sftp://$VPS_HOST\"
             mkdir -p -f \"$dir\"
             mirror -R --delete --no-perms --verbose=1 --exclude-glob config.json usecase/image-viewer/dist/ \"$dir/\"

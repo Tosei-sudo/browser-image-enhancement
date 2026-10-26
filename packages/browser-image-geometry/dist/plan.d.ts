@@ -1,5 +1,4 @@
 import { CoordinateTransform, RGBA, Resample } from "./types.js";
-//#region src/plan.d.ts
 /** How the output image is laid out and sampled. Used by {@link warp} and {@link warpImageData}. */
 export interface OutputOptions {
   /** Interpolation. Default `bilinear`. */
@@ -43,5 +42,4 @@ export interface WarpInfo {
   /** Area covered by the output image, `[minX, minY, maxX, maxY]` (for OpenLayers' `ImageStatic`). */
   readonly extent: readonly [number, number, number, number];
 }
-//#endregion
 //# sourceMappingURL=plan.d.ts.map

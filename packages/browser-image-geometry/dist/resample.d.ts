@@ -1,5 +1,4 @@
 import { AffineMatrix, Transform } from "./types.js";
-//#region src/resample.d.ts
 /**
  * Where each output pixel comes from. Plain data, so it can be sent to workers.
  *
@@ -25,5 +24,4 @@ export type Mapping = {
   points: Float64Array;
   divisor: number;
 };
-//#endregion
 //# sourceMappingURL=resample.d.ts.map

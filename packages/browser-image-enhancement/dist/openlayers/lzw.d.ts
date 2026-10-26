@@ -1,4 +1,3 @@
-//#region src/openlayers/lzw.d.ts
 /**
  * A fast decoder for TIFF's LZW compression (the usual one of GDAL and
  * ArcGIS exports), with TIFF's predictors undone.
@@ -33,5 +32,4 @@ export interface PredictorParameters {
 export declare function undoPredictor(block: ArrayBuffer, parameters: PredictorParameters): ArrayBuffer;
 /** An LZW block of a TIFF decoded, its predictor undone: what geotiff.js's LZW decoder gives, much faster. */
 export declare function decodeLzwBlock(buffer: ArrayBuffer, parameters: PredictorParameters): ArrayBuffer;
-//#endregion
 //# sourceMappingURL=lzw.d.ts.map

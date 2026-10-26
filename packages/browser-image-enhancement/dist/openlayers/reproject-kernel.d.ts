@@ -1,4 +1,3 @@
-//#region src/openlayers/reproject-kernel.d.ts
 /**
  * Draws the triangles of a reprojected tile: every target pixel inside a
  * triangle is sampled from the stitched source tiles through that triangle's
@@ -24,5 +23,4 @@ export interface ReprojectJob {
   /** Bilinear sampling, else nearest. */
   linear: boolean;
 }
-//#endregion
 //# sourceMappingURL=reproject-kernel.d.ts.map

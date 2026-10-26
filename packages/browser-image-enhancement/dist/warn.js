@@ -1,4 +1,4 @@
-//#region src/warn.ts
+// src/warn.ts
 /**
 * Development-only warnings. Bundlers replace `process.env.NODE_ENV` with a
 * literal, so production builds drop the warnings. Without a bundler `process`
@@ -14,7 +14,6 @@ function isDev() {
 function warn(message) {
 	if (isDev()) console.warn(`[browser-image-enhancement] ${message}`);
 }
-//#endregion
 export { warn };
 
 //# sourceMappingURL=warn.js.map

@@ -1,6 +1,5 @@
 import { AffineMatrix, AffineTransform, Point, ProjectiveMatrix, ProjectiveTransform, Transform } from "./types.js";
 import { DegenerateError } from "./linalg.js";
-//#region src/transform.d.ts
 /** An affine transform from `[a, b, c, d, e, f]` (`X = a·x + b·y + c`, `Y = d·x + e·y + f`). */
 export declare function affine(matrix: AffineMatrix, options?: {
   yUp?: boolean;
@@ -26,5 +25,4 @@ export declare function invertTransform<T extends Transform>(t: T): T;
  * the result is affine when both are. Keeps `second`'s `yUp`.
  */
 export declare function composeTransforms(first: Transform, second: Transform): AffineTransform | ProjectiveTransform;
-//#endregion
 //# sourceMappingURL=transform.d.ts.map

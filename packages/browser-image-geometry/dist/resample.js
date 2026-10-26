@@ -1,5 +1,5 @@
 import { pointFunction } from "./transform.js";
-//#region src/resample.ts
+// src/resample.ts
 /**
 * The per-pixel work: for each output pixel, find where it comes from in the
 * source (inverse mapping) and interpolate there. Pure functions on typed
@@ -234,7 +234,6 @@ function halve(src) {
 		height: h
 	};
 }
-//#endregion
 export { KERNEL_MARGIN, halve, renderRows, rowMapper };
 
 //# sourceMappingURL=resample.js.map

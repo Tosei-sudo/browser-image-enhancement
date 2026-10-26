@@ -1,6 +1,6 @@
 import { createImageData } from "./workers/src/image.js";
 import { createCanvas, toCanvas } from "./workers/src/io.js";
-//#region src/preview.ts
+// src/preview.ts
 /** Shrinking images for fast previews. */
 /** The size an image of `width` x `height` is shown at when its longer side may be at most `maxSize`. */
 function previewSize(width, height, maxSize) {
@@ -40,7 +40,6 @@ function downscale(image, maxSize) {
 		scale: d.width / image.width
 	};
 }
-//#endregion
 export { downscale, previewSize };
 
 //# sourceMappingURL=preview.js.map

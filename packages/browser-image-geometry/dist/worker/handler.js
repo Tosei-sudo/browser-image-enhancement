@@ -1,5 +1,5 @@
 import { renderRows } from "../resample.js";
-//#region src/worker/handler.ts
+// src/worker/handler.ts
 const EMPTY = /* @__PURE__ */ new Uint8ClampedArray(0);
 function createWorkerHandler(post) {
 	return (request) => {
@@ -35,7 +35,6 @@ function createWorkerHandler(post) {
 		}
 	};
 }
-//#endregion
 export { createWorkerHandler };
 
 //# sourceMappingURL=handler.js.map

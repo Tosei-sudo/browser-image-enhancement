@@ -521,7 +521,8 @@ export class EsriTaxonomyStore implements TaxonomyStore {
             ...(specs ? { specs } : {}),
             ...(photos.length ? { photos } : {}),
           },
-          order: Number(a[f.order]) || rows.length,
+          // The first class is saved as 0: only a missing order goes after the rest.
+          order: orderOf(a[f.order]) ?? rows.length,
         });
       }
       if (!json.exceededTransferLimit || !features.length) break;
@@ -581,7 +582,10 @@ export class EsriTaxonomyStore implements TaxonomyStore {
       else if (!r.success) failed.push(r.error?.description ?? '追加失敗');
     });
     for (const r of json.updateResults ?? []) if (!r.success) failed.push(r.error?.description ?? '更新失敗');
-    const gone = new Set(deletes);
+    // Rows the server did not delete stay known (deleted again with the next save).
+    const undeleted = new Set((json.deleteResults ?? []).filter((r) => !r.success && typeof r.objectId === 'number').map((r) => r.objectId!));
+    if (undeleted.size) failed.push('削除失敗');
+    const gone = new Set(deletes.filter((id) => !undeleted.has(id)));
     for (const [k, id] of [...this.oids_]) if (gone.has(id)) this.oids_.delete(k);
     if (failed.length) throw new Error(`分類 ${failed.length} 件の保存に失敗: ${failed[0]}`);
   }
@@ -605,6 +609,12 @@ export class EsriTaxonomyStore implements TaxonomyStore {
     if (!result?.success) throw new Error(`諸元の項目の保存に失敗: ${result?.error?.description ?? '応答なし'}`);
     this.fieldsRow_ = { oid: this.fieldsRow_.oid ?? (json.addResults?.[0]?.objectId as number | undefined) ?? null, fields: [...fields] };
   }
+}
+
+/** A row's sort order; null when it has none. */
+function orderOf(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : null;
 }
 
 /** A JSON text read with `read`; undefined when it is not JSON. */

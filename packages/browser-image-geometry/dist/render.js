@@ -1,7 +1,7 @@
 import { createImageData } from "./workers/src/image.js";
 import { renderRows } from "./resample.js";
 import { shrink } from "./plan.js";
-//#region src/render.ts
+// src/render.ts
 /** Running a plan on the calling thread. */
 /** Renders the whole output of `plan` from `image` (the full-size source). */
 function renderPlan(image, plan) {
@@ -16,7 +16,6 @@ function renderPlan(image, plan) {
 	}, plan.mapping, plan.width, 0, plan.height, plan.resample, plan.background, out, plan.clampEdges);
 	return createImageData(out, plan.width, plan.height);
 }
-//#endregion
 export { renderPlan };
 
 //# sourceMappingURL=render.js.map

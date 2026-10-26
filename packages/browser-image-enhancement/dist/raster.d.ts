@@ -1,5 +1,4 @@
 import { AutoStretchOptions, Rect } from "./types.js";
-//#region src/raster.d.ts
 /**
  * Raster pixels, band-interleaved: `bands` values per pixel, row by row from
  * the top left (the layout of a GeoTIFF read with `interleave: true` and of
@@ -133,5 +132,4 @@ export declare function computeRasterStretch(stats: RasterHistogram, options?: A
  * ```
  */
 export declare function rasterToImageData(raster: Raster, options?: RasterToImageDataOptions): ImageData;
-//#endregion
 //# sourceMappingURL=raster.d.ts.map

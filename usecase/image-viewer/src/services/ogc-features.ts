@@ -120,7 +120,7 @@ export async function readPages(first: string, max: number, fetchPage: (url: str
     seen.add(url);
     const json = await fetchPage(url);
     if (!isRecord(json) || !Array.isArray(json.features)) throw new ServiceError('GeoJSON の FeatureCollection 以外');
-    features.push(...json.features);
+    for (const f of json.features) features.push(f);
     if (features.length > max) return { features: features.slice(0, max), more: true };
     const next = findLink(linksOf(json.links, url), ['next'], [/geo\+json/, /json/]);
     url = next && new URL(next.href).origin === origin && !seen.has(next.href) ? next.href : undefined;
