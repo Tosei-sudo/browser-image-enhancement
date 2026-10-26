@@ -54,9 +54,10 @@ jobs:
           cache: npm
       - run: npm ci
       # The apt mirror sometimes stalls with no error (a runner sat 40 minutes here):
-      # each try is cut off after 5 minutes and tried again.
-      - name: Install Chromium for Playwright
-        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "::warning::Playwright install try $i failed or stalled"; done; exit 1
+      # cut off so the job fails and can be re-run. Not retried in place: a killed
+      # install leaves apt-get holding the dpkg lock.
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 15
       - run: npm run test:browser -w packages/browser-image-enhancement -w packages/browser-image-geometry
         env:
           CI: true
@@ -87,9 +88,10 @@ jobs:
           cache: npm
       - run: npm ci
       # The apt mirror sometimes stalls with no error (a runner sat 40 minutes here):
-      # each try is cut off after 5 minutes and tried again.
-      - name: Install Chromium for Playwright
-        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "::warning::Playwright install try $i failed or stalled"; done; exit 1
+      # cut off so the job fails and can be re-run. Not retried in place: a killed
+      # install leaves apt-get holding the dpkg lock.
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 15
       - run: npm run test:browser -w usecase/image-viewer -- ${{ matrix.filter }} 'globe(-tools)?\.spec\.ts' --shard=${{ matrix.shard }}
         env:
           CI: true
