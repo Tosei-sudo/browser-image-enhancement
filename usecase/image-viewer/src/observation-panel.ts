@@ -781,7 +781,7 @@ export class ObservationPanel {
     }
   }
 
-  /** The records and classification of the store, read once. */
+  /** The records and classification of the store, read once (changes to the classification wait for it, or the reading would undo them). */
   loaded(): Promise<void> {
     this.loaded_ ??= this.reload();
     return this.loaded_;
@@ -1080,6 +1080,7 @@ export class ObservationPanel {
 
   /** Replaces the classification (a flat list, or nested as `config.json` writes it). */
   async setTaxonomy(value: readonly Taxon[] | unknown[]): Promise<void> {
+    await this.loaded();
     const problems: string[] = [];
     const list = value.length && Array.isArray((value[0] as Taxon)?.path) ? withKinds(value as Taxon[], []) : taxonomyOf(value, problems);
     if (!list) return this.say_(problems[0] ?? '分類の形式不正');
@@ -1089,6 +1090,7 @@ export class ObservationPanel {
   /** Adds a class (its parents too). */
   async addClass(path: readonly string[]): Promise<void> {
     if (!path.length) return;
+    await this.loaded();
     this.taxon_ = [...path];
     await this.saveTaxonomy_(withKinds(this.taxonomy(), [kindOf(path)]), [], `分類「${kindOf(path)}」を追加`);
   }
@@ -1098,6 +1100,7 @@ export class ObservationPanel {
    * names of its branch's levels, what an individual's name is called, its known individuals.
    */
   async updateClass(path: readonly string[], changes: { name?: string; parent?: readonly string[]; before?: readonly string[] | null } & Omit<Taxon, 'path'>): Promise<void> {
+    await this.loaded();
     let list = this.taxonomy();
     if (!find(list, path)) return this.say_(`分類「${kindOf(path)}」なし`);
     const name = changes.name?.trim().replace(/\s*[>›＞]\s*/g, ' ') || path[path.length - 1];
@@ -1126,6 +1129,7 @@ export class ObservationPanel {
 
   /** Removes a class and its branch; the records under it keep the class above. */
   async removeClass(path: readonly string[]): Promise<void> {
+    await this.loaded();
     const now = Date.now();
     const up = path.slice(0, -1);
     const records = this.records_.filter((o) => within(o.kind, path)).map((o) => ({ ...o, kind: kindOf(up), updatedAt: now }));
@@ -1141,6 +1145,7 @@ export class ObservationPanel {
 
   /** Changes the specification fields (the values of a field taken away stay in the classes). */
   async setSpecFields(fields: readonly SpecField[]): Promise<void> {
+    await this.loaded();
     const store = this.options.taxonomyStore(this.store_);
     try {
       await store.saveFields(fields);

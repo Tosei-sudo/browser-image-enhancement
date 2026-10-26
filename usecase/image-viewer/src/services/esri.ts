@@ -340,9 +340,10 @@ export async function queryAll(url: string, oid: string, maxRecords: number, tok
   const batches: number[][] = [];
   for (let i = 0; i < wanted.length; i += batch) batches.push(wanted.slice(i, i + batch));
   // A few requests at a time: each starts only when its turn comes (a promise made is a request sent).
+  // Read in object id order whatever answer comes first: a source lists features without geometry (table rows) in the order they were made.
   const features: Feature[] = [];
   for (let i = 0; i < batches.length; i += 4) {
-    for (const p of await Promise.all(batches.slice(i, i + 4).map((ids) => queryIds(url, oid, ids, token, extra)))) for (const f of p) features.push(f);
+    for (const json of await Promise.all(batches.slice(i, i + 4).map((ids) => queryJson(url, ids, token, extra)))) for (const f of readIds(json, oid)) features.push(f);
   }
   return { features, truncated };
 }
@@ -350,12 +351,14 @@ export async function queryAll(url: string, oid: string, maxRecords: number, tok
 /** The features with these object ids, in Web Mercator, each with its object id as feature id. */
 export async function queryIds(url: string, oid: string, ids: number[], token?: string, extra: Record<string, string> = {}): Promise<Feature[]> {
   if (ids.length === 0) return [];
-  const json = await esriJson<object>(
-    `${url}/query`,
-    { objectIds: ids.join(','), outFields: '*', returnGeometry: 'true', outSR: JSON.stringify(WEB_MERCATOR), ...extra },
-    token,
-    true,
-  );
+  return readIds(await queryJson(url, ids, token, extra), oid);
+}
+
+function queryJson(url: string, ids: number[], token?: string, extra: Record<string, string> = {}): Promise<object> {
+  return esriJson<object>(`${url}/query`, { objectIds: ids.join(','), outFields: '*', returnGeometry: 'true', outSR: JSON.stringify(WEB_MERCATOR), ...extra }, token, true);
+}
+
+function readIds(json: object, oid: string): Feature[] {
   const features = format.readFeatures(json, { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' }) as Feature[];
   for (const f of features) f.setId(f.get(oid));
   return features;
