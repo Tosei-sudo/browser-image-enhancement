@@ -6027,8 +6027,27 @@ dialog.docked > .dock-dialog-corner {
   background: var(--accent-bg);
   color: var(--accent);
 }
-.query-dialog {
+/* Non-modal at the right like the other panels (not in the page flow, where it opened under the app and pushed it). */
+.query-dialog[open] {
+  position: fixed;
+  inset: 56px 16px auto auto;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   width: min(44rem, calc(100% - 32px));
+  max-height: calc(100vh - 96px);
+  margin: 0;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+.query-dialog > form {
+  min-height: 0;
+  overflow: auto;
+}
+.query-dialog .query-status,
+.query-dialog .service-actions {
+  flex: none;
+  margin: 0;
 }
 .query-dialog .query-note {
   margin: 0;
