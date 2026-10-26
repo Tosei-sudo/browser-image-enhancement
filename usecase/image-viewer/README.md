@@ -494,6 +494,179 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 
+ArcGIS フィーチャーサービスに用意するレイヤーと属性は、次の「ArcGIS フィーチャーサービスの準備」にまとめています。
+
+## ArcGIS フィーチャーサービスの準備（レイヤーごとの属性）
+
+`config.json` で ArcGIS のフィーチャーサービスとつなぐ機能ごとに、用意するレイヤー（テーブル）の形・属性名・型・長さをまとめます。ArcGIS Pro や ArcGIS Online でサービスを作るときの目安にしてください。
+
+**どの機能にも共通のこと**
+
+- 属性名は `fields` で役割ごとに別の名前に置き換えられます（`"fields": { "activity": "ACT" }`）。表の「既定の属性名」は、保存先（`planStores`・`observationStores`・`areas`・`taxonomyTable`）で `fields` を書かないときに使う名前です。カタログ（`imageCatalogs`・`satelliteCatalogs`・`sensorCatalogs`）と `detectionOutputs` には既定の名前がなく、使う役割だけを `fields` に書きます。表の名前は `config.json` の例と同じものです
+- 属性名は英数字と `_` だけで、大文字小文字までサービスの属性名と合わせて書きます
+- 「必須」の属性がレイヤーにないと、その機能は理由を状態欄に出して動きません。それ以外の属性はレイヤーにあるものだけ読み書きするので、要らない役割の属性は作らなくてかまいません
+- 座標系は自由です。ビューアは WGS 84（`wkid: 4326`）で送り、`outSR=4326` で受け取るので、サーバーが変換します
+- 日時は日付型（`esriFieldTypeDate`）をおすすめします。保存先の日時の属性を文字列型にすると ISO 8601 の文字列（`2026-10-01T01:23:45.000Z`）で書きます（`planStores` と `detectionOutputs` は日付型だけ）
+- 文字列の長さは目安です。`detectionOutputs` は長さを超える文字を切って書きますが、ほかの保存先は切らないので、足りないとサーバーが保存を断ります
+- 書き込む機能（保存先・転記先）は、サービスの「編集」を有効にし、表の「操作」を許可してください。トークンが要るサービスは各項目の `token` か、ヘッダーの「サインイン」（`arcgisPortals`）で送ります
+- 型の名前は REST の `esriFieldType…` の略です（文字列 = String、日付 = Date、整数 = Integer、短整数 = SmallInteger、実数 = Double）
+
+### 画像カタログ（`imageCatalogs`）
+
+撮像範囲のポリゴンレイヤー（`…/FeatureServer/0`、`…/MapServer/0` も可）。読むだけで、操作は「クエリ」だけ使います。地図の範囲・地点での検索、撮像計画の追跡、新着の監視は、地物の形（撮像範囲）との交差で探します。並べ替え・ページング（`supportsPagination`・`supportsOrderBy`）と重複除去（`returnDistinctValues`）に対応していれば速く、なくても動きます。
+
+| 役割 | 例の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `source`（必須） | `COG_URL`・`FILE_PATH` | 文字列 | 1000 以上 | 画像の場所。COG の URL（`https://…`）かローカルパス（`\\nas\img\a.tif`）。配列で複数書くと値のある最初のもの |
+| `id` | `IMG_ID` | 文字列 | 100 | 画像 ID。一覧・撮像計画の追跡（`IMAGE_ID`）・観測記録の画像 ID に使う。ないと OBJECTID |
+| `acquired` | `ACQ_TIME` | 日付（または文字列） | — | 撮像日時。文字列なら `yyyy-mm-dd…` で始まる形。撮像計画の追跡に必須 |
+| `registered` | `REG_TIME` | 日付（または文字列） | — | カタログへの登録日時。新着の監視は `systemRegistered`・`registered`・`acquired` の順に、あるもので新しさを見る |
+| `systemRegistered` | `SYS_TIME` | 日付（または文字列） | — | システムへの登録日時 |
+| `sensor` | `SENSOR_NAME` | 文字列 | 50 | センサー（衛星）名。検索の選択肢。撮像計画の追跡では衛星名と照らし合わせる |
+| `angle` | `OFF_NADIR` | 実数 | 度 | オフナディア角（`angleKind` で入射角・仰角も可）。検索の上限、簡易オルソの仰角 |
+| `azimuth` | `SAT_AZIMUTH` | 実数 | 度（北から時計回り） | 衛星の方位角。検索の範囲、簡易オルソの方位角 |
+| `columns` に書いた属性 | `CLOUD` など | 任意 | — | 一覧に足す列 |
+
+### 衛星カタログ（`satelliteCatalogs`）
+
+衛星ごとに 1 レコードのレイヤーかテーブル（形は使いません）。読むだけです。1 レコード = 1 衛星 × 1 撮像モードにするときは、同じ衛星のレコードに同じ `id` を入れ、`mode` を書きます。
+
+| 役割 | 例の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `tle1`・`tle2`（どちらかの形が必須） | `TLE_LINE1`・`TLE_LINE2` | 文字列 | 各 70 以上 | TLE の 1 行目・2 行目（各 69 文字） |
+| `tle`（同上） | `TLE` | 文字列 | 200 以上 | TLE の 2 行を改行でつないだもの（前に衛星名の行があってもよい） |
+| `name` | `SAT_NAME` | 文字列 | 50 | 衛星名。ないと TLE の名前の行か `NORAD 番号` |
+| `id` | `NORAD_ID` | 文字列（整数も可） | 20 | 衛星の ID。ないと名前 |
+| `maxOffNadir`・`minOffNadir` | `MAX_OFF_NADIR`・`MIN_OFF_NADIR` | 実数 | 度 | 振れる角度の範囲 |
+| `swath`・`length` | `SWATH`・`SCENE_LENGTH` | 実数 | km（`swathUnit: "m"` なら m） | 観測幅・シーン長 |
+| `lookSide` | `LOOK_SIDE` | 文字列 | 10 | `right`・`left`・`both`（`R`・`L`・`右`・`左` も可） |
+| `kind` | `SENSOR_TYPE` | 文字列 | 20 | センサーの種類。`sarPattern`（既定 `SAR`・`radar`・`レーダ`）に合えば SAR |
+| `scenesPerPass` | `SCENES_PER_PASS` | 短整数 | シーン | 1 パスで連続して撮れるシーン数 |
+| `minInterval` | `MIN_INTERVAL_MIN` | 実数 | 分 | 次の撮像までの間隔 |
+| `maxPerDay` | `MAX_PER_DAY` | 短整数 | 回 | 24 時間に撮れる回数 |
+| `leadTime` | `ORDER_LEAD_HOURS` | 実数 | 時間 | 何時間先からオーダーできるか |
+| `series` | `SERIES` | 文字列 | 50 | シリーズ（SkySat・ICEYE など） |
+| `sensor` | `SENSOR` | 文字列 | 50 | 載せているセンサー（`sensorCatalogs` の `sensor` を引くキー） |
+| `mode` | `MODE` | 文字列 | 50 | このレコードの撮像モード |
+| `resolution` | `RESOLUTION_M` | 実数 | m | 分解能 |
+
+数値の役割は文字列型でも数として読めれば使います。空のときは `defaults` の値です。
+
+### センサーカタログ（`sensorCatalogs`）
+
+1 レコード = 1 センサー × 1 撮像モードのテーブル（形は使いません）。読むだけです。
+
+| 役割 | 例の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `sensor`（必須） | `SENSOR` | 文字列 | 50 | センサー名（衛星カタログの `sensor`・シリーズ・衛星名と大文字小文字を区別せずに照らし合わせる） |
+| `mode` | `MODE` | 文字列 | 50 | モード名（ストリップマップなど） |
+| `primary` | `IS_DEFAULT` | 短整数（または文字列） | — | いつものモード（`1`・`true`・`はい`） |
+| `kind`・`lookSide` | `SENSOR_TYPE`・`LOOK_SIDE` | 文字列 | 20・10 | 衛星カタログと同じ |
+| `maxOffNadir`・`minOffNadir`・`swath`・`length`・`resolution` | `MAX_OFF_NADIR` など | 実数 | 衛星カタログと同じ | モードの諸元 |
+| `scenesPerPass`・`maxPerDay` | `SCENES_PER_PASS`・`MAX_PER_DAY` | 短整数 | — | 同上 |
+| `minInterval`・`leadTime` | `MIN_INTERVAL_MIN`・`ORDER_LEAD_HOURS` | 実数 | 分・時間 | 同上 |
+
+### 撮像計画の保存先（`planStores`）
+
+1 撮像 = 1 地物（そのシーンの範囲）のポリゴンレイヤー。操作は「作成」（保存）・「更新」（追跡で状態と画像 ID を書く）・「削除」（計画の削除）・「クエリ」。
+
+| 役割 | 既定の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `planId`（必須） | `PLAN_ID` | 文字列 | 40 | 計画の ID（UUID、36 文字） |
+| `shotTime`（必須） | `SHOT_TIME` | 日付 | — | 撮像時刻 |
+| `planName` | `PLAN_NAME` | 文字列 | 100 | 計画名 |
+| `satellite` | `SATELLITE` | 文字列 | 50 | 衛星名 |
+| `satelliteId` | `SATELLITE_ID` | 文字列 | 20 | 衛星の ID |
+| `mode` | `MODE` | 文字列 | 50 | 撮像モード |
+| `target` | `TARGET` | 文字列 | 255 | 対象の名前（1 シーンで撮る対象を `、` でつなぎ、250 文字まで） |
+| `offNadir` | `OFF_NADIR` | 実数 | 度 | オフナディア角（小数 2 桁） |
+| `incidence` | `INCIDENCE` | 実数 | 度 | 入射角（小数 2 桁） |
+| `pass` | `PASS_DIR` | 文字列 | 10 | `北行`・`南行` |
+| `side` | `LOOK_SIDE` | 文字列 | 10 | `右`・`左` |
+| `status` | `STATUS` | 文字列 | 10 | `予定`・`撮像済み`・`未撮像`・`取消` |
+| `imageId` | `IMAGE_ID` | 文字列 | 100 | 撮れた画像の ID（`imageCatalogs` の `id`） |
+| `created` | `CREATED_AT` | 日付 | — | 保存日時 |
+
+### 観測記録の保存先（`observationStores`）
+
+1 記録 = 1 地物のポイントレイヤー。操作は「作成」・「更新」・「クエリ」（`DELETED_AT` がないか `softDelete: false` なら「削除」も）。
+
+| 役割 | 既定の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `id`（必須） | `OBS_ID` | 文字列 | 40 | 記録の ID（UUID） |
+| `objectId`（必須） | `OBJECT_ID` | 文字列 | 40 | モノの ID（同じモノの記録で同じ値） |
+| `objectName` | `OBJECT_NAME` | 文字列 | 100 | モノの名前（艦名・機番など） |
+| `imageId` | `IMAGE_ID` | 文字列 | 100 | 画像 ID（カタログの `id`、なければファイル名） |
+| `imageName` | `IMAGE_NAME` | 文字列 | 255 | 画像の名前（ファイル名） |
+| `imageTime` | `IMAGE_TIME` | 日付 | — | 撮像日時 |
+| `kind` | `KIND` | 文字列 | 255 | 種別（分類の道筋 `船舶 > 支援船 > 〇〇級`） |
+| `activity` | `ACTIVITY` | 文字列 | 50 | 活動 |
+| `present` | `PRESENT` | 短整数（または文字列） | — | あり 1・不在 0（文字列なら `あり`・`なし`） |
+| `confidence` | `CONFIDENCE` | 文字列 | 50 | 確度（`confidences` のラベル） |
+| `length` | `LENGTH_M` | 実数 | m | 長さ（2 点入力） |
+| `heading` | `HEADING` | 実数 | 度（北から時計回り） | 向き（2 点入力） |
+| `note` | `NOTE` | 文字列 | 1000 | 備考 |
+| `recordedBy` | `OBSERVER` | 文字列 | 50 | 記録者 |
+| `updatedBy` | `UPDATED_BY` | 文字列 | 50 | 最後に変えた人 |
+| `created`・`updated` | `CREATED_AT`・`UPDATED_AT` | 日付 | — | 作成・更新日時 |
+| `deleted` | `DELETED_AT` | 日付 | — | 削除日時（空なら有効。論理削除に使う） |
+
+### 確認範囲（`observationStores` の `areas`）
+
+1 範囲 = 1 地物のポリゴンレイヤー。操作は観測記録と同じです。
+
+| 役割 | 既定の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `id`（必須） | `AREA_ID` | 文字列 | 40 | 範囲の ID（UUID） |
+| `imageId` | `IMAGE_ID` | 文字列 | 100 | 画像 ID |
+| `imageName` | `IMAGE_NAME` | 文字列 | 255 | 画像の名前 |
+| `imageTime` | `IMAGE_TIME` | 日付 | — | 撮像日時 |
+| `kind` | `KIND` | 文字列 | 255 | 確認した種別（空ならすべて） |
+| `note` | `NOTE` | 文字列 | 1000 | 備考 |
+| `recordedBy` | `OBSERVER` | 文字列 | 50 | 記録者 |
+| `created`・`updated` | `CREATED_AT`・`UPDATED_AT` | 日付 | — | 作成・更新日時 |
+| `deleted` | `DELETED_AT` | 日付 | — | 削除日時 |
+
+### 分類体系（`observationStores` の `taxonomyTable`）
+
+1 行 = 1 分類のテーブル（形なし）。操作は「作成」・「更新」・「削除」（消した分類の行を消す）・「クエリ」。`PATH` が `#諸元項目` の行には諸元の項目（`specFields`）を入れます。
+
+| 役割 | 既定の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `path`（必須） | `PATH` | 文字列 | 255 | 分類の道筋（`船舶 > 支援船 > 〇〇級`） |
+| `levels` | `LEVELS` | 文字列 | 255 | 階層の名前（`,` 区切り） |
+| `nameLabel` | `NAME_LABEL` | 文字列 | 50 | 個体の呼び方（艦名・機番） |
+| `members` | `MEMBERS` | 文字列 | 4000 | 既知の個体（`,` 区切り） |
+| `specs` | `SPECS` | 文字列 | 4000 以上 | 諸元（JSON）。諸元の項目を保存するには必須 |
+| `photos` | `PHOTOS` | 文字列 | 4000 | 参考写真の URL（改行区切り） |
+| `order` | `SORT_ORDER` | 整数 | — | 並び順 |
+
+### AI の結果の転記先（`detectionOutputs`）
+
+ポリゴンかポイントのレイヤー（ポイントには輪郭の内側の点を書きます）。操作は「作成」（直した結果を送り直すなら「更新」も）。`fields` に書いた役割と `constants` の属性だけ書くので、少なくとも 1 つ書きます。値は属性の型に合わせ（日付はミリ秒、整数は四捨五入、文字列は長さで切る）、編集できない属性は転記の前に知らせます。
+
+| 役割 | 例の属性名 | 型 | 長さ・単位 | 内容 |
+| --- | --- | --- | --- | --- |
+| `imageId` | `IMAGE_ID` | 文字列 | 100 | 画像 ID |
+| `fileName` | `FILE_NAME` | 文字列 | 255 | ファイル名 |
+| `imageTime` | `ACQ_TIME` | 日付 | — | 撮像日時 |
+| `detectedAt` | `DETECTED_AT` | 日付 | — | 検出日時 |
+| `sentAt` | `REGISTERED_AT` | 日付 | — | 転記日時 |
+| `class` | `CLASS` | 文字列 | 50 | クラス名 |
+| `classId` | `CLASS_ID` | 短整数 | — | クラス番号 |
+| `score` | `CONFIDENCE` | 実数 | 0〜1 | 確信度 |
+| `model` | `MODEL` | 文字列 | 100 | モデル名 |
+| `status` | `STATUS` | 文字列（`statusValues` を数にするなら短整数） | 10 | `AI`・`修正`・`手動` |
+| `lon`・`lat` | `LON`・`LAT` | 実数 | 度（WGS 84） | 中心（小数 7 桁） |
+| `area` | `AREA_M2` | 実数 | m² | 面積 |
+| `length`・`width` | `LENGTH_M`・`WIDTH_M` | 実数 | m | 矩形の長辺・短辺 |
+| `angle` | `HEADING` | 実数 | 度（真北から 0〜180） | 長辺の向き |
+| `note` | `REMARKS` | 文字列 | 1000 | 備考 |
+
+### 地名検索（`geocoders` の `"type": "features"`）
+
+名前を持つレイヤー（ポイント・線・ポリゴン）。`field` に名前の文字列の属性を書き、`LIKE '%…%'` で探して、形の中心（`returnCentroid`）に移動します。操作は「クエリ」だけです。
+
 ## 埋め込み（iframe）
 
 ほかの Web アプリのページに `<iframe src="https://viewer.example.com/index.html?embed=1">` で入れ、`postMessage` で操作できます（`config.json` の `embed.allowedOrigins` に、そのページのオリジンを書いたときだけ）。`?embed=1` はヘッダー・レイヤーパネル・属性テーブルなどを隠して地図だけにする表示の指定で、許可には関係しません。
