@@ -18,16 +18,29 @@ interface RasterRequest {
   [key: string]: string;
 }
 
+/** The requests to the stand-in raster services, by page: read in the browser, since another worker's /svc/reset clears the server's log. */
+const logs = new WeakMap<Page, RasterRequest[]>();
+
 async function open(page: Page, query = '', config?: object) {
   await page.request.get(`${base}/svc/reset`);
+  if (!logs.has(page)) {
+    const log: RasterRequest[] = [];
+    logs.set(page, log);
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      const found = /^\/svc\/arcgis\/rest\/services\/(?:(Scenes)\/ImageServer\/(exportImage|identify)|(Base)\/MapServer\/(export|identify))$/.exec(url.pathname);
+      if (!found) return;
+      const form = request.method() === 'POST' ? new URLSearchParams(request.postData() ?? '') : url.searchParams;
+      log.push({ service: found[1] ?? found[3], op: found[2] ?? found[4], ...Object.fromEntries(form) });
+    });
+  }
   await page.route(/cyberjapandata\.gsi\.go\.jp|tile\.openstreetmap\.org/, (route) => route.fulfill({ status: 404, body: '' }));
   if (config) await page.route('**/config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config) }));
   await page.goto(`/index.html${query}`);
   await page.waitForFunction(() => window.viewer !== undefined);
 }
 
-const requests = async (page: Page, op: string): Promise<RasterRequest[]> =>
-  ((await (await page.request.get(`${base}/svc/raster-requests`)).json()) as RasterRequest[]).filter((r) => r.op === op);
+const requests = async (page: Page, op: string): Promise<RasterRequest[]> => (logs.get(page) ?? []).filter((r) => r.op === op);
 
 /** The mosaic rules of the exportImage requests since `from`. */
 const mosaicRules = async (page: Page, from = 0) => (await requests(page, 'exportImage')).slice(from).map((r) => (r.mosaicRule ? JSON.parse(r.mosaicRule) : null));
@@ -86,7 +99,7 @@ test('display rules: a condition, the stacking order and a raster function', asy
   // The link keeps the rules, and opens the layer with them again.
   const link = new URL(page.url()).search;
   expect(new URLSearchParams(link).get('service')).toContain('CloudCover');
-  await page.request.get(`${base}/svc/reset`);
+  logs.get(page)!.length = 0;
   await page.goto(`/index.html${link}`);
   await page.waitForFunction(() => window.viewer !== undefined);
   await expect(page.locator('#images li', { hasText: 'Scenes' })).toBeVisible();
