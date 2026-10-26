@@ -19,6 +19,7 @@ jobs:
   # Lint, types, docs, unit tests and the committed dist/.
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,6 +45,7 @@ jobs:
   # Browser tests of the libraries (packages/*).
   browser-packages:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,7 +53,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # The apt mirror sometimes stalls with no error (a runner sat 40 minutes here):
+      # each try is cut off after 5 minutes and tried again.
+      - name: Install Chromium for Playwright
+        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "::warning::Playwright install try $i failed or stalled"; done; exit 1
       - run: npm run test:browser -w packages/browser-image-enhancement -w packages/browser-image-geometry
         env:
           CI: true
@@ -63,6 +68,8 @@ jobs:
   browser-viewer:
     name: browser-viewer (${{ matrix.name }})
     runs-on: ubuntu-latest
+    # A hung runner fails here instead of after GitHub's 6 hours, so it can be re-run.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +86,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # The apt mirror sometimes stalls with no error (a runner sat 40 minutes here):
+      # each try is cut off after 5 minutes and tried again.
+      - name: Install Chromium for Playwright
+        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "::warning::Playwright install try $i failed or stalled"; done; exit 1
       - run: npm run test:browser -w usecase/image-viewer -- ${{ matrix.filter }} 'globe(-tools)?\.spec\.ts' --shard=${{ matrix.shard }}
         env:
           CI: true
