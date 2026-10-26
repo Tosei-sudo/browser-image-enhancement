@@ -222,6 +222,7 @@ export class ScriptDialog {
   open(): void {
     if (!this.dialog.open) this.dialog.show();
     this.place_();
+    this.scroll_();
     this.code_.focus();
   }
 
@@ -233,6 +234,8 @@ export class ScriptDialog {
   }
 
   private scroll_(): void {
+    // Closed, reading the editor's scroll would lay out the whole page for nothing (it is caught up in open()).
+    if (!this.dialog.open) return;
     this.highlight_.scrollTop = this.code_.scrollTop;
     this.highlight_.scrollLeft = this.code_.scrollLeft;
   }

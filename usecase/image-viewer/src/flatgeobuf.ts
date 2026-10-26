@@ -57,7 +57,8 @@ export interface FgbColumn {
 }
 
 export interface FgbFeature {
-  geometry: FgbGeometry | null;
+  /** As GeoJSON has it, or (quicker to write) flat as the file stores it. */
+  geometry: FgbGeometry | FlatGeometry | null;
   properties: Record<string, unknown>;
 }
 
@@ -393,6 +394,9 @@ type Child =
 
 const SIZES = { u8: 1, u16: 2, i32: 4, u64: 8, ref: 4 } as const;
 
+/** Whether typed arrays are little-endian here, as FlatBuffers are (so doubles are copied in at once). */
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
 /**
  * Writes FlatBuffers front to back: a table, then what it points to (offsets
  * only point forward), each aligned to its own size from the buffer's start.
@@ -454,9 +458,19 @@ class Builder {
     this.pos += 8;
   }
 
-  /** What has been written. */
+  /** What has been written (a copy). */
   bytes(): Uint8Array {
     return this.buf.slice(0, this.pos);
+  }
+
+  /** What has been written, in place: valid until the builder is written to again. */
+  view_(): Uint8Array {
+    return this.buf.subarray(0, this.pos);
+  }
+
+  /** Starts over, keeping the memory. */
+  reset(): void {
+    this.pos = 0;
   }
 
   f64(v: number): void {
@@ -469,6 +483,15 @@ class Builder {
     this.room(bytes.length);
     this.buf.set(bytes, this.pos);
     this.pos += bytes.length;
+  }
+
+  /** Writes `text` as UTF-8; returns its length in bytes. */
+  utf8(text: string): number {
+    // At most 3 bytes a UTF-16 unit.
+    this.room(3 * text.length);
+    const { written } = utf8Encoder.encodeInto(text, this.buf.subarray(this.pos));
+    this.pos += written;
+    return written;
   }
 
   patch32(at: number, v: number): void {
@@ -521,11 +544,11 @@ class Builder {
   private child(c: Child): number {
     switch (c.kind) {
       case 'string': {
-        const bytes = utf8Encoder.encode(c.value);
         this.align(4);
         const at = this.pos;
-        this.u32(bytes.length);
-        this.raw(bytes);
+        this.u32(0);
+        const n = this.utf8(c.value);
+        this.patch32(at, n);
         this.u8(0);
         return at;
       }
@@ -534,8 +557,13 @@ class Builder {
         this.align(4);
         if ((this.pos + 4) % 8) this.u32(0);
         const at = this.pos;
-        this.u32(c.value.length);
-        for (let i = 0; i < c.value.length; i++) this.f64(c.value[i]);
+        const n = c.value.length;
+        this.u32(n);
+        this.room(8 * n);
+        if (LITTLE_ENDIAN) {
+          new Float64Array(this.buf.buffer, this.pos, n).set(c.value);
+          this.pos += 8 * n;
+        } else for (let i = 0; i < n; i++) this.f64(c.value[i]);
         return at;
       }
       case 'u32': {
@@ -570,16 +598,19 @@ class Builder {
     }
   }
 
-  /** A size-prefixed buffer with `root` as its root table, padded to 8 bytes. */
-  static sizePrefixed(root: Array<Slot | null>): Uint8Array {
-    const b = new Builder();
-    b.u32(0); // size
-    b.u32(0); // root offset
-    const start = b.table(root);
-    b.patch32(4, start - 4);
-    b.align(8);
-    b.patch32(0, b.pos - 4);
-    return b.bytes();
+  /**
+   * Adds a size-prefixed buffer with `root` as its root table, padded to 8
+   * bytes. Positions are aligned from the builder's start, so it must start
+   * 8-aligned (as each one before it ends).
+   */
+  sizePrefixed(root: Array<Slot | null>): void {
+    const begin = this.pos;
+    this.u32(0); // size
+    this.u32(0); // root offset
+    const start = this.table(root);
+    this.patch32(begin + 4, start - (begin + 4));
+    this.align(8);
+    this.patch32(begin, this.pos - begin - 4);
   }
 }
 
@@ -593,8 +624,20 @@ function flatOf(coords: number[][]): number[] {
   return out;
 }
 
-function geometrySlots(g: FgbGeometry): Array<Slot | null> {
+function geometrySlots(g: FgbGeometry | FlatGeometry): Array<Slot | null> {
   const slots: Array<Slot | null> = new Array(8).fill(null);
+  if (typeof g.type === 'number') {
+    const f = g as FlatGeometry;
+    slots[6] = u8(f.type);
+    if (f.type === GeometryType.MultiPolygon || f.type === GeometryType.GeometryCollection) {
+      slots[7] = ref({ kind: 'tables', value: f.parts.map(geometrySlots) });
+    } else {
+      if (f.ends && f.ends.length > 1) slots[0] = ref({ kind: 'u32', value: f.ends });
+      slots[1] = ref({ kind: 'f64', value: f.xy });
+    }
+    return slots;
+  }
+  g = g as FgbGeometry;
   const lines = (rings: number[][][]) => {
     const xy: number[] = [];
     const ends: number[] = [];
@@ -635,8 +678,8 @@ function geometrySlots(g: FgbGeometry): Array<Slot | null> {
 }
 
 /** Encodes properties for `columns`: absent and null values are left out. */
-function writeProperties(properties: Record<string, unknown>, columns: readonly FgbColumn[]): Uint8Array {
-  const b = new Builder();
+function writeProperties(properties: Record<string, unknown>, columns: readonly FgbColumn[], b: Builder): Uint8Array {
+  b.reset();
   columns.forEach((column, i) => {
     const v = properties[column.name];
     if (v === null || v === undefined || v === '') return;
@@ -655,20 +698,21 @@ function writeProperties(properties: Record<string, unknown>, columns: readonly 
       b.u8(v ? 1 : 0);
     } else {
       const text = column.type === ColumnType.DateTime ? (typeof v === 'number' ? new Date(v).toISOString() : String(v)) : typeof v === 'object' ? JSON.stringify(v) : String(v);
-      const bytes = utf8Encoder.encode(text);
       b.u16(i);
-      b.u32(bytes.length);
-      b.raw(bytes);
+      const at = b.pos;
+      b.u32(0);
+      b.patch32(at, b.utf8(text));
     }
   });
-  return b.bytes();
+  return b.view_();
 }
 
 /** The single geometry type of `features`, or Unknown when they mix. */
 function commonType(features: readonly FgbFeature[]): GeometryType {
-  const types = new Set(features.map((f) => f.geometry?.type).filter(Boolean));
+  const codes = { Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6, GeometryCollection: 7 } as const;
+  const types = new Set(features.map((f) => f.geometry?.type).filter(Boolean).map((t) => (typeof t === 'number' ? t : codes[t!])));
   if (types.size !== 1) return GeometryType.Unknown;
-  return ({ Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6, GeometryCollection: 7 } as const)[[...types][0]!];
+  return [...types][0];
 }
 
 /** Writes a FlatGeobuf file (no spatial index). */
@@ -676,8 +720,21 @@ export function writeFlatGeobuf(file: { name?: string; columns: FgbColumn[]; crs
   const type = commonType(file.features);
   // The envelope of every coordinate.
   const box = [Infinity, Infinity, -Infinity, -Infinity];
-  const visit = (g: FgbGeometry | null): void => {
+  const visit = (g: FgbGeometry | FlatGeometry | null): void => {
     if (!g) return;
+    if (typeof g.type === 'number') {
+      const { xy, parts } = g as FlatGeometry;
+      for (let i = 0; i + 1 < xy.length; i += 2) {
+        const x = xy[i];
+        const y = xy[i + 1];
+        if (x < box[0]) box[0] = x;
+        if (y < box[1]) box[1] = y;
+        if (x > box[2]) box[2] = x;
+        if (y > box[3]) box[3] = y;
+      }
+      return parts.forEach(visit);
+    }
+    g = g as FgbGeometry;
     if (g.type === 'GeometryCollection') return g.geometries.forEach(visit);
     const walk = (c: unknown): void => {
       if (Array.isArray(c) && typeof c[0] === 'number') {
@@ -691,7 +748,9 @@ export function writeFlatGeobuf(file: { name?: string; columns: FgbColumn[]; crs
   };
   file.features.forEach((f) => visit(f.geometry));
   const crs = file.crs;
-  const header = Builder.sizePrefixed([
+  const out = new Builder();
+  out.raw(new Uint8Array(MAGIC));
+  out.sizePrefixed([
     file.name ? ref({ kind: 'string', value: file.name }) : null,
     Number.isFinite(box[0]) ? ref({ kind: 'f64', value: box }) : null,
     u8(type),
@@ -716,22 +775,11 @@ export function writeFlatGeobuf(file: { name?: string; columns: FgbColumn[]; crs
         })
       : null,
   ]);
-  const parts: Uint8Array[] = [new Uint8Array(MAGIC), header];
+  // Each feature right after the last, in one buffer (each starts 8-aligned, so aligning from the start aligns it from its own).
+  const scratch = new Builder();
   for (const f of file.features) {
-    const props = writeProperties(f.properties, file.columns);
-    parts.push(
-      Builder.sizePrefixed([
-        f.geometry ? ref({ kind: 'table', value: geometrySlots(f.geometry) }) : null,
-        props.length ? ref({ kind: 'bytes', value: props }) : null,
-      ]),
-    );
+    const props = writeProperties(f.properties, file.columns, scratch);
+    out.sizePrefixed([f.geometry ? ref({ kind: 'table', value: geometrySlots(f.geometry) }) : null, props.length ? ref({ kind: 'bytes', value: props }) : null]);
   }
-  const total = parts.reduce((s, p) => s + p.length, 0);
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
+  return out.bytes() as Uint8Array<ArrayBuffer>;
 }

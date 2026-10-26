@@ -34,6 +34,9 @@ export interface Reduced {
 
 type SampleArray = { new (n: number): GeoTIFFSamples; new (buffer: ArrayBufferLike): GeoTIFFSamples };
 
+/** Tiles or strips being read at once in {@link reduceWindow}. */
+const READ_AHEAD = 4;
+
 /** About this many samples are read per window. */
 const WINDOW_SAMPLES = 4_000_000;
 
@@ -78,17 +81,30 @@ export async function reduceWindow(image: GeoTIFFImage, win: ReduceWindow, f: nu
   const bottom = Math.min(win.y + win.h, image.getHeight());
   const acc = new Accumulator(win, f, bands, noData);
   let Type: SampleArray | null = null;
+  const blocks: Array<[number, number]> = [];
   for (let ty = Math.floor(win.y / tileHeight); ty * tileHeight < bottom; ty++) {
-    for (let tx = Math.floor(win.x / tileWidth); tx * tileWidth < right; tx++) {
-      const tile = await image.getTileOrStrip(tx, ty, 0, decoder);
-      Type ??= image.getArrayForSample(0, new ArrayBuffer(0)).constructor as SampleArray;
-      const data = new Type(tile.data);
-      const y0 = ty * tileHeight;
-      const x0 = tx * tileWidth;
-      const x1 = Math.min(right, x0 + tileWidth);
-      for (let y = Math.max(win.y, y0), y1 = Math.min(bottom, y0 + image.getBlockHeight(ty)); y < y1; y++) {
-        acc.add(data, ((y - y0) * tileWidth + Math.max(win.x, x0) - x0) * bands, Math.max(win.x, x0) - win.x, x1 - win.x, y - win.y);
-      }
+    for (let tx = Math.floor(win.x / tileWidth); tx * tileWidth < right; tx++) blocks.push([tx, ty]);
+  }
+  // A few blocks are asked for ahead, so the file is read while the last one is decoded and averaged.
+  const read = ([tx, ty]: [number, number]) => {
+    const tile = image.getTileOrStrip(tx, ty, 0, decoder);
+    // A failure is reported when its turn comes (the window stops there).
+    tile.catch(() => {});
+    return tile;
+  };
+  const pending = blocks.slice(0, READ_AHEAD).map(read);
+  for (let k = 0; k < blocks.length; k++) {
+    const tile = await pending[k];
+    pending[k] = undefined as never;
+    if (k + READ_AHEAD < blocks.length) pending.push(read(blocks[k + READ_AHEAD]));
+    const [tx, ty] = blocks[k];
+    Type ??= image.getArrayForSample(0, new ArrayBuffer(0)).constructor as SampleArray;
+    const data = new Type(tile.data);
+    const y0 = ty * tileHeight;
+    const x0 = tx * tileWidth;
+    const x1 = Math.min(right, x0 + tileWidth);
+    for (let y = Math.max(win.y, y0), y1 = Math.min(bottom, y0 + image.getBlockHeight(ty)); y < y1; y++) {
+      acc.add(data, ((y - y0) * tileWidth + Math.max(win.x, x0) - x0) * bands, Math.max(win.x, x0) - win.x, x1 - win.x, y - win.y);
     }
   }
   return acc.result(Type ?? Uint8Array);
