@@ -64,6 +64,11 @@ test('kernels', () => {
   run('contours 12MP interval 10', () => traceContours(grid, { window: [0, 0, W - 1, H - 1], stride: 1, interval: 10 }), 1);
   const vg = { west: 139, north: 36, dLon: 1 / 3600, dLat: 1 / 3600, width: 2000, height: 2000, heights: dem.subarray(0, 4_000_000) };
   run('viewshed 2000² (4MP) single thread', () => viewshed(vg, { lon: 139 + 1000 / 3600, lat: 36 - 1000 / 3600, observerHeight: 2, targetHeight: 0, radius: 40000, refraction: 0.13 } as never), 1);
+  // Open ground seen from high up: every line runs its full length (the worst case before the height maxima).
+  const open = new Float32Array(4_000_000); for (let y = 0; y < 2000; y++) for (let x = 0; x < 2000; x++) open[y * 2000 + x] = 100 + 2 * Math.sin(x / 50) * Math.sin(y / 70);
+  run('viewshed 2000² open ground, observer 500 m', () => viewshed({ ...vg, heights: open }, { lon: 139 + 1000 / 3600, lat: 36 - 1000 / 3600, observerHeight: 500, targetHeight: 0, radius: 40000, refraction: 0.13 } as never), 1);
+  const complex2 = parseExpression('min(a, b, 3) + clamp(ln(c), 0, 5)', ['a', 'b', 'c']);
+  run('band-math min/clamp/ln 12MP', () => evaluate(complex2, f32, N));
   const pa = new Float32Array(512 * 512).map(() => rnd()); const pb = pa.slice();
   run('align phaseCorrelate 512²', () => phaseCorrelate(pa, pb, 512));
   run('change meanAndDeviation 12MP', () => meanAndDeviation(f32[0]));

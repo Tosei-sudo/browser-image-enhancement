@@ -224,13 +224,6 @@ export function onlyVariables(expr: Expr, used: readonly number[]): Expr {
 /** A value of every pixel, or one number for all of them. */
 type Values = Float32Array | number;
 
-const map1 = (a: Values, f: (x: number) => number, n: number): Values => {
-  if (typeof a === 'number') return f(a);
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) out[i] = f(a[i]);
-  return out;
-};
-
 // The four arithmetic operators each have their own loops: one loop calling
 // whichever operator it is handed cannot inline it, which makes it several
 // times slower on a block of millions of pixels.
@@ -261,6 +254,15 @@ const arithmetic: Partial<Record<BinaryOp, { both: Loop; left: ScalarLoop; right
 
 /** `a op b` at every pixel, written over `a` or `b` when it is a step's result (not an input). */
 const operate = (a: Values, b: Values, op: BinaryOp, n: number, inputs: readonly Float32Array[]): Values => {
+  const compare = comparisons[op];
+  if (compare && !(typeof a === 'number' && typeof b === 'number')) {
+    if (typeof a === 'number') return operate(b, a, swapped[op]!, n, inputs);
+    const scratch = (v: Values): v is Float32Array => typeof v !== 'number' && !inputs.includes(v);
+    const out = scratch(a) ? a : scratch(b) ? b : new Float32Array(n);
+    if (typeof b === 'number') compare.right(out, a, b, n);
+    else compare.both(out, a, b, n);
+    return out;
+  }
   const loops = arithmetic[op];
   if (!loops || (typeof a === 'number' && typeof b === 'number')) return map2(a, b, binary[op], n);
   const scratch = (v: Values): v is Float32Array => typeof v !== 'number' && !inputs.includes(v);
@@ -303,6 +305,86 @@ const unaryFunctions: Partial<Record<FunctionName, (x: number) => number>> = {
   log10: Math.log10,
 };
 
+// Loops of their own for the functions and comparisons too (see `arithmetic`).
+type UnaryLoop = (out: Float32Array, a: Float32Array, n: number) => void;
+const unaryLoops: Partial<Record<FunctionName | 'negate', UnaryLoop>> = {
+  negate: (out, a, n) => { for (let i = 0; i < n; i++) out[i] = -a[i]; },
+  abs: (out, a, n) => { for (let i = 0; i < n; i++) out[i] = Math.abs(a[i]); },
+  sqrt: (out, a, n) => { for (let i = 0; i < n; i++) out[i] = Math.sqrt(a[i]); },
+  exp: (out, a, n) => { for (let i = 0; i < n; i++) out[i] = Math.exp(a[i]); },
+  ln: (out, a, n) => { for (let i = 0; i < n; i++) out[i] = Math.log(a[i]); },
+  log10: (out, a, n) => { for (let i = 0; i < n; i++) out[i] = Math.log10(a[i]); },
+};
+const comparisons: Partial<Record<BinaryOp, { both: Loop; right: ScalarLoop }>> = {
+  '<': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) { const x = a[i], y = b[i]; out[i] = x !== x || y !== y ? NaN : x < y ? 1 : 0; } },
+    right: (out, a, y, n) => { for (let i = 0; i < n; i++) { const x = a[i]; out[i] = x !== x || y !== y ? NaN : x < y ? 1 : 0; } },
+  },
+  '<=': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) { const x = a[i], y = b[i]; out[i] = x !== x || y !== y ? NaN : x <= y ? 1 : 0; } },
+    right: (out, a, y, n) => { for (let i = 0; i < n; i++) { const x = a[i]; out[i] = x !== x || y !== y ? NaN : x <= y ? 1 : 0; } },
+  },
+  '>': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) { const x = a[i], y = b[i]; out[i] = x !== x || y !== y ? NaN : x > y ? 1 : 0; } },
+    right: (out, a, y, n) => { for (let i = 0; i < n; i++) { const x = a[i]; out[i] = x !== x || y !== y ? NaN : x > y ? 1 : 0; } },
+  },
+  '>=': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) { const x = a[i], y = b[i]; out[i] = x !== x || y !== y ? NaN : x >= y ? 1 : 0; } },
+    right: (out, a, y, n) => { for (let i = 0; i < n; i++) { const x = a[i]; out[i] = x !== x || y !== y ? NaN : x >= y ? 1 : 0; } },
+  },
+  '==': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) { const x = a[i], y = b[i]; out[i] = x !== x || y !== y ? NaN : x === y ? 1 : 0; } },
+    right: (out, a, y, n) => { for (let i = 0; i < n; i++) { const x = a[i]; out[i] = x !== x || y !== y ? NaN : x === y ? 1 : 0; } },
+  },
+  '!=': {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) { const x = a[i], y = b[i]; out[i] = x !== x || y !== y ? NaN : x !== y ? 1 : 0; } },
+    right: (out, a, y, n) => { for (let i = 0; i < n; i++) { const x = a[i]; out[i] = x !== x || y !== y ? NaN : x !== y ? 1 : 0; } },
+  },
+};
+const extremes: Record<'min' | 'max', { both: Loop; right: ScalarLoop }> = {
+  min: {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = Math.min(a[i], b[i]); },
+    right: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = Math.min(a[i], b); },
+  },
+  max: {
+    both: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = Math.max(a[i], b[i]); },
+    right: (out, a, b, n) => { for (let i = 0; i < n; i++) out[i] = Math.max(a[i], b); },
+  },
+};
+
+/** `min(a, b)` or `max(a, b)` at every pixel, written over a step's result. */
+const extreme = (a: Values, b: Values, name: 'min' | 'max', n: number, inputs: readonly Float32Array[]): Values => {
+  if (typeof a === 'number' && typeof b === 'number') return name === 'min' ? Math.min(a, b) : Math.max(a, b);
+  if (typeof a === 'number') return extreme(b, a, name, n, inputs);
+  const scratch = (v: Values): v is Float32Array => typeof v !== 'number' && !inputs.includes(v);
+  const out = scratch(a) ? a : scratch(b) ? b : new Float32Array(n);
+  if (typeof b === 'number') extremes[name].right(out, a, b, n);
+  else extremes[name].both(out, a, b, n);
+  return out;
+};
+
+/** The comparison with its sides swapped (`2 < a` is `a > 2`). */
+const swapped: Partial<Record<BinaryOp, BinaryOp>> = { '<': '>', '<=': '>=', '>': '<', '>=': '<=', '==': '==', '!=': '!=' };
+
+/** `f` at every pixel, written over `a` when it is a step's result (not an input). */
+const apply1 = (a: Values, name: FunctionName | 'negate', n: number, inputs: readonly Float32Array[]): Values => {
+  if (typeof a === 'number') return name === 'negate' ? -a : unaryFunctions[name]!(a);
+  const out = inputs.includes(a) ? new Float32Array(n) : a;
+  unaryLoops[name]!(out, a, n);
+  return out;
+};
+
+/** `if(c, a, b)` at every pixel: NaN where `c` is. */
+const choose = (c: Values, a: Values, b: Values, n: number): Values => {
+  if (typeof c === 'number') return c !== c ? NaN : c ? a : b;
+  const out = new Float32Array(n);
+  if (typeof a === 'number' && typeof b === 'number') for (let i = 0; i < n; i++) { const k = c[i]; out[i] = k !== k ? NaN : k ? a : b; }
+  else if (typeof a === 'number') for (let i = 0, bb = b as Float32Array; i < n; i++) { const k = c[i]; out[i] = k !== k ? NaN : k ? a : bb[i]; }
+  else if (typeof b === 'number') for (let i = 0; i < n; i++) { const k = c[i]; out[i] = k !== k ? NaN : k ? a[i] : b; }
+  else for (let i = 0; i < n; i++) { const k = c[i]; out[i] = k !== k ? NaN : k ? a[i] : b[i]; }
+  return out;
+};
+
 /**
  * The value of `expr` at each of `n` pixels, `inputs[i]` holding variable
  * `i` (NaN where it has no data). Not-finite results become NaN.
@@ -315,27 +397,19 @@ export function evaluate(expr: Expr, inputs: readonly Float32Array[], n: number)
       case 'variable':
         return inputs[e.index];
       case 'unary':
-        return map1(run(e.arg), (x) => -x, n);
+        return apply1(run(e.arg), 'negate', n, inputs);
       case 'binary':
         return operate(run(e.left), run(e.right), e.op, n, inputs);
       case 'call': {
         const args = e.args.map(run);
-        const one = unaryFunctions[e.name];
-        if (one) return map1(args[0], one, n);
+        if (unaryFunctions[e.name]) return apply1(args[0], e.name, n, inputs);
         if (e.name === 'min' || e.name === 'max') {
-          const pick = e.name === 'min' ? Math.min : Math.max;
-          return args.slice(1).reduce((acc: Values, b) => map2(acc, b, pick, n), args[0]);
+          const name = e.name;
+          return args.slice(1).reduce((acc: Values, b) => extreme(acc, b, name, n, inputs), args[0]);
         }
-        if (e.name === 'clamp') return map2(map2(args[0], args[1], Math.max, n), args[2], Math.min, n);
+        if (e.name === 'clamp') return extreme(extreme(args[0], args[1], 'max', n, inputs), args[2], 'min', n, inputs);
         // if(c, a, b)
-        const [c, a, b] = args;
-        const at = (v: Values, i: number) => (typeof v === 'number' ? v : v[i]);
-        const out = new Float32Array(n);
-        for (let i = 0; i < n; i++) {
-          const cond = at(c, i);
-          out[i] = cond !== cond ? NaN : cond ? at(a, i) : at(b, i);
-        }
-        return out;
+        return choose(args[0], args[1], args[2], n);
       }
     }
   };

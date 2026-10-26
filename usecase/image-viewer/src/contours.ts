@@ -78,15 +78,11 @@ export function isIndexContour(level: number, interval: number): boolean {
 }
 
 /*
- * Segments of each marching-squares case, as pairs of cell edges:
- * 0 top, 1 right, 2 bottom, 3 left. Corners: top-left 8, top-right 4,
- * bottom-right 2, bottom-left 1 (set when at or above the level).
- * The saddles (5 and 10) are decided by the cell's center.
+ * Marching squares: corners top-left 8, top-right 4, bottom-right 2,
+ * bottom-left 1 (set when at or above the level) give the case, and each case
+ * joins two of the cell's edges (top, right, bottom, left). The saddles (5 and
+ * 10) are decided by the cell's center.
  */
-const CASES: Array<number[]> = [
-  [], [3, 2], [2, 1], [3, 1], [0, 1], [], [0, 2], [3, 0],
-  [3, 0], [0, 2], [], [0, 1], [3, 1], [2, 1], [3, 2], [],
-];
 
 /** A line being joined, as the edges it crosses: `front` reversed, then `back`. */
 interface Chain {
@@ -124,14 +120,19 @@ export function traceContours(grid: ElevationGrid, request: ContourRequest): Con
   // Edges: horizontal ones (between (i, j) and (i + 1, j)) are j·nx + i,
   // vertical ones (between (i, j) and (i, j + 1)) are nx·ny + j·nx + i.
   const vertical = nx * ny;
-  const chains = new Map<number, Map<number, Chain>>();
+  // Open line ends by level (index from the lowest level of the window), each a
+  // map from edge to the line ending there.
+  let lo = Infinity;
+  for (let k = 0; k < v.length; k++) if (v[k] < lo) lo = v[k];
+  const kBase = Math.floor(lo / interval) + 1;
+  const chains: Array<Map<number, Chain> | undefined> = [];
   const all: Array<{ level: number; chain: Chain }> = [];
   let points = 0;
   let truncated = false;
 
-  const add = (level: number, e1: number, e2: number) => {
-    let ends = chains.get(level);
-    if (!ends) chains.set(level, (ends = new Map()));
+  const add = (k: number, e1: number, e2: number) => {
+    let ends = chains[k - kBase];
+    if (!ends) chains[k - kBase] = ends = new Map();
     const c1 = ends.get(e1);
     const c2 = ends.get(e2);
     points++;
@@ -139,7 +140,7 @@ export function traceContours(grid: ElevationGrid, request: ContourRequest): Con
       const chain: Chain = { front: [], back: [e1, e2], a: e1, b: e2, dead: false };
       ends.set(e1, chain);
       ends.set(e2, chain);
-      all.push({ level, chain });
+      all.push({ level: k * interval, chain });
       points++;
     } else if (c1 && !c2) {
       extend(c1, e1, e2);
@@ -179,7 +180,6 @@ export function traceContours(grid: ElevationGrid, request: ContourRequest): Con
     }
   };
 
-  const corner = [0, 0, 0, 0];
   outer: for (let j = 0; j < ny - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
       const tl = v[j * nx + i];
@@ -187,30 +187,38 @@ export function traceContours(grid: ElevationGrid, request: ContourRequest): Con
       const br = v[(j + 1) * nx + i + 1];
       const bl = v[(j + 1) * nx + i];
       // A cell with any post missing has no lines (NaN fails both comparisons).
-      const min = Math.min(tl, tr, br, bl);
-      const max = Math.max(tl, tr, br, bl);
-      if (!(min < max)) continue;
-      const edges = [j * nx + i, vertical + j * nx + i + 1, (j + 1) * nx + i, vertical + j * nx + i];
-      corner[0] = tl;
-      corner[1] = tr;
-      corner[2] = br;
-      corner[3] = bl;
-      for (let k = Math.floor(min / interval) + 1, last = Math.floor(max / interval); k <= last; k++) {
+      const min = tl < tr ? (bl < br ? (tl < bl ? tl : bl) : tl < br ? tl : br) : bl < br ? (tr < bl ? tr : bl) : tr < br ? tr : br;
+      const max = tl > tr ? (bl > br ? (tl > bl ? tl : bl) : tl > br ? tl : br) : bl > br ? (tr > bl ? tr : bl) : tr > br ? tr : br;
+      if (!(min < max) || tl !== tl || tr !== tr || br !== br || bl !== bl) continue;
+      const k0 = Math.floor(min / interval) + 1;
+      const last = Math.floor(max / interval);
+      if (k0 > last) continue;
+      // Edges: top, right, bottom, left.
+      const eT = j * nx + i;
+      const eR = vertical + j * nx + i + 1;
+      const eB = (j + 1) * nx + i;
+      const eL = vertical + j * nx + i;
+      for (let k = k0; k <= last; k++) {
         const level = k * interval;
         const index = (tl >= level ? 8 : 0) | (tr >= level ? 4 : 0) | (br >= level ? 2 : 0) | (bl >= level ? 1 : 0);
-        if (index === 5 || index === 10) {
-          const center = (tl + tr + br + bl) / 4 >= level;
-          // Inside corners joined through the center: the lines cut off the outside corners.
-          if ((index === 5) === center) {
-            add(level, edges[3], edges[0]);
-            add(level, edges[2], edges[1]);
-          } else {
-            add(level, edges[0], edges[1]);
-            add(level, edges[3], edges[2]);
+        switch (index) {
+          case 1: case 14: add(k, eL, eB); break;
+          case 2: case 13: add(k, eB, eR); break;
+          case 3: case 12: add(k, eL, eR); break;
+          case 4: case 11: add(k, eT, eR); break;
+          case 6: case 9: add(k, eT, eB); break;
+          case 7: case 8: add(k, eL, eT); break;
+          case 5: case 10: {
+            const center = (tl + tr + br + bl) / 4 >= level;
+            // Inside corners joined through the center: the lines cut off the outside corners.
+            if ((index === 5) === center) {
+              add(k, eL, eT);
+              add(k, eB, eR);
+            } else {
+              add(k, eT, eR);
+              add(k, eL, eB);
+            }
           }
-        } else {
-          const s = CASES[index];
-          add(level, edges[s[0]], edges[s[1]]);
         }
         if (points > maxPoints) {
           truncated = true;

@@ -5,7 +5,8 @@
  * Every cell is tested on its own line of sight (the exact "R3" method, not
  * an approximation that reuses neighbouring rays): the terrain is sampled
  * (bilinear) at every cell the line crosses, and the cell is visible when no
- * sample rises above the line. Distances are on the WGS 84 ellipsoid around
+ * sample rises above the line (stretches of the line that no height near
+ * them could block are passed over unsampled). Distances are on the WGS 84 ellipsoid around
  * the observer (meridian and prime vertical radii of curvature), and the
  * Earth's curvature lowers far terrain by d² / 2R, less the atmospheric
  * refraction (coefficient k, 0.13 by default): (1 − k) · d² / 2R.
@@ -102,18 +103,12 @@ export function viewshed(grid: ViewshedGrid, options: ViewshedOptions, rowStart 
   const drop = (1 - options.refraction) / (2 * m.radius);
   const ox = (options.lon - west) / dLon;
   const oy = (north - options.lat) / dLat;
-  const at = (x: number, y: number): number => {
-    const i = Math.min(Math.max(Math.floor(x), 0), width - 2);
-    const j = Math.min(Math.max(Math.floor(y), 0), height - 2);
-    const tx = x - i;
-    const ty = y - j;
-    const k = j * width + i;
-    return (heights[k] * (1 - tx) + heights[k + 1] * tx) * (1 - ty) + (heights[k + width] * (1 - tx) + heights[k + width + 1] * tx) * ty;
-  };
-  const ground = at(ox, oy);
+  const ground = bilinear(heights, width, height, ox, oy);
   if (Number.isNaN(ground)) throw new Error('観測点に標高データなし');
   const eye = ground + options.observerHeight;
   const r2 = options.radius * options.radius;
+  const sight: Sight = { heights, width, height, ox, oy, eye, drop, tiers: maxTiers(grid) };
+  const top = sight.tiers.length - 1;
   const out = new Uint8Array((rowEnd - rowStart) * width).fill(OUTSIDE);
   for (let row = rowStart; row < rowEnd; row++) {
     for (let col = 0; col < width; col++) {
@@ -131,21 +126,133 @@ export function viewshed(grid: ViewshedGrid, options: ViewshedOptions, rowStart 
       const target = (h + options.targetHeight - drop * d2 - eye) / d;
       // One sample per cell crossed, the target's own cell left out.
       const steps = Math.ceil(Math.max(Math.abs(col - ox), Math.abs(row - oy)));
-      let visible = true;
-      for (let s = 1; s < steps; s++) {
-        const t = s / steps;
-        const z = at(ox + (col - ox) * t, oy + (row - oy) * t);
-        if (Number.isNaN(z)) continue;
-        const ds = d * t;
-        if ((z - drop * ds * ds - eye) / ds > target) {
-          visible = false;
-          break;
-        }
-      }
-      out[o] = visible ? VISIBLE : HIDDEN;
+      // The first cells out are sampled one by one: on rough ground they block most lines, before any stretch could be passed over.
+      const first = Math.min(steps, NEAR_SAMPLES);
+      const ex = col - ox;
+      const ey = row - oy;
+      const hidden = samplesBlock(sight, ex, ey, d, target, steps, 1, first) || stretchBlocks(sight, ex, ey, d, target, steps, first, steps, top);
+      out[o] = hidden ? HIDDEN : VISIBLE;
     }
   }
   return out;
+}
+
+/** What a line of sight is tested against. */
+interface Sight {
+  heights: Float32Array;
+  width: number;
+  height: number;
+  /** The observer, in cells. */
+  ox: number;
+  oy: number;
+  /** Height of the eye. */
+  eye: number;
+  /** Curvature drop per square metre. */
+  drop: number;
+  tiers: Tier[];
+}
+
+/** Heights at `(x, y)` in cells, interpolated (NaN next to no data). */
+function bilinear(heights: Float32Array, width: number, height: number, x: number, y: number): number {
+  const i = Math.min(Math.max(Math.floor(x), 0), width - 2);
+  const j = Math.min(Math.max(Math.floor(y), 0), height - 2);
+  const tx = x - i;
+  const ty = y - j;
+  const k = j * width + i;
+  return (heights[k] * (1 - tx) + heights[k + 1] * tx) * (1 - ty) + (heights[k + width] * (1 - tx) + heights[k + width + 1] * tx) * ty;
+}
+
+/**
+ * Whether a sample `s0` up to (not including) `s1` of `steps` along the line
+ * to the cell `(ex, ey)` cells from the observer, `d` metres away, rises above
+ * its slope `target`.
+ */
+function samplesBlock(g: Sight, ex: number, ey: number, d: number, target: number, steps: number, s0: number, s1: number): boolean {
+  const { heights, width, height, ox, oy, eye, drop } = g;
+  for (let s = s0; s < s1; s++) {
+    const t = s / steps;
+    const z = bilinear(heights, width, height, ox + ex * t, oy + ey * t);
+    if (Number.isNaN(z)) continue;
+    const ds = d * t;
+    if ((z - drop * ds * ds - eye) / ds > target) return true;
+  }
+  return false;
+}
+
+/**
+ * {@link samplesBlock}, passing over each stretch whose highest possible
+ * slope (from the highest post near it, in tier `tier`) stays below the
+ * target's; the rest is looked at in the next finer tier, then sample by sample.
+ */
+function stretchBlocks(g: Sight, ex: number, ey: number, d: number, target: number, steps: number, s0: number, s1: number, tier: number): boolean {
+  if (tier < 0) return samplesBlock(g, ex, ey, d, target, steps, s0, s1);
+  const { width, height, ox, oy, eye, drop } = g;
+  const { size, across, max } = g.tiers[tier];
+  for (let a = s0; a < s1; a += size) {
+    const b = Math.min(s1, a + size);
+    const ta = a / steps;
+    const tb = (b - 1) / steps;
+    const xa = ox + ex * ta;
+    const xb = ox + ex * tb;
+    const ya = oy + ey * ta;
+    const yb = oy + ey * tb;
+    // The posts the samples are interpolated from, clamped as bilinear() does.
+    const c0 = Math.min(Math.max(Math.floor(Math.min(xa, xb)), 0), width - 2);
+    const c1 = Math.min(Math.max(Math.floor(Math.max(xa, xb)), 0), width - 2) + 1;
+    const r0 = Math.min(Math.max(Math.floor(Math.min(ya, yb)), 0), height - 2);
+    const r1 = Math.min(Math.max(Math.floor(Math.max(ya, yb)), 0), height - 2) + 1;
+    let highest = -Infinity;
+    for (let by = (r0 / size) | 0, by1 = (r1 / size) | 0; by <= by1; by++) {
+      for (let bx = (c0 / size) | 0, bx1 = (c1 / size) | 0; bx <= bx1; bx++) {
+        const h = max[by * across + bx];
+        if (h > highest) highest = h;
+      }
+    }
+    if (highest === -Infinity) continue;
+    const near = d * ta;
+    const rise = highest - eye;
+    // (z − eye) / ds − drop · ds is at most this over the stretch (a little room for rounding).
+    const bound = (rise >= 0 ? rise / near : rise / (d * tb)) - drop * near;
+    if (bound + 1e-9 <= target) continue;
+    if (stretchBlocks(g, ex, ey, d, target, steps, a, b, tier - 1)) return true;
+  }
+  return false;
+}
+
+/** Block sizes of the height maxima {@link viewshed} skips flat stretches with, smallest first. */
+const TIER_SIZES = [8, 64, 512];
+
+/** Samples nearest the observer always taken one by one. */
+const NEAR_SAMPLES = 16;
+
+/** Highest heights by block: `max[by · across + bx]`. */
+interface Tier {
+  size: number;
+  across: number;
+  max: Float32Array;
+}
+
+const tiersOf = new WeakMap<Float32Array, Tier[]>();
+
+/** The highest height (no data left out) in each block of each tier, made once per grid (the workers run many bands of one). */
+function maxTiers({ width, height, heights }: ViewshedGrid): Tier[] {
+  let tiers = tiersOf.get(heights);
+  if (tiers) return tiers;
+  tiers = TIER_SIZES.map((size) => {
+    const across = Math.ceil(width / size);
+    const max = new Float32Array(across * Math.ceil(height / size)).fill(-Infinity);
+    for (let r = 0; r < height; r++) {
+      const o = ((r / size) | 0) * across;
+      for (let c = 0; c < width; c++) {
+        const h = heights[r * width + c];
+        const k = o + ((c / size) | 0);
+        if (h > max[k]) max[k] = h;
+      }
+    }
+    return { size, across, max };
+  });
+  tiersOf.set(heights, tiers);
+  return tiers;
 }
 
 /** Visible area in square metres (each cell's area on the ellipsoid at its latitude). */

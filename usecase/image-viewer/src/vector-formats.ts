@@ -15,6 +15,7 @@ import KML from 'ol/format/KML.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import { GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon } from 'ol/geom.js';
 import { getTransform } from 'ol/proj.js';
+import type { TransformFunction } from 'ol/proj.js';
 import type SimpleGeometry from 'ol/geom/SimpleGeometry.js';
 import { ColumnType, GeometryType, readFlatGeobuf, writeFlatGeobuf, type FgbColumn, type FgbGeometry, type FlatGeometry } from './flatgeobuf.js';
 import type { Field } from './services/index.js';
@@ -239,17 +240,60 @@ function columnType(field: Field): ColumnType {
   return field.type === 'double' ? ColumnType.Double : field.type === 'integer' || field.type === 'oid' ? ColumnType.Long : field.type === 'date' ? ColumnType.DateTime : ColumnType.String;
 }
 
+/**
+ * A geometry's x and y in the file's CRS, rounded as GeoJSON writes them
+ * with `decimals` (10^decimals is `power`), flat as FlatGeobuf stores them;
+ * null for a geometry it does not have (a circle).
+ */
+function flatIn(g: Geometry, toCrs: TransformFunction, power: number): FlatGeometry | null {
+  const type = g.getType();
+  if (type === 'GeometryCollection') {
+    const parts = (g as GeometryCollection).getGeometriesArray().map((p) => flatIn(p, toCrs, power));
+    return parts.every((p) => p) ? { type: GeometryType.GeometryCollection, xy: new Float64Array(0), ends: null, parts: parts as FlatGeometry[] } : null;
+  }
+  const codes: Partial<Record<string, GeometryType>> = { Point: GeometryType.Point, LineString: GeometryType.LineString, Polygon: GeometryType.Polygon, MultiPoint: GeometryType.MultiPoint, MultiLineString: GeometryType.MultiLineString, MultiPolygon: GeometryType.MultiPolygon };
+  const code = codes[type];
+  if (code === undefined) return null;
+  const simple = g as SimpleGeometry;
+  const stride = simple.getStride();
+  const flat = simple.getFlatCoordinates().slice();
+  toCrs(flat, flat, simple.getLayout().startsWith('XYZ') ? 3 : 2, stride);
+  // x and y of the points from `start` up to `end` (flat offsets).
+  const xyOf = (start: number, end: number) => {
+    const xy = new Float64Array(((end - start) / stride) * 2);
+    for (let i = start, o = 0; i < end; i += stride) {
+      xy[o++] = Math.round(flat[i] * power) / power;
+      xy[o++] = Math.round(flat[i + 1] * power) / power;
+    }
+    return xy;
+  };
+  const endsOf = (start: number, ends: number[]) => Uint32Array.from(ends, (e) => (e - start) / stride);
+  if (code === GeometryType.MultiPolygon) {
+    let start = 0;
+    const parts = (simple as MultiPolygon).getEndss().map((ends): FlatGeometry => {
+      const part = { type: GeometryType.Polygon, xy: xyOf(start, ends.length ? ends[ends.length - 1] : start), ends: endsOf(start, ends), parts: [] };
+      if (ends.length) start = ends[ends.length - 1];
+      return part;
+    });
+    return { type: code, xy: new Float64Array(0), ends: null, parts };
+  }
+  const ends = code === GeometryType.Polygon ? (simple as Polygon).getEnds() : code === GeometryType.MultiLineString ? (simple as MultiLineString).getEnds() : null;
+  return { type: code, xy: xyOf(0, flat.length), ends: ends ? endsOf(0, ends) : null, parts: [] };
+}
+
 /** A FlatGeobuf file of `features` in `crs`. */
 export function writeFgb(name: string, features: Feature[], fields: Field[], crs: TargetCrs = wgs84): Uint8Array<ArrayBuffer> {
   const columns: FgbColumn[] = fields.filter((f) => f.type !== 'other').map((f) => ({ name: f.name, type: columnType(f), ...(f.alias && f.alias !== f.name ? { title: f.alias } : {}) }));
   const decimals = crs.projection === 'EPSG:4326' ? 9 : 4;
+  const power = 10 ** decimals;
+  const toCrs = getTransform('EPSG:3857', crs.projection);
   return writeFlatGeobuf({
     name,
     columns,
     crs: crs.epsg ? { org: 'EPSG', code: crs.epsg, wkt: crs.wkt } : crs.wkt ? { wkt: crs.wkt } : null,
     features: features.map((f) => {
       const g = f.getGeometry();
-      const geometry = g ? (geojson.writeGeometryObject(g.clone().transform('EPSG:3857', crs.projection), { decimals }) as unknown as FgbGeometry) : null;
+      const geometry = g ? (flatIn(g, toCrs, power) ?? (geojson.writeGeometryObject(g.clone().transform('EPSG:3857', crs.projection), { decimals }) as unknown as FgbGeometry)) : null;
       const properties: Record<string, unknown> = {};
       for (const c of columns) {
         const v = f.get(c.name);
