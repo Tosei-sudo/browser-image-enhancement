@@ -48,6 +48,13 @@ test('features are selected by conditions and SQL, and a definition query filter
   await page.locator('#table').getByRole('button', { name: '条件' }).click();
   const dialog = page.locator('dialog.query-dialog');
   await expect(dialog.locator('h2')).toHaveText('属性条件で選択');
+  // A window over the map at the right, not in the page flow under the app (which pushed the layout).
+  const box = (await dialog.boundingBox())!;
+  const view = page.viewportSize()!;
+  expect(box.y).toBeLessThan(120);
+  expect(box.x + box.width).toBeGreaterThan(view.width - 40);
+  expect(box.y + box.height).toBeLessThanOrEqual(view.height);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight <= window.innerHeight)).toBe(true);
   const row = dialog.locator('.query-condition').first();
   await row.getByLabel('フィールド').selectOption('pop');
   await row.getByLabel('演算子').selectOption('>=');
