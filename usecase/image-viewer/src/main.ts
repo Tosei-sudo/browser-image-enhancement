@@ -57,6 +57,7 @@ import { showInfo } from './info.js';
 import { fileInfoOf } from './nitf-tiff.js';
 import { AddServiceDialog, openRef, paramToRef, refKey, refToParam } from './add-service.js';
 import { BaseMapSwitch } from './basemap.js';
+import { setTimeZoneRules } from './time-zone.js';
 import { fetchFile, loadConfig, lookupUrl, type LayerConfig, type ViewerConfig } from './config.js';
 import { Editor } from './editor.js';
 import { LayerQueries } from './layer-query.js';
@@ -167,6 +168,7 @@ for (let zone = 1; zone <= 60; zone++) {
 const config = await loadConfig();
 // ArcGIS sign-in and the access rules (src/auth.ts), before anything is requested; this tab's sign-ins come back.
 configureAuth({ portals: config.arcgisPortals, rules: config.authRules });
+setTimeZoneRules(config.timeZones);
 // Planetary Computer's blobs (a STAC catalog with "sign": "planetary-computer") are signed on each request,
 // so the URLs kept in layer names, links and projects stay without the token, and open again later with a fresh one.
 if (config.stacCatalogs.some((c) => c.sign === 'planetary-computer')) window.fetch = signingFetch(window.fetch.bind(window), new PcSigner());
