@@ -13,6 +13,7 @@ import { sensorCatalogOf, type SensorCatalogConfig } from './sensor-modes.js';
 import { cloudForecastOf, defaultCloudForecast, type CloudForecastConfig } from './imaging-plan-weather.js';
 import { aiModelOf, COCO_CLASSES, type AiModelConfig } from './ai/model-config.js';
 import { detectionOutputOf, type DetectionOutput } from './ai/transfer.js';
+import { aiResultSourceOf, defaultImport, importDefaultsOf, type AiResultSource, type ImportDefaults } from './ai/results.js';
 import { pathMappingOf, type PathMapping } from './local-paths.js';
 import { serviceRulesOf, settingsOf, type EsriRasterSettings, type ServiceRule } from './services/esri-rules.js';
 import { movingFeedOf, type FeedConfig } from './moving.js';
@@ -131,6 +132,10 @@ export interface ViewerConfig {
   aiModels: AiModelConfig[];
   /** Esri feature layers the AI tools' results are written to (ai-transfer.ts), attributes mapped by role; none hides 「DB へ転記」. */
   detectionOutputs: DetectionOutput[];
+  /** Layers an AI system elsewhere writes its results to, read for an image opened from the catalog (ai/results.ts). */
+  aiResultSources: AiResultSource[];
+  /** How AI results become observation records: kinds by class, 確度 by score. */
+  aiImport: ImportDefaults;
   /**
    * Named display rules of Esri image and map services (attribute conditions,
    * stacking order, raster function, layers shown), for the services whose URL
@@ -232,6 +237,8 @@ export const defaultConfig: ViewerConfig = {
   observationVocabulary: defaultVocabulary,
   aiModels: sampleModels(),
   detectionOutputs: [],
+  aiResultSources: [],
+  aiImport: defaultImport,
   serviceRules: [],
   elevationServices: [],
   geocoders: [...DEFAULT_GEOCODERS],
@@ -312,7 +319,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [], layerTemplates: [] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], aiResultSources: [], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [], layerTemplates: [] };
   if (!isRecord(json)) return { config, problems: ['設定はオブジェクトで指定'] };
 
   if ('baseMaps' in json) {
@@ -431,6 +438,13 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
       config.detectionOutputs = json.detectionOutputs.map((o, i) => detectionOutputOf(o, problems, i)).filter((o): o is DetectionOutput => o !== null);
     } else problems.push('detectionOutputs は配列で指定');
   }
+
+  if ('aiResultSources' in json) {
+    if (Array.isArray(json.aiResultSources)) {
+      config.aiResultSources = json.aiResultSources.map((o, i) => aiResultSourceOf(o, problems, i)).filter((o): o is AiResultSource => o !== null);
+    } else problems.push('aiResultSources は配列で指定');
+  }
+  if ('aiImport' in json) config.aiImport = importDefaultsOf(json.aiImport, problems);
 
   if ('embed' in json) config.embed = embedConfigOf(json.embed, problems);
   if ('arcgisPortals' in json) {

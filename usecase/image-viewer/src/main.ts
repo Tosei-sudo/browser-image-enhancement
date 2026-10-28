@@ -87,6 +87,7 @@ import { bindPalette, buttonCommands, CommandPalette } from './command-palette.j
 import { ZonalDialog } from './zonal-dialog.js';
 import { DetectDialog, SegmentTool } from './ai-tools.js';
 import { TransferDialog } from './ai-transfer.js';
+import { AiImportDialog } from './ai-import.js';
 import { imageTime } from './timeline.js';
 import type { ProcessingResult } from './processing/common.js';
 import { PanSharpenDialog } from './pansharpen-dialog.js';
@@ -1326,6 +1327,8 @@ const localPaths = new LocalPaths(config.pathMappings, { ask: askDialog() });
 const openedFromCatalog = (image: ViewerImage, record: CatalogRecord, catalog: CatalogConfig) => {
   fromCatalog.set(image, catalogInfo(record, catalog));
   if (record.id) catalogIds.set(image, record.id);
+  // The results an AI system elsewhere made of it (config.json's aiResultSources), shown as layers to import into the observations.
+  if (record.id && config.aiResultSources.length) void aiImport.loadFor(image, record.id);
   catalogRecords.set(image, { record, catalog });
   const view = sensorViewOf(record, catalog);
   if (view) geometry.suggestView(image.source, view);
@@ -1515,11 +1518,30 @@ const observations: ObservationPanel = new ObservationPanel(map, document.getEle
     annotations.setActive(false);
     shadowHeight.setActive(false);
   },
+  onImportAi: () => void aiImport.open(),
   onLayer: async (result, made) => {
     const record = recordOf(result, made);
     await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
     images.addService(tempLayer(record, tempStore));
     say(`${made} をレイヤーとして追加`);
+  },
+  say,
+});
+// AI results (this viewer's detections, or an AI system's elsewhere in config.json's aiResultSources) into the observations as points.
+const aiImport: AiImportDialog = new AiImportDialog([document.getElementById('ai-import') as HTMLButtonElement], selection, {
+  sources: config.aiResultSources,
+  defaults: config.aiImport,
+  observations,
+  layers: () => images.layers(),
+  selected: () => images.selectedLayer(),
+  images: () => images.list(),
+  catalogId: (image) => catalogIds.get(image) ?? null,
+  imageInfo: async (image) => ({ name: shortName(image.name), time: (await imageTime(image))?.time ?? null }),
+  ask: (url, params, token) => esriJson(url, params, token, true),
+  onResult: async (result, made) => {
+    const record = recordOf(result, made);
+    await tempStore.put(record).catch((error) => say(`ブラウザへの保存に失敗（このページを開いている間のみ保持）: ${error instanceof Error ? error.message : String(error)}`));
+    images.addService(tempLayer(record, tempStore));
   },
   say,
 });
@@ -1993,6 +2015,7 @@ declare global {
       aiDetect: DetectDialog;
       aiSegment: SegmentTool;
       aiTransfer: TransferDialog;
+      aiImport: AiImportDialog;
       toolMenu: ToolMenu;
       guide: Guide;
       help: HelpDialog;
@@ -2026,4 +2049,4 @@ declare global {
     };
   }
 }
-window.viewer = { map, images, queries, queryDialog, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, taxonomyEditor, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
+window.viewer = { map, images, queries, queryDialog, points, measure, shadowHeight, loader, enhance, onGpu, selection, table, dock, pinTable, editor, exporter, styler, metadata, boxSelect, baseMap, config, addDialog, coordinateMenu, jump, geometry, recent, processing, zonal, newLayer, tessellate: tessellateDialog, panSharpen, colorize, classLegend, noData, georef, composite, mosaic, bandMath, change, classify, align, annotations, print: printDialog, aiDetect, aiSegment, aiTransfer, aiImport, toolMenu, guide, help, hints, swipe, split, histogram: histogramPanel, spectral, viewExport, project, rset: rsetSettings, globe: globeToggle, catalog: catalogPanel, watch: watchPanel, timeline, dashboard, imagingPlan, savedPlans, observations, taxonomyEditor, movingTargets, satelliteTracks, scripts, rasterRules, bookmarks, signIn, moving, movingMatch, stac, webMaps };
