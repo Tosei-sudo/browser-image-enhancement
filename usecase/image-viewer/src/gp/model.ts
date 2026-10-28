@@ -9,6 +9,7 @@
  * Everything here comes from a server: it is checked as it is read, feature
  * counts and text are capped, and only http(s) URLs are kept.
  */
+import { timeZoneRuleFor, UTC, writeInstant, writeText, type TimeZone } from '../time-zone.js';
 import type Feature from 'ol/Feature.js';
 import EsriJSON from 'ol/format/EsriJSON.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -459,7 +460,7 @@ export function checkValues(task: GpTask, values: Record<string, GpValue>): stri
 }
 
 /** The parameters of an Esri `execute` / `submitJob` (each a string, as the form-encoded request takes them). */
-export function esriParams(task: GpTask, values: Record<string, GpValue>): Record<string, string> {
+export function esriParams(task: GpTask, values: Record<string, GpValue>, zone: TimeZone | null = timeZoneRuleFor(task.url)?.zone ?? null): Record<string, string> {
   const problems = checkValues(task, values);
   if (problems.length) throw new Error(problems.join('。'));
   // Results in the map's projection, so they need no lookup of a CRS.
@@ -477,7 +478,8 @@ export function esriParams(task: GpTask, values: Record<string, GpValue>): Recor
         break;
       case 'date': {
         const t = typeof value === 'number' ? value : Date.parse(String(value));
-        if (Number.isFinite(t)) params[field.name] = String(t);
+        // A service whose dates are in another zone (config.json's timeZone): the clock it keeps.
+        if (Number.isFinite(t)) params[field.name] = String(zone ? writeInstant(t, { data: zone, service: UTC }) : t);
         break;
       }
       case 'linear-unit':
@@ -502,8 +504,11 @@ export function esriParams(task: GpTask, values: Record<string, GpValue>): Recor
   return params;
 }
 
+/** How OGC date inputs are written: with `Z`. */
+const ZULU = '2000-01-01T00:00:00Z';
+
 /** The `inputs` of an OGC execute request. */
-export function ogcInputs(task: GpTask, values: Record<string, GpValue>): Record<string, unknown> {
+export function ogcInputs(task: GpTask, values: Record<string, GpValue>, zone: TimeZone | null = timeZoneRuleFor(task.url)?.zone ?? null): Record<string, unknown> {
   const problems = checkValues(task, values);
   if (problems.length) throw new Error(problems.join('。'));
   const inputs: Record<string, unknown> = {};
@@ -527,7 +532,7 @@ export function ogcInputs(task: GpTask, values: Record<string, GpValue>): Record
         break;
       case 'date': {
         const t = Date.parse(String(value));
-        inputs[field.name] = Number.isFinite(t) ? new Date(t).toISOString() : value;
+        inputs[field.name] = Number.isFinite(t) ? (zone ? writeText(t, zone, ZULU) : new Date(t).toISOString()) : value;
         break;
       }
       case 'choice':

@@ -10,6 +10,7 @@
  * at the window's end, interpolated from what the feed has sent so far (or
  * the history file holds); closed, a live feed shows the latest reports.
  */
+import { timeZoneRuleFor, type TimeZone } from './time-zone.js';
 import Feature from 'ol/Feature.js';
 import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
@@ -184,9 +185,12 @@ export class MovingLayer {
   private ticker_: ReturnType<typeof setInterval> | null = null;
   private kindFixed_: boolean;
   private keys_ = new Set<string>();
+  /** The zone the feed's times are really in (config.json's timeZone), when not what they say. */
+  private readonly zone_: TimeZone | null;
 
   constructor(private readonly options: MovingLayerOptions) {
     this.feed = options.feed;
+    this.zone_ = timeZoneRuleFor(options.feed.url)?.zone ?? null;
     this.history = !!options.history;
     this.kind = options.feed.kind ?? 'ship';
     this.kindFixed_ = !!options.feed.kind;
@@ -208,6 +212,7 @@ export class MovingLayer {
       info: [
         ['種類', this.history ? '移動体の履歴ファイル' : `移動体のフィード（${feedTypes[options.feed.type]}）`],
         ['接続先', this.history ? options.feed.url : displayUrl(options.feed.url)],
+        ...(this.zone_ ? [['日時のタイムゾーン', this.zone_.name] as [string, string]] : []),
       ],
       time: {
         values,
@@ -287,7 +292,7 @@ export class MovingLayer {
     }
     let added = 0;
     for (const row of rows) {
-      const record = readRecord(row, this.mapping, receivedAt);
+      const record = readRecord(row, this.mapping, receivedAt, this.zone_);
       if (!record) {
         this.skipped++;
         continue;

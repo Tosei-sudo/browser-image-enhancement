@@ -31,6 +31,7 @@ import {
 import { toMap, vectorLayer } from './vector.js';
 import { LayerStyle, singleSpec } from '../vector-style.js';
 import { fieldsOf } from './wms.js';
+import { shiftTexts, timeZoneRuleFor } from '../time-zone.js';
 import { drawableOf, latitudeFirst, wfsTarget, type WfsOperations, type WfsSchema, type WfsVersion } from './wfs-t.js';
 
 interface FeatureType {
@@ -151,6 +152,9 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
   const truncated = features.length > MAX_FEATURES;
   if (truncated) features = features.slice(0, MAX_FEATURES);
   toMap(features, projection, type.box, 'EPSG:3857');
+  // Dates in another zone than they say (config.json's timeZone).
+  const zoneRule = timeZoneRuleFor(ep.url);
+  const times = shiftTexts(features, zoneRule?.zone);
 
   const fields = described?.fields ?? null;
   const found = fieldsOf(features);
@@ -172,6 +176,7 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
           toLayer: (g) => g.clone().transform('EPSG:3857', projection),
           swap: latitudeFirst(crs, projection.getUnits() === 'degrees'),
           fields: all,
+          times,
         })
       : undefined;
   return {
@@ -188,6 +193,7 @@ async function openType(type: FeatureType, ep: { url: string; endpoint: string; 
       ['URL', ep.url],
       ['フィーチャータイプ', type.name],
       ['座標系', crs],
+      ...(times ? [['日時のタイムゾーン', times.zone.name] as [string, string]] : []),
       ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
       ...(editTarget ? [['編集', `${[editTarget.canCreate && '追加', editTarget.canUpdate && '更新', editTarget.canDelete && '削除'].filter(Boolean).join('・')}（WFS-T）`] as [string, string]] : []),
     ],

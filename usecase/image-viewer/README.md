@@ -433,6 +433,11 @@ COG は、サーバーが CORS と Range リクエストを許可している必
     { "prefix": "https://bucket.s3.ap-northeast-1.amazonaws.com/cogs/", "headers": { "x-api-key": "…" } },
     { "prefix": "https://tiles.example.com/", "query": { "key": "…" } }
   ],
+  // 日時が実際には別のタイムゾーンで記録されているサービス（URL の正規表現ごと）。各ソースの項目に "timeZone" を書いても可
+  "timeZones": [
+    { "match": "gis\\.example\\.com/.*/Legacy/", "timeZone": "Asia/Tokyo" },
+    { "match": "^https://old\\.example\\.com/", "timeZone": "+09:00", "serviceTimeZone": "UTC" }
+  ],
   // 「移動体（AIS・ADS-B）」に並べるフィード。type は websocket・sse・poll・esri-stream
   "movingFeeds": [
     { "label": "AIS（WebSocket）", "type": "websocket", "url": "wss://ais.example.com/stream", "kind": "ship" }, // kind: ship・aircraft（省略時は属性名から判断）
@@ -511,6 +516,30 @@ COG は、サーバーが CORS と Range リクエストを許可している必
 
 実際のファイルは JSON なので、コメントは書けません。`projectionLookup` を例えば `https://epsg.io/{code}.proj4` にすると epsg.io から取得します。
 
+### 日時のタイムゾーン（`timeZone`・`timeZones`）
+
+サービスの設定（Esri の `dateFieldsTimeReference`、文字列の `Z`・`+09:00`）と、データに実際に入っている日時のタイムゾーンがずれているときに、ソースごとに本当のタイムゾーンを書けます。書いたソースの日時は「そのタイムゾーンの時計の時刻」として読み、サービス側の宣言は無視します。書かないソースはこれまでどおりです。
+
+```jsonc
+"imageCatalogs": [
+  { "label": "衛星画像", "url": "https://gis.example.com/arcgis/rest/services/Catalog/FeatureServer/0",
+    "timeZone": "Asia/Tokyo", "fields": { "id": "IMAGE_ID", "acquired": "ACQ_TIME", "source": "PATH" } }
+],
+"layers": [
+  // サービス全体（その下のレイヤー・テーブルすべて）。サービス側は UTC と明示
+  { "type": "esri", "url": "https://gis.example.com/arcgis/rest/services/Ships/FeatureServer", "timeZone": "+09:00", "serviceTimeZone": "UTC" }
+]
+```
+
+- `timeZone`: データの日時が記録されているタイムゾーン。IANA 名（`Asia/Tokyo`・`UTC`）、時差（`+09:00`・`+0900`・`UTC+9`）、Windows 名（`Tokyo Standard Time`）のいずれか
+- `serviceTimeZone`（任意）: サービスが日時を解釈しているタイムゾーン。Esri の日付型は、省略するとレイヤーの説明の `dateFieldsTimeReference`（`timeZoneIANA` か `timeZone`）、それもなければ UTC
+- 書ける項目: `layers`・`imageCatalogs`・`planStores`・`observationStores`（`areas`・`taxonomyTable` も含む）・`detectionOutputs`・`aiResultSources`・`satelliteCatalogs`・`sensorCatalogs`・`movingFeeds`・`stacCatalogs`・`gpServices`。項目の中の URL すべてと、その下の URL（`…/FeatureServer` なら `…/FeatureServer/0` も）が対象
+- `timeZones`: `match`（URL の正規表現、大文字小文字は区別なし）が合うソースに適用。「サービスを追加」で手で開いたレイヤーにも効きます。各項目の `timeZone` が優先、`timeZones` は上から最初に合うもの
+- 変換する範囲: Esri（フィーチャー・テーブル・マップサービスのレイヤー、イメージサービスのカタログ）は日付型（`esriFieldTypeDate`）の属性の読み込み、編集の保存（`applyEdits` の追加・更新）、検索条件の `TIMESTAMP '…'`。WFS・OGC API – Features は日時の文字列の属性（読み込みと WFS-T・Part 4 の保存。保存時は元の書式のまま、そのタイムゾーンの時刻で書き戻し）。STAC は項目の `datetime` と検索の日付範囲、移動体のフィードは時刻、処理サービス（`gpServices`）は日時の入力
+- 変換した文字列の属性は、このブラウザーの時差付き（`2026-10-28T09:00:00+09:00`）で表示。レイヤーの「情報」に「日時のタイムゾーン」の行
+- 日付だけの型（`esriFieldTypeDateOnly`）・時刻だけの型・時差を持つ型（`esriFieldTypeTimestampOffset`）、日時を文字列型に入れた Esri の属性、画像カタログの監視（Service Worker での確認）は対象外
+- 読み込めないタイムゾーンは理由をコンソールに出して無視します
+
 ArcGIS フィーチャーサービスに用意するレイヤーと属性は、次の「ArcGIS フィーチャーサービスの準備」にまとめています。
 
 ## ArcGIS フィーチャーサービスの準備（レイヤーごとの属性）
@@ -523,6 +552,7 @@ ArcGIS フィーチャーサービスに用意するレイヤーと属性は、�
 - 属性名は英数字と `_` だけで、大文字小文字までサービスの属性名と合わせて書きます
 - 「必須」の属性がレイヤーにないと、その機能は理由を状態欄に出して動きません。それ以外の属性はレイヤーにあるものだけ読み書きするので、要らない役割の属性は作らなくてかまいません
 - 座標系は自由です。ビューアは WGS 84（`wkid: 4326`）で送り、`outSR=4326` で受け取るので、サーバーが変換します
+- サービスの日時のタイムゾーン設定とデータの実際がずれているときは、各項目に `timeZone` を書きます（「日時のタイムゾーン」参照）
 - 日時は日付型（`esriFieldTypeDate`）をおすすめします。保存先の日時の属性を文字列型にすると ISO 8601 の文字列（`2026-10-01T01:23:45.000Z`）で書きます（`planStores` と `detectionOutputs` は日付型だけ）
 - 文字列の長さは目安です。`detectionOutputs` は長さを超える文字を切って書きますが、ほかの保存先は切らないので、足りないとサーバーが保存を断ります
 - 書き込む機能（保存先・転記先）は、サービスの「編集」を有効にし、表の「操作」を許可してください。トークンが要るサービスは各項目の `token` か、ヘッダーの「サインイン」（`arcgisPortals`）で送ります

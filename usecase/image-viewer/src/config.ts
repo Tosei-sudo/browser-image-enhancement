@@ -23,6 +23,7 @@ import { arcgisPortalOf, authFetch, authRuleOf, type ArcgisPortalConfig, type Au
 import { DEFAULT_STAC_CATALOGS, stacCatalogOf, type StacCatalogConfig } from './stac.js';
 import { defaultVocabulary, observationStoreOf, vocabularyOf, type ObservationStoreConfig, type ObservationVocabulary } from './observations.js';
 import { templateOf, type LayerTemplate } from './layer-templates.js';
+import { parseTimeZone, sourceRule, type TimeZone, type TimeZoneRule } from './time-zone.js';
 
 /**
  * What a base map URL points to:
@@ -160,6 +161,12 @@ export interface ViewerConfig {
   gpServices: GpServiceConfig[];
   /** Templates offered by ツール → 新規レイヤー… after the built-in ones (layer-templates.ts). */
   layerTemplates: LayerTemplate[];
+  /**
+   * The zone each source's dates are really in, when the service says
+   * otherwise: the `timeZone` of a source entry (its URLs and the layers
+   * under them), then `timeZones` rules (`match`: a URL pattern).
+   */
+  timeZones: TimeZoneRule[];
 }
 
 /** A processing service of config.json: its name in the list, its URL, and a token when it needs one. */
@@ -249,6 +256,7 @@ export const defaultConfig: ViewerConfig = {
   stacCatalogs: [...DEFAULT_STAC_CATALOGS],
   gpServices: [],
   layerTemplates: [],
+  timeZones: [],
 };
 
 /**
@@ -319,7 +327,7 @@ function geocoderOf(value: unknown, problems: string[], index: number): Geocoder
  */
 export function parseConfig(json: unknown): { config: ViewerConfig; problems: string[] } {
   const problems: string[] = [];
-  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], aiResultSources: [], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [], layerTemplates: [] };
+  const config: ViewerConfig = { ...defaultConfig, projections: { ...defaultConfig.projections }, layers: [...defaultConfig.layers], imageRules: [...defaultConfig.imageRules], imageCatalogs: [...defaultConfig.imageCatalogs], pathMappings: [...defaultConfig.pathMappings], satelliteCatalogs: [...defaultConfig.satelliteCatalogs], sensorCatalogs: [], groundStations: [], planStores: [], observationStores: [], aiModels: [...defaultConfig.aiModels], detectionOutputs: [...defaultConfig.detectionOutputs], aiResultSources: [], serviceRules: [...defaultConfig.serviceRules], elevationServices: [...defaultConfig.elevationServices], geocoders: [...defaultConfig.geocoders], arcgisPortals: [...defaultConfig.arcgisPortals], authRules: [...defaultConfig.authRules], movingFeeds: [...defaultConfig.movingFeeds], stacCatalogs: [...defaultConfig.stacCatalogs], gpServices: [], layerTemplates: [], timeZones: [] };
   if (!isRecord(json)) return { config, problems: ['設定はオブジェクトで指定'] };
 
   if ('baseMaps' in json) {
@@ -493,8 +501,85 @@ export function parseConfig(json: unknown): { config: ViewerConfig; problems: st
     if (Array.isArray(json.layerTemplates)) config.layerTemplates = json.layerTemplates.map((t, i) => templateOf(t, problems, `layerTemplates[${i}]`)).filter((t): t is LayerTemplate => t !== null);
     else problems.push('layerTemplates は配列で指定');
   }
+  config.timeZones = timeZonesOf(json, problems);
 
   return { config, problems };
+}
+
+/** The config.json entries of external sources that can say their dates' time zone (`timeZone`). */
+export const TIME_ZONE_SOURCES = [
+  'layers',
+  'imageCatalogs',
+  'planStores',
+  'observationStores',
+  'detectionOutputs',
+  'aiResultSources',
+  'satelliteCatalogs',
+  'sensorCatalogs',
+  'movingFeeds',
+  'stacCatalogs',
+  'gpServices',
+] as const;
+
+/** Every URL in an entry (http(s), ws(s) or relative) (its own `url`, and those of the tables and layers it names), at most a few levels down. */
+function urlsIn(value: unknown, depth = 0, out: string[] = []): string[] {
+  if (depth > 3) return out;
+  if (typeof value === 'string') {
+    if (/^(https?|wss?):\/\/./i.test(value.trim()) || /^\.{0,2}\/[^/]/.test(value.trim())) out.push(value.trim());
+  } else if (Array.isArray(value)) for (const v of value) urlsIn(v, depth + 1, out);
+  else if (isRecord(value)) for (const [k, v] of Object.entries(value)) if (k !== 'token') urlsIn(v, depth + 1, out);
+  return out;
+}
+
+function zoneOf(value: unknown, at: string, problems: string[]): TimeZone | null | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const zone = parseTimeZone(value);
+  if (!zone) problems.push(`${at} の「${String(value)}」はタイムゾーンとして読み込み不可（Asia/Tokyo・UTC・+09:00 の形で指定）`);
+  return zone;
+}
+
+/**
+ * The time zone rules: each source entry's `timeZone` (and `serviceTimeZone`)
+ * for its URLs, first, then the `timeZones` list of `{ match, timeZone }`.
+ */
+function timeZonesOf(json: Record<string, unknown>, problems: string[]): TimeZoneRule[] {
+  const rules: TimeZoneRule[] = [];
+  for (const key of TIME_ZONE_SOURCES) {
+    const list = json[key];
+    if (!Array.isArray(list)) continue;
+    list.forEach((entry, i) => {
+      if (!isRecord(entry) || !('timeZone' in entry)) return;
+      const at = `${key}[${i}]`;
+      const zone = zoneOf(entry.timeZone, `${at}.timeZone`, problems);
+      const service = zoneOf(entry.serviceTimeZone, `${at}.serviceTimeZone`, problems);
+      if (!zone) return;
+      const urls = [...new Set(urlsIn(entry))];
+      if (urls.length === 0) return void problems.push(`${at} の timeZone は URL のない項目のため無視`);
+      const label = typeof entry.label === 'string' && entry.label ? entry.label : undefined;
+      for (const url of urls) rules.push(sourceRule(url, zone, service, label));
+    });
+  }
+  if ('timeZones' in json) {
+    if (Array.isArray(json.timeZones)) {
+      json.timeZones.forEach((entry, i) => {
+        const at = `timeZones[${i}]`;
+        if (!isRecord(entry)) return void problems.push(`${at} はオブジェクトで指定`);
+        if (typeof entry.match !== 'string' || !entry.match) return void problems.push(`${at} に match（URL の正規表現）なし`);
+        let match: RegExp;
+        try {
+          match = new RegExp(entry.match, 'i');
+        } catch (error) {
+          return void problems.push(`${at} の match は正規表現として読み込み不可（${error instanceof Error ? error.message : String(error)}）`);
+        }
+        const zone = zoneOf(entry.timeZone, `${at}.timeZone`, problems);
+        const service = zoneOf(entry.serviceTimeZone, `${at}.serviceTimeZone`, problems);
+        if (zone === undefined) problems.push(`${at} に timeZone なし`);
+        if (!zone) return;
+        rules.push({ match, zone, ...(service ? { service } : {}), ...(typeof entry.label === 'string' && entry.label ? { label: entry.label } : {}) });
+      });
+    } else problems.push('timeZones は配列で指定');
+  }
+  return rules;
 }
 
 const isPreset = (name: unknown): name is PresetName => typeof name === 'string' && Object.hasOwn(presets, name);

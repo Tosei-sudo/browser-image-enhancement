@@ -15,6 +15,7 @@
  * Everything read from the network is checked: only http(s) links are
  * followed, geometries are validated and capped, responses are capped in size.
  */
+import { clockOf, readTextInstant, timeZoneRuleFor, type TimeZone } from './time-zone.js';
 
 /** One catalog of config.json's `stacCatalogs`. */
 export interface StacCatalogConfig {
@@ -101,17 +102,19 @@ export interface StacRequest {
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The `datetime` of a search: a closed or open interval, or undefined for any time. */
-export function datetimeOf(from: string, to: string): string | undefined {
-  const start = DAY.test(from) ? `${from}T00:00:00Z` : '..';
-  const end = DAY.test(to) ? `${to}T23:59:59Z` : '..';
+export function datetimeOf(from: string, to: string, zone?: TimeZone | null): string | undefined {
+  // Items written in another zone than they say: the days as the clock they are written in.
+  const at = (text: string) => (zone ? `${new Date(clockOf(Date.parse(text), zone)).toISOString().replace(/\.\d{3}Z$/, 'Z')}` : text);
+  const start = DAY.test(from) ? at(`${from}T00:00:00Z`) : '..';
+  const end = DAY.test(to) ? at(`${to}T23:59:59Z`) : '..';
   return start === '..' && end === '..' ? undefined : `${start}/${end}`;
 }
 
 /** The JSON body of a POST `/search` (STAC API 1.0, with the sort and query or filter extensions). */
-export function searchBody(search: StacSearch, catalog: Pick<StacCatalogConfig, 'cloudFilter'>, sort = true): Record<string, unknown> {
+export function searchBody(search: StacSearch, catalog: Pick<StacCatalogConfig, 'cloudFilter'> & { url?: string }, sort = true): Record<string, unknown> {
   const body: Record<string, unknown> = { limit: search.limit };
   if (search.bbox) body.bbox = search.bbox.map((v) => Math.round(v * 1e6) / 1e6);
-  const datetime = datetimeOf(search.from, search.to);
+  const datetime = datetimeOf(search.from, search.to, timeZoneRuleFor(catalog.url)?.zone);
   if (datetime) body.datetime = datetime;
   if (search.collections.length) body.collections = search.collections;
   if (search.maxCloud !== null && Number.isFinite(search.maxCloud)) {
@@ -285,7 +288,9 @@ export function parseItem(json: unknown, base?: string): StacItem | null {
   if (!id) return null;
   const bbox = bboxOf(json.bbox);
   const datetime = str(properties.datetime) || str(properties.start_datetime);
-  const time = datetime ? Date.parse(datetime) : NaN;
+  // In another zone than it says, when config.json says so.
+  const zone = timeZoneRuleFor(base)?.zone;
+  const time = datetime ? ((zone && readTextInstant(datetime, zone)) ?? Date.parse(datetime)) : NaN;
   const assets: StacAsset[] = [];
   let thumbnail: string | null = null;
   const self = Array.isArray(json.links) ? json.links.find((l) => isRecord(l) && l.rel === 'self') : undefined;

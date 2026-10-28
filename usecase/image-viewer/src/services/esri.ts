@@ -21,6 +21,7 @@ import { vectorLayer } from './vector.js';
 import { freshTokenFor, renewTokenFor } from '../auth.js';
 import { extentHeights, raiseFootprints } from './esri-multipatch.js';
 import { imageServerChoice, MAP_CHOICE, mapChoice, openImageServer, openMapServer } from './esri-raster.js';
+import { parseTimeZone, readInstant, shiftText, timeZoneRuleFor, UTC, writeInstant, type TimeShift, type TimeZoneRule } from '../time-zone.js';
 
 /** What the viewer keeps of an Esri layer's description. */
 export interface EsriLayerInfo {
@@ -98,6 +99,16 @@ export async function esriJson<T>(url: string, params: Record<string, string>, t
 class InvalidTokenError extends ServiceError {}
 
 async function esriJsonWith<T>(url: string, params: Record<string, string>, token: string | undefined, post: boolean): Promise<T> {
+  // A layer whose dates are in another zone than the service says (config.json's timeZone): converted both ways.
+  const op = OPERATION.exec(url.replace(/[?#].*$/, '').replace(/\/+$/, ''));
+  const times = op && timeZoneRuleFor(op[1]) ? await layerTimes(op[1], token) : null;
+  if (times) params = toService(params, op![2].toLowerCase(), times);
+  const json = await esriAnswer<T>(url, params, token, post);
+  if (times) fromService(json, times);
+  return json;
+}
+
+async function esriAnswer<T>(url: string, params: Record<string, string>, token: string | undefined, post: boolean): Promise<T> {
   const all = new URLSearchParams({ ...params, f: 'json', ...(token ? { token } : {}) });
   const response = post || token
     ? await request(url, { method: 'POST', body: all, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
@@ -111,6 +122,116 @@ async function esriJsonWith<T>(url: string, params: Record<string, string>, toke
     throw new ServiceError(`サービスからエラー応答: ${[message, ...(details ?? [])].join(' ')}`);
   }
   return json;
+}
+
+// ---- Dates in another time zone ----
+
+/** A layer's operations whose dates are converted: `[…, layer URL, operation]`. */
+const OPERATION = /^(.*\/(?:FeatureServer|MapServer)\/\d+|.*\/ImageServer)\/(query|applyEdits|addFeatures|updateFeatures)$/i;
+
+/** How a layer's dates are converted: the shift, and its date fields. */
+interface LayerTimes {
+  shift: TimeShift;
+  dates: Set<string>;
+}
+
+const layerTimesCache = new WeakMap<TimeZoneRule, Map<string, Promise<LayerTimes>>>();
+
+/**
+ * The shift and date fields of a layer with a time zone rule, from its
+ * description (asked once per rule): the zone the service reads its dates
+ * in is the rule's `serviceTimeZone`, else the layer's own
+ * `dateFieldsTimeReference`, else UTC.
+ */
+function layerTimes(layerUrl: string, token: string | undefined): Promise<LayerTimes> {
+  const rule = timeZoneRuleFor(layerUrl)!;
+  let cache = layerTimesCache.get(rule);
+  if (!cache) layerTimesCache.set(rule, (cache = new Map()));
+  const key = layerUrl.toLowerCase();
+  let times = cache.get(key);
+  if (!times) {
+    times = esriAnswer<{ fields?: EsriField[]; dateFieldsTimeReference?: { timeZone?: string; timeZoneIANA?: string } | null }>(layerUrl, {}, token, !!token)
+      .catch(() => ({ fields: undefined, dateFieldsTimeReference: undefined }))
+      .then((json) => {
+        const ref = json.dateFieldsTimeReference;
+        const service = rule.service ?? parseTimeZone(ref?.timeZoneIANA) ?? parseTimeZone(ref?.timeZone) ?? UTC;
+        return { shift: { data: rule.zone, service }, dates: new Set((json.fields ?? []).filter((f) => f.type === 'esriFieldTypeDate').map((f) => f.name)) };
+      });
+    cache.set(key, times);
+  }
+  return times;
+}
+
+/** The shift of a layer with a time zone rule (for its information), or null. */
+export async function esriTimeShift(layerUrl: string, token?: string): Promise<TimeShift | null> {
+  return timeZoneRuleFor(layerUrl) ? (await layerTimes(layerUrl, token)).shift : null;
+}
+
+/** Date attributes of features sent (`[{ attributes }]` as JSON) as the service keeps them. */
+function attributesToService(text: string | undefined, times: LayerTimes): string | undefined {
+  if (!text) return text;
+  let list: unknown;
+  try {
+    list = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (!Array.isArray(list)) return text;
+  for (const item of list) {
+    const attributes = (item as { attributes?: Record<string, unknown> } | null)?.attributes;
+    if (!attributes) continue;
+    for (const name of times.dates) {
+      const v = attributes[name];
+      if (typeof v === 'number') attributes[name] = writeInstant(v, times.shift);
+      else if (typeof v === 'string' && v.trim() && Number.isFinite(Date.parse(v))) attributes[name] = writeInstant(Date.parse(v), times.shift);
+    }
+  }
+  return JSON.stringify(list);
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** `TIMESTAMP 'yyyy-mm-dd hh:mm:ss'` (an instant, written in UTC) as the service keeps it. */
+function whereToService(where: string, shift: TimeShift): string {
+  return where.replace(/\bTIMESTAMP\s+'(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?'/gi, (all, y, mo, d, h, mi, s, f) => {
+    const t = writeInstant(Date.UTC(+y, +mo - 1, +d, +h, +mi, +(s ?? 0), f ? Math.round(Number(`0.${f}`) * 1000) : 0), shift);
+    if (!Number.isFinite(t)) return all;
+    const u = new Date(t);
+    const ms = u.getUTCMilliseconds();
+    return `TIMESTAMP '${u.getUTCFullYear()}-${pad2(u.getUTCMonth() + 1)}-${pad2(u.getUTCDate())} ${pad2(u.getUTCHours())}:${pad2(u.getUTCMinutes())}:${pad2(u.getUTCSeconds())}${ms ? `.${String(ms).padStart(3, '0')}` : ''}'`;
+  });
+}
+
+function toService(params: Record<string, string>, op: string, times: LayerTimes): Record<string, string> {
+  const out = { ...params };
+  if (out.where) out.where = whereToService(out.where, times.shift);
+  if (op === 'applyedits') {
+    if (out.adds) out.adds = attributesToService(out.adds, times)!;
+    if (out.updates) out.updates = attributesToService(out.updates, times)!;
+  } else if (op === 'addfeatures' || op === 'updatefeatures') {
+    if (out.features) out.features = attributesToService(out.features, times)!;
+  }
+  return out;
+}
+
+/** The answer's date attributes (and those its `fields` call dates) as the instants they stand for. */
+function fromService(json: unknown, times: LayerTimes): void {
+  const answer = json as { features?: Array<{ attributes?: Record<string, unknown> }>; fields?: Array<{ name: string; type: string }> } | null;
+  if (!answer || !Array.isArray(answer.features)) return;
+  const dates = new Set(times.dates);
+  for (const f of answer.fields ?? []) if (f?.type === 'esriFieldTypeDate') dates.add(f.name);
+  if (dates.size === 0) return;
+  for (const feature of answer.features) {
+    const a = feature?.attributes;
+    if (!a) continue;
+    for (const name of dates) if (typeof a[name] === 'number') a[name] = readInstant(a[name] as number, times.shift);
+  }
+}
+
+/** A layer's time zone as a line of its information. */
+async function timeZoneInfo(url: string, token?: string): Promise<Array<[string, string]>> {
+  const shift = await esriTimeShift(url, token);
+  return shift ? [['日時のタイムゾーン', shiftText(shift)]] : [];
 }
 
 /**
@@ -212,6 +333,7 @@ async function openLayer(url: string, mapServer: boolean, token?: string, where?
       ['地物数', `${features.length.toLocaleString()}${truncated ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
       ...(where?.trim() ? [['条件', where.trim()] as [string, string]] : []),
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
+      ...(await timeZoneInfo(url, token)),
       ...(raised !== null ? [['3D', raised ? `${raised.toLocaleString()} 件を高さの範囲で立ち上げ（3D 表示）` : '高さの取得不可（ArcGIS Enterprise 10.9 以降の extent が必要）'] as [string, string]] : []),
     ],
   };
@@ -266,6 +388,7 @@ async function openTable(url: string, json: EsriLayerJson, mapServer: boolean, t
       ['列数', fields.length.toLocaleString()],
       ...(where?.trim() ? [['条件', where.trim()] as [string, string]] : []),
       ['編集', [info.canCreate && '追加', info.canUpdate && '更新', info.canDelete && '削除'].filter(Boolean).join('・') || '不可'],
+      ...(await timeZoneInfo(url, token)),
     ],
   };
 }

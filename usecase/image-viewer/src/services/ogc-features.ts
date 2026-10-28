@@ -16,6 +16,7 @@ import { MAX_FEATURES, nextColor, request, ServiceError, type Field, type LayerC
 import { conformance, conformsTo, fetchJson, findLink, isRecord, linksOf, ogcUrl, readOgcService, type OgcCollection, type OgcService } from './ogc-api.js';
 import { vectorLayer } from './vector.js';
 import { fieldsOf } from './wms.js';
+import { shiftTexts, timeZoneRuleFor, type TextTimes } from '../time-zone.js';
 import { LayerStyle, singleSpec } from '../vector-style.js';
 import type { DrawableType, EditTarget } from '../edit-session.js';
 
@@ -160,6 +161,8 @@ async function openCollection(
   } catch {
     throw new ServiceError('地物の読み込みに失敗');
   }
+  // Dates in another zone than they say (config.json's timeZone).
+  const times = shiftTexts(features, timeZoneRuleFor(url)?.zone);
   const found = fieldsOf(features);
   const fields: Field[] = [...queryables, ...found.filter((f) => !queryables.some((q) => q.name === f.name))];
   const editable = conformsTo(service.classes, conformance.edit);
@@ -176,13 +179,14 @@ async function openCollection(
     correction: null,
     vector: { source: layer.getSource()!, fields, truncated: more, ...(bbox ? { note: '追加したときの表示範囲の地物' } : {}) },
     style: new LayerStyle(layer, singleSpec(nextColor())),
-    ...(editable ? { editTarget: ogcFeaturesTarget(href, fields, geometryTypeOf(features)) } : {}),
+    ...(editable ? { editTarget: ogcFeaturesTarget(href, fields, geometryTypeOf(features), times) } : {}),
     extent: box ? transformExtent([box[0], Math.max(box[1], -85), box[2], Math.min(box[3], 85)], 'EPSG:4326', 'EPSG:3857') : null,
     info: [
       ['種類', 'OGC API – Features'],
       ['URL', url],
       ['コレクション', collection.id],
       ['座標系', mercator ? 'EPSG:3857' : 'CRS84'],
+      ...(times ? [['日時のタイムゾーン', times.zone.name] as [string, string]] : []),
       ...(pick.filter?.trim() ? [['条件', pick.filter.trim()] as [string, string]] : []),
       ...(bbox ? [['範囲', bbox.map((n) => n.toFixed(4)).join(', ')] as [string, string]] : []),
       ['地物数', `${features.length.toLocaleString()}${more ? `（先頭 ${MAX_FEATURES.toLocaleString()} 件）` : ''}`],
@@ -203,12 +207,12 @@ function geometryTypeOf(features: Feature[]): DrawableType | null {
  * POSTed to the items, changed ones PUT whole at their item, deleted ones
  * DELETEd, one request each, in CRS84.
  */
-export function ogcFeaturesTarget(items: string, fields: Field[], geometryType: DrawableType | null): EditTarget {
+export function ogcFeaturesTarget(items: string, fields: Field[], geometryType: DrawableType | null, times: TextTimes | null = null): EditTarget {
   const format = new GeoJSON();
   const names = new Set(fields.map((f) => f.name));
   const body = (f: Feature) => {
     const json = format.writeFeatureObject(f, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
-    json.properties = Object.fromEntries(Object.entries(json.properties ?? {}).filter(([k]) => names.has(k)));
+    json.properties = Object.fromEntries(Object.entries(json.properties ?? {}).filter(([k]) => names.has(k)).map(([k, v]) => [k, times ? times.back(k, v) : v]));
     delete json.id;
     return JSON.stringify(json);
   };

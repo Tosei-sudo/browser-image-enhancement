@@ -16,6 +16,7 @@
  */
 import { decodeCsv, parseCsv } from './csv.js';
 import { parseTime } from './time.js';
+import { readInstant, readTextInstant, UTC, type TimeZone } from './time-zone.js';
 
 /** What a field means for a moving object. */
 export type MovingRole = 'id' | 'time' | 'lat' | 'lon' | 'heading' | 'course' | 'speed' | 'name' | 'kind';
@@ -250,14 +251,22 @@ export function numberOf(v: unknown): number | null {
  * the like). Text without a time zone is UTC, as AIS and ADS-B times are;
  * aisstream.io's `… +0000 UTC` reads too.
  */
-export function timeOf(v: unknown): number | null {
+export function timeOf(v: unknown, zone?: TimeZone | null): number | null {
   const n = numberOf(v);
-  if (n !== null) return n > 1e11 ? n : n > 1e8 ? n * 1000 : null;
+  if (n !== null) {
+    const t = n > 1e11 ? n : n > 1e8 ? n * 1000 : null;
+    // A feed in another zone than it says (config.json's timeZone): its clock read as that zone's.
+    return t !== null && zone ? readInstant(t, { data: zone, service: UTC }) : t;
+  }
   if (typeof v !== 'string') return null;
   const text = v.trim().replace(/\s*UTC$/i, '');
   if (!text) return null;
   // Nanoseconds and more: milliseconds are enough.
   const trimmed = text.replace(/([.,]\d{3})\d+/, '$1');
+  if (zone) {
+    const t = readTextInstant(trimmed.replace(/\s+([+-]\d{4})$/, '$1'), zone);
+    if (t !== null) return t;
+  }
   const zoned = /(Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
   return (zoned ? null : parseTime(`${trimmed}Z`)) ?? parseTime(trimmed);
 }
@@ -272,7 +281,7 @@ function angleOf(v: unknown): number | null {
  * One record as a position report by `map`, or null when it has no id or
  * no valid position. `now` is its time when it has none.
  */
-export function readRecord(flat: Record<string, Primitive>, map: FieldMap, now: number): MovingRecord | null {
+export function readRecord(flat: Record<string, Primitive>, map: FieldMap, now: number, zone?: TimeZone | null): MovingRecord | null {
   const get = (role: MovingRole) => (map[role] ? flat[map[role]!] : undefined);
   const rawId = get('id');
   const id = typeof rawId === 'number' ? String(rawId) : typeof rawId === 'string' ? rawId.trim().slice(0, MAX_KEY) : '';
@@ -280,7 +289,7 @@ export function readRecord(flat: Record<string, Primitive>, map: FieldMap, now: 
   const lat = numberOf(get('lat'));
   const lon = numberOf(get('lon'));
   if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-  const t = timeOf(get('time')) ?? now;
+  const t = timeOf(get('time'), zone) ?? now;
   const speed = numberOf(get('speed'));
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, MAX_TEXT) : typeof v === 'number' ? String(v) : null);
   const mapped = new Set(Object.values(map));

@@ -11,6 +11,7 @@ import type { Coordinate } from 'ol/coordinate.js';
 import { request } from './common.js';
 import type { Field } from './common.js';
 import type { DrawableType, EditTarget } from '../edit-session.js';
+import type { TextTimes } from '../time-zone.js';
 
 export type WfsVersion = '2.0.0' | '1.1.0' | '1.0.0';
 
@@ -228,13 +229,16 @@ export interface WfsTargetOptions {
   toLayer: (geometry: Geometry) => Geometry;
   swap: boolean;
   fields: Field[];
+  /** Date texts read in the layer's own zone (config.json's timeZone): written back in it. */
+  times?: TextTimes | null;
 }
 
 /** An editable WFS layer: the edits go to the server as one Transaction. */
 export function wfsTarget(options: WfsTargetOptions): EditTarget {
   const { schema, operations } = options;
   const editable = new Set(options.fields.filter((f) => f.editable).map((f) => f.name));
-  const attributes = (f: Feature, names: Iterable<string>) => Object.fromEntries([...names].filter((n) => editable.has(n)).map((n) => [n, f.get(n) ?? null]));
+  const attributes = (f: Feature, names: Iterable<string>) =>
+    Object.fromEntries([...names].filter((n) => editable.has(n)).map((n) => [n, options.times ? options.times.back(n, f.get(n) ?? null) : (f.get(n) ?? null)]));
   const geometry = (f: Feature) => {
     const g = f.getGeometry();
     return g ? options.toLayer(g) : null;
