@@ -134,6 +134,8 @@ export interface ObservationPanelOptions {
   imageInfo: (image: ViewerImage) => Promise<ObservedImage>;
   /** Recording started: other click tools stop. */
   onStart?: () => void;
+  /** Opens 「AI 結果の取り込み」 (ai-import.ts). */
+  onImportAi?: () => void;
   /** Adds a layer made of the records. */
   onLayer: (result: ProcessingResult, made: string) => void;
   say: (message: string) => void;
@@ -346,6 +348,7 @@ export class ObservationPanel {
             <button type="button" value="report" aria-expanded="false" title="期間・分類・確度を指定した報告書（HTML 保存・印刷）">報告書…</button>
             <button type="button" value="reload" title="保存先から記録を再読み込み">再読み込み</button>
             <button type="button" value="csv" title="すべての記録の CSV 保存（モノ・撮像日時の順）">CSV 保存</button>
+            <button type="button" value="ai-import" hidden title="AI の検出結果（このビューアー・外部 AI サービス）の観測記録ポイントとしての取り込み">AI 結果の取り込み…</button>
             <button type="button" value="layer" title="記録をポイント、モノの流れをラインとして一時レイヤー化（属性テーブル・タイムライン・書き出しで利用可）">レイヤー化</button>
           </div>
         </div>
@@ -474,6 +477,9 @@ export class ObservationPanel {
     $('button[value=reload]').addEventListener('click', () => void this.reload());
     $('button[value=csv]').addEventListener('click', () => this.saveCsv());
     $('button[value=layer]').addEventListener('click', () => this.toLayers());
+    const aiImport = $<HTMLButtonElement>('button[value=ai-import]');
+    aiImport.hidden = !options.onImportAi;
+    aiImport.addEventListener('click', () => options.onImportAi?.());
     this.form_.querySelector<HTMLInputElement>('input[name=object]')!.addEventListener('change', () => this.objectTyped_());
     kindInput.addEventListener('change', () => this.renderCandidates_());
 
@@ -1023,6 +1029,30 @@ export class ObservationPanel {
     );
     await this.saveRecords_([record], `${record.objectName} を記録`);
     return record;
+  }
+
+  /** Records many things at once (AI results, ai/results.ts): each a new thing, on the image of `image` (its id) or this one. */
+  async addMany(
+    list: ReadonlyArray<{ lon: number; lat: number; kind?: string; activity?: string; confidence?: string; note?: string; length?: number | null; heading?: number | null }>,
+    image?: string,
+    done?: string,
+  ): Promise<Observation[]> {
+    const info = image ? this.entryOf_(image)?.info : this.current_?.info;
+    if (!info || !list.length) return [];
+    const taken = new Set(flows(this.records_).map((f) => f.name));
+    const made = list.map((v) => {
+      const name = nextName(kindOf(pathOf(v.kind ?? '')), taken);
+      taken.add(name);
+      const text = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n));
+      return this.recordFrom_(info, v.lon, v.lat, null, null, { object: name, kind: v.kind ?? '', activity: v.activity ?? '', confidence: v.confidence ?? '', note: v.note ?? '', length: text(v.length), heading: text(v.heading) }, true);
+    });
+    await this.saveRecords_(made, done ?? `${made.length} 件を記録（${info.name}）`);
+    return made;
+  }
+
+  /** The records (living) of the image of `id`. */
+  recordsOf(id: string): Observation[] {
+    return living(this.records_).filter((o) => o.imageId === id);
   }
 
   /** Changes a record (its id): what it says, or where it is. */
